@@ -21,6 +21,7 @@ class Config:
     human_name: str = "Human"
     agent_name: str = "Agent"
     skill_prefix: str = "brain-"
+    update_source: str = "git+https://github.com/RoshuAmir918/agent-brain"   # empty string disables brain update
     _vault_path: Path | None = None
 
     @classmethod
@@ -49,7 +50,7 @@ class Config:
         paths = {}
         for name in allowed:
             value = getattr(config, name)
-            if not isinstance(value, str) or (not value and name != "skill_prefix"):
+            if not isinstance(value, str) or (not value and name not in ("skill_prefix", "update_source")):
                 raise ValueError(f"brain.{name} must be a nonempty string")
             if name.endswith("_dir") or name in ("vault", "human_profile"):
                 path = Path(value)

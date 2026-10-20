@@ -97,3 +97,24 @@ def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
     install.skills(config)
     assert morning.read_text(encoding="utf-8") == "mine"
     assert sleep1.read_text(encoding="utf-8") != "mine"
+
+
+def test_update_uses_own_interpreter_and_reinstalls_scripts(tmp_path, monkeypatch):
+    import sys
+    from brain import install
+    from brain.config import Config
+    calls = []
+    monkeypatch.setattr(install.subprocess, "run", lambda cmd, check: calls.append(cmd))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    installed = install.update(Config.load(tmp_path / "memory"))
+    assert calls[0][:4] == [sys.executable, "-m", "pip", "install"]
+    assert calls[0][-1] == "git+https://github.com/RoshuAmir918/agent-brain"
+    assert {path.name for path in installed} == {"refresh.sh", "export-sessions.sh"}
+
+
+def test_update_is_disabled_by_empty_source(tmp_path):
+    from brain import install
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text('[brain]\nupdate_source = ""\n', encoding="utf-8")
+    assert install.update(Config.load(tmp_path / "memory")) == []

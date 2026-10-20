@@ -481,14 +481,20 @@ def cmd_install_skills(args):
     print(install.skills(args.config, force=args.force))
 
 
+def cmd_update(args):
+    installed = install.update(args.config)
+    print("update disabled (brain.update_source is empty)" if not installed else
+          "updated; reinstalled " + ", ".join(path.name for path in installed))
+
+
 def cmd_install_scripts(args):
     for path in install.scripts():
         print(f"installed {path}")
 
 
 def cmd_paths(args):
-    paths = {"soul": args.config.soul_path, "skills": args.config.skills_path,
-             "scripts": install.scripts_path(), "vault": args.config.vault_path, "repo": args.config.repo}
+    paths = {"soul": args.config.soul_path, "skills": args.config.skills_path, "scripts": install.scripts_path(),
+             "vault": args.config.vault_path, "repo": args.config.repo, "python": Path(sys.executable)}
     print(paths[args.path].resolve())
 
 
@@ -519,9 +525,10 @@ def main(argv=None):
     s = sub.add_parser("session-ids"); s.add_argument("jsonl"); s.add_argument("--vault"); s.set_defaults(fn=cmd_session_ids)
     s = sub.add_parser("install-skills"); s.add_argument("--vault"); s.add_argument("--force", action="store_true", help="also overwrite the day routines")
     s.set_defaults(fn=cmd_install_skills)
+    s = sub.add_parser("update"); s.add_argument("--vault"); s.set_defaults(fn=cmd_update)
     s = sub.add_parser("install-scripts"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_scripts)
     s = sub.add_parser("paths"); s.add_argument("--vault")
-    s.add_argument("path", choices=("soul", "skills", "scripts", "vault", "repo")); s.set_defaults(fn=cmd_paths)
+    s.add_argument("path", choices=("soul", "skills", "scripts", "vault", "repo", "python")); s.set_defaults(fn=cmd_paths)
     a = ap.parse_args(argv)
     if a.cmd == "attribute" and a.file and not a.ts:
         ap.error("--ts is required with --file")

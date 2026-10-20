@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from importlib.resources import files
 from pathlib import Path
 
@@ -40,7 +42,17 @@ def scripts() -> list[Path]:
         if not script.name.endswith(".sh"):
             continue
         target = directory / script.name
-        target.write_bytes(script.read_bytes())
-        target.chmod(0o755)
+        staged = target.with_name(target.name + ".tmp")
+        staged.write_bytes(script.read_bytes())
+        staged.chmod(0o755)
+        os.replace(staged, target)   # atomic, so a script can replace itself while it runs
         installed.append(target)
     return installed
+
+
+def update(config: Config) -> list[Path]:
+    """Upgrade the package with the interpreter that owns it, then reinstall the cron scripts."""
+    if not config.update_source:
+        return []
+    subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", config.update_source], check=True)
+    return scripts()

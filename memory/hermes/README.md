@@ -27,7 +27,7 @@ The agent can do most of this itself from the bootstrap context file at the repo
 
 1. Clone this repo to a stable path, for example `~/brain`, and export `VAULT_REPO=~/brain` in the shell Hermes runs from. Python 3.11+. Install the engine: `pip install -e .` from the repo, or `pip install git+https://github.com/RoshuAmir918/agent-brain`. `brain --help` must work from the repo root.
 2. Start the gateway from the repo root so project context resolves: `cd $VAULT && hermes gateway`. Hermes loads only one project context file and prefers `.hermes.md`.
-3. `brain install-scripts` puts the two cron scripts into `~/.hermes/scripts/`; `brain install-skills` renders the skills into `memory/hermes/skills/`. Then run `~/.hermes/scripts/refresh.sh` once: it writes `.hermes.md` and copies SOUL into the Hermes home. After a `pip install -U`, rerun `brain install-scripts`; skills re-render themselves on the next hourly refresh.
+3. `brain install-scripts` puts the two cron scripts into `~/.hermes/scripts/`; `brain install-skills` renders the skills into `memory/hermes/skills/`. Then run `~/.hermes/scripts/refresh.sh` once: it writes `.hermes.md` and copies SOUL into the Hermes home. From then on the nightly export job runs `brain update` first, which upgrades the package from `update_source` in `brain.toml` and reinstalls the scripts; the hourly refresh re-renders the core skills.
 4. Config (`hermes config set` or `~/.hermes/config.yaml`):
    - `skills.external_dirs: [$VAULT_REPO/memory/hermes/skills]` (the path `brain install-skills` prints)
    - `sessions.auto_prune: false`, or a retention well past 90 days. Nothing is deleted before export.

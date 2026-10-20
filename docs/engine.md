@@ -44,6 +44,7 @@ hermes_dir = "hermes"
 human_name = "Human"
 agent_name = "Agent"
 skill_prefix = "brain-"
+update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables auto-update
 ```
 
 `vault` and `sources_dir` are relative to the repository root. The agent, people, agents, human profile and Hermes paths are relative to the vault. `sources_dir` remains read-only. `Archive/` is a supported read-only sibling link namespace; it is not a new config key. Layout paths must be relative without `..`. Tasks, Triggers, CURRENT, Hot Set, Warm Index and the other note basenames remain fixed. Generated wikilinks use the configured `vault` prefix. `BRAIN_HUMAN_NAME` and `BRAIN_AGENT_NAME`, when set, override the configured display names, including rendered skills.
@@ -55,6 +56,8 @@ Discovery walks upward from an explicit `--vault`, or from cwd when omitted, cho
 Run only one nightly process per vault. The engine assumes it is the only writer during `--write`.
 
 ## Commands
+
+`brain update` upgrades the package from `update_source` using the interpreter that owns `brain`, then reinstalls the cron scripts atomically. The export script runs it first every night, so a vault stays current without anyone touching the machine; a failed update is reported and the archive continues on the installed version. `brain paths python` prints that interpreter.
 
 `brain session-ids <all.jsonl>` prints each session id once; the export script uses it to run one `hermes sessions export --session-id` per session, because the directory form of the Markdown export needs a filter and otherwise exits 0 without writing.
 

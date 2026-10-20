@@ -2,6 +2,7 @@
 set -eu
 VAULT_REPO="${VAULT_REPO:-$HOME/brain}"
 cd "$VAULT_REPO"
+brain update || echo "export-sessions: brain update failed; continuing with the installed version" >&2
 VAULT="$(brain paths vault)"
 OUT="$VAULT/Conversations/Sessions"
 DATE="$(date -v-1d +%F 2>/dev/null || date -d yesterday +%F)"

@@ -58,7 +58,7 @@ If you would rather do the setup by hand, or you use a different agent runtime, 
 pip install -U agent-brain      # or the git+https form
 ```
 
-The hourly refresh runs `brain install-skills`, so new skill versions land in your vault within the hour. Your notes are never touched by an update.
+You do not have to run this: the nightly export job runs `brain update` first, which upgrades from `update_source` in `brain.toml` and reinstalls the scripts, and the hourly refresh re-renders the core skills. Set `update_source = ""` to pin a version. Your notes are never touched by an update.
 
 ## Make it yours
 
