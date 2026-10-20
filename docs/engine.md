@@ -61,7 +61,7 @@ Run only one nightly process per vault. The engine assumes it is the only writer
 
 `brain update` upgrades the package from `update_source` using the interpreter that owns `brain`, then reinstalls the cron scripts atomically. The export script runs it first every night, so a vault stays current without anyone touching the machine; a failed update is reported and the archive continues on the installed version. `brain paths python` prints that interpreter.
 
-`brain session-ids <all.jsonl>` prints each session id once; the export script uses it to run one `hermes sessions export --session-id` per session, because the directory form of the Markdown export needs a filter and otherwise exits 0 without writing.
+`brain session-ids <all.jsonl>` prints each session id once; the export script uses it to run one `hermes sessions export --session-id --force` per session, because the directory form of the Markdown export needs a filter and otherwise exits 0 without writing, and without `--force` a session exported before is skipped with a success status. The script fails if any per-session export fails or fewer Markdown files exist than sessions.
 
 From the vault repository or any directory below it:
 

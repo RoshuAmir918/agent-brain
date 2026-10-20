@@ -12,11 +12,17 @@ git pull --rebase --autostash -q origin main
 # The jsonl export returns every session; the markdown export needs a filter, so export markdown per session id.
 hermes sessions export "$OUT/all.jsonl" --format jsonl
 
-brain session-ids "$OUT/all.jsonl" | while IFS= read -r id; do
-  hermes sessions export "$OUT" --format md --session-id "$id"
-done
-if [ "$(find "$OUT" -name '*.md' | wc -l)" -eq 0 ]; then
-  echo "export-sessions: no markdown sessions were written; check hermes sessions export --session-id" >&2
+# --force refreshes a session that was exported before and has grown since.
+ids="$(brain session-ids "$OUT/all.jsonl")"
+expected="$(printf '%s\n' "$ids" | grep -c .)"
+failed=0
+while IFS= read -r id; do
+  [ -n "$id" ] || continue
+  hermes sessions export "$OUT" --format md --session-id "$id" --force || { echo "export-sessions: markdown export failed for session $id" >&2; failed=1; }
+done <<< "$ids"
+written="$(find "$OUT" -name '*.md' | wc -l | tr -d ' ')"
+if [ "$failed" -ne 0 ] || [ "$written" -lt "$expected" ]; then
+  echo "export-sessions: expected $expected sessions, found $written markdown files" >&2
   exit 1
 fi
 brain digest --date "$DATE" --write
