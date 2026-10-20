@@ -487,6 +487,15 @@ def cmd_update(args):
           "updated; reinstalled " + ", ".join(path.name for path in installed))
 
 
+def cmd_migrate_check(args):
+    pending = install.migrate_check(args.config)
+    print(f"migration pending: {pending}" if pending else "engine version recorded; no migration needed")
+
+
+def cmd_migrate_done(args):
+    print(f"migrated to {install.migrate_done(args.config)}")
+
+
 def cmd_install_scripts(args):
     for path in install.scripts():
         print(f"installed {path}")
@@ -526,6 +535,8 @@ def main(argv=None):
     s = sub.add_parser("install-skills"); s.add_argument("--vault"); s.add_argument("--force", action="store_true", help="also overwrite the day routines")
     s.set_defaults(fn=cmd_install_skills)
     s = sub.add_parser("update"); s.add_argument("--vault"); s.set_defaults(fn=cmd_update)
+    s = sub.add_parser("migrate-check"); s.add_argument("--vault"); s.set_defaults(fn=cmd_migrate_check)
+    s = sub.add_parser("migrate-done"); s.add_argument("--vault"); s.set_defaults(fn=cmd_migrate_done)
     s = sub.add_parser("install-scripts"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_scripts)
     s = sub.add_parser("paths"); s.add_argument("--vault")
     s.add_argument("path", choices=("soul", "skills", "scripts", "vault", "repo", "python")); s.set_defaults(fn=cmd_paths)

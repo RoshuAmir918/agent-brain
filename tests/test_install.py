@@ -118,3 +118,48 @@ def test_update_is_disabled_by_empty_source(tmp_path):
     from brain.config import Config
     (tmp_path / "brain.toml").write_text('[brain]\nupdate_source = ""\n', encoding="utf-8")
     assert install.update(Config.load(tmp_path / "memory")) == []
+
+
+def test_migrate_check_records_version_when_nothing_applies(tmp_path, monkeypatch):
+    from brain import install
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    monkeypatch.setattr(install, "installed_version", lambda name: "9.9.9")
+    monkeypatch.setattr(install, "pending_migrations", lambda config: [])
+    assert install.migrate_check(config) is None
+    assert install.recorded_version(config) == "9.9.9"
+
+
+def test_migrate_check_writes_pending_prompt_and_done_clears_it(tmp_path, monkeypatch):
+    from brain import install
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    install.record_version(config, "1.0.0")
+    monkeypatch.setattr(install, "installed_version", lambda name: "1.2.0")
+    monkeypatch.setattr(install, "pending_migrations", lambda config: [("1.1.0", "Rename the thing."), ("1.2.0", "unattended: true\nRun the other thing.")])
+    pending = install.migrate_check(config)
+    text = pending.read_text(encoding="utf-8")
+    assert text.index("## 1.1.0") < text.index("## 1.2.0")
+    assert install.recorded_version(config) == "1.0.0"
+    assert install.migrate_done(config) == "1.2.0"
+    assert not pending.exists() and install.recorded_version(config) == "1.2.0"
+
+
+def test_pending_migrations_selects_versions_in_range(tmp_path, monkeypatch):
+    from brain import install
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    install.record_version(config, "0.1.2")
+    monkeypatch.setattr(install, "installed_version", lambda name: "0.1.4")
+    class Entry:
+        def __init__(self, name, text): self.name, self.text = name, text
+        def read_text(self, encoding): return self.text
+    class Dir:
+        def iterdir(self): return [Entry("README.md", "x"), Entry("0.1.2.md", "old"), Entry("0.1.3.md", "mid"), Entry("0.1.4.md", "new"), Entry("0.2.0.md", "future")]
+    class Root:
+        def joinpath(self, name): return Dir()
+    monkeypatch.setattr(install, "files", lambda package: Root())
+    assert install.pending_migrations(config) == [("0.1.3", "mid"), ("0.1.4", "new")]

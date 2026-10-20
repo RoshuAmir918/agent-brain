@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from importlib.metadata import version as installed_version
 from importlib.resources import files
 from pathlib import Path
 
@@ -56,3 +57,56 @@ def update(config: Config) -> list[Path]:
         return []
     subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", config.update_source], check=True)
     return scripts()
+
+
+def version_tuple(text: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in text.strip().split("."))
+
+
+def recorded_version(config: Config) -> str:
+    path = config.vault_path / config.hermes_dir / "engine-version"
+    return path.read_text(encoding="utf-8").strip() if path.exists() else "0.0.0"
+
+
+def record_version(config: Config, text: str) -> None:
+    path = config.vault_path / config.hermes_dir / "engine-version"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text + "\n", encoding="utf-8")
+
+
+def pending_migrations(config: Config) -> list[tuple[str, str]]:
+    """(version, prompt) for every shipped migration newer than the recorded version, oldest first."""
+    low, high = version_tuple(recorded_version(config)), version_tuple(installed_version("agent-brain"))
+    found = []
+    for entry in files("brain").joinpath("migrations").iterdir():
+        if not entry.name.endswith(".md") or entry.name == "README.md":
+            continue
+        tag = entry.name[:-3]
+        if low < version_tuple(tag) <= high:
+            found.append((tag, entry.read_text(encoding="utf-8")))
+    return sorted(found, key=lambda item: version_tuple(item[0]))
+
+
+def migrate_check(config: Config) -> Path | None:
+    """Record the installed version, or write the pending migration prompt and leave the version alone."""
+    current = installed_version("agent-brain")
+    pending = pending_migrations(config)
+    if not pending:
+        record_version(config, current)
+        return None
+    target = config.vault_path / config.hermes_dir / "pending-migration.md"
+    body = [f"# Engine migration: {recorded_version(config)} to {current}", "",
+            "Perform each section in order, then run `brain migrate-done`. Sections without `unattended: true` need the owner present.", ""]
+    for tag, prompt in pending:
+        body += [f"## {tag}", "", prompt.strip(), ""]
+    target.write_text("\n".join(body), encoding="utf-8")
+    return target
+
+
+def migrate_done(config: Config) -> str:
+    current = installed_version("agent-brain")
+    record_version(config, current)
+    pending = config.vault_path / config.hermes_dir / "pending-migration.md"
+    if pending.exists():
+        pending.unlink()
+    return current

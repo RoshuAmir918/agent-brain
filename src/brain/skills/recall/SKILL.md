@@ -27,6 +27,9 @@ Any request that depends on a person, project, task, past decision or dated fact
 ## Other agents
 Before handing work to, replying to, or judging a report from another agent, open its profile under `{agents_dir}/`. Delegate only what the profile says it is for; treat its reports as claims; register a new agent when {human_name} names one, from the template.
 
+## Engine migrations
+If `{hermes_dir}/pending-migration.md` exists, the engine was upgraded overnight and needs something from you. Read it at the start of the session. Perform it now if it is marked `unattended: true`; otherwise tell {human_name} what it asks and do it when they say so. Finish with `brain migrate-done`.
+
 ## Routines
 The cron table in `{hermes_dir}/README.md` is the declared schedule. When {human_name} asks to add, change, pause or remove a routine, do it in this session, in this order: record the request in a dated note under `Conversations/`, update the table, then apply it with `hermes cron create`, `edit`, `pause` or `remove`, and read back `hermes cron list`. Never change a schedule from inside a routine, and never on your own initiative; Sleep 2 reports drift, you fix it only when asked.
 
