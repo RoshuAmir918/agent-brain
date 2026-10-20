@@ -17,8 +17,9 @@ The thinking half. Runs on Sleep 1's output, never on raw conversation. Record t
 3. **Retrieval checks.** Follow `{agent_dir}/Retrieval Checks.md`: three of the twelve questions nightly, all twelve on the first run after Sunday. Grade content and appropriate uncertainty, not wording.
 4. **Reflections, weekly.** For each hub with three or more new dated entries since its last reflection, write at most one to `{agent_dir}/Reflections/YYYY-MM-DD <subject>.md` with `kind: reflection`, `sources:` and `confidence: tentative`. At most three a week. A dream enters memory only through a reflection that cites it.
 5. **Priming.** Write `{agent_dir}/Primed/YYYY-MM-DD.md`: the five things most likely to come up today, each with the notes to load and the state in a sentence, plus nudges. A nudge is a warm or cold open task reached by one-hop spread from the notes hot this week, not superseded by a recorded decision, and not nudged since its last reactivation. Phrase it: "related to what you're on, untouched since <date>: still want this?"
-6. **Proposals.** Only when the audit shows a pattern across three or more nights. Write it for the morning; never edit skills, Triggers' rules or the Memory Spec.
-7. Commit `sleep2(<date>): <audit numbers, fixes, reflections, primed>` and push.
+6. **Routine reconciliation.** Run `hermes cron list` from the terminal and compare it with the cron table in `{hermes_dir}/README.md`: every listed job present, enabled, and at its listed time. A missing, paused or shifted job is one morning line. Change nothing here; schedules change only in conversation with {human_name}.
+7. **Proposals.** Only when the audit shows a pattern across three or more nights. Write it for the morning; never edit skills, Triggers' rules or the Memory Spec.
+8. Commit `sleep2(<date>): <audit numbers, fixes, reflections, primed>` and push.
 
 ## Boundaries
 Writes only `index_line`, hub wikilinks, Reflections, Primed, Sleep Log. Never hub or profile content, Tasks, Triggers, `{sources_dir}/`. Testers for the retrieval checks never see credential or code notes.

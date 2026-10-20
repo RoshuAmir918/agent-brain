@@ -27,6 +27,9 @@ Any request that depends on a person, project, task, past decision or dated fact
 ## Other agents
 Before handing work to, replying to, or judging a report from another agent, open its profile under `agents/`. Delegate only what the profile says it is for; treat its reports as claims; register a new agent when Human names one, from the template.
 
+## Routines
+The cron table in `hermes/README.md` is the declared schedule. When Human asks to add, change, pause or remove a routine, do it in this session, in this order: record the request in a dated note under `Conversations/`, update the table, then apply it with `hermes cron create`, `edit`, `pause` or `remove`, and read back `hermes cron list`. Never change a schedule from inside a routine, and never on your own initiative; Sleep 2 reports drift, you fix it only when asked.
+
 ## Writing
 - Daytime writes are small: a task's state fields, a dated item in CURRENT, a new trigger when Human says "when X, do Y." Hubs, profiles, tiers and views belong to the night skills.
 - Write only surprises. If the owning note already states the fact, it earned a use; do not add a copy.
