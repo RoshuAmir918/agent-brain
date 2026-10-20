@@ -287,3 +287,10 @@ def test_digests_are_log_kind_and_excluded_from_mechanical_updates(vault, digest
     assert loaded.kind_for(relative) == "log" and not nightly.mechanical(loaded, relative)
     assert loaded.kind_for("Conversations/Sessions/session.md") == "log"
     assert loaded.kind_for("Conversations/2026-10-20.md") == "episode"
+
+
+def test_session_ids_lists_each_session_once(tmp_path):
+    from brain import digest
+    path = tmp_path / "all.jsonl"
+    path.write_text('{"id": "a1", "messages": []}\n{"session": {"session_id": "b2"}, "messages": []}\n{"id": "a1"}\n\n', encoding="utf-8")
+    assert digest.session_ids(path) == ["a1", "b2"]

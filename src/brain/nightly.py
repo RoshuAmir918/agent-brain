@@ -472,6 +472,11 @@ def cmd_simulate(a):
     print(act.simulate_table(a.h, a.w))
 
 
+def cmd_session_ids(args):
+    for session_id in digest.session_ids(Path(args.jsonl)):
+        print(session_id)
+
+
 def cmd_install_skills(args):
     print(install.skills(args.config, force=args.force))
 
@@ -511,6 +516,7 @@ def main(argv=None):
     s = sub.add_parser("simulate"); s.add_argument("--h", type=int, default=act.H_DAYS); s.add_argument("--w", type=int, default=act.W_DAYS)
     s.add_argument("--vault")
     s.set_defaults(fn=cmd_simulate)
+    s = sub.add_parser("session-ids"); s.add_argument("jsonl"); s.add_argument("--vault"); s.set_defaults(fn=cmd_session_ids)
     s = sub.add_parser("install-skills"); s.add_argument("--vault"); s.add_argument("--force", action="store_true", help="also overwrite the day routines")
     s.set_defaults(fn=cmd_install_skills)
     s = sub.add_parser("install-scripts"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_scripts)

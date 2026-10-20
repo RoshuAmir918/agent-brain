@@ -56,6 +56,8 @@ Run only one nightly process per vault. The engine assumes it is the only writer
 
 ## Commands
 
+`brain session-ids <all.jsonl>` prints each session id once; the export script uses it to run one `hermes sessions export --session-id` per session, because the directory form of the Markdown export needs a filter and otherwise exits 0 without writing.
+
 From the vault repository or any directory below it:
 
 ```sh

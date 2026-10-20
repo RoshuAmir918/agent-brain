@@ -155,6 +155,16 @@ def select_session(record: dict, source: str, day: date, config: Config,
     return Session(title, source, turns, note)
 
 
+def session_ids(path: Path) -> list[str]:
+    """Distinct session ids in an all.jsonl export, in file order, for per-session Markdown exports."""
+    ids = []
+    for _, record in json_records(path):
+        value = text_field(session_maps(record), ("session_id", "id", "sessionId"), "")
+        if value and value not in ids:
+            ids.append(value)
+    return ids
+
+
 def json_records(path: Path):
     with path.open(encoding="utf-8-sig", errors="replace") as stream:
         for number, line in enumerate(stream, 1):
