@@ -64,7 +64,7 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
     commands.mkdir()
     for name, text in {
         "git": "#!/bin/sh\nexit 0\n",
-        "hermes": '#!/bin/sh\nif [ "$5" = "jsonl" ]; then printf "%s\\n" "{}" > "$3"; else mkdir -p "$3"; fi\n',
+        "hermes": '#!/bin/sh\nif [ "$5" = "jsonl" ]; then printf "%s\\n" "{\\"id\\": \\"s1\\"}" > "$3"; else mkdir -p "$3"; : > "$3/$7.md"; fi\n',
     }.items():
         path = commands / name
         path.write_text(text)
@@ -78,6 +78,7 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
     assert (home / "SOUL.md").read_text() == "Fixture identity\n"
     assert (vault.parent / ".hermes.md").exists()
     assert (vault / "Conversations/Sessions/all.jsonl").exists()
+    assert (vault / "Conversations/Sessions/s1.md").exists()
     assert len(list((vault / "Conversations/Digests").glob("*.md"))) == 1
     assert len(list((vault / "hermes/skills").glob("*/SKILL.md"))) == 11
 
