@@ -20,6 +20,7 @@ It follows the [LLM wiki](https://gist.github.com/karpathy/442a6bf555914893e9891
 ```
 .hermes.md              generated session-start context (bootstrap instructions until the first refresh)
 AGENTS.md               the same instructions for Claude Code, Codex and other agents
+brain.toml              folder names and the two display names; the engine reads this
 sources/                your own notes; read-only to every agent
 memory/                 the agent's wiki
   START.md              the schema: routing, retrieval, read and write rules
@@ -32,27 +33,37 @@ memory/                 the agent's wiki
   people/               profiles of people in your life
   agents/               profiles of your other agents
   Conversations/        dated records, plus the nightly session export and daily digests
-  hermes/               deployment note, two scripts, one skill per routine
-  .brain/               the Python script: activation, tiers, tasks, triggers, views, context, digest, retrieval, attribution
+  hermes/               deployment note and the rendered skills
+src/brain/              the engine: a Python package with the CLI, the skill templates and the cron scripts
 ```
+
+The engine is installed as a package, not vendored. Your vault holds notes and a `brain.toml`; `pip install -U` brings every improvement to the script, the skills and the scripts, and the hourly refresh re-renders the skills into your vault.
 
 ## Quickstart
 
-1. Clone to a stable path and install the two Python dependencies:
+1. Clone to a stable path and install the engine:
    ```sh
    git clone <this repo> ~/brain && cd ~/brain
-   python3 -m pip install pyyaml pytest
-   (cd memory/.brain && python3 -m pytest -q)
+   python3 -m pip install -e .          # or: pip install git+https://github.com/RoshuAmir918/agent-brain
+   brain --help
    ```
 2. Start Hermes from the repo root: `hermes`. The bootstrap `.hermes.md` tells the agent it is looking at a fresh brain and walks it through setup: it asks you a few questions, fills in its identity and your profile, installs its skills and scripts, and creates the cron jobs. Say yes when it asks to run commands, and answer the questions in your own words; they become its first memories.
 3. The next morning, check `git log --oneline --since=yesterday`. You should see `archive`, `attribution`, `sleep1`, `rem` and `sleep2` commits. Read `memory/Conversations/Digests/<date>.md` once by eye, and read the briefing.
 
-If you would rather do the setup by hand, or you use a different agent runtime, `memory/hermes/README.md` has every step and `memory/agent/Memory Spec.md` has the model. Nothing in the vault depends on Hermes except the two scripts and the skill format.
+If you would rather do the setup by hand, or you use a different agent runtime, `memory/hermes/README.md` has every step and `memory/agent/Memory Spec.md` has the model. Nothing in the vault depends on Hermes except the scripts and the skill format.
+
+## Updating
+
+```sh
+pip install -U agent-brain      # or the git+https form
+```
+
+The hourly refresh runs `brain install-skills`, so new skill versions land in your vault within the hour. Your notes are never touched by an update.
 
 ## Make it yours
 
 - Edit `memory/agent/SOUL.md` for voice. The refresh script copies it into Hermes within the hour.
-- Delete routines you do not want: remove the skill folder and its cron line. Add one by copying a skill and giving it a cron line.
+- Routines come in two kinds. Attribute, Sleep 1, Sleep 2, REM and recall are the memory mechanism: the package owns them and re-renders them on every refresh, so change them in the package, not in your vault. Morning, watch, midday, evening, people and explore are defaults: written once on install, then yours. Edit them freely, or delete the folder and its cron line. Add your own skill the same way.
 - Put your existing notes in `sources/`, or symlink your Obsidian vault there. The agent reads them and never edits them.
 - Open the vault in Obsidian. The wikilinks and graph work as-is.
 

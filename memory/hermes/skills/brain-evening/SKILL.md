@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [routine, day]
-    category: orphan
+    category: brain
 ---
 # Evening review
 
@@ -14,7 +14,7 @@ Leave Tasks accurate for the night.
 ## Procedure
 1. Read today's sessions, open tasks, Triggers, and targeted rechecks of registered threads. Check later replies.
 2. For anything that moved today, update state, next action, blocker and latest evidence link. Note unfinished threads on their tasks so Sleep 2 can prime them.
-3. Message the owner only for important developments, deadlines or decisions. No no-news message.
+3. Message Human only for important developments, deadlines or decisions. No no-news message.
 4. Commit `evening(<date>)` if anything changed.
 
 ## Boundaries

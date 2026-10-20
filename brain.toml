@@ -1,0 +1,11 @@
+[brain]
+vault = "memory"
+agent_dir = "agent"
+people_dir = "people"
+agents_dir = "agents"
+human_profile = "human/Profile.md"
+sources_dir = "sources"
+hermes_dir = "hermes"
+human_name = "Human"
+agent_name = "Agent"
+skill_prefix = "brain-"

@@ -5,7 +5,7 @@ version: 1.0.0
 metadata:
   hermes:
     tags: [memory, night]
-    category: orphan
+    category: brain
 ---
 # Sleep 2: dream
 
@@ -21,4 +21,4 @@ The thinking half. Runs on Sleep 1's output, never on raw conversation. Record t
 7. Commit `sleep2(<date>): <audit numbers, fixes, reflections, primed>` and push.
 
 ## Boundaries
-Writes only `index_line`, hub wikilinks, Reflections, Primed, Sleep Log. Never hub or profile content, Tasks, Triggers, `the owner/`. Testers for the retrieval checks never see credential or code notes.
+Writes only `index_line`, hub wikilinks, Reflections, Primed, Sleep Log. Never hub or profile content, Tasks, Triggers, `sources/`. Testers for the retrieval checks never see credential or code notes.
