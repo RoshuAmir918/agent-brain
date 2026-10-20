@@ -1,0 +1,10 @@
+# never commit credentials or recovery codes
+**/*secret*
+**/*credential*
+# Obsidian per-device state
+**/.obsidian/workspace.json
+**/.obsidian/workspace-mobile.json
+.trash/
+.DS_Store
+**/__pycache__/
+**/.pytest_cache/
