@@ -50,7 +50,7 @@ def test_known_person_context_has_profile_paths_and_applicable_rules(people_vaul
     assert block == (
         "This session is with Alice (slack U_ALICE). Their profile and the disclosure rules that apply follow.\n\n"
         "# Alice\nSlack: U_ALICE\nAlice likes gardens.\n\n"
-        "Full profile: memory/people/Alice/Profile.md; dated history beside it in History.md\n\n"
+        "Full profile: memory/people/Alice/Profile.md; dated history beside it in History.md.\n\n"
         "Applicable disclosure rows from memory/people/Disclosure.md:\n"
         "| id | subject | audience | rule |\n| --- | --- | --- | --- |\n"
         "| D1 | schedule | [[memory/people/Alice/Profile\\|Alice]] | allow |\n"
