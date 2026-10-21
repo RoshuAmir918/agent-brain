@@ -20,7 +20,7 @@ The night's main job. Yesterday becomes long-term memory: new facts are written 
 ## Procedure
 1. **Resume check.** `cd $VAULT_REPO && git pull --rebase --autostash`. `git log --since=yesterday --grep='sleep1('` already has a commit for this date means resume: do only what is missing.
 2. **Attribution check.** `git log --since=yesterday --grep='attribution('` should show the 01:30 commit. If it is missing, note the gap in the Sleep Log and continue; do not redo its work here.
-3. **Extract.** Read the digest and the mail once, listing every candidate: a fact about a person, project or {human_name}; a decision; a preference; a correction; a promise or deadline; a question left open; a thing {human_name} said they wanted. Note the time and who said it.
+3. **Extract.** Read the digest and the mail once. A user turn labelled with a platform id or a name other than {human_name}'s is a third party speaking: its facts are claims attributed to that person, never {human_name}'s statements or decisions. List every candidate: a fact about a person, project or {human_name}; a decision; a preference; a correction; a promise or deadline; a question left open; a thing {human_name} said they wanted. Note the time and who said it.
 4. **Sort each candidate against its owning note** (hub, profile, task, Triggers, CURRENT), reading that note first:
    - already stated: nothing; the note earned a use;
    - {human_name}'s own correction, or primary evidence: supersede in place with dated provenance, keeping the old text under a "superseded by" line;

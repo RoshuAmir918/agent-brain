@@ -26,6 +26,7 @@ class Turn:
     timestamp: datetime
     reads: tuple[str, ...] = ()
     retrievals: tuple[str, ...] = ()
+    speaker: str = ""
 
 
 @dataclass
@@ -124,6 +125,9 @@ def session_fallback(containers: list[dict], day: date) -> tuple[datetime | None
     return stamp, note
 
 
+SPEAKER_KEYS = ("user_name", "username", "display_name", "author", "sender", "from", "user", "user_id")
+
+
 def select_session(record: dict, source: str, day: date, config: Config,
                    fallback_note: str = "") -> Session:
     containers = session_maps(record)
@@ -148,7 +152,8 @@ def select_session(record: dict, source: str, day: date, config: Config,
         if previous is None or previous.date() != day or role not in ("user", "assistant") or compacted:
             continue
         if text:
-            turns.append(Turn(role, text, previous, reads, retrievals))
+            speaker = text_field([message], SPEAKER_KEYS, "") if role == "user" else ""
+            turns.append(Turn(role, text, previous, reads, retrievals, speaker))
     title = text_field(containers, ("title", "name", "session_title", "id", "session_id"), source)
     source = text_field(containers, ("source", "platform", "channel"), source)
     turns.sort(key=lambda turn: turn.timestamp.timestamp())
@@ -298,7 +303,7 @@ def build(config: Config, day: date, sessions_dir: Path | None = None,
         if session.note:
             sections.append(session.note)
         for turn in session.turns:
-            speaker = config.name_for(turn.role)
+            speaker = turn.speaker or config.name_for(turn.role)   # a platform user id or name when the export has one
             text = f"**{speaker}** {turn.timestamp:%H:%M}\n{turn.text}"
             if turn.reads:
                 text += "\nreads: " + ", ".join(turn.reads)

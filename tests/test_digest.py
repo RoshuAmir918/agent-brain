@@ -294,3 +294,19 @@ def test_session_ids_lists_each_session_once(tmp_path):
     path = tmp_path / "all.jsonl"
     path.write_text('{"id": "a1", "messages": []}\n{"session": {"session_id": "b2"}, "messages": []}\n{"id": "a1"}\n\n', encoding="utf-8")
     assert digest.session_ids(path) == ["a1", "b2"]
+
+
+def test_digest_labels_user_turns_with_the_platform_speaker_when_present(tmp_path, monkeypatch):
+    import json
+    from datetime import date
+    from brain import digest
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\nhuman_name = 'Owner'\n", encoding="utf-8")
+    sessions = tmp_path / "memory" / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
+    record = {"id": "s", "messages": [
+        {"role": "user", "user": "U0C6FPJNJ3G", "content": "hi", "timestamp": "2026-10-20T10:00:00-07:00"},
+        {"role": "assistant", "content": "hello", "timestamp": "2026-10-20T10:00:05-07:00"},
+        {"role": "user", "content": "me again", "timestamp": "2026-10-20T10:01:00-07:00"}]}
+    (sessions / "all.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
+    text, _ = digest.build(Config.load(tmp_path / "memory"), date(2026, 10, 20), sessions, 25000)
+    assert "**U0C6FPJNJ3G** 10:00" in text and "**Owner** 10:01" in text
