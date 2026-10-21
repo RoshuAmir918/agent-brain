@@ -93,7 +93,7 @@ def truncate_words(text: str, limit: int) -> str:
 
 
 def known_context(vault: Vault, config: Config, person: Note, identity: str) -> str:
-    name = PurePosixPath(person.rel).parent.name
+    name = PurePosixPath(person.rel).parent.name.replace("_", " ")
     blocks = [f"This session is with {name} ({identity}). "
               "Their profile and the disclosure rules that apply follow.",
               truncate_words(person.body, PROFILE_WORD_LIMIT),
