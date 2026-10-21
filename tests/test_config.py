@@ -68,7 +68,7 @@ def test_paths_from_cwd_and_explicit_vault(vault, monkeypatch, capsys, name, tmp
 def test_repository_template_lists_all_public_config_keys():
     import tomllib
 
-    path = Path(__file__).parents[1] / "brain.toml"
+    path = Path(__file__).parents[1] / "docs" / "brain.toml.example"
     values = tomllib.loads(path.read_text())["brain"]
     expected = {item.name: item.default for item in fields(Config)
                 if item.name not in ("repo", "_vault_path")}
