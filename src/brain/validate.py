@@ -16,6 +16,8 @@ def run(vault: Vault, changed: set[str], body_changed: set[str] | None = None) -
         kind = vault.kind_for(rel)
         if kind not in ("log", "orientation") and "tier" not in n.data:
             problems.append(f"{rel}: missing frontmatter key tier")
+        if kind in ("log", "dream"):
+            continue   # exports and fiction are never edited to keep their links alive
         if body_changed is None or rel in body_changed:
             bad = vault.unresolved_links(n.body)
             if bad:
