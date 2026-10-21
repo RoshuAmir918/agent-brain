@@ -8,5 +8,6 @@ sources_dir = "sources"
 hermes_dir = "hermes"
 human_name = "Human"
 agent_name = "Agent"
+owner_user_ids = []
 skill_prefix = "brain-"
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables the nightly auto-update

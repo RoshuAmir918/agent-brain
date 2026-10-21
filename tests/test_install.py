@@ -56,6 +56,34 @@ def test_scripts_path_defaults_to_hermes_home(tmp_path, monkeypatch, capsys):
     assert capsys.readouterr().out == str(tmp_path / ".hermes/scripts") + "\n"
 
 
+def test_install_provider_copies_only_three_files_and_replaces_them(tmp_path, monkeypatch, capsys):
+    home = tmp_path / "hermes-home"
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    nightly.main(["install-provider"])
+    directory = home / "plugins/brain"
+    names = {"__init__.py", "plugin.yaml", "README.md"}
+    assert {path.name for path in directory.iterdir()} == names
+    for name in names:
+        target = directory / name
+        assert target.read_bytes() == files("brain").joinpath("hermes_plugin", name).read_bytes()
+        target.write_text("outdated")
+    assert capsys.readouterr().out == (f"{directory}\nhermes config set memory.provider brain\n"
+                                     "restart the gateway\n")
+    nightly.main(["install-provider"])
+    for name in names:
+        assert (directory / name).read_bytes() == files("brain").joinpath("hermes_plugin", name).read_bytes()
+    assert {path.relative_to(home).as_posix() for path in home.rglob("*") if path.is_file()} == {
+        "plugins/brain/" + name for name in names}
+
+
+def test_provider_path_defaults_to_hermes_home(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    nightly.main(["paths", "provider"])
+    assert capsys.readouterr().out == str(tmp_path / ".hermes/plugins/brain") + "\n"
+
+
 def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, tmp_path, monkeypatch):
     home = tmp_path / "hermes-home"
     monkeypatch.setenv("HERMES_HOME", str(home))
@@ -99,7 +127,7 @@ def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
     assert sleep1.read_text(encoding="utf-8") != "mine"
 
 
-def test_update_uses_own_interpreter_and_reinstalls_scripts(tmp_path, monkeypatch):
+def test_update_uses_own_interpreter_and_reinstalls_scripts_and_provider(tmp_path, monkeypatch):
     import sys
     from brain import install
     from brain.config import Config
@@ -107,10 +135,16 @@ def test_update_uses_own_interpreter_and_reinstalls_scripts(tmp_path, monkeypatc
     monkeypatch.setattr(install.subprocess, "run", lambda cmd, check: calls.append(cmd))
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    install.provider()
+    for path in install.provider_path().iterdir():
+        path.write_text("outdated", encoding="utf-8")
     installed = install.update(Config.load(tmp_path / "memory"))
     assert calls[0][:4] == [sys.executable, "-m", "pip", "install"]
     assert calls[0][-1] == "git+https://github.com/RoshuAmir918/agent-brain"
-    assert {path.name for path in installed} == {"refresh.sh", "export-sessions.sh"}
+    assert {path.name for path in installed} == {"refresh.sh", "export-sessions.sh", "__init__.py", "plugin.yaml", "README.md"}
+    for path in installed:
+        resource_dir = "scripts" if path.suffix == ".sh" else "hermes_plugin"
+        assert path.read_bytes() == files("brain").joinpath(resource_dir, path.name).read_bytes()
 
 
 def test_update_is_disabled_by_empty_source(tmp_path):

@@ -15,6 +15,10 @@ def scripts_path() -> Path:
     return Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser().resolve() / "scripts"
 
 
+def provider_path() -> Path:
+    return Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser().resolve() / "plugins" / "brain"
+
+
 CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall"})   # the memory mechanism: always overwritten
                                                                        # everything else is a default the vault owns after first install
 
@@ -51,12 +55,25 @@ def scripts() -> list[Path]:
     return installed
 
 
+def provider() -> list[Path]:
+    directory = provider_path()
+    directory.mkdir(parents=True, exist_ok=True)
+    installed = []
+    for name in ("__init__.py", "plugin.yaml", "README.md"):
+        target = directory / name
+        staged = target.with_name(target.name + ".tmp")
+        staged.write_bytes(files("brain").joinpath("hermes_plugin", name).read_bytes())
+        os.replace(staged, target)
+        installed.append(target)
+    return installed
+
+
 def update(config: Config) -> list[Path]:
-    """Upgrade the package with the interpreter that owns it, then reinstall the cron scripts."""
+    """Upgrade with the owning interpreter, then reinstall scripts and the provider."""
     if not config.update_source:
         return []
     subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", config.update_source], check=True)
-    return scripts()
+    return [*scripts(), *provider()]
 
 
 def version_tuple(text: str) -> tuple[int, ...]:

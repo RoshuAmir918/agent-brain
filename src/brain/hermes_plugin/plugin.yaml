@@ -1,0 +1,4 @@
+name: brain
+version: 0.3.0
+description: Automatic vault identity, disclosure rules, and per-message retrieval via the brain CLI.
+hooks: []

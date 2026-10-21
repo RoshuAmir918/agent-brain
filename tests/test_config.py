@@ -1,4 +1,4 @@
-from dataclasses import fields
+from dataclasses import MISSING, fields
 from pathlib import Path
 
 import pytest
@@ -51,13 +51,14 @@ def test_invalid_config_fails_before_writing(tmp_path, setting):
         Config.load(cwd=tmp_path)
 
 
-@pytest.mark.parametrize("name", ["soul", "skills", "scripts", "vault", "repo"])
+@pytest.mark.parametrize("name", ["soul", "skills", "scripts", "provider", "vault", "repo"])
 def test_paths_from_cwd_and_explicit_vault(vault, monkeypatch, capsys, name, tmp_path):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
     monkeypatch.chdir(vault / "agent")
     config = Config.load()
     expected = {"soul": config.soul_path, "skills": config.skills_path,
-                "scripts": tmp_path / "hermes-home/scripts", "vault": vault, "repo": vault.parent}[name]
+                "scripts": tmp_path / "hermes-home/scripts", "provider": tmp_path / "hermes-home/plugins/brain",
+                "vault": vault, "repo": vault.parent}[name]
     nightly.main(["paths", name])
     assert capsys.readouterr().out == str(expected) + "\n"
     monkeypatch.chdir(tmp_path)
@@ -70,9 +71,25 @@ def test_repository_template_lists_all_public_config_keys():
 
     path = Path(__file__).parents[1] / "docs" / "brain.toml.example"
     values = tomllib.loads(path.read_text())["brain"]
-    expected = {item.name: item.default for item in fields(Config)
+    expected = {item.name: item.default if item.default is not MISSING else item.default_factory() for item in fields(Config)
                 if item.name not in ("repo", "_vault_path")}
     assert values == expected
+
+
+def test_owner_user_ids_are_strings_and_do_not_change_template_values(tmp_path):
+    defaults = Config(tmp_path)
+    (tmp_path / "brain.toml").write_text('[brain]\nowner_user_ids = ["U_OWNER", "12345"]\n')
+    config = Config.load(cwd=tmp_path)
+    assert config.owner_user_ids == ["U_OWNER", "12345"]
+    assert config.template_values() == defaults.template_values()
+    assert Config(tmp_path).owner_user_ids is not defaults.owner_user_ids
+
+
+@pytest.mark.parametrize("value", ['"U_OWNER"', '["U_OWNER", 12345]', '[true]', '{}', 'false'])
+def test_owner_user_ids_reject_non_string_lists(tmp_path, value):
+    (tmp_path / "brain.toml").write_text("[brain]\nowner_user_ids = " + value + "\n")
+    with pytest.raises(ValueError, match="brain.owner_user_ids must be a list of strings"):
+        Config.load(cwd=tmp_path)
 
 
 def test_config_normalizes_relative_paths(tmp_path):

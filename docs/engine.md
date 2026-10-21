@@ -22,11 +22,12 @@ Run these from the vault repository after installation or an upgrade:
 ```sh
 brain install-skills
 brain install-scripts
+brain install-provider
 ```
 
-`install-skills` renders the routines into `<vault>/<hermes_dir>/skills/<skill_prefix><routine>/SKILL.md` and prints the absolute directory to put in Hermes `skills.external_dirs`. The core routines (attribute, sleep1, sleep2, rem, recall) are overwritten on every run so package updates reach them; the day routines (morning, watch, midday, evening, people, explore) are written only when absent, so local edits survive. `brain install-skills --force` resets the day routines to the package versions. Templates are shipped in the wheel; edits to rendered copies are overwritten. Rendering uses literal token replacement, not Python format strings. `install-scripts` copies the packaged shell scripts to `$HERMES_HOME/scripts` (default `~/.hermes/scripts`), makes them executable and prints the installed paths. Neither command edits global config or schedules jobs.
+`install-skills` renders the routines into `<vault>/<hermes_dir>/skills/<skill_prefix><routine>/SKILL.md` and prints the absolute directory to put in Hermes `skills.external_dirs`. The core routines (attribute, sleep1, sleep2, rem, recall) are overwritten on every run so package updates reach them; the day routines (morning, watch, midday, evening, people, explore) are written only when absent, so local edits survive. `brain install-skills --force` resets the day routines to the package versions. Templates are shipped in the wheel; edits to rendered copies are overwritten. Rendering uses literal token replacement, not Python format strings. `install-scripts` copies the packaged shell scripts to `$HERMES_HOME/scripts` (default `~/.hermes/scripts`), makes them executable and prints the installed paths. `install-provider` atomically replaces the three packaged memory-provider files in `$HERMES_HOME/plugins/brain` (default `~/.hermes/plugins/brain`) and prints setup instructions. None of these commands edits global config or schedules jobs.
 
-Set `VAULT_REPO` for cron to the repository root (default `$HOME/brain`), and `HERMES_HOME` if it is not `~/.hermes`. Ensure `brain` and `hermes` are on the cron PATH. `refresh.sh` pulls the notes, compiles context, renders skills and copies the configured SOUL into the Hermes home. `export-sessions.sh` exports sessions, builds yesterday's digest, and invokes refresh. These retain the existing commit/push behavior: executing them is a publishing operation, unlike either install command. No script is run by installation.
+Set `VAULT_REPO` for cron to the repository root (default `$HOME/brain`), and `HERMES_HOME` if it is not `~/.hermes`. Ensure `brain` and `hermes` are on the cron PATH. `refresh.sh` pulls the notes, compiles context, renders skills and copies the configured SOUL into the Hermes home. `export-sessions.sh` exports sessions, builds yesterday's digest, and invokes refresh. These retain the existing commit/push behavior: executing them is a publishing operation, unlike the install commands. No script is run by installation.
 
 ## Configuration
 
@@ -43,13 +44,35 @@ sources_dir = "sources"
 hermes_dir = "hermes"
 human_name = "Human"
 agent_name = "Agent"
+owner_user_ids = []
 skill_prefix = "brain-"
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables auto-update
 ```
 
 `vault` and `sources_dir` are relative to the repository root. The agent, people, agents, human profile and Hermes paths are relative to the vault. `sources_dir` remains read-only. `Archive/` is a supported read-only sibling link namespace; it is not a new config key. Layout paths must be relative without `..`. Tasks, Triggers, CURRENT, Hot Set, Warm Index and the other note basenames remain fixed. Generated wikilinks use the configured `vault` prefix. `BRAIN_HUMAN_NAME` and `BRAIN_AGENT_NAME`, when set, override the configured display names, including rendered skills.
 
+`owner_user_ids` is a list of strings, default `[]`, containing the owner's platform user IDs (for example Slack `U...` IDs). Either the primary or alternative session ID can identify the owner; display names and chat IDs cannot. This key does not change skill template values.
+
 Discovery walks upward from an explicit `--vault`, or from cwd when omitted, choosing the nearest `brain.toml`. Without `--vault`, the vault is `<config repo>/<vault>`. With it, the given path is the vault root, while the discovered config supplies its layout. Without any config, defaults apply; the repository root falls back to Git's top level, or the explicit vault's parent / cwd when outside Git. No identity or setup interview is required by the engine.
+
+## Hermes memory provider
+
+The packaged `brain` provider supplies context without requiring the agent to choose a retrieval tool. At initialization it runs `brain session-context` once and caches the resulting system-prompt block for that session. CLI sessions and either ID in `owner_user_ids` receive only an owner identification. A third party is matched by whole-token IDs in `<people_dir>/*/Profile.md` bodies, not frontmatter. One match supplies the profile (at most 250 words, with an ellipsis when truncated and a full-path pointer), applicable person/group/anyone disclosure rows, and the default denial rule. Missing Disclosure.md is explicit. Oversized rule sets are not partially injected: the block requires opening Disclosure.md before any disclosure. Unknown and ambiguous identities receive the stranger warning; ambiguous matches are listed. Without platform or IDs, no block is injected. The session block stays around 400 words.
+
+Before each API call, `prefetch` retrieves for the current user message when it contains at least two non-stopword tokens. It calls `brain retrieve --json --limit 6` with at most 300 query characters, returning note paths, tiers and reasons in a block capped at 1500 characters. It returns no block for no candidates or failures. Every subprocess has a five-second timeout. The provider adds no tools, stores no turns, and performs no network availability checks.
+
+Injected text is **never attribution credit**, including automatically injected profiles and disclosure rules. Only notes the agent subsequently opens on demand are eligible for observed attribution under the usual exclusions; loading pointers does not count as use. Disclosure text is guidance for the agent, not a retrieval access-control filter.
+
+From the vault repository, with `brain` on the gateway's PATH:
+
+```sh
+brain install-provider
+hermes config set memory.provider brain
+```
+
+Ask the owner for their platform IDs and add `owner_user_ids = ["U_OWNER_ID"]` to the existing `[brain]` table, then restart the gateway. Verify with a non-owner Slack session or ask the agent what its provider block says. `brain paths provider` prints the installation directory. Hermes can use a different Python interpreter: the installed plugin imports no `brain` modules and uses only the standard library.
+
+The plugin finds the repository from the session's `cwd`, then `VAULT_REPO`, then `$HOME/brain`, using the first location with a `brain.toml` (including parent directories). Each CLI subprocess runs with that repository as cwd so its configured vault layout applies. Set `HERMES_HOME` when installing into a non-default Hermes home. Installing or updating copies files only; enabling the provider and restarting remain explicit steps.
 
 ## Parallel operation boundary
 
@@ -59,7 +82,7 @@ Run only one nightly process per vault. The engine assumes it is the only writer
 
 `brain migrate-check` and `brain migrate-done` carry the agent's part of an upgrade: the package ships a Markdown prompt per version that needs one (see `src/brain/migrations/README.md`), `migrate-check` writes the applicable ones to `<hermes_dir>/pending-migration.md` after each nightly update, the recall skill makes the agent perform them, and `migrate-done` records the version. `<hermes_dir>/engine-version` is the recorded version, committed with the vault.
 
-`brain update` upgrades the package from `update_source` using the interpreter that owns `brain`, then reinstalls the cron scripts atomically. The export script runs it first every night, so a vault stays current without anyone touching the machine; a failed update is reported and the archive continues on the installed version. `brain paths python` prints that interpreter.
+`brain update` upgrades the package from `update_source` using the interpreter that owns `brain`, then reinstalls the cron scripts and memory provider atomically per file. The export script runs it first every night, so a vault stays current without anyone touching the machine; a failed update is reported and the archive continues on the installed version. `brain paths python` prints that interpreter.
 
 `brain session-ids <all.jsonl>` prints each session id once; the export script uses it to run one `hermes sessions export --session-id --force` per session, because the directory form of the Markdown export needs a filter and otherwise exits 0 without writing, and without `--force` a session exported before is skipped with a success status. The script fails if any per-session export fails or fewer Markdown files exist than sessions.
 
@@ -76,13 +99,15 @@ brain attribute --sessions-dir <dir> [--write]
 brain digest --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]
 brain compile-context [--out <path>] [--write]
 brain retrieve "harbor CI" [--limit 12] [--json]
+brain session-context [--platform slack] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
 brain simulate [--h 7 --w 28]
 brain install-skills
 brain install-scripts
-brain paths <soul|skills|scripts|vault|repo>
+brain install-provider
+brain paths <soul|skills|scripts|provider|vault|repo>
 ```
 
-Every subcommand accepts optional `--vault <path>`. `python3 -m brain` is also supported. `brain paths` prints an absolute path: SOUL, rendered skills, the installed scripts directory, the active vault or repository root. `--sessions-dir`, `--file` and `--out` paths are relative to cwd, not the vault; adjust example session paths to your config.
+Every subcommand accepts optional `--vault <path>`. `python3 -m brain` is also supported. `brain paths` prints an absolute path: SOUL, rendered skills, installed scripts or provider directory, the active vault or repository root. `--sessions-dir`, `--file` and `--out` paths are relative to cwd, not the vault; adjust example session paths to your config.
 
 `--date` is the Pacific date of the occurrence; `digest` requires it, while `nightly` allows omitting it for an ad hoc run. `attribute` prints explicit uses and JSONL observed on-demand reads, and `--write` appends them to monthly Use Logs. Rows are `timestamp | target | reason | explicit/inferred/observed/live [| confirmed/unconfirmed]`. `simulate` prints the spec's decay table.
 

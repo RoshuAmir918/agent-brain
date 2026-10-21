@@ -8,10 +8,12 @@ Usage:
   brain digest [--vault <path>] --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]
   brain compile-context [--vault <path>] [--out <path>] [--write]
   brain retrieve [--vault <path>] <query> [--limit 12] [--json]
+  brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
   brain simulate [--h 7 --w 28]
   brain install-skills [--vault <path>]
   brain install-scripts
-  brain paths <soul|skills|scripts|vault|repo> [--vault <path>]
+  brain install-provider
+  brain paths <soul|skills|scripts|provider|vault|repo> [--vault <path>]
 
 Without --write the pass runs on a temporary copy of the agent tree and prints
 what it would change. Every step is a function of the vault's current files, so
@@ -32,7 +34,7 @@ from datetime import date
 from pathlib import Path
 
 from . import activation as act
-from . import attribute, compile_context, digest, fm, index, retrieve, triggers, validate
+from . import attribute, compile_context, digest, fm, index, retrieve, session_context, triggers, validate
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import Config
@@ -472,6 +474,15 @@ def cmd_simulate(a):
     print(act.simulate_table(a.h, a.w))
 
 
+def cmd_session_context(args):
+    text = session_context.build(Vault(args.config.vault_path), args.config,
+                                 platform=args.platform, user_id=args.user_id,
+                                 user_id_alt=args.user_id_alt, user_name=args.user_name,
+                                 chat_id=args.chat_id)
+    if text:
+        print(text)
+
+
 def cmd_session_ids(args):
     for session_id in digest.session_ids(Path(args.jsonl)):
         print(session_id)
@@ -501,8 +512,16 @@ def cmd_install_scripts(args):
         print(f"installed {path}")
 
 
+def cmd_install_provider(args):
+    install.provider()
+    print(install.provider_path())
+    print("hermes config set memory.provider brain")
+    print("restart the gateway")
+
+
 def cmd_paths(args):
     paths = {"soul": args.config.soul_path, "skills": args.config.skills_path, "scripts": install.scripts_path(),
+             "provider": install.provider_path(),
              "vault": args.config.vault_path, "repo": args.config.repo, "python": Path(sys.executable)}
     print(paths[args.path].resolve())
 
@@ -528,6 +547,10 @@ def main(argv=None):
     s.add_argument("--write", action="store_true"); s.set_defaults(fn=cmd_digest)
     s = sub.add_parser("retrieve"); s.add_argument("--vault"); s.add_argument("query")
     s.add_argument("--limit", type=int, default=12); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_retrieve)
+    s = sub.add_parser("session-context"); s.add_argument("--vault")
+    for option in ("platform", "user-id", "user-id-alt", "user-name", "chat-id"):
+        s.add_argument("--" + option, default="")
+    s.set_defaults(fn=cmd_session_context)
     s = sub.add_parser("simulate"); s.add_argument("--h", type=int, default=act.H_DAYS); s.add_argument("--w", type=int, default=act.W_DAYS)
     s.add_argument("--vault")
     s.set_defaults(fn=cmd_simulate)
@@ -538,8 +561,9 @@ def main(argv=None):
     s = sub.add_parser("migrate-check"); s.add_argument("--vault"); s.set_defaults(fn=cmd_migrate_check)
     s = sub.add_parser("migrate-done"); s.add_argument("--vault"); s.set_defaults(fn=cmd_migrate_done)
     s = sub.add_parser("install-scripts"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_scripts)
+    s = sub.add_parser("install-provider"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_provider)
     s = sub.add_parser("paths"); s.add_argument("--vault")
-    s.add_argument("path", choices=("soul", "skills", "scripts", "vault", "repo", "python")); s.set_defaults(fn=cmd_paths)
+    s.add_argument("path", choices=("soul", "skills", "scripts", "provider", "vault", "repo", "python")); s.set_defaults(fn=cmd_paths)
     a = ap.parse_args(argv)
     if a.cmd == "attribute" and a.file and not a.ts:
         ap.error("--ts is required with --file")
