@@ -196,11 +196,7 @@ def place(config: Config, t: Task, today: date, cold_open: list, report: list[st
     t.state["tier"] = tier
     t.state["activation"] = f"{b:.2f}" if b != float("-inf") else "-99"
     if tier == "hot":
-        try:
-            bounded = bounded_hot_body(t, config)
-        except ValueError as problem:
-            bounded = t.body   # one unboundable entry must not stop the night; the morning sees the report line
-            report.append(f"task: {t.tid} left over budget: {problem}")
+        bounded = bounded_hot_body(t, config)   # raises when it would have to guess; the night stops and Sleep 1 fixes the entry
         if bounded != t.body:
             write_archive(config, t, "hot but over the register budget", today)
             t.body = bounded
