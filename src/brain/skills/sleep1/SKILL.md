@@ -33,6 +33,7 @@ The night's main job. Yesterday becomes long-term memory: new facts are written 
 5. **Tidy what grew.** For every note you touched, and for any hub over 1,500 words:
    - fold dated entries older than two weeks into the prose of their section, keeping each fact and its date, dropping the diary form;
    - a section over 400 words gets a two-sentence summary at its top;
+   - a People profile over 300 words: dated entries move to the person's `History.md`, the Profile keeps one sentence per fact and the History link;
    - move closed questions out of "open questions";
    - never drop a fact, never resolve a conflict by taking the newer side, never delete a note. Cold is the floor.
 6. **Script.** `brain nightly --date <yesterday> --write --commit --push`. It folds uses, recomputes activation and tiers, places tasks, fires triggers, rebuilds CURRENT's threads, the views and `.hermes.md`, validates, and commits `sleep1(<date>)`. A validation failure names the problem; fix it and rerun, never bypass it.

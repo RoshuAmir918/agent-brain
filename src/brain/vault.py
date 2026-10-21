@@ -114,6 +114,8 @@ class Vault:
             return "episode"
         if rel.startswith((self.config.people_dir + "/", self.config.agents_dir + "/")) and rel.endswith("/Profile.md"):
             return "profile"
+        if rel.startswith((self.config.people_dir + "/", self.config.agents_dir + "/")) and rel.endswith("/History.md"):
+            return "log"
         if rel.startswith(tuple(self.config.agent(name + "/") for name in
                                 ("Research", "Explorations", "Use Log", "Sleep Log", "Tasks Archive"))):
             return "log"
