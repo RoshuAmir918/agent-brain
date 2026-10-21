@@ -21,8 +21,9 @@ A concise, verified account for {human_name} at the agreed hour, sent every day 
    - new reflections, labelled as inference;
    - audit patterns, never raw numbers;
    - whether `archive`, `attribution`, `sleep1`, `rem` and `sleep2` commits exist for last night; a missing one gets its own line.
-4. Send the briefing on {human_name}'s main channel.
-5. Add a line to the Sleep Log: briefing sent, and what it contained in one phrase.
+4. After composing, remove every `morning:` line you carried from the task entries: a fact worth keeping goes into the owning note in one sentence, the rest is gone. The register is a state view, not a log; lines left behind push entries over budget and stop the night.
+5. Send the briefing on {human_name}'s main channel.
+6. Add a line to the Sleep Log: briefing sent, and what it contained in one phrase.
 
 ## Customise
 This is the natural place for anything {human_name} wants delivered daily: a reading, a reminder, a digest of a feed. Add it as a numbered step with its own boundaries, and record {human_name}'s request in a dated note so the instruction has a source.
