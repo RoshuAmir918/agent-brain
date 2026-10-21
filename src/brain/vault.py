@@ -110,6 +110,8 @@ class Vault:
             return "orientation"
         if rel.startswith(("Conversations/Sessions/", "Conversations/Digests/")):
             return "log"   # Hermes session export: cold, never indexed
+        if rel.startswith(self.config.hermes_dir + "/") and rel != f"{self.config.hermes_dir}/README.md":
+            return "log"   # engine state such as a pending migration, never a note
         if rel.startswith("Conversations/"):
             return "episode"
         if rel.startswith((self.config.people_dir + "/", self.config.agents_dir + "/")) and rel.endswith("/Profile.md"):
