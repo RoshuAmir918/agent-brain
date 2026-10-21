@@ -112,7 +112,7 @@ def migrate_check(config: Config) -> Path | None:
         record_version(config, current)
         return None
     target = config.vault_path / config.hermes_dir / "pending-migration.md"
-    body = [f"# Engine migration: {recorded_version(config)} to {current}", "",
+    body = ["---", "kind: log", "---", f"# Engine migration: {recorded_version(config)} to {current}", "",
             "Perform each section in order, then run `brain migrate-done`. Sections without `unattended: true` need the owner present.", ""]
     for tag, prompt in pending:
         body += [f"## {tag}", "", prompt.strip(), ""]
