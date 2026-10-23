@@ -149,3 +149,30 @@ def test_legacy_file_attribution_still_requires_timestamp(vault, tmp_path):
     with pytest.raises(SystemExit) as caught:
         nightly.main(["attribute", "--vault", str(vault), "--file", str(tmp_path / "record.md")])
     assert caught.value.code == 2
+
+
+def test_attribution_ignores_evaluation_sessions_and_routine_opens(tmp_path):
+    import json
+    from brain import attribute, fm
+    from brain.vault import Vault
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    vault = tmp_path / "memory"; (vault / "agent").mkdir(parents=True)
+    fm.write(vault / "Harbor.md", {"kind": "hub", "tier": "warm"}, "# Harbor\nbody\n")
+    fm.write(vault / "Hot Set.md", {}, "# Hot set\n## Automatic load\n")
+    sessions = vault / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
+    stamp = "2026-10-21T10:00:00-07:00"
+    call = {"role": "assistant", "content": "ok", "timestamp": stamp,
+            "tool_calls": [{"function": {"name": "read_file", "arguments": json.dumps({"path": "memory/Harbor.md"})}}]}
+    cite = {"role": "assistant", "content": "Sources: [[memory/Harbor]]", "timestamp": stamp}
+    records = [
+        {"id": "conv", "source": "slack", "messages": [call]},
+        {"id": "cron_sleep1", "source": "cron", "messages": [call, cite]},
+        {"id": "eval", "title": "Evaluation fixture: Q01", "messages": [call, cite]},
+    ]
+    (sessions / "all.jsonl").write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
+    rows = attribute.sessions(Vault(vault), sessions)
+    kinds = sorted((u.source, u.reason.split(" in session ")[-1] if " in session " in u.reason else u.reason) for u in rows)
+    assert ("observed", "conv") in kinds
+    assert ("explicit", "cron_sleep1") in kinds
+    assert not any("cron_sleep1" in r and s == "observed" for s, r in kinds)
+    assert not any("eval" in r for _, r in kinds)

@@ -310,3 +310,25 @@ def test_digest_labels_user_turns_with_the_platform_speaker_when_present(tmp_pat
     (sessions / "all.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
     text, _ = digest.build(Config.load(tmp_path / "memory"), date(2026, 10, 20), sessions, 25000)
     assert "**U0C6FPJNJ3G** 10:00" in text and "**Owner** 10:01" in text
+
+
+def test_digest_excludes_evaluation_and_routine_sessions_and_reports_coverage(tmp_path):
+    import json
+    from datetime import date
+    from brain import digest
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    sessions = tmp_path / "memory" / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
+    stamp = "2026-10-21T10:00:00-07:00"
+    records = [
+        {"id": "s1", "title": "chat", "source": "slack", "messages": [{"role": "user", "content": "real talk", "timestamp": stamp}]},
+        {"id": "cron_x_20261021", "source": "cron", "messages": [{"role": "user", "content": "run sleep 1", "timestamp": stamp}]},
+        {"id": "s3", "title": "Evaluation fixture: Q09", "messages": [{"role": "user", "content": "test question", "timestamp": stamp}]},
+    ]
+    (sessions / "all.jsonl").write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    text, _ = digest.build(config, date(2026, 10, 21), sessions, 25000)
+    assert "real talk" in text and "run sleep 1" not in text and "test question" not in text
+    assert "coverage: 1 sessions included, 1 routine sessions and 1 evaluation sessions excluded, 0 turns omitted" in text
+    text, _ = digest.build(config, date(2026, 10, 21), sessions, 25000, include_routines=True)
+    assert "run sleep 1" in text and "test question" not in text

@@ -7,6 +7,28 @@ import shlex
 
 from .config import Config
 ARGUMENT_KEYS = ("arguments", "args", "input", "parameters")
+EVALUATION_RE = re.compile(r"evaluation fixture|retrieval[- ]check|retrieval-test|\bRC-\d{2}\b", re.I)
+ROUTINE_RE = re.compile(r"^cron\b|^cron_", re.I)
+
+
+def session_kind(containers: list[dict], messages: list[dict]) -> str:
+    """conversation, routine (a cron run: the agent working alone) or evaluation (a retrieval check: earns nothing)."""
+    def field(keys):
+        for key in keys:
+            for container in containers:
+                value = container.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value
+        return ""
+    title, source, session_id = field(("title", "name", "session_title")), field(("source", "platform", "channel")), field(("id", "session_id"))
+    first_user = next((message for message in messages if str(message.get("role", "")).lower() == "user"), None)
+    first_text = first_user.get("content", first_user.get("text", "")) if first_user else ""
+    first_text = first_text if isinstance(first_text, str) else ""
+    if EVALUATION_RE.search(title) or EVALUATION_RE.search(source) or first_text.lstrip().lower().startswith("evaluation fixture:"):
+        return "evaluation"
+    if ROUTINE_RE.search(source) or ROUTINE_RE.search(title) or ROUTINE_RE.search(session_id):
+        return "routine"
+    return "conversation"
 
 
 def call_arguments(value):

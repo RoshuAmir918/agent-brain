@@ -449,7 +449,7 @@ def cmd_compile_context(a):
 def cmd_digest(args):
     directory = Path(args.sessions_dir).resolve() if args.sessions_dir else None
     try:
-        text, words = digest.build(args.config, args.date, directory, args.max_words)
+        text, words = digest.build(args.config, args.date, directory, args.max_words, include_routines=args.include_routines)
         if args.write:
             path = digest.write(args.config, args.date, text)
             print(f"{path}: {words} words")
@@ -544,6 +544,7 @@ def main(argv=None):
     s = sub.add_parser("digest"); s.add_argument("--vault")
     s.add_argument("--date", type=date.fromisoformat, required=True); s.add_argument("--sessions-dir")
     s.add_argument("--max-words", type=int, default=digest.WORD_LIMIT)
+    s.add_argument("--include-routines", action="store_true", help="also digest the agent's own cron sessions")
     s.add_argument("--write", action="store_true"); s.set_defaults(fn=cmd_digest)
     s = sub.add_parser("retrieve"); s.add_argument("--vault"); s.add_argument("query")
     s.add_argument("--limit", type=int, default=12); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_retrieve)

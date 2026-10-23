@@ -256,7 +256,9 @@ def read_archive_body(config: Config, tid: str) -> str | None:
         return None
     bodies = text.split(marker, 1)[1].split("\n\n## Earlier archive\n\n")
     # Recover archives already affected by an earlier summary overwrite.
-    return next((body for body in bodies if not is_register_summary(body)), bodies[0])
+    body = next((body for body in bodies if not is_register_summary(body)), bodies[0])
+    # An archive written by hand may repeat the task heading and brain comment; the register adds its own.
+    return re.sub(r"\A\s*#+ T-\d{3} — [^\n]*\n(?:<!-- brain:[^\n]*-->\n)?\s*", "", body)
 
 
 def is_register_summary(body: str) -> bool:

@@ -183,9 +183,16 @@ def json_records(path: Path):
                 yield number, record
 
 
-def json_sessions(path: Path, day: date, config: Config) -> list[Session]:
-    return [select_session(record, f"{path.name}:{number}", day, config=config)
-            for number, record in json_records(path)]
+def json_sessions(path: Path, day: date, config: Config, include_routines: bool = False) -> tuple[list[Session], dict]:
+    sessions, skipped = [], {"evaluation": 0, "routine": 0}
+    for number, record in json_records(path):
+        containers = session_maps(record)
+        kind = session_tools.session_kind(containers, message_list(containers))
+        if kind == "evaluation" or (kind == "routine" and not include_routines):
+            skipped[kind] += 1
+            continue
+        sessions.append(select_session(record, f"{path.name}:{number}", day, config=config))
+    return sessions, skipped
 
 
 def markdown_marker(line: str) -> tuple[str, str, str | None] | None:
@@ -263,13 +270,27 @@ def markdown_session(path: Path, directory: Path, day: date, config: Config) -> 
     return select_session(record, path.relative_to(directory).as_posix(), day, config, note)
 
 
-def load_sessions(directory: Path, day: date, config: Config) -> list[Session]:
+def markdown_kind(path: Path) -> str:
+    head = path.read_text(encoding="utf-8-sig", errors="replace")[:4000]
+    if session_tools.EVALUATION_RE.search(path.stem) or "evaluation fixture:" in head.lower():
+        return "evaluation"
+    return "routine" if session_tools.ROUTINE_RE.search(path.stem) else "conversation"
+
+
+def load_sessions(directory: Path, day: date, config: Config, include_routines: bool = False) -> tuple[list[Session], dict]:
     if not directory.is_dir():
         raise ValueError(f"sessions directory does not exist: {directory}")
     path = directory / "all.jsonl"
     if path.exists():
-        return json_sessions(path, day, config)
-    return [markdown_session(path, directory, day, config) for path in sorted(directory.rglob("*.md"))]
+        return json_sessions(path, day, config, include_routines)
+    sessions, skipped = [], {"evaluation": 0, "routine": 0}
+    for file in sorted(directory.rglob("*.md")):
+        kind = markdown_kind(file)
+        if kind == "evaluation" or (kind == "routine" and not include_routines):
+            skipped[kind] += 1
+            continue
+        sessions.append(markdown_session(file, directory, day, config))
+    return sessions, skipped
 
 
 def limit_turns(sessions: list[Session], max_words: int) -> tuple[list[Session], int, int]:
@@ -292,12 +313,15 @@ def limit_turns(sessions: list[Session], max_words: int) -> tuple[list[Session],
 
 
 def build(config: Config, day: date, sessions_dir: Path | None = None,
-          max_words: int = WORD_LIMIT, today: date | None = None) -> tuple[str, int]:
+          max_words: int = WORD_LIMIT, today: date | None = None, include_routines: bool = False) -> tuple[str, int]:
     directory = sessions_dir if sessions_dir is not None else config.vault_path / "Conversations/Sessions"
-    sessions, words, omitted = limit_turns(load_sessions(directory, day, config), max_words)
+    loaded, skipped = load_sessions(directory, day, config, include_routines)
+    sessions, words, omitted = limit_turns(loaded, max_words)
     generated = today if today is not None else datetime.now(PACIFIC).date()
     sections = [FRONTMATTER, f"Digest for {day}, generated {generated} by brain "
-                f"from {len(sessions)} sessions, {words} words"]
+                f"from {len(sessions)} sessions, {words} words",
+                f"coverage: {len(sessions)} sessions included, {skipped['routine']} routine sessions and "
+                f"{skipped['evaluation']} evaluation sessions excluded, {omitted} turns omitted by the word cap"]
     for session in sessions:
         sections.append(f"## {session.title} ({session.source})")
         if session.note:

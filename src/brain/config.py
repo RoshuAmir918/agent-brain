@@ -96,7 +96,7 @@ class Config:
     @property
     def observed_excluded(self) -> tuple[str, ...]:
         return ("Conversations/", *(self.agent(name + "/") for name in
-                ("Dreams", "Explorations", "Use Log", "Sleep Log", "Tasks Archive")))
+                ("Dreams", "Explorations", "Use Log", "Sleep Log", "Tasks Archive", "Retrieval Checks")))
 
     @property
     def archive_dir(self) -> str:

@@ -352,3 +352,14 @@ def test_nightly_required_field_overflow_keeps_task_and_current_bodies(tmp_path,
     assert not (root / "agent/Tasks Archive/T-099.md").exists()
     if not write:
         assert snapshot(root) == before
+
+
+def test_archive_body_with_its_own_heading_is_not_duplicated_on_restore(tmp_path):
+    from brain import tasks
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    archive = tasks.archive_path(config, "T-001"); archive.parent.mkdir(parents=True)
+    archive.write_text("# T-001 — Thing\n<!-- brain: status=open; tier=warm -->\n\nFull register entry, kept here while the task is warm. State is still open. Preserved by the nightly script.\n\n# T-001 — Thing\n<!-- brain: status=open; tier=warm -->\n\n- **Status:** open\n", encoding="utf-8")
+    body = tasks.read_archive_body(config, "T-001")
+    assert body.startswith("- **Status:** open")

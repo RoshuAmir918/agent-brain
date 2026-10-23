@@ -7,6 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import compile_context, session_tools
+from . import session_tools
 from .vault import Vault, WIKILINK_RE, TASK_ID_RE, TRIGGER_ID_RE
 
 ROW_RE = re.compile(r"^20\d{2}-\d{2}-\d{2}")
@@ -119,6 +120,10 @@ def last_timestamp(line: str) -> str | None:
 
 
 def session_rows(vault: Vault, path: Path) -> list[Use]:
+    from . import digest   # digest imports this module; keep the dependency one-directional at import time
+
+    if digest.markdown_kind(path) == "evaluation":
+        return []
     lines = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
     has_roles = any(ROLE_RE.match(line) for line in lines)
     role, timestamp = "", fallback_date(path)
@@ -149,13 +154,16 @@ def json_session_rows(vault: Vault, path: Path) -> list[Use]:
     automatic, uses = automatic_notes(vault), []
     for number, record in digest.json_records(path):
         containers = digest.session_maps(record)
+        kind = session_tools.session_kind(containers, digest.message_list(containers))
+        if kind == "evaluation":
+            continue   # retrieval checks earn nothing, before any extraction or dedupe
         session_id = digest.text_field(containers, ("id", "session_id"), f"{path.name}:{number}")
         reason = f"cited in session {session_id}"
         previous = next((stamp for fields in containers if (stamp := digest.timestamp_in(fields))), None)
         for message in digest.message_list(containers):
             previous = digest.timestamp_in(message) or previous
             timestamp = previous.isoformat() if previous else fallback_date(path)
-            reads, _ = session_tools.activity(message, vault.config)
+            reads, _ = session_tools.activity(message, vault.config) if kind == "conversation" else ([], [])   # a routine opens notes mechanically; that is not use
             for read in reads:
                 target = read.removeprefix(vault.config.vault + "/")
                 if target in vault.notes and target not in automatic and not target.startswith(vault.config.observed_excluded):

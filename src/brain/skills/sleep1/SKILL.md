@@ -12,7 +12,7 @@ metadata:
 The night's main job. Yesterday becomes long-term memory: new facts are written where they belong, memory that grew messy is tidied, and the script recomputes what is fresh. Decide nothing about {human_name}'s intentions; record what they said and did.
 
 ## Inputs
-- `Conversations/Digests/<yesterday>.md`: every turn between {human_name} and {agent_name} yesterday, built by the export job. Read it whole. If it is missing, run `brain digest --date <yesterday> --write` from the repository root; if the export itself is missing, record the gap and continue with what exists.
+- `Conversations/Digests/<yesterday>.md`: every turn between {human_name} and {agent_name} yesterday, built by the export job. Read it whole; if its `coverage:` line reports omitted turns, regenerate with `brain digest --date <yesterday> --max-words 150000 --write` and read that instead. If it is missing, run `brain digest --date <yesterday> --write` from the repository root; if the export itself is missing, record the gap and continue with what exists.
 - `{agent_dir}/Explorations/<month>.md` rows from yesterday, and the notes they filed into.
 - {agent_name}'s own mailbox, yesterday only. {human_name}'s channels listed in `{agent_dir}/Channels.md` as perception, yesterday only, read in place: copy nothing.
 - The hot set and any note the digest touches.

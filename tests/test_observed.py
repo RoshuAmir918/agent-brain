@@ -279,3 +279,13 @@ def test_jsonl_nightly_attributes_before_fold_and_is_idempotent(vault, observed_
     after = snapshot(vault.parent)
     assert {path for path in before.keys() | after.keys() if before.get(path) != after.get(path)} == {
         "memory/agent/Sleep Log/2026-10.md"}
+
+
+def test_session_kind_classifies_conversation_routine_and_evaluation():
+    from brain import session_tools
+    user = [{"role": "user", "content": "hello"}]
+    assert session_tools.session_kind([{"title": "chat with kevin", "source": "slack"}], user) == "conversation"
+    assert session_tools.session_kind([{"id": "cron_abc_20261021", "source": "cron"}], user) == "routine"
+    assert session_tools.session_kind([{"title": "Evaluation fixture: Q09", "source": "slack"}], user) == "evaluation"
+    assert session_tools.session_kind([{"title": "x"}], [{"role": "user", "content": "Evaluation fixture: what is the capital"}]) == "evaluation"
+    assert session_tools.session_kind([{"title": "retrieval-test RC-04"}], user) == "evaluation"
