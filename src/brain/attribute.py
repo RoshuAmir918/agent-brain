@@ -190,10 +190,11 @@ def sessions(vault: Vault, directory: Path, write: bool = False) -> list[Use]:
     if not directory.is_dir():
         raise ValueError(f"sessions directory does not exist: {directory}")
     known, monthly, uses = {}, {}, []
-    jsonl = directory / "all.jsonl"
-    paths = [jsonl] if jsonl.exists() else sorted(directory.rglob("*.md"))
+    from . import digest
+    jsonl = set(digest.jsonl_sources(directory))
+    paths = sorted(jsonl) if jsonl else sorted(directory.rglob("*.md"))
     for path in paths:
-        rows = json_session_rows(vault, path) if path == jsonl else session_rows(vault, path)
+        rows = json_session_rows(vault, path) if path in jsonl else session_rows(vault, path)
         for use in rows:
             month = use.ts[:7]
             log = vault.root / vault.config.agent("Use Log") / f"{month}.md"

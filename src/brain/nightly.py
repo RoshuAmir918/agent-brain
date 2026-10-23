@@ -483,6 +483,11 @@ def cmd_session_context(args):
         print(text)
 
 
+def cmd_shard_sessions(args):
+    written, unchanged = digest.shard(Path(args.jsonl), Path(args.directory))
+    print(f"sharded: {written} written, {unchanged} unchanged")
+
+
 def cmd_session_ids(args):
     for session_id in digest.session_ids(Path(args.jsonl)):
         print(session_id)
@@ -555,6 +560,7 @@ def main(argv=None):
     s = sub.add_parser("simulate"); s.add_argument("--h", type=int, default=act.H_DAYS); s.add_argument("--w", type=int, default=act.W_DAYS)
     s.add_argument("--vault")
     s.set_defaults(fn=cmd_simulate)
+    s = sub.add_parser("shard-sessions"); s.add_argument("jsonl"); s.add_argument("directory"); s.add_argument("--vault"); s.set_defaults(fn=cmd_shard_sessions)
     s = sub.add_parser("session-ids"); s.add_argument("jsonl"); s.add_argument("--vault"); s.set_defaults(fn=cmd_session_ids)
     s = sub.add_parser("install-skills"); s.add_argument("--vault"); s.add_argument("--force", action="store_true", help="also overwrite the day routines")
     s.set_defaults(fn=cmd_install_skills)

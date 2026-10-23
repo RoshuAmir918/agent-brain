@@ -160,14 +160,45 @@ def select_session(record: dict, source: str, day: date, config: Config,
     return Session(title, source, turns, note)
 
 
+def record_id(record: dict) -> str:
+    return text_field(session_maps(record), ("session_id", "id", "sessionId"), "")
+
+
 def session_ids(path: Path) -> list[str]:
-    """Distinct session ids in an all.jsonl export, in file order, for per-session Markdown exports."""
+    """Distinct session ids in a JSONL export, in file order, for per-session Markdown exports."""
     ids = []
     for _, record in json_records(path):
-        value = text_field(session_maps(record), ("session_id", "id", "sessionId"), "")
+        value = record_id(record)
         if value and value not in ids:
             ids.append(value)
     return ids
+
+
+def jsonl_sources(directory: Path) -> list[Path]:
+    """Per-session shards under jsonl/, then a legacy all.jsonl if one is still present."""
+    shards = sorted((directory / "jsonl").glob("*.jsonl")) if (directory / "jsonl").is_dir() else []
+    legacy = directory / "all.jsonl"
+    return shards + ([legacy] if legacy.exists() else [])
+
+
+def shard(export: Path, directory: Path) -> tuple[int, int]:
+    """Split a full JSONL export into jsonl/<id>.jsonl, rewriting only shards whose bytes changed.
+
+    Unchanged sessions then leave git untouched, so a night's push carries only the sessions that moved.
+    Returns (written, unchanged)."""
+    target = directory / "jsonl"
+    target.mkdir(parents=True, exist_ok=True)
+    written = unchanged = 0
+    for number, record in json_records(export):
+        name = re.sub(r"[^\w.-]", "_", record_id(record) or f"record-{number}") + ".jsonl"
+        encoded = (json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+        path = target / name
+        if path.exists() and path.read_bytes() == encoded:
+            unchanged += 1
+            continue
+        path.write_bytes(encoded)
+        written += 1
+    return written, unchanged
 
 
 def json_records(path: Path):
@@ -183,9 +214,9 @@ def json_records(path: Path):
                 yield number, record
 
 
-def json_sessions(path: Path, day: date, config: Config, include_routines: bool = False) -> tuple[list[Session], dict]:
+def json_sessions(paths: list[Path], day: date, config: Config, include_routines: bool = False) -> tuple[list[Session], dict]:
     sessions, skipped = [], {"evaluation": 0, "routine": 0}
-    for number, record in json_records(path):
+    for path, number, record in ((path, number, record) for path in paths for number, record in json_records(path)):
         containers = session_maps(record)
         kind = session_tools.session_kind(containers, message_list(containers))
         if kind == "evaluation" or (kind == "routine" and not include_routines):
@@ -280,9 +311,9 @@ def markdown_kind(path: Path) -> str:
 def load_sessions(directory: Path, day: date, config: Config, include_routines: bool = False) -> tuple[list[Session], dict]:
     if not directory.is_dir():
         raise ValueError(f"sessions directory does not exist: {directory}")
-    path = directory / "all.jsonl"
-    if path.exists():
-        return json_sessions(path, day, config, include_routines)
+    sources = jsonl_sources(directory)
+    if sources:
+        return json_sessions(sources, day, config, include_routines)
     sessions, skipped = [], {"evaluation": 0, "routine": 0}
     for file in sorted(directory.rglob("*.md")):
         kind = markdown_kind(file)

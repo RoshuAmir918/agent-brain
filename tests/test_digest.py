@@ -332,3 +332,23 @@ def test_digest_excludes_evaluation_and_routine_sessions_and_reports_coverage(tm
     assert "coverage: 1 sessions included, 1 routine sessions and 1 evaluation sessions excluded, 0 turns omitted" in text
     text, _ = digest.build(config, date(2026, 10, 21), sessions, 25000, include_routines=True)
     assert "run sleep 1" in text and "test question" not in text
+
+
+def test_shard_writes_only_changed_sessions_and_readers_use_shards(tmp_path):
+    import json
+    from datetime import date
+    from brain import digest
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    sessions = tmp_path / "memory" / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
+    stamp = "2026-10-21T10:00:00-07:00"
+    export = tmp_path / "export.jsonl"
+    rec = lambda i, text: {"id": i, "source": "slack", "messages": [{"role": "user", "content": text, "timestamp": stamp}]}
+    export.write_text(json.dumps(rec("a", "one")) + "\n" + json.dumps(rec("b", "two")) + "\n", encoding="utf-8")
+    assert digest.shard(export, sessions) == (2, 0)
+    assert digest.shard(export, sessions) == (0, 2)
+    export.write_text(json.dumps(rec("a", "one")) + "\n" + json.dumps(rec("b", "two changed")) + "\n", encoding="utf-8")
+    assert digest.shard(export, sessions) == (1, 1)
+    assert digest.session_ids(export) == ["a", "b"]
+    text, _ = digest.build(Config.load(tmp_path / "memory"), date(2026, 10, 21), sessions, 25000)
+    assert "two changed" in text and "one" in text

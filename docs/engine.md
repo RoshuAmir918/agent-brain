@@ -80,6 +80,8 @@ Run only one nightly process per vault. The engine assumes it is the only writer
 
 ## Commands
 
+`brain shard-sessions <export.jsonl> <sessions dir>` splits a full Hermes JSONL export into `jsonl/<session id>.jsonl`, rewriting only shards whose bytes changed, so a night's commit carries only the sessions that moved. The export script uses it instead of committing one large `all.jsonl`; the digest and attribution read the shards (and a legacy `all.jsonl` if one is still present).
+
 **Session kinds.** Every exported session is classified as a conversation, a routine (a cron run: source or title begins `cron`), or an evaluation (title or source matches `Evaluation fixture`, `retrieval check` or `RC-nn`, or the first user message begins `Evaluation fixture:`). The digest includes only conversations unless `--include-routines` is passed; attribution ignores evaluation sessions entirely and takes only explicit citations, never observed opens, from routines. Paths under `<agent_dir>/Retrieval Checks/` never earn observed credit. The digest's `coverage:` line reports how many sessions of each kind were included or excluded and how many turns the word cap omitted.
 
 `brain migrate-check` and `brain migrate-done` carry the agent's part of an upgrade: the package ships a Markdown prompt per version that needs one (see `src/brain/migrations/README.md`), `migrate-check` writes the applicable ones to `<hermes_dir>/pending-migration.md` after each nightly update, the recall skill makes the agent perform them, and `migrate-done` records the version. `<hermes_dir>/engine-version` is the recorded version, committed with the vault.

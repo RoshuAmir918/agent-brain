@@ -13,8 +13,13 @@ git pull --rebase --autostash -q origin main
 
 # The jsonl export returns every session; the markdown export needs a filter, so export markdown per session id,
 # with --force so a session that grew since last night is refreshed.
-hermes sessions export "$OUT/all.jsonl" --format jsonl
-ids="$(brain session-ids "$OUT/all.jsonl")"
+# The full export goes to a scratch file and is split into one shard per session; only shards that changed are
+# rewritten, so git sees only the sessions that moved and the nightly push stays small.
+EXPORT="$(mktemp "${TMPDIR:-/tmp}/sessions.XXXXXX.jsonl")"
+hermes sessions export "$EXPORT" --format jsonl
+brain shard-sessions "$EXPORT" "$OUT"
+ids="$(brain session-ids "$EXPORT")"
+rm -f "$EXPORT" "$OUT/all.jsonl"   # the single big file is replaced by the shards
 failed=0
 while IFS= read -r id; do
   [ -n "$id" ] || continue

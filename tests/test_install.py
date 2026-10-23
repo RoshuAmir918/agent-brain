@@ -105,7 +105,8 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
                    env=dict(os.environ), check=True, capture_output=True, text=True)
     assert (home / "SOUL.md").read_text() == "Fixture identity\n"
     assert (vault.parent / ".hermes.md").exists()
-    assert (vault / "Conversations/Sessions/all.jsonl").exists()
+    assert (vault / "Conversations/Sessions/jsonl/s1.jsonl").exists()
+    assert not (vault / "Conversations/Sessions/all.jsonl").exists()
     assert (vault / "Conversations/Sessions/s1.md").exists()
     assert len(list((vault / "Conversations/Digests").glob("*.md"))) == 1
     assert len(list((vault / "hermes/skills").glob("*/SKILL.md"))) == 11
