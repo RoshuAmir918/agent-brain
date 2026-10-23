@@ -34,7 +34,7 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 brain digest --date "$DATE" --write
-git add "$OUT" "$VAULT/Conversations/Digests"
+git add "$OUT" "$VAULT/Conversations/Digests" "$(dirname "$(brain paths skills)")"   # exports, digests, and engine state such as engine-version and a pending migration
 if ! git diff --cached --quiet; then
   git commit -q -m "archive($DATE): hermes session export"
 fi

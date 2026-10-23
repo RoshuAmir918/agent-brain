@@ -12,7 +12,7 @@ if ! cmp -s "$SOUL" "$HERMES_HOME/SOUL.md"; then
   cp "$SOUL" "$HERMES_HOME/SOUL.md"
   echo "SOUL.md refreshed from the vault"
 fi
-git add .hermes.md "$(brain paths skills)"
+git add .hermes.md "$(dirname "$(brain paths skills)")"
 if ! git diff --cached --quiet; then
   git commit -q -m "context($(date +%F)): refresh context and skills"
   git push -q origin main
