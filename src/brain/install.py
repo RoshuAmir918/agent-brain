@@ -19,6 +19,15 @@ def provider_path() -> Path:
     return Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser().resolve() / "plugins" / "brain"
 
 
+def records_path() -> Path:
+    """Run payloads for this profile, outside the vault: one Hermes home per agent, so one records tree per agent."""
+    return Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser().resolve() / "records"
+
+
+def sessions_records_path() -> Path:
+    return records_path() / "sessions"
+
+
 CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall"})   # the memory mechanism: always overwritten
                                                                        # everything else is a default the vault owns after first install
 

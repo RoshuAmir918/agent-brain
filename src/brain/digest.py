@@ -8,7 +8,7 @@ from datetime import date, datetime, time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import session_tools
+from . import install, session_tools
 from .attribute import ROLE_RE, fallback_date, last_timestamp
 from .config import Config
 
@@ -166,12 +166,25 @@ def record_id(record: dict) -> str:
 
 def session_ids(path: Path) -> list[str]:
     """Distinct session ids in a JSONL export, in file order, for per-session Markdown exports."""
-    ids = []
+    return [session_id for session_id, _ in session_kinds(path)]
+
+
+def session_kinds(path: Path) -> list[tuple[str, str]]:
+    """Each session id once with its kind: conversation, routine or evaluation."""
+    kinds: dict[str, str] = {}
     for _, record in json_records(path):
         value = record_id(record)
-        if value and value not in ids:
-            ids.append(value)
-    return ids
+        if value and value not in kinds:
+            containers = session_maps(record)
+            kinds[value] = session_tools.session_kind(containers, message_list(containers))
+    return list(kinds.items())
+
+
+def default_sessions_dir(config: Config) -> Path:
+    """This profile's records folder; the vault's Sessions folder only while an older export still writes there."""
+    records = install.sessions_records_path()
+    legacy = config.vault_path / "Conversations/Sessions"
+    return records if records.is_dir() or not legacy.is_dir() else legacy
 
 
 def jsonl_sources(directory: Path) -> list[Path]:
@@ -345,7 +358,7 @@ def limit_turns(sessions: list[Session], max_words: int) -> tuple[list[Session],
 
 def build(config: Config, day: date, sessions_dir: Path | None = None,
           max_words: int = WORD_LIMIT, today: date | None = None, include_routines: bool = False) -> tuple[str, int]:
-    directory = sessions_dir if sessions_dir is not None else config.vault_path / "Conversations/Sessions"
+    directory = sessions_dir if sessions_dir is not None else default_sessions_dir(config)
     loaded, skipped = load_sessions(directory, day, config, include_routines)
     sessions, words, omitted = limit_turns(loaded, max_words)
     generated = today if today is not None else datetime.now(PACIFIC).date()

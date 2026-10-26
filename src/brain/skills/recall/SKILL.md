@@ -19,7 +19,7 @@ Any request that depends on a person, project, task, past decision or dated fact
 ## Procedure
 1. Check Triggers (in context) against the request. A match fires its action now, within existing permissions.
 2. Run `cd "$VAULT_REPO" && brain retrieve "<query>"`. Load the top candidates that plausibly answer; read them in full, not just the index line.
-3. For a dated or historical question, also use `session_search` or grep `{vault}/Conversations/`. Load only matching sections.
+3. For a dated or historical question, also use `session_search` or grep `{vault}/Conversations/`. Your own routine runs are not there: they are under `$HERMES_HOME/records/sessions/`, outside the vault. Load only matching sections.
 4. Before relying on a claim, look for a "superseded by" line at the top of the note.
 5. Answer. No citation line is needed; attribution is observed from what you opened.
 6. If you searched and found nothing, say so in those words and which applies: no record exists, the record is cold and was not searched, the source was partial, or the record says it did not happen.

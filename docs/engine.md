@@ -27,7 +27,7 @@ brain install-provider
 
 `install-skills` renders the routines into `<vault>/<hermes_dir>/skills/<skill_prefix><routine>/SKILL.md` and prints the absolute directory to put in Hermes `skills.external_dirs`. The core routines (attribute, sleep1, sleep2, rem, recall) are overwritten on every run so package updates reach them; the day routines (morning, watch, midday, evening, people, explore) are written only when absent, so local edits survive. `brain install-skills --force` resets the day routines to the package versions. Templates are shipped in the wheel; edits to rendered copies are overwritten. Rendering uses literal token replacement, not Python format strings. `install-scripts` copies the packaged shell scripts to `$HERMES_HOME/scripts` (default `~/.hermes/scripts`), makes them executable and prints the installed paths. `install-provider` atomically replaces the three packaged memory-provider files in `$HERMES_HOME/plugins/brain` (default `~/.hermes/plugins/brain`) and prints setup instructions. None of these commands edits global config or schedules jobs.
 
-Set `VAULT_REPO` for cron to the repository root (default `$HOME/brain`), and `HERMES_HOME` if it is not `~/.hermes`. Ensure `brain` and `hermes` are on the cron PATH. `refresh.sh` pulls the notes, compiles context, renders skills and copies the configured SOUL into the Hermes home. `export-sessions.sh` exports sessions, builds yesterday's digest, and invokes refresh. These retain the existing commit/push behavior: executing them is a publishing operation, unlike the install commands. No script is run by installation.
+Set `VAULT_REPO` for cron to the repository root (default `$HOME/brain`), and `HERMES_HOME` if it is not `~/.hermes`. Ensure `brain` and `hermes` are on the cron PATH. `refresh.sh` pulls the notes, compiles context, renders skills and copies the configured SOUL into the Hermes home. `export-sessions.sh` exports sessions (conversations into the vault, the agent's own routine and evaluation sessions and every JSONL shard into `$HERMES_HOME/records/sessions/`, so each profile on a shared machine keeps its own), builds yesterday's digest, and invokes refresh. These retain the existing commit/push behavior: executing them is a publishing operation, unlike the install commands. No script is run by installation.
 
 ## Configuration
 
@@ -92,7 +92,7 @@ Run only one nightly process per vault. The engine assumes it is the only writer
 
 ## Commands
 
-`brain shard-sessions <export.jsonl> <sessions dir>` splits a full Hermes JSONL export into `jsonl/<session id>.jsonl`, rewriting only shards whose bytes changed, so a night's commit carries only the sessions that moved. The export script uses it instead of committing one large `all.jsonl`; the digest and attribution read the shards (and a legacy `all.jsonl` if one is still present).
+`brain shard-sessions <export.jsonl> <sessions dir>` splits a full Hermes JSONL export into `jsonl/<session id>.jsonl`, rewriting only shards whose bytes changed. The export script shards into `$HERMES_HOME/records/sessions/`, outside the vault; the digest and attribution read the shards there (and a legacy `all.jsonl` if one is still present). `brain paths records` prints the records root.
 
 **Session kinds.** Every exported session is classified as a conversation, a routine (a cron run: source or title begins `cron`), or an evaluation (title or source matches `Evaluation fixture`, `retrieval check` or `RC-nn`, or the first user message begins `Evaluation fixture:`). The digest includes only conversations unless `--include-routines` is passed; attribution ignores evaluation sessions entirely and takes only explicit citations, never observed opens, from routines. Paths under `<agent_dir>/Retrieval Checks/` never earn observed credit. The digest's `coverage:` line reports how many sessions of each kind were included or excluded and how many turns the word cap omitted.
 
@@ -100,7 +100,7 @@ Run only one nightly process per vault. The engine assumes it is the only writer
 
 `brain update` upgrades the package from `update_source` using the interpreter that owns `brain`, then reinstalls the cron scripts and memory provider atomically per file. The export script runs it first every night, so a vault stays current without anyone touching the machine; a failed update is reported and the archive continues on the installed version. `brain paths python` prints that interpreter.
 
-`brain session-ids <all.jsonl>` prints each session id once; the export script uses it to run one `hermes sessions export --session-id --force` per session, because the directory form of the Markdown export needs a filter and otherwise exits 0 without writing, and without `--force` a session exported before is skipped with a success status. The script fails if any per-session export fails or fewer Markdown files exist than sessions.
+`brain session-ids <all.jsonl>` prints each session id once, and with `--with-kind` prints `id<TAB>kind` (conversation, routine or evaluation); the export script uses it to run one `hermes sessions export --session-id --force` per session, conversations into the vault and the rest into the records folder, because the directory form of the Markdown export needs a filter and otherwise exits 0 without writing, and without `--force` a session exported before is skipped with a success status. The script fails if any per-session export fails or fewer Markdown files exist than sessions.
 
 From the vault repository or any directory below it:
 
@@ -108,10 +108,10 @@ From the vault repository or any directory below it:
 brain nightly --date 2026-10-10
 brain nightly --date 2026-10-10 --write
 brain nightly --date 2026-10-10 --write --commit --push
-brain nightly --date 2026-10-10 --sessions-dir memory/Conversations/Sessions --write
+brain nightly --date 2026-10-10 --sessions-dir "$HERMES_HOME/records/sessions" --write
 brain validate
 brain attribute --file <record.md> --ts <iso> [--reason <text>] [--write]
-brain attribute --sessions-dir <dir> [--write]
+brain attribute [--sessions-dir <dir>] [--write]
 brain digest --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]
 brain compile-context [--out <path>] [--write]
 brain retrieve "harbor CI" [--limit 12] [--json]
@@ -123,7 +123,7 @@ brain install-provider
 brain paths <soul|skills|scripts|provider|vault|repo>
 ```
 
-Every subcommand accepts optional `--vault <path>`. `python3 -m brain` is also supported. `brain paths` prints an absolute path: SOUL, rendered skills, installed scripts or provider directory, the active vault or repository root. `--sessions-dir`, `--file` and `--out` paths are relative to cwd, not the vault; adjust example session paths to your config.
+Every subcommand accepts optional `--vault <path>`. `python3 -m brain` is also supported. `brain paths` prints an absolute path: SOUL, rendered skills, installed scripts, provider or records directory, the active vault or repository root. `--sessions-dir`, `--file` and `--out` paths are relative to cwd, not the vault; adjust example session paths to your config.
 
 `--date` is the Pacific date of the occurrence; `digest` requires it, while `nightly` allows omitting it for an ad hoc run. `attribute` prints explicit uses and JSONL observed on-demand reads, and `--write` appends them to monthly Use Logs. Rows are `timestamp | target | reason | explicit/inferred/observed/live [| confirmed/unconfirmed]`. `simulate` prints the spec's decay table.
 
@@ -135,7 +135,7 @@ The session-export parser assumptions below are retained verbatim from the vendo
 
 ### Session export assumptions
 
-Sleep 1 passes `--sessions-dir ../Conversations/Sessions` after the nightly export. Attribution prefers `all.jsonl` (one object per session), even if empty, and otherwise recursively scans every `*.md` as UTF-8 (accepting a BOM and replacing undecodable bytes). It does not verify manifest hashes or interpret lineage; Markdown fallback adds no observed attribution. The exact export layouts remain unverified.
+Attribution reads `$HERMES_HOME/records/sessions` unless `--sessions-dir` says otherwise. Attribution prefers `all.jsonl` (one object per session), even if empty, and otherwise recursively scans every `*.md` as UTF-8 (accepting a BOM and replacing undecodable bytes). It does not verify manifest hashes or interpret lineage; Markdown fallback adds no observed attribution. The exact export layouts remain unverified.
 
 The Markdown parser is line-based, not a Markdown AST. Case-insensitive role markers include headings such as `## assistant` or `### Assistant`, bold names such as `**assistant**`, `assistant:`, and metadata such as `role: assistant` (also quoted or list-prefixed). The same forms recognize user/human, system, developer, tool and function roles; only the nearest preceding assistant marker permits a line whose first non-whitespace text is `Sources:`. If there are no recognized role markers anywhere in the file, all such Sources lines qualify. Sources text uses the existing explicit-use parser, including its orientation-note exclusion; surrounding prose is not inferred as reliance, and fenced examples are not specially interpreted.
 
@@ -151,7 +151,7 @@ For a named `terminal` call containing `brain retrieve`, shell quoting is parsed
 
 ### Digest
 
-`digest` is a separate command, not another step inside `nightly`. The default sessions directory is `<vault>/Conversations/Sessions`. It prefers `all.jsonl` from `hermes sessions export <file> --format jsonl`, even if empty; only when absent does it recursively read Markdown exports. Without `--write`, only the complete digest is printed to stdout. With `--write`, only the digest file is saved, and its path and retained conversation word count are printed. It never attributes uses, changes notes, or publishes anything.
+`digest` is a separate command, not another step inside `nightly`. The default sessions directory is `$HERMES_HOME/records/sessions`, this profile's own export; until that folder exists, an existing `<vault>/Conversations/Sessions` is read instead so an older export script keeps working. It prefers `all.jsonl` from `hermes sessions export <file> --format jsonl`, even if empty; only when absent does it recursively read Markdown exports. Without `--write`, only the complete digest is printed to stdout. With `--write`, only the digest file is saved, and its path and retained conversation word count are printed. It never attributes uses, changes notes, or publishes anything.
 
 Export field names remain unverified against a real Hermes export. The defensive JSONL assumptions are:
 

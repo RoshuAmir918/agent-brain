@@ -1,5 +1,7 @@
 #!/bin/bash
 # Nightly session export. Deterministic, no model. Each outcome is separate: export, digest, local commit, publication, refresh.
+# Conversations go to the vault; the agent's own routine and evaluation sessions, and every JSONL shard, go to this
+# profile's records under $HERMES_HOME, so each agent on a shared machine keeps its own and the vault holds only memory.
 set -eu
 VAULT_REPO="${VAULT_REPO:-$HOME/brain}"
 cd "$VAULT_REPO"
@@ -7,27 +9,29 @@ brain update || echo "export-sessions: brain update failed; continuing with the 
 brain migrate-check || echo "export-sessions: migrate-check failed" >&2
 VAULT="$(brain paths vault)"
 OUT="$VAULT/Conversations/Sessions"
+RECORDS="$(brain paths records)/sessions"
 DATE="$(TZ="${BRAIN_TZ:-America/Los_Angeles}" date -v-1d +%F 2>/dev/null || TZ="${BRAIN_TZ:-America/Los_Angeles}" date -d yesterday +%F)"
-mkdir -p "$OUT"
+mkdir -p "$OUT" "$RECORDS"
 git pull --rebase --autostash -q origin main
 
 # The jsonl export returns every session; the markdown export needs a filter, so export markdown per session id,
 # with --force so a session that grew since last night is refreshed.
-# The full export goes to a scratch file and is split into one shard per session; only shards that changed are
-# rewritten, so git sees only the sessions that moved and the nightly push stays small.
+# The full export goes to a scratch file and is split into one shard per session under the records folder; only
+# shards that changed are rewritten.
 EXPORT="$(mktemp "${TMPDIR:-/tmp}/sessions.XXXXXX.jsonl")"
 hermes sessions export "$EXPORT" --format jsonl
-brain shard-sessions "$EXPORT" "$OUT"
-ids="$(brain session-ids "$EXPORT")"
-rm -f "$EXPORT" "$OUT/all.jsonl"   # the single big file is replaced by the shards
+brain shard-sessions "$EXPORT" "$RECORDS"
+kinds="$(brain session-ids "$EXPORT" --with-kind)"
+rm -f "$EXPORT"
 failed=0
-while IFS= read -r id; do
+while IFS="$(printf '\t')" read -r id kind; do
   [ -n "$id" ] || continue
-  hermes sessions export "$OUT" --format md --session-id "$id" --force || { echo "export-sessions: markdown export failed for session $id" >&2; failed=1; }
-  if ! find "$OUT" -maxdepth 1 -name "*${id}*.md" | grep -q .; then
+  case "$kind" in conversation) target="$OUT" ;; *) target="$RECORDS" ;; esac
+  hermes sessions export "$target" --format md --session-id "$id" --force || { echo "export-sessions: markdown export failed for session $id" >&2; failed=1; }
+  if ! find "$target" -maxdepth 1 -name "*${id}*.md" | grep -q .; then
     echo "export-sessions: no markdown file for session $id" >&2; failed=1
   fi
-done <<< "$ids"
+done <<< "$kinds"
 if [ "$failed" -ne 0 ]; then
   echo "export-sessions: export incomplete; nothing committed" >&2
   exit 1

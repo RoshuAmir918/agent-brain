@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from brain import attribute, compile_context, digest, fm, nightly, retrieve
+from brain import attribute, compile_context, digest, fm, install, nightly, retrieve
 from brain.config import Config
 from brain.tasks import Task, bounded_hot_body, read_archive_body, seed_uses_from_body
 from brain.vault import Vault
@@ -12,7 +12,7 @@ from conftest import snapshot
 
 
 @pytest.fixture
-def alternate(tmp_path):
+def alternate(tmp_path, monkeypatch):
     (tmp_path / "brain.toml").write_text('''[brain]
 vault = "AgentThinkTree"
 agent_dir = "Orphan"
@@ -59,7 +59,8 @@ agent_name = "Guide"
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("READ ONLY HUMAN EVIDENCE")
-    sessions = root / "Conversations/Sessions"
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+    sessions = install.sessions_records_path()
     sessions.mkdir(parents=True)
     record = {"id": "fixture", "messages": [
         {"role": "user", "timestamp": "2026-10-20T12:00:00-07:00", "content": "Question"},
@@ -77,7 +78,7 @@ def test_alternate_layout_whole_night_and_preview(alternate, monkeypatch, capsys
     before = snapshot(config.repo)
     nightly.main(["nightly", "--date", "2026-10-20"])
     assert snapshot(config.repo) == before
-    sessions = root / "Conversations/Sessions"
+    sessions = install.sessions_records_path()
     nightly.main(["nightly", "--date", "2026-10-20", "--sessions-dir", str(sessions), "--write"])
     hot = (root / "Hot Set.md").read_text()
     warm = (root / "Warm Index.md").read_text()
@@ -147,7 +148,7 @@ def test_alternate_plain_paths_and_task_evidence(alternate):
 def test_nightly_run_loads_config_only_once(alternate):
     root = alternate.vault_path
     with patch.object(Config, "load", wraps=Config.load) as load:
-        nightly.run(root, date(2026, 10, 20), root / "Conversations/Sessions")
+        nightly.run(root, date(2026, 10, 20), install.sessions_records_path())
     load.assert_called_once_with(root.resolve())
 
 

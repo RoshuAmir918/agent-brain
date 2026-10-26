@@ -4,8 +4,9 @@ Usage:
   brain nightly [--vault <path>] [--date YYYY-MM-DD] [--write] [--commit] [--push]
   brain validate [--vault <path>]
   brain attribute [--vault <path>] --file <record.md> --ts <iso> [--reason <text>] [--write]
-  brain attribute [--vault <path>] --sessions-dir <dir> [--write]
+  brain attribute [--vault <path>] [--sessions-dir <dir>] [--write]
   brain digest [--vault <path>] --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]
+  (sessions default to $HERMES_HOME/records/sessions, the profile's own export)
   brain compile-context [--vault <path>] [--out <path>] [--write]
   brain retrieve [--vault <path>] <query> [--limit 12] [--json]
   brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
@@ -423,8 +424,9 @@ def cmd_validate(a):
 
 def cmd_attribute(a):
     root = a.config.vault_path
-    if a.sessions_dir:
-        for use in attribute.sessions(Vault(root), Path(a.sessions_dir).resolve(), a.write):
+    if not a.file:
+        directory = Path(a.sessions_dir).resolve() if a.sessions_dir else digest.default_sessions_dir(a.config)
+        for use in attribute.sessions(Vault(root), directory, a.write):
             print(use.line())
         return
     text = Path(a.file).read_text(encoding="utf-8")
@@ -499,6 +501,10 @@ def cmd_shard_sessions(args):
 
 
 def cmd_session_ids(args):
+    if args.with_kind:
+        for session_id, kind in digest.session_kinds(Path(args.jsonl)):
+            print(f"{session_id}\t{kind}")
+        return
     for session_id in digest.session_ids(Path(args.jsonl)):
         print(session_id)
 
@@ -536,7 +542,7 @@ def cmd_install_provider(args):
 
 def cmd_paths(args):
     paths = {"soul": args.config.soul_path, "skills": args.config.skills_path, "scripts": install.scripts_path(),
-             "provider": install.provider_path(),
+             "provider": install.provider_path(), "records": install.records_path(),
              "vault": args.config.vault_path, "repo": args.config.repo, "python": Path(sys.executable)}
     print(paths[args.path].resolve())
 
@@ -550,8 +556,8 @@ def main(argv=None):
     s.set_defaults(fn=cmd_nightly)
     s = sub.add_parser("validate"); s.add_argument("--vault"); s.set_defaults(fn=cmd_validate)
     s = sub.add_parser("attribute"); s.add_argument("--vault")
-    source = s.add_mutually_exclusive_group(required=True)
-    source.add_argument("--file"); source.add_argument("--sessions-dir")
+    source = s.add_mutually_exclusive_group()
+    source.add_argument("--file"); source.add_argument("--sessions-dir", help="default: $HERMES_HOME/records/sessions")
     s.add_argument("--ts"); s.add_argument("--reason"); s.add_argument("--write", action="store_true")
     s.set_defaults(fn=cmd_attribute)
     s = sub.add_parser("compile-context"); s.add_argument("--vault"); s.add_argument("--out")
@@ -574,7 +580,9 @@ def main(argv=None):
     s.add_argument("--vault")
     s.set_defaults(fn=cmd_simulate)
     s = sub.add_parser("shard-sessions"); s.add_argument("jsonl"); s.add_argument("directory"); s.add_argument("--vault"); s.set_defaults(fn=cmd_shard_sessions)
-    s = sub.add_parser("session-ids"); s.add_argument("jsonl"); s.add_argument("--vault"); s.set_defaults(fn=cmd_session_ids)
+    s = sub.add_parser("session-ids"); s.add_argument("jsonl"); s.add_argument("--vault")
+    s.add_argument("--with-kind", action="store_true", help="print id<TAB>kind: conversation, routine or evaluation")
+    s.set_defaults(fn=cmd_session_ids)
     s = sub.add_parser("install-skills"); s.add_argument("--vault"); s.add_argument("--force", action="store_true", help="also overwrite the day routines")
     s.set_defaults(fn=cmd_install_skills)
     s = sub.add_parser("update"); s.add_argument("--vault"); s.set_defaults(fn=cmd_update)
@@ -583,7 +591,7 @@ def main(argv=None):
     s = sub.add_parser("install-scripts"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_scripts)
     s = sub.add_parser("install-provider"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_provider)
     s = sub.add_parser("paths"); s.add_argument("--vault")
-    s.add_argument("path", choices=("soul", "skills", "scripts", "provider", "vault", "repo", "python")); s.set_defaults(fn=cmd_paths)
+    s.add_argument("path", choices=("soul", "skills", "scripts", "provider", "records", "vault", "repo", "python")); s.set_defaults(fn=cmd_paths)
     a = ap.parse_args(argv)
     if a.cmd == "attribute" and a.file and not a.ts:
         ap.error("--ts is required with --file")

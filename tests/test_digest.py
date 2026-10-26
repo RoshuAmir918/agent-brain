@@ -16,8 +16,10 @@ DAY = date(2026, 10, 20)
 
 
 @pytest.fixture
-def digest_sessions(vault):
-    directory = vault / "Conversations/Sessions"
+def digest_sessions(vault, tmp_path, monkeypatch):
+    home = tmp_path / "hermes-home"
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    directory = home / "records/sessions"
     directory.mkdir(parents=True)
     shutil.copyfile(Path(__file__).parent / "fixtures/all.jsonl", directory / "all.jsonl")
     (directory / "ignored.md").write_text("## user 2026-10-20T12:00:00-07:00\nMARKDOWN duplicate\n")
@@ -296,6 +298,16 @@ def test_session_ids_lists_each_session_once(tmp_path):
     assert digest.session_ids(path) == ["a1", "b2"]
 
 
+def test_session_kinds_classify_each_session_once(tmp_path, capsys):
+    from brain import digest, nightly
+    path = tmp_path / "all.jsonl"
+    path.write_text('{"id": "a1", "source": "slack", "messages": []}\n{"id": "cron_x_1", "source": "cron", "messages": []}\n'
+                    '{"id": "e1", "title": "Evaluation fixture: Q01", "messages": []}\n{"id": "a1"}\n', encoding="utf-8")
+    assert digest.session_kinds(path) == [("a1", "conversation"), ("cron_x_1", "routine"), ("e1", "evaluation")]
+    nightly.main(["session-ids", str(path), "--with-kind"])
+    assert capsys.readouterr().out == "a1\tconversation\ncron_x_1\troutine\ne1\tevaluation\n"
+
+
 def test_digest_labels_user_turns_with_the_platform_speaker_when_present(tmp_path, monkeypatch):
     import json
     from datetime import date
@@ -352,3 +364,18 @@ def test_shard_writes_only_changed_sessions_and_readers_use_shards(tmp_path):
     assert digest.session_ids(export) == ["a", "b"]
     text, _ = digest.build(Config.load(tmp_path / "memory"), date(2026, 10, 21), sessions, 25000)
     assert "two changed" in text and "one" in text
+
+
+def test_default_sessions_dir_falls_back_to_the_vault_until_records_exist(tmp_path, monkeypatch):
+    from brain import digest
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    home = tmp_path / "hermes-home"
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    legacy = tmp_path / "memory" / "Conversations" / "Sessions"
+    assert digest.default_sessions_dir(config) == home / "records" / "sessions"
+    legacy.mkdir(parents=True)
+    assert digest.default_sessions_dir(config) == legacy
+    (home / "records" / "sessions").mkdir(parents=True)
+    assert digest.default_sessions_dir(config) == home / "records" / "sessions"

@@ -176,3 +176,21 @@ def test_attribution_ignores_evaluation_sessions_and_routine_opens(tmp_path):
     assert ("explicit", "cron_sleep1") in kinds
     assert not any("cron_sleep1" in r and s == "observed" for s, r in kinds)
     assert not any("eval" in r for _, r in kinds)
+
+
+def test_attribute_defaults_to_the_profile_records_folder(tmp_path, monkeypatch, capsys):
+    import json
+    from brain import fm, nightly
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    vault = tmp_path / "memory"; (vault / "agent").mkdir(parents=True)
+    fm.write(vault / "Harbor.md", {"kind": "hub", "tier": "warm"}, "# Harbor\nbody\n")
+    fm.write(vault / "Hot Set.md", {}, "# Hot set\n## Automatic load\n")
+    home = tmp_path / "hermes-home"
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    sessions = home / "records" / "sessions" / "jsonl"; sessions.mkdir(parents=True)
+    call = {"role": "assistant", "content": "ok", "timestamp": "2026-10-21T10:00:00-07:00",
+            "tool_calls": [{"function": {"name": "read_file", "arguments": json.dumps({"path": "memory/Harbor.md"})}}]}
+    (sessions / "conv.jsonl").write_text(json.dumps({"id": "conv", "source": "slack", "messages": [call]}) + "\n", encoding="utf-8")
+    nightly.main(["attribute", "--vault", str(vault)])
+    assert "Harbor" in capsys.readouterr().out
+    assert not (vault / "Conversations").exists()
