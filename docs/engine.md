@@ -56,6 +56,8 @@ update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disable
 
 `log_dirs` is a list of folders under `agent_dir`, default `[]`, whose files are records rather than notes: receipts, ledgers, results. They join the engine's own ledgers (Explorations, Use Log, Sleep Log, Tasks Archive, Research) as kind `log`: never activated, never in the hot set or the index, never link-checked. A note anywhere else can declare the same by putting `kind: log` in its frontmatter. Add a folder here as soon as the agent starts filing process artefacts in it, or they compete with knowledge for the hot budget.
 
+The rule behind it: a routine owns three places, a state file it overwrites, a monthly ledger it appends one line to, and the notes it feeds knowledge into, never a file per run. Priming follows it: Sleep 2 overwrites `<agent_dir>/Primed.md` nightly; the older dated `Primed/` folder is still recognised and expired.
+
 Discovery walks upward from an explicit `--vault`, or from cwd when omitted, choosing the nearest `brain.toml`. Without `--vault`, the vault is `<config repo>/<vault>`. With it, the given path is the vault root, while the discovered config supplies its layout. Without any config, defaults apply; the repository root falls back to Git's top level, or the explicit vault's parent / cwd when outside Git. No identity or setup interview is required by the engine.
 
 ## Hermes memory provider

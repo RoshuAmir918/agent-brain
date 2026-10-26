@@ -12,7 +12,7 @@ metadata:
 A concise, verified account for {human_name} at the agreed hour, sent every day even when there is no news. Never before that hour.
 
 ## Procedure
-1. Read today's `{agent_dir}/Primed/<date>.md` first and follow its order. Then open tasks, Triggers, overnight commits, and any task entries tagged `morning:`.
+1. Read `{agent_dir}/Primed.md` first and follow its order. Then open tasks, Triggers, overnight commits, and any task entries tagged `morning:`.
 2. Recheck already-registered threads in {human_name}'s channels before raising an item. No broad inbox poll. Do not repeat an unchanged reminder.
 3. Compose, separating verified fact from reported status and results from proposals:
    - completions, blockers, decisions or questions owed, today's commitments and dated items;

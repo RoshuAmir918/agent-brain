@@ -296,3 +296,10 @@ def test_receipt_folders_and_declared_logs_are_never_notes(tmp_path):
     assert loaded.kind_for("Conversations/2026-10-25 Routine record.md") == "log"
     assert loaded.kind_for("Conversations/2026-10-25 Chat.md") == "episode"
     assert loaded.kind_for("agent/Receipts/README.md") == "log"
+
+
+def test_single_primed_file_is_primed(tmp_path):
+    root = tmp_path / "memory"
+    (root / "agent").mkdir(parents=True)
+    (root / "agent/Primed.md").write_text("---\nkind: primed\ntier: hot\n---\n# Today\n")
+    assert Vault(root).kind_for("agent/Primed.md") == "primed"

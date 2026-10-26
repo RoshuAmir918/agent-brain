@@ -127,8 +127,8 @@ class Vault:
             return "dream" if not rel.endswith("README.md") else "log"
         if rel.startswith(self.config.agent("Reflections/")):
             return "reflection"
-        if rel.startswith(self.config.agent("Primed/")):
-            return "primed"
+        if rel == self.config.agent("Primed.md") or rel.startswith(self.config.agent("Primed/")):
+            return "primed"   # one file, overwritten nightly; the dated folder is the older layout
         return "hub"
 
     def resolve(self, target: str) -> str | None:

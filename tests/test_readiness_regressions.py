@@ -363,3 +363,14 @@ def test_archive_body_with_its_own_heading_is_not_duplicated_on_restore(tmp_path
     archive.write_text("# T-001 — Thing\n<!-- brain: status=open; tier=warm -->\n\nFull register entry, kept here while the task is warm. State is still open. Preserved by the nightly script.\n\n# T-001 — Thing\n<!-- brain: status=open; tier=warm -->\n\n- **Status:** open\n", encoding="utf-8")
     body = tasks.read_archive_body(config, "T-001")
     assert body.startswith("- **Status:** open")
+
+
+def test_single_primed_file_never_expires_and_stays_out_of_hot_set(tmp_path):
+    root = fixture(tmp_path / "memory")
+    path = root / "agent/Primed.md"
+    fm.write(path, {"kind": "primed", "tier": "hot", "pinned": False, "uses": ["2026-10-06"], "uses_inferred": []},
+             "# DIAGNOSTIC today\n")
+    nightly.main(nightly_argv(root, "2026-10-06", "--write"))
+    assert fm.read(path)[0]["tier"] == "hot"
+    assert "Primed" not in (root / "Hot Set.md").read_text()
+    assert validate.run(Vault(root), set()) == []
