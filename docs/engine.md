@@ -45,6 +45,7 @@ hermes_dir = "hermes"
 human_name = "Human"
 agent_name = "Agent"
 owner_user_ids = []
+log_dirs = []
 skill_prefix = "brain-"
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables auto-update
 ```
@@ -52,6 +53,8 @@ update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disable
 `vault` and `sources_dir` are relative to the repository root. The agent, people, agents, human profile and Hermes paths are relative to the vault. `sources_dir` remains read-only. `Archive/` is a supported read-only sibling link namespace; it is not a new config key. Layout paths must be relative without `..`. Tasks, Triggers, CURRENT, Hot Set, Warm Index and the other note basenames remain fixed. Generated wikilinks use the configured `vault` prefix. `BRAIN_HUMAN_NAME` and `BRAIN_AGENT_NAME`, when set, override the configured display names, including rendered skills.
 
 `owner_user_ids` is a list of strings, default `[]`, containing the owner's platform user IDs (for example Slack `U...` IDs). Either the primary or alternative session ID can identify the owner; display names and chat IDs cannot. This key does not change skill template values.
+
+`log_dirs` is a list of folders under `agent_dir`, default `[]`, whose files are records rather than notes: receipts, ledgers, results. They join the engine's own ledgers (Explorations, Use Log, Sleep Log, Tasks Archive, Research) as kind `log`: never activated, never in the hot set or the index, never link-checked. A note anywhere else can declare the same by putting `kind: log` in its frontmatter. Add a folder here as soon as the agent starts filing process artefacts in it, or they compete with knowledge for the hot budget.
 
 Discovery walks upward from an explicit `--vault`, or from cwd when omitted, choosing the nearest `brain.toml`. Without `--vault`, the vault is `<config repo>/<vault>`. With it, the given path is the vault root, while the discovered config supplies its layout. Without any config, defaults apply; the repository root falls back to Git's top level, or the explicit vault's parent / cwd when outside Git. No identity or setup interview is required by the engine.
 

@@ -21,6 +21,7 @@ class Config:
     human_name: str = "Human"
     agent_name: str = "Agent"
     owner_user_ids: list[str] = field(default_factory=list)
+    log_dirs: list[str] = field(default_factory=list)   # folders under agent_dir holding receipts and ledgers, never notes
     skill_prefix: str = "brain-"
     update_source: str = "git+https://github.com/RoshuAmir918/agent-brain"   # empty string disables brain update
     _vault_path: Path | None = None
@@ -51,9 +52,11 @@ class Config:
         paths = {}
         for name in allowed:
             value = getattr(config, name)
-            if name == "owner_user_ids":
-                if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-                    raise ValueError("brain.owner_user_ids must be a list of strings")
+            if name in ("owner_user_ids", "log_dirs"):
+                if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+                    raise ValueError(f"brain.{name} must be a list of strings")
+                if name == "log_dirs" and any(Path(item).is_absolute() or ".." in Path(item).parts for item in value):
+                    raise ValueError("brain.log_dirs must be relative paths without '..'")
                 continue
             if not isinstance(value, str) or (not value and name not in ("skill_prefix", "update_source")):
                 raise ValueError(f"brain.{name} must be a nonempty string")
@@ -92,6 +95,12 @@ class Config:
     @property
     def generated_views(self) -> set[str]:
         return {"CURRENT.md", "Hot Set.md", "Warm Index.md", self.agent("Tasks.md"), self.agent("Triggers.md")}
+
+    @property
+    def log_paths(self) -> tuple[str, ...]:
+        """Agent-folder prefixes whose files are logs: engine ledgers plus the vault's own receipt folders."""
+        names = ("Research", "Explorations", "Use Log", "Sleep Log", "Tasks Archive", *self.log_dirs)
+        return tuple(self.agent(Path(name).as_posix() + "/") for name in names)
 
     @property
     def observed_excluded(self) -> tuple[str, ...]:

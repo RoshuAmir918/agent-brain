@@ -9,5 +9,6 @@ hermes_dir = "hermes"
 human_name = "Human"
 agent_name = "Agent"
 owner_user_ids = []
+log_dirs = []   # folders under agent_dir that hold receipts, ledgers or results; never notes, never hot
 skill_prefix = "brain-"
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables the nightly auto-update

@@ -277,3 +277,22 @@ def test_open_archived_task_requires_warm_index_entry(vault):
     assert validate.run(Vault(vault), set()) == ["T-099: open task archived but not listed in Warm Index"]
     (vault / "Warm Index.md").write_text("# Warm index\n[[memory/agent/Tasks Archive/T-099|T-099]]\n")
     assert validate.run(Vault(vault), {"Warm Index.md"}) == []
+
+
+def test_receipt_folders_and_declared_logs_are_never_notes(tmp_path):
+    (tmp_path / "brain.toml").write_text('[brain]\nlog_dirs = ["Receipts"]\n')
+    root = tmp_path / "memory"
+    for relative, text in {
+        "agent/Receipts/2026-10-25-run.md": "---\ntier: hot\n---\n# Ran 06:30\n",
+        "Conversations/2026-10-25 Routine record.md": "---\nkind: log\ntier: hot\n---\n# Record\n",
+        "Conversations/2026-10-25 Chat.md": "---\ntier: hot\n---\n# Chat\n",
+        "agent/Receipts/README.md": "---\nkind: log\n---\n# Receipts\n",
+    }.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    loaded = Vault(root)
+    assert loaded.kind_for("agent/Receipts/2026-10-25-run.md") == "log"
+    assert loaded.kind_for("Conversations/2026-10-25 Routine record.md") == "log"
+    assert loaded.kind_for("Conversations/2026-10-25 Chat.md") == "episode"
+    assert loaded.kind_for("agent/Receipts/README.md") == "log"

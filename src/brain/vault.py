@@ -108,6 +108,9 @@ class Vault:
     def kind_for(self, rel: str) -> str:
         if rel in self.config.orientation:
             return "orientation"
+        note = self.notes.get(rel)
+        if note is not None and note.data.get("kind") == "log":
+            return "log"   # a note may declare itself a record wherever it lives
         if rel.startswith(("Conversations/Sessions/", "Conversations/Digests/")):
             return "log"   # Hermes session export: cold, never indexed
         if rel.startswith(self.config.hermes_dir + "/") and rel != f"{self.config.hermes_dir}/README.md":
@@ -118,8 +121,7 @@ class Vault:
             return "profile"
         if rel.startswith((self.config.people_dir + "/", self.config.agents_dir + "/")) and rel.endswith("/History.md"):
             return "log"
-        if rel.startswith(tuple(self.config.agent(name + "/") for name in
-                                ("Research", "Explorations", "Use Log", "Sleep Log", "Tasks Archive"))):
+        if rel.startswith(self.config.log_paths):
             return "log"
         if rel.startswith(self.config.agent("Dreams/")):
             return "dream" if not rel.endswith("README.md") else "log"

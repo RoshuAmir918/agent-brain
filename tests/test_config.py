@@ -122,3 +122,19 @@ def test_nested_configured_paths_preview_and_write(vault, monkeypatch):
     assert (repo / ".hermes.md").exists()
     assert "[[notes/wiki/internal/agent/Tasks Archive/T-001|" in (root / "internal/agent/Tasks.md").read_text()
     assert "## notes/wiki/internal/agent/Triggers.md" in (repo / ".hermes.md").read_text()
+
+
+def test_log_dirs_route_agent_folders_to_log(tmp_path):
+    (tmp_path / "brain.toml").write_text('[brain]\nlog_dirs = ["Receipts", "Results/Daily"]\n')
+    config = Config.load(tmp_path)
+    assert config.log_dirs == ["Receipts", "Results/Daily"]
+    assert config.agent("Receipts/") in config.log_paths
+    assert config.agent("Results/Daily/") in config.log_paths
+    assert config.agent("Sleep Log/") in config.log_paths
+
+
+@pytest.mark.parametrize("value", ['"Receipts"', '["../x"]', '["/abs"]', '[""]'])
+def test_log_dirs_reject_bad_values(tmp_path, value):
+    (tmp_path / "brain.toml").write_text("[brain]\nlog_dirs = " + value + "\n")
+    with pytest.raises(ValueError, match="brain.log_dirs"):
+        Config.load(tmp_path)
