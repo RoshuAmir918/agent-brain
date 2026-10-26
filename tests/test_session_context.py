@@ -10,7 +10,7 @@ from brain.vault import Vault
 def people_vault(tmp_path, monkeypatch):
     monkeypatch.delenv("BRAIN_HUMAN_NAME", raising=False)
     (tmp_path / "brain.toml").write_text(
-        '[brain]\nhuman_name = "Mira"\nowner_user_ids = ["U_OWNER", "12345"]\n', encoding="utf-8")
+        '[brain]\nhuman_name = "Mira"\nowner_user_ids = ["U_OWNER", "12345"]\nmaintainers = ["U_MAINT"]\n', encoding="utf-8")
     root = tmp_path / "memory"
     notes = {
         "people/Alice/Profile.md": "# Alice\nSlack: U_ALICE\nAlice likes gardens.\n",
@@ -175,3 +175,10 @@ def test_cli_prints_unknown_context_and_nothing_without_identity(people_vault, c
         "This session is with an unknown person (slack NOPE, name shown as not provided).")
     nightly.main(["session-context", "--vault", str(people_vault.root)])
     assert capsys.readouterr().out == ""
+
+
+def test_maintainer_context_is_the_health_report_without_profiles_or_rules(people_vault):
+    text = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_MAINT")
+    assert text.startswith("This session is with a maintainer of this brain (slack U_MAINT), not the owner.")
+    assert "# Health: Agent" in text and "Stages:" in text and "Git:" not in text
+    assert "Alice likes gardens" not in text and "allow" not in text and "stranger" in text

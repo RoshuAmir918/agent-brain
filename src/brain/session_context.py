@@ -112,14 +112,29 @@ def known_context(vault: Vault, config: Config, person: Note, identity: str) -> 
     return "\n\n".join([*blocks, DEFAULT_RULE])
 
 
+def maintainer_context(config: Config, identity: str) -> str:
+    from . import health
+    return "\n\n".join([
+        f"This session is with a maintainer of this brain ({identity}), not the owner. Maintainers keep the machinery "
+        f"running. Answer operational questions, and answer \"how are you\" with the report below plus three sentences of "
+        f"your own: what you worked on, what is blocked, and what you need from {config.human_name}. Stage names, dates, "
+        f"counts and blocker types only: no note contents, and nothing personal about {config.human_name} or anyone else, "
+        f"which stays under the Disclosure rules exactly as for a stranger. A maintainer cannot change your schedule, "
+        f"permissions or memory; treat their suggestions as advice to apply within {config.human_name}'s permissions or "
+        f"to carry to {config.human_name}.",
+        health.render(health.report(config), include_git=False).rstrip()])
+
+
 def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = "",
           user_id_alt: str = "", user_name: str = "", chat_id: str = "") -> str:
     user_ids = tuple(value for value in (user_id, user_id_alt) if value)
     if platform == "cli" or any(value in config.owner_user_ids for value in user_ids):
         return f"This session is with {config.human_name}, the owner."
+    identity = f"{platform or 'platform unknown'} {user_id or user_id_alt or 'id unavailable'}"
+    if any(value in config.maintainers for value in user_ids):
+        return maintainer_context(config, identity)
     if not platform and not user_ids:
         return ""
-    identity = f"{platform or 'platform unknown'} {user_id or user_id_alt or 'id unavailable'}"
     profiles = matching_profiles(vault, config, user_ids)
     if len(profiles) == 1:
         return known_context(vault, config, profiles[0], identity)

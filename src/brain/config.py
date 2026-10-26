@@ -21,6 +21,7 @@ class Config:
     human_name: str = "Human"
     agent_name: str = "Agent"
     owner_user_ids: list[str] = field(default_factory=list)
+    maintainers: list[str] = field(default_factory=list)   # platform user ids that keep the machinery running; never the owner
     log_dirs: list[str] = field(default_factory=list)   # folders under agent_dir holding receipts and ledgers, never notes
     skill_prefix: str = "brain-"
     update_source: str = "git+https://github.com/RoshuAmir918/agent-brain"   # empty string disables brain update
@@ -52,7 +53,7 @@ class Config:
         paths = {}
         for name in allowed:
             value = getattr(config, name)
-            if name in ("owner_user_ids", "log_dirs"):
+            if name in ("owner_user_ids", "maintainers", "log_dirs"):
                 if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
                     raise ValueError(f"brain.{name} must be a list of strings")
                 if name == "log_dirs" and any(Path(item).is_absolute() or ".." in Path(item).parts for item in value):

@@ -34,7 +34,7 @@ from datetime import date
 from pathlib import Path
 
 from . import activation as act
-from . import attribute, compile_context, digest, fm, index, retrieve, session_context, triggers, validate
+from . import attribute, compile_context, digest, fm, health, index, retrieve, session_context, triggers, validate
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import Config
@@ -474,6 +474,16 @@ def cmd_simulate(a):
     print(act.simulate_table(a.h, a.w))
 
 
+def cmd_health(args):
+    data = health.report(args.config, date.fromisoformat(args.date) if args.date else None)
+    if args.write:
+        print(health.write(args.config, data))
+    elif args.json:
+        print(health.to_json(data))
+    else:
+        print(health.render(data), end="")
+
+
 def cmd_session_context(args):
     text = session_context.build(Vault(args.config.vault_path), args.config,
                                  platform=args.platform, user_id=args.user_id,
@@ -553,6 +563,9 @@ def main(argv=None):
     s.add_argument("--write", action="store_true"); s.set_defaults(fn=cmd_digest)
     s = sub.add_parser("retrieve"); s.add_argument("--vault"); s.add_argument("query")
     s.add_argument("--limit", type=int, default=12); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_retrieve)
+    s = sub.add_parser("health"); s.add_argument("--vault"); s.add_argument("--date")
+    s.add_argument("--json", action="store_true"); s.add_argument("--write", action="store_true", help="write <hermes_dir>/health.md")
+    s.set_defaults(fn=cmd_health)
     s = sub.add_parser("session-context"); s.add_argument("--vault")
     for option in ("platform", "user-id", "user-id-alt", "user-name", "chat-id"):
         s.add_argument("--" + option, default="")

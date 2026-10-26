@@ -45,6 +45,7 @@ hermes_dir = "hermes"
 human_name = "Human"
 agent_name = "Agent"
 owner_user_ids = []
+maintainers = []
 log_dirs = []
 skill_prefix = "brain-"
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables auto-update
@@ -53,6 +54,8 @@ update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disable
 `vault` and `sources_dir` are relative to the repository root. The agent, people, agents, human profile and Hermes paths are relative to the vault. `sources_dir` remains read-only. `Archive/` is a supported read-only sibling link namespace; it is not a new config key. Layout paths must be relative without `..`. Tasks, Triggers, CURRENT, Hot Set, Warm Index and the other note basenames remain fixed. Generated wikilinks use the configured `vault` prefix. `BRAIN_HUMAN_NAME` and `BRAIN_AGENT_NAME`, when set, override the configured display names, including rendered skills.
 
 `owner_user_ids` is a list of strings, default `[]`, containing the owner's platform user IDs (for example Slack `U...` IDs). Either the primary or alternative session ID can identify the owner; display names and chat IDs cannot. This key does not change skill template values.
+
+`maintainers` is a list of platform user ids, default `[]`, for the humans or agents who keep this brain's machinery running without being its owner: whoever set it up, or an agent that runs a nightly briefing. A session from one of them gets the maintainer block: what a maintainer may ask and what the agent may say (operational facts, blocker types, what it needs from the owner; nothing personal, Disclosure applies as for a stranger), followed by the current `brain health` report.
 
 `log_dirs` is a list of folders under `agent_dir`, default `[]`, whose files are records rather than notes: receipts, ledgers, results. They join the engine's own ledgers (Explorations, Use Log, Sleep Log, Tasks Archive, Research) as kind `log`: never activated, never in the hot set or the index, never link-checked. A note anywhere else can declare the same by putting `kind: log` in its frontmatter. Add a folder here as soon as the agent starts filing process artefacts in it, or they compete with knowledge for the hot budget.
 
@@ -78,6 +81,10 @@ hermes config set memory.provider brain
 Ask the owner for their platform IDs and add `owner_user_ids = ["U_OWNER_ID"]` to the existing `[brain]` table, then restart the gateway. Verify with a non-owner Slack session or ask the agent what its provider block says. `brain paths provider` prints the installation directory. Hermes can use a different Python interpreter: the installed plugin imports no `brain` modules and uses only the standard library.
 
 The plugin finds the repository from the session's `cwd`, then `VAULT_REPO`, then `$HOME/brain`, using the first location with a `brain.toml` (including parent directories). Each CLI subprocess runs with that repository as cwd so its configured vault layout applies. Set `HERMES_HOME` when installing into a non-default Hermes home. Installing or updating copies files only; enabling the provider and restarting remain explicit steps.
+
+## Health
+
+`brain health` prints an operational report built only from commits, engine state files and counts: the last run of each night stage with ok, stale or never (a stage is ok when its commit covers yesterday or later), installed against recorded engine version and any pending migration, yesterday's digest coverage line, validation problems, note counts by tier, open tasks, and the working tree against origin. `--json` gives the same as data; `--write` saves the committed copy to `<hermes_dir>/health.md` (without the working-tree line, so hourly refreshes only commit real change). The refresh script writes it every hour. An agent asked "how are you" by a maintainer answers from this report; nothing in it is a note's contents.
 
 ## Parallel operation boundary
 
