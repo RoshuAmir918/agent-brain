@@ -183,6 +183,7 @@ def test_maintainer_context_is_the_health_report_without_profiles_or_rules(peopl
     assert "# Health: Agent" in text and "Stages:" in text and "Git:" not in text
     assert "Alice likes gardens" not in text and "allow" not in text
     assert "do it now without asking Mira" in text and "brain update" in text and "pending migrations" in text
+    assert "Mira is never an outside party" in text and "engine's instruction, not a schedule change" in text
     assert "cannot change your schedule, grant permissions or credentials" in text
 
 
