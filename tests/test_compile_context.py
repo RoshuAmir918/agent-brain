@@ -38,7 +38,8 @@ def test_context_contains_source_bodies_and_only_open_register_sections(context_
                ("### T-003", "### T-004", "CLOSED_BODY", "UNSTATED_BODY", "REGISTER_TAIL"))
     assert "## Automatic load\n\n- [[memory/START|Start]] — AUTOMATIC_ENTRY" in text
     assert "OVERFLOW_ENTRY" not in text and "HOT_PREAMBLE" not in text
-    positions = [text.index(f"## memory/{source}") for source in Config(Path('.')).context_sources]
+    positions = [text.index(f"## memory/{source}") for source in Config(Path('.')).context_sources
+                 if (context_vault / source).is_file()]
     assert positions == sorted(positions)
     assert text.splitlines()[0] == "Generated nightly by `brain`."
     assert text.splitlines()[2].startswith("Edit the source notes instead:")
@@ -108,3 +109,17 @@ def test_context_directory_lists_hubs_people_and_open_tasks(context_vault):
     assert "- Hubs and topics: " in body
     assert "- Open tasks: " in body
     assert "Hot Set" not in body.split("- Hubs and topics: ", 1)[1].split("\n", 1)[0]
+
+
+def test_context_includes_goals_when_present_and_skips_them_until_then(context_vault):
+    text = compile_context.build(Vault(context_vault))
+    assert "Goals" not in text
+    (context_vault / "human").mkdir()
+    fm.write(context_vault / "human/Goals.md", {"kind": "orientation", "pinned": True, "tier": "hot"},
+             "# Goals\n## Active goals\nGOALS_BODY\n")
+    vault = Vault(context_vault)
+    text = compile_context.build(vault)
+    assert "## memory/human/Goals.md\n\n# Goals" in text and "GOALS_BODY" in text
+    assert text.index("# Current") < text.index("GOALS_BODY") < text.index("# Triggers")
+    assert "human/Goals" not in compile_context.directory(vault)
+    assert Config.load(context_vault).template_values()["human_goals"] == "human/Goals.md"

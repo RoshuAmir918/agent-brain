@@ -84,14 +84,19 @@ class Config:
         return f"{self.vault}/{relative}"
 
     @property
+    def human_goals(self) -> str:
+        """The owner's goals, beside their profile: aspirations, active goals, adopted practices, in their words."""
+        return (Path(self.human_profile).parent / "Goals.md").as_posix()
+
+    @property
     def orientation(self) -> set[str]:
-        return {"START.md", "CURRENT.md", "Hot Set.md", "Warm Index.md",
+        return {"START.md", "CURRENT.md", "Hot Set.md", "Warm Index.md", self.human_goals,
                 f"{self.hermes_dir}/README.md", *(self.agent(name) for name in
                 ("SOUL.md", "Triggers.md", "Tasks.md", "Channels.md", "Memory Spec.md", "Retrieval Checks.md"))}
 
     @property
     def context_sources(self) -> tuple[str, ...]:
-        return ("START.md", "CURRENT.md", self.agent("Triggers.md"), self.agent("Tasks.md"), "Hot Set.md")
+        return ("START.md", "CURRENT.md", self.human_goals, self.agent("Triggers.md"), self.agent("Tasks.md"), "Hot Set.md")
 
     @property
     def generated_views(self) -> set[str]:
@@ -127,4 +132,4 @@ class Config:
     def template_values(self) -> dict[str, str]:
         return {name: getattr(self, name) for name in
                 ("vault", "agent_dir", "people_dir", "agents_dir", "human_profile",
-                 "sources_dir", "hermes_dir", "human_name", "agent_name")} | {"prefix": self.skill_prefix}
+                 "sources_dir", "hermes_dir", "human_name", "agent_name")} | {"prefix": self.skill_prefix, "human_goals": self.human_goals}

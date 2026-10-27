@@ -39,11 +39,13 @@ def automatic_load(body: str) -> str:
 
 def build(vault: Vault) -> str:
     config = vault.config
+    sources = [rel for rel in config.context_sources
+               if rel != config.human_goals or (vault.root / rel).is_file()]   # Goals is written with the owner, so a vault may not have one yet
     header = ("Generated nightly by `brain`.\n"
               "Edits to this file are overwritten.\n"
-              "Edit the source notes instead: " + ", ".join(config.link(rel) for rel in config.context_sources) + ".")
+              "Edit the source notes instead: " + ", ".join(config.link(rel) for rel in sources) + ".")
     sections = [header]
-    for rel in config.context_sources:
+    for rel in sources:
         _, body = fm.read(vault.root / rel)
         if rel == config.agent("Tasks.md"):
             body = open_register(vault, body)

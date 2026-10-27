@@ -50,7 +50,8 @@ def skills(config: Config, force: bool = False) -> Path:
 
 def responsibility(config: Config, name: str, skill: str, records: str) -> list[Path]:
     """Build the three homes of a responsibility: hub at the vault root, own skill, records folder. Existing files are kept."""
-    values = config.template_values() | {"name": name, "skill": skill, "records": records}
+    values = config.template_values() | {"name": name, "skill": skill, "records": records,
+                                         "human_goals_link": config.human_goals.removesuffix(".md")}
     written = []
     for template, target in (("hub.md", config.vault_path / f"{name}.md"),
                              ("skill.md", config.skills_path / skill / "SKILL.md")):
