@@ -85,7 +85,7 @@ The plugin finds the repository from the session's `cwd`, then `VAULT_REPO`, the
 
 ## Goals
 
-`<human_profile's folder>/Goals.md` is the owner's goals in their own words, three headings: Aspirations, Active goals, Adopted practices. It is an orientation note, compiled into `.hermes.md` after CURRENT when it exists, and skipped when the vault has none yet. The recall skill holds the rule: a lens for what the agent chooses to do and for advice it is asked for, never raised uninvited, never a reminder or a schedule; a goal grants nothing. The improve routine proposes standing work toward goals nobody is working on. Skill templates can name it with `{human_goals}`.
+`<human_profile's folder>/Goals.md` is the owner's goals in their own words, four headings: Aspirations, Active goals, Adopted practices, Set aside. A goal enters Active goals only when the owner calls it one or returns to it on a second day; with no dated evidence for sixty days Sleep 2 nudges once through the briefing, and after thirty more days of silence moves it to Set aside, dated. It is an orientation note, compiled into `.hermes.md` after CURRENT when it exists, and skipped when the vault has none yet. The recall skill holds the rule: a lens for what the agent chooses to do and for advice it is asked for, never raised uninvited, never a reminder or a schedule; a goal grants nothing. The improve routine proposes standing work toward goals nobody is working on. Skill templates can name it with `{human_goals}`.
 
 ## Responsibilities
 
