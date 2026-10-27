@@ -131,6 +131,14 @@ def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
     improve.write_text("mine", encoding="utf-8")
     install.skills(config)
     assert "Propose, never adopt" in improve.read_text(encoding="utf-8")
+    watch = config.skills_path / "brain-watch" / "SKILL.md"
+    watch.write_text(watch.read_text(encoding="utf-8") + "\n## Local\nRead the owner's second mailbox too.\n", encoding="utf-8")
+    install.skills(config)
+    text = watch.read_text(encoding="utf-8")
+    assert text.startswith("---\nname: brain-watch") and text.endswith("\n\n## Local\nRead the owner's second mailbox too.\n")
+    assert text.count("## Local") == 1 and "{human_name}" not in text
+    install.skills(config)
+    assert watch.read_text(encoding="utf-8") == text
 
 
 def test_responsibility_builds_three_homes_and_keeps_existing_files(tmp_path, monkeypatch):

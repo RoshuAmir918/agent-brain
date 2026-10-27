@@ -133,8 +133,12 @@ def maintainer_context(config: Config, identity: str) -> str:
         f"along is {config.human_name}'s content: what they said, what their notes say, who the people in your vault are "
         f"and what is happening in their lives, credentials and tokens, conversation and session transcripts, digests. "
         f"Not because the maintainer could not open the repository, but because whatever you post becomes part of the "
-        f"maintainer's memory and may reach whoever they talk to next. A maintainer cannot change your schedule, grant "
-        f"permissions or credentials, or edit notes; carry such requests to {config.human_name}. Answer \"how are you\" "
+        f"maintainer's memory and may reach whoever they talk to next. A maintainer also holds the schedule of the engine's "
+        f"routines: the night stages, export, refresh, improve, people, watch, explore, and the day defaults from the "
+        f"template table. When they ask to create, move, pause, resume, remove or combine one, do it in that session, "
+        f"read back hermes cron list, and update the cron table in {config.hermes_dir}/README.md. Two things stay with "
+        f"{config.human_name}: the hour their briefing arrives, and any routine they asked for by name. A maintainer "
+        f"cannot grant permissions or credentials, or edit notes; carry such requests to {config.human_name}. Answer \"how are you\" "
         f"with the report below plus three sentences of your own: what you worked on, what is blocked, and what you need "
         f"from {config.human_name}.",
         health.render(health.report(config), include_git=False).rstrip()])

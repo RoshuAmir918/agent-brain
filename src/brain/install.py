@@ -1,6 +1,8 @@
 """Install package-owned Hermes routines without changing global config."""
 from __future__ import annotations
 
+import re
+
 import os
 import subprocess
 import sys
@@ -28,8 +30,17 @@ def sessions_records_path() -> Path:
     return records_path() / "sessions"
 
 
-CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall", "improve"})   # the memory mechanism: always overwritten
-                                                                       # everything else is a default the vault owns after first install
+CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall", "improve", "people", "explore", "watch"})
+# the memory mechanism and the engine's own passes: always overwritten, keeping the vault's `## Local` section
+# everything else is a default the vault owns after first install
+
+LOCAL_HEADING = re.compile(r"^## Local[ \t]*$", re.M)
+
+
+def local_section(text: str) -> str:
+    """The vault's own additions to a core skill: from a `## Local` heading to the end of the file."""
+    match = LOCAL_HEADING.search(text)
+    return text[match.start():].rstrip("\n") + "\n" if match else ""
 
 
 def skills(config: Config, force: bool = False) -> Path:
@@ -43,6 +54,10 @@ def skills(config: Config, force: bool = False) -> Path:
         text = template.read_text(encoding="utf-8")
         for token, value in config.template_values().items():
             text = text.replace("{" + token + "}", value)
+        if target.exists():
+            local = local_section(target.read_text(encoding="utf-8"))
+            if local:
+                text = text.rstrip("\n") + "\n\n" + local
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
     return config.skills_path
