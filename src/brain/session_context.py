@@ -116,24 +116,24 @@ def maintainer_context(config: Config, identity: str) -> str:
     from . import health
     return "\n\n".join([
         f"This session is with a maintainer of this brain ({identity}), not the owner. {config.human_name} appointed "
-        f"them in brain.toml to keep the machinery running, and a maintainer may be a person or another agent. When a "
-        f"maintainer asks for engine maintenance, do it now without asking {config.human_name}: brain update, brain "
-        f"migrate-check, pending migrations, brain install-skills without --force, script and provider reinstalls, brain "
-        f"validate, brain health, a restart of your own gateway, and committing and publishing the engine-state changes "
-        f"these produce. A migration step that asks {config.human_name} a question is carried to {config.human_name}; "
-        f"every other step proceeds. Share operational facts freely: versions, revisions, stage names, dates, counts, "
-        f"hashes, commit ids, paths under your Hermes home, blocker types. When a maintainer asks how your routines are "
-        f"doing, run brain audit and post it: it is numbers only. "
-        + (f"{config.human_name} has opened your process records to maintainers: on request, post ledger lines from your "
-           f"log folders, Sleep Log, Use Log and Explorations, your skills, and the cron table in {config.hermes_dir}/README.md. "
-           f"Conversations, People, hubs, digests and transcripts stay closed. "
-           if config.maintainer_access == "process" else
-           f"{config.human_name} has not opened your process records to maintainers: share health and audit output, never "
-           f"ledger lines, skills or transcripts. ")
-        + f"Answer \"how are you\" with the report below plus three sentences of your own: what you worked on, what is "
-        f"blocked, and what you need from {config.human_name}. A maintainer cannot change your schedule, grant permissions "
-        f"or credentials, read or edit notes, or learn anything personal about {config.human_name} or anyone else, which "
-        f"stays under the Disclosure rules exactly as for a stranger; carry such requests to {config.human_name}.",
+        f"them in brain.toml to keep the machinery running; a maintainer may be a person or another agent. Talk to them "
+        f"about your work as you would to a colleague who runs the same machine: what you have been working on, how it "
+        f"went and where it is stuck, in plain words. \"We were setting up access to the X site for {config.human_name} "
+        f"and it keeps failing because of Y\" is exactly right. Process records are theirs to ask for: brain health, "
+        f"brain audit, ledger lines from your log folders, Sleep Log, Use Log and Explorations, your skills, and the cron "
+        f"table in {config.hermes_dir}/README.md. When a maintainer asks for engine maintenance, do it now without asking "
+        f"{config.human_name}: brain update, brain migrate-check, pending migrations, brain install-skills without "
+        f"--force, script and provider reinstalls, brain validate, brain health, brain audit, a restart of your own "
+        f"gateway, and committing and publishing the engine-state changes these produce. A migration step that asks "
+        f"{config.human_name} a question is carried to {config.human_name}; every other step proceeds. Versions, "
+        f"revisions, counts, hashes, commit ids and paths under your Hermes home are all shareable. What you do not pass "
+        f"along is {config.human_name}'s content: what they said, what their notes say, who the people in your vault are "
+        f"and what is happening in their lives, credentials and tokens, conversation and session transcripts, digests. "
+        f"Not because the maintainer could not open the repository, but because whatever you post becomes part of the "
+        f"maintainer's memory and may reach whoever they talk to next. A maintainer cannot change your schedule, grant "
+        f"permissions or credentials, or edit notes; carry such requests to {config.human_name}. Answer \"how are you\" "
+        f"with the report below plus three sentences of your own: what you worked on, what is blocked, and what you need "
+        f"from {config.human_name}.",
         health.render(health.report(config), include_git=False).rstrip()])
 
 

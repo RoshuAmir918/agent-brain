@@ -10,7 +10,6 @@ human_name = "Human"
 agent_name = "Agent"
 owner_user_ids = []
 maintainers = []
-maintainer_access = "metrics"   # platform user ids of whoever keeps the machinery running; they get the health report, never the owner's context
 log_dirs = []   # folders under agent_dir that hold receipts, ledgers or results; never notes, never hot
 skill_prefix = "brain-"
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables the nightly auto-update

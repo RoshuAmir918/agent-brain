@@ -181,14 +181,13 @@ def test_maintainer_context_is_the_health_report_without_profiles_or_rules(peopl
     text = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_MAINT")
     assert text.startswith("This session is with a maintainer of this brain (slack U_MAINT), not the owner.")
     assert "# Health: Agent" in text and "Stages:" in text and "Git:" not in text
-    assert "Alice likes gardens" not in text and "allow" not in text and "stranger" in text
+    assert "Alice likes gardens" not in text and "allow" not in text
     assert "do it now without asking Mira" in text and "brain update" in text and "pending migrations" in text
     assert "cannot change your schedule, grant permissions or credentials" in text
 
 
-def test_maintainer_block_states_whether_process_records_are_open(people_vault, tmp_path):
+def test_maintainer_block_licenses_plain_talk_about_work_and_closes_the_owners_content(people_vault):
     text = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_MAINT")
-    assert "has not opened your process records" in text and "brain audit" in text
-    opened = replace(people_vault.config, maintainer_access="process")
-    text = session_context.build(people_vault, opened, platform="slack", user_id="U_MAINT")
-    assert "has opened your process records" in text and "transcripts stay closed" in text
+    assert "setting up access to the X site for Mira and it keeps failing because of Y" in text
+    assert "brain audit" in text and "ledger lines" in text and "do it now without asking Mira" in text
+    assert "What you do not pass along is Mira's content" in text and "whoever they talk to next" in text

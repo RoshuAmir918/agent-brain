@@ -62,9 +62,3 @@ def test_audit_cli_json_and_window(audited, capsys):
     nightly.main(["audit", "--vault", str(audited.vault_path), "--date", "2026-10-26"])
     assert capsys.readouterr().out.startswith("# Audit: Agent, 2026-10-26, last 14 days\n")
 
-
-def test_maintainer_access_is_validated(tmp_path):
-    (tmp_path / "brain.toml").write_text('[brain]\nmaintainer_access = "everything"\n', encoding="utf-8")
-    (tmp_path / "memory").mkdir()
-    with pytest.raises(ValueError, match="maintainer_access"):
-        Config.load(tmp_path / "memory")
