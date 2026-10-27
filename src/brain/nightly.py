@@ -416,11 +416,18 @@ def cmd_nightly(a):
 
 def cmd_validate(a):
     vault = Vault(a.config.vault_path)
-    problems = validate.run(vault, set(vault.notes))
+    problems = validate.run(vault, set(vault.notes)) + validate.responsibilities(vault)
     for p in problems:
         print(p)
     print(f"{len(problems)} problems")
     sys.exit(1 if problems else 0)
+
+
+def cmd_responsibility(a):
+    records = a.records or a.skill.removeprefix(a.config.skill_prefix)
+    for path in install.responsibility(a.config, a.name, a.skill, records):
+        print(path)
+    print(install.records_path() / records)
 
 
 def cmd_attribute(a):
@@ -592,6 +599,9 @@ def main(argv=None):
     s = sub.add_parser("session-ids"); s.add_argument("jsonl"); s.add_argument("--vault")
     s.add_argument("--with-kind", action="store_true", help="print id<TAB>kind: conversation, routine or evaluation")
     s.set_defaults(fn=cmd_session_ids)
+    s = sub.add_parser("responsibility", help="build a hub, an own skill and a records folder for standing work")
+    s.add_argument("name"); s.add_argument("--skill", required=True); s.add_argument("--records"); s.add_argument("--vault")
+    s.set_defaults(fn=cmd_responsibility)
     s = sub.add_parser("install-skills"); s.add_argument("--vault"); s.add_argument("--force", action="store_true", help="also overwrite the day routines")
     s.set_defaults(fn=cmd_install_skills)
     s = sub.add_parser("update"); s.add_argument("--vault"); s.set_defaults(fn=cmd_update)

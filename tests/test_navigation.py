@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch
 
 from brain.config import Config
-from brain import attribute, validate
+from brain import attribute, fm, validate
 from brain.vault import Vault
 
 
@@ -303,3 +303,26 @@ def test_single_primed_file_is_primed(tmp_path):
     (root / "agent").mkdir(parents=True)
     (root / "agent/Primed.md").write_text("---\nkind: primed\ntier: hot\n---\n# Today\n")
     assert Vault(root).kind_for("agent/Primed.md") == "primed"
+
+
+def test_validate_reports_an_own_skill_without_a_responsibility_hub(vault):
+    from brain import validate
+    from brain.vault import Vault
+    skill = vault / "hermes/skills/brain-housekeeping/SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("# Housekeeping\n", encoding="utf-8")
+    (vault / "hermes/skills/brain-morning").mkdir()
+    (vault / "hermes/skills/brain-morning/SKILL.md").write_text("# Morning\n", encoding="utf-8")
+    v = Vault(vault)
+    assert validate.run(v, set()) == []
+    assert validate.responsibilities(v) == [
+        "hermes/skills/brain-housekeeping: own skill without a responsibility hub (frontmatter skill: brain-housekeeping)"]
+    fm.write(vault / "Fantasy GM.md", {"kind": "hub", "skill": "brain-housekeeping", "tier": "hot"}, "# Fantasy GM\n")
+    v = Vault(vault)
+    assert validate.responsibilities(v) == ["Fantasy GM.md: responsibility hub without a records folder"]
+    fm.write(vault / "Fantasy GM.md", {"kind": "hub", "skill": "brain-housekeeping", "records": "housekeeping", "tier": "hot"}, "# Fantasy GM\n")
+    v = Vault(vault)
+    assert validate.responsibilities(v) == []
+    fm.write(vault / "Trades.md", {"kind": "hub", "skill": "brain-trades", "records": "trades", "tier": "hot"}, "# Trades\n")
+    v = Vault(vault)
+    assert validate.responsibilities(v) == ["Trades.md: skill brain-trades has no SKILL.md under hermes/skills"]

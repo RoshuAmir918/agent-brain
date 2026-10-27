@@ -1,6 +1,8 @@
 """Checks run after every nightly write and on demand."""
 from __future__ import annotations
 
+from importlib.resources import files
+
 from . import fm
 from .vault import Vault
 from .tasks import parse_register, read_archived_task
@@ -44,4 +46,26 @@ def run(vault: Vault, changed: set[str], body_changed: set[str] | None = None) -
                 continue
             if f"Tasks Archive/{tid}|" not in index_text:
                 problems.append(f"{tid}: open task archived but not listed in Warm Index")
+    return problems
+
+
+def responsibilities(vault: Vault) -> list[str]:
+    """Every own skill is a responsibility: a hub at the vault root names it and its records folder. On demand only; the nightly write is never blocked on it."""
+    problems = []
+    packaged = {p.name for p in files("brain").joinpath("skills").iterdir()}
+    hubs = {n.data.get("skill"): rel for rel, n in vault.notes.items() if n.data.get("skill")}
+    for rel, n in vault.notes.items():
+        if n.data.get("skill") and not (vault.root / vault.config.hermes_dir / "skills" / n.data["skill"] / "SKILL.md").is_file():
+            problems.append(f"{rel}: skill {n.data['skill']} has no SKILL.md under {vault.config.hermes_dir}/skills")
+        if n.data.get("skill") and not n.data.get("records"):
+            problems.append(f"{rel}: responsibility hub without a records folder")
+    skills_dir = vault.root / vault.config.hermes_dir / "skills"
+    if skills_dir.is_dir():
+        prefix = vault.config.skill_prefix
+        for folder in sorted(skills_dir.iterdir()):
+            if not (folder / "SKILL.md").is_file():
+                continue
+            routine = folder.name[len(prefix):] if folder.name.startswith(prefix) else folder.name
+            if routine not in packaged and folder.name not in hubs:
+                problems.append(f"{vault.config.hermes_dir}/skills/{folder.name}: own skill without a responsibility hub (frontmatter skill: {folder.name})")
     return problems

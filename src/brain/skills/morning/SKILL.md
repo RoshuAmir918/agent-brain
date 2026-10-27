@@ -20,6 +20,7 @@ A concise, verified account for {human_name} at the agreed hour, sent every day 
    - Sleep 1's questions and conflicts; notes reactivated from cold;
    - new reflections, labelled as inference;
    - audit patterns, never raw numbers;
+   - Improve's recommendation and candidate responsibilities, each with its status, labelled as proposals;
    - whether `archive`, `attribution`, `sleep1`, `rem` and `sleep2` commits exist for last night; a missing one gets its own line.
 4. After composing, remove every `morning:` line you carried from the task entries: a fact worth keeping goes into the owning note in one sentence, the rest is gone. The register is a state view, not a log; lines left behind push entries over budget and stop the night.
 5. Send the briefing on {human_name}'s main channel.

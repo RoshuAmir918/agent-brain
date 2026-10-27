@@ -100,13 +100,13 @@ class Config:
     @property
     def log_paths(self) -> tuple[str, ...]:
         """Agent-folder prefixes whose files are logs: engine ledgers plus the vault's own receipt folders."""
-        names = ("Research", "Explorations", "Use Log", "Sleep Log", "Tasks Archive", *self.log_dirs)
+        names = ("Research", "Explorations", "Improvements", "Use Log", "Sleep Log", "Tasks Archive", *self.log_dirs)
         return tuple(self.agent(Path(name).as_posix() + "/") for name in names)
 
     @property
     def observed_excluded(self) -> tuple[str, ...]:
         return ("Conversations/", *(self.agent(name + "/") for name in
-                ("Dreams", "Explorations", "Use Log", "Sleep Log", "Tasks Archive", "Retrieval Checks")))
+                ("Dreams", "Explorations", "Improvements", "Use Log", "Sleep Log", "Tasks Archive", "Retrieval Checks")))
 
     @property
     def archive_dir(self) -> str:

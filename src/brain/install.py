@@ -28,7 +28,7 @@ def sessions_records_path() -> Path:
     return records_path() / "sessions"
 
 
-CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall"})   # the memory mechanism: always overwritten
+CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall", "improve"})   # the memory mechanism: always overwritten
                                                                        # everything else is a default the vault owns after first install
 
 
@@ -46,6 +46,24 @@ def skills(config: Config, force: bool = False) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
     return config.skills_path
+
+
+def responsibility(config: Config, name: str, skill: str, records: str) -> list[Path]:
+    """Build the three homes of a responsibility: hub at the vault root, own skill, records folder. Existing files are kept."""
+    values = config.template_values() | {"name": name, "skill": skill, "records": records}
+    written = []
+    for template, target in (("hub.md", config.vault_path / f"{name}.md"),
+                             ("skill.md", config.skills_path / skill / "SKILL.md")):
+        if target.exists():
+            continue
+        text = files("brain").joinpath("templates", template).read_text(encoding="utf-8")
+        for token, value in values.items():
+            text = text.replace("{" + token + "}", value)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        written.append(target)
+    (records_path() / records).mkdir(parents=True, exist_ok=True)
+    return written
 
 
 def scripts() -> list[Path]:

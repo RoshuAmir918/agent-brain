@@ -146,3 +146,9 @@ def test_maintainers_are_a_list_of_strings(tmp_path):
     (tmp_path / "brain.toml").write_text('[brain]\nmaintainers = "U_MAINT"\n')
     with pytest.raises(ValueError, match="brain.maintainers must be a list of strings"):
         Config.load(tmp_path)
+
+
+def test_improvements_is_a_ledger_folder_by_default(tmp_path):
+    from brain.config import Config
+    config = Config(tmp_path)
+    assert "agent/Improvements/" in config.log_paths and "agent/Improvements/" in config.observed_excluded

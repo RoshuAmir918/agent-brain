@@ -20,7 +20,7 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
     assert capsys.readouterr().out == str(config.skills_path) + "\n"
     templates = [path for path in files("brain").joinpath("skills").iterdir()
                  if path.joinpath("SKILL.md").is_file()]
-    assert len(templates) == 11
+    assert len(templates) == 12
     assert len(list(config.skills_path.glob("*/SKILL.md"))) == len(templates)
     for routine in templates:
         text = (config.skills_path / (prefix + routine.name) / "SKILL.md").read_text()
@@ -110,7 +110,7 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
     assert (vault / "Conversations/Sessions/s1.md").exists()
     assert (home / "records/sessions/cron_j_1.md").exists() and not (vault / "Conversations/Sessions/cron_j_1.md").exists()
     assert len(list((vault / "Conversations/Digests").glob("*.md"))) == 1
-    assert len(list((vault / "hermes/skills").glob("*/SKILL.md"))) == 11
+    assert len(list((vault / "hermes/skills").glob("*/SKILL.md"))) == 12
 
 
 def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
@@ -127,6 +127,31 @@ def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
     install.skills(config)
     assert morning.read_text(encoding="utf-8") == "mine"
     assert sleep1.read_text(encoding="utf-8") != "mine"
+    improve = config.skills_path / "brain-improve" / "SKILL.md"
+    improve.write_text("mine", encoding="utf-8")
+    install.skills(config)
+    assert "Propose, never adopt" in improve.read_text(encoding="utf-8")
+
+
+def test_responsibility_builds_three_homes_and_keeps_existing_files(tmp_path, monkeypatch):
+    from brain import install, nightly
+    from brain.config import Config
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    (tmp_path / "brain.toml").write_text('[brain]\nhuman_name = "Mira"\nagent_name = "Pip"\n', encoding="utf-8")
+    (tmp_path / "memory").mkdir()
+    monkeypatch.chdir(tmp_path)
+    nightly.main(["responsibility", "Fantasy GM", "--skill", "brain-housekeeping"])
+    hub = tmp_path / "memory/Fantasy GM.md"
+    skill = tmp_path / "memory/hermes/skills/brain-housekeeping/SKILL.md"
+    assert (tmp_path / "home/records/housekeeping").is_dir()
+    text = hub.read_text(encoding="utf-8")
+    assert text.startswith("---\nkind: hub\nskill: brain-housekeeping\nrecords: housekeeping\n")
+    assert "[[memory/hermes/skills/brain-housekeeping/SKILL|the skill]]" in text and "Mira" in text
+    assert "[[memory/Fantasy GM|Fantasy GM]]" in skill.read_text(encoding="utf-8")
+    skill.write_text("mine", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    assert install.responsibility(config, "Fantasy GM", "brain-housekeeping", "housekeeping") == []
+    assert skill.read_text(encoding="utf-8") == "mine"
 
 
 def test_update_uses_own_interpreter_and_reinstalls_scripts_and_provider(tmp_path, monkeypatch):
