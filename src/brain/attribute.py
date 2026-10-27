@@ -159,9 +159,10 @@ def json_session_rows(vault: Vault, path: Path) -> list[Use]:
             continue   # retrieval checks earn nothing, before any extraction or dedupe
         session_id = digest.text_field(containers, ("id", "session_id"), f"{path.name}:{number}")
         reason = f"cited in session {session_id}"
-        previous = next((stamp for fields in containers if (stamp := digest.timestamp_in(fields))), None)
+        zone = vault.config.zone
+        previous = next((stamp for fields in containers if (stamp := digest.timestamp_in(fields, zone=zone))), None)
         for message in digest.message_list(containers):
-            previous = digest.timestamp_in(message) or previous
+            previous = digest.timestamp_in(message, zone=zone) or previous
             timestamp = previous.isoformat() if previous else fallback_date(path)
             reads, _ = session_tools.activity(message, vault.config) if kind == "conversation" else ([], [])   # a routine opens notes mechanically; that is not use
             for read in reads:

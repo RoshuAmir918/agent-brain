@@ -12,4 +12,5 @@ owner_user_ids = []
 maintainers = []
 log_dirs = []   # folders under agent_dir that hold receipts, ledgers or results; never notes, never hot
 skill_prefix = "brain-"
+timezone = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest days, health and audit dates
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables the nightly auto-update

@@ -379,3 +379,24 @@ def test_default_sessions_dir_falls_back_to_the_vault_until_records_exist(tmp_pa
     assert digest.default_sessions_dir(config) == legacy
     (home / "records" / "sessions").mkdir(parents=True)
     assert digest.default_sessions_dir(config) == home / "records" / "sessions"
+
+
+def test_digest_days_follow_the_configured_timezone(tmp_path, monkeypatch):
+    import json
+    from datetime import date
+    from brain import digest
+    from brain.config import Config
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    (tmp_path / "memory").mkdir()
+    (tmp_path / "brain.toml").write_text('[brain]\nhuman_name = "Mira"\ntimezone = "America/New_York"\n', encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    records = tmp_path / "home/records/sessions/jsonl"
+    records.mkdir(parents=True)
+    session = {"id": "late", "title": "late chat", "source": "slack", "messages": [
+        {"role": "user", "content": "still up", "timestamp": "2026-10-26T23:30:00-04:00"},
+        {"role": "assistant", "content": "so am I", "timestamp": "2026-10-26T23:31:00-04:00"}]}
+    (records / "late.jsonl").write_text(json.dumps(session) + "\n", encoding="utf-8")
+    eastern, _ = digest.build(config, date(2026, 10, 26), records.parent)
+    assert "still up" in eastern and "23:30" in eastern
+    pacific, _ = digest.build(Config(tmp_path), date(2026, 10, 26), records.parent)
+    assert "still up" in pacific and "20:30" in pacific

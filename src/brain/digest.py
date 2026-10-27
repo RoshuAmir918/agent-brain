@@ -37,7 +37,7 @@ class Session:
     note: str = ""
 
 
-def parse_timestamp(value) -> datetime | None:
+def parse_timestamp(value, zone: ZoneInfo = PACIFIC) -> datetime | None:
     if isinstance(value, bool) or not isinstance(value, (str, int, float)):
         return None
     try:
@@ -46,20 +46,20 @@ def parse_timestamp(value) -> datetime | None:
         except ValueError:
             stamp = datetime.fromisoformat(value.strip().upper().replace("Z", "+00:00"))
             if stamp.tzinfo is None:
-                stamp = stamp.replace(tzinfo=PACIFIC)
+                stamp = stamp.replace(tzinfo=zone)
         else:
             seconds = number / 1000 if abs(number) >= 100_000_000_000 else number
             stamp = datetime.fromtimestamp(seconds, timezone.utc)
-        return stamp.astimezone(PACIFIC)
+        return stamp.astimezone(zone)
     except (ValueError, OverflowError, OSError):
         return None
 
 
-def timestamp_in(fields: dict, keys=TIME_KEYS) -> datetime | None:
+def timestamp_in(fields: dict, keys=TIME_KEYS, zone: ZoneInfo = PACIFIC) -> datetime | None:
     timings = fields.get("timings")
     for container in (fields, timings if isinstance(timings, dict) else {}):
         for key in keys:
-            stamp = parse_timestamp(container.get(key))
+            stamp = parse_timestamp(container.get(key), zone)
             if stamp is not None:
                 return stamp
     return None
@@ -111,15 +111,15 @@ def content_text(content) -> str:
     return "".join(parts)
 
 
-def session_fallback(containers: list[dict], day: date) -> tuple[datetime | None, str]:
+def session_fallback(containers: list[dict], day: date, zone: ZoneInfo = PACIFIC) -> tuple[datetime | None, str]:
     starts = ("started_at", "start_time", "start", "created_at", "created", "timestamp", "ts", "time")
     ends = ("ended_at", "end_time", "end", "updated_at")
-    start = next((stamp for fields in containers if (stamp := timestamp_in(fields, starts))), None)
-    end = next((stamp for fields in containers if (stamp := timestamp_in(fields, ends))), None)
+    start = next((stamp for fields in containers if (stamp := timestamp_in(fields, starts, zone))), None)
+    end = next((stamp for fields in containers if (stamp := timestamp_in(fields, ends, zone))), None)
     start, end = start or end, end or start
     if start is None or end.timestamp() < start.timestamp() or not start.date() <= day <= end.date():
         return None, ""
-    stamp = start if start.date() == day else datetime.combine(day, time(), PACIFIC)
+    stamp = start if start.date() == day else datetime.combine(day, time(), zone)
     note = (f"Note: no usable message timestamps; session range {start.isoformat()} to "
             f"{end.isoformat()} covers {day}. Turn times are approximate.")
     return stamp, note
@@ -132,8 +132,8 @@ def select_session(record: dict, source: str, day: date, config: Config,
                    fallback_note: str = "") -> Session:
     containers = session_maps(record)
     messages = message_list(containers)
-    timestamps = [timestamp_in(message) for message in messages]
-    previous, note = (None, "") if any(timestamps) else session_fallback(containers, day)
+    timestamps = [timestamp_in(message, zone=config.zone) for message in messages]
+    previous, note = (None, "") if any(timestamps) else session_fallback(containers, day, config.zone)
     if note and fallback_note:
         note = fallback_note
     turns, pending_reads, pending_retrievals = [], [], []
@@ -361,7 +361,7 @@ def build(config: Config, day: date, sessions_dir: Path | None = None,
     directory = sessions_dir if sessions_dir is not None else default_sessions_dir(config)
     loaded, skipped = load_sessions(directory, day, config, include_routines)
     sessions, words, omitted = limit_turns(loaded, max_words)
-    generated = today if today is not None else datetime.now(PACIFIC).date()
+    generated = today if today is not None else config.today()
     sections = [FRONTMATTER, f"Digest for {day}, generated {generated} by brain "
                 f"from {len(sessions)} sessions, {words} words",
                 f"coverage: {len(sessions)} sessions included, {skipped['routine']} routine sessions and "

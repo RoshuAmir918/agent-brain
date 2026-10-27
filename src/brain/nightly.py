@@ -397,7 +397,7 @@ def push(root: Path) -> None:
 
 def cmd_nightly(a):
     root = a.config.vault_path
-    today = date.fromisoformat(a.date) if a.date else date.today()
+    today = date.fromisoformat(a.date) if a.date else a.config.today()
     sessions_dir = Path(a.sessions_dir).resolve() if a.sessions_dir else None
     report = run(root, today, sessions_dir) if a.write else preview(root, today, sessions_dir)
     for ln in report:
@@ -554,6 +554,10 @@ def cmd_install_provider(args):
     print("restart the gateway")
 
 
+def cmd_timezone(args):
+    print(args.config.timezone)
+
+
 def cmd_paths(args):
     paths = {"soul": args.config.soul_path, "skills": args.config.skills_path, "scripts": install.scripts_path(),
              "provider": install.provider_path(), "records": install.records_path(),
@@ -602,6 +606,7 @@ def main(argv=None):
     s = sub.add_parser("responsibility", help="build a hub, an own skill and a records folder for standing work")
     s.add_argument("name"); s.add_argument("--skill", required=True); s.add_argument("--records"); s.add_argument("--vault")
     s.set_defaults(fn=cmd_responsibility)
+    s = sub.add_parser("timezone", help="print the owner's timezone from brain.toml"); s.add_argument("--vault"); s.set_defaults(fn=cmd_timezone)
     s = sub.add_parser("install-skills"); s.add_argument("--vault"); s.add_argument("--force", action="store_true", help="also overwrite the day routines")
     s.set_defaults(fn=cmd_install_skills)
     s = sub.add_parser("update"); s.add_argument("--vault"); s.set_defaults(fn=cmd_update)

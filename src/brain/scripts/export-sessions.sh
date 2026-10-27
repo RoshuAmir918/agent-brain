@@ -10,7 +10,8 @@ brain migrate-check || echo "export-sessions: migrate-check failed" >&2
 VAULT="$(brain paths vault)"
 OUT="$VAULT/Conversations/Sessions"
 RECORDS="$(brain paths records)/sessions"
-DATE="$(TZ="${BRAIN_TZ:-America/Los_Angeles}" date -v-1d +%F 2>/dev/null || TZ="${BRAIN_TZ:-America/Los_Angeles}" date -d yesterday +%F)"
+ZONE="${BRAIN_TZ:-$(brain timezone)}"   # the owner's zone from brain.toml: "yesterday" is theirs, whatever the host clock says
+DATE="$(TZ="$ZONE" date -v-1d +%F 2>/dev/null || TZ="$ZONE" date -d yesterday +%F)"
 mkdir -p "$OUT" "$RECORDS"
 git pull --rebase --autostash -q origin main
 

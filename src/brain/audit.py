@@ -148,7 +148,7 @@ def commits(repo: Path, days: int) -> dict[str, int]:
 
 
 def report(config: Config, today: date | None = None, days: int = 14, sessions_dir: Path | None = None) -> dict:
-    today = today or date.today()
+    today = today or config.today()
     vault = Vault(config.vault_path)
     directory = sessions_dir if sessions_dir is not None else digest.default_sessions_dir(config)
     return {"agent": config.agent_name, "date": today.isoformat(), "days": days,

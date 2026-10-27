@@ -40,7 +40,7 @@ def stages(repo: Path, today: date) -> dict[str, dict]:
 
 
 def report(config: Config, today: date | None = None) -> dict:
-    today = today or date.today()
+    today = today or config.today()
     vault = Vault(config.vault_path)
     yesterday = (today - timedelta(days=1)).isoformat()
     digest = config.vault_path / "Conversations" / "Digests" / f"{yesterday}.md"

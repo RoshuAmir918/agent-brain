@@ -152,3 +152,15 @@ def test_improvements_is_a_ledger_folder_by_default(tmp_path):
     from brain.config import Config
     config = Config(tmp_path)
     assert "agent/Improvements/" in config.log_paths and "agent/Improvements/" in config.observed_excluded
+
+
+def test_timezone_defaults_to_pacific_and_rejects_unknown_zones(tmp_path):
+    import pytest
+    from brain.config import Config
+    (tmp_path / "memory").mkdir()
+    (tmp_path / "brain.toml").write_text('[brain]\ntimezone = "America/New_York"\n', encoding="utf-8")
+    assert Config.load(tmp_path / "memory").timezone == "America/New_York"
+    assert Config(tmp_path).timezone == "America/Los_Angeles"
+    (tmp_path / "brain.toml").write_text('[brain]\ntimezone = "Mars/Olympus"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="timezone"):
+        Config.load(tmp_path / "memory")

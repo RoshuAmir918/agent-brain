@@ -5,7 +5,9 @@ import os
 import subprocess
 import tomllib
 from dataclasses import dataclass, field, fields, replace
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 @dataclass(frozen=True)
@@ -24,6 +26,7 @@ class Config:
     maintainers: list[str] = field(default_factory=list)   # platform user ids that keep the machinery running; never the owner
     log_dirs: list[str] = field(default_factory=list)   # folders under agent_dir holding receipts and ledgers, never notes
     skill_prefix: str = "brain-"
+    timezone: str = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest day boundaries, health and audit dates
     update_source: str = "git+https://github.com/RoshuAmir918/agent-brain"   # empty string disables brain update
     _vault_path: Path | None = None
 
@@ -68,6 +71,10 @@ class Config:
                 paths[name] = path.as_posix()
         if any(char in config.skill_prefix for char in "/\\") or config.skill_prefix in (".", ".."):
             raise ValueError("brain.skill_prefix must be a name prefix, not a path")
+        try:
+            ZoneInfo(config.timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(f"brain.timezone is not a known zone: {config.timezone}")
         return replace(config,
                        **paths,
                        human_name=os.environ.get("BRAIN_HUMAN_NAME", config.human_name),
@@ -82,6 +89,13 @@ class Config:
 
     def link(self, relative: str) -> str:
         return f"{self.vault}/{relative}"
+
+    @property
+    def zone(self) -> ZoneInfo:
+        return ZoneInfo(self.timezone)
+
+    def today(self) -> date:
+        return datetime.now(self.zone).date()
 
     @property
     def human_goals(self) -> str:
