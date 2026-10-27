@@ -7,7 +7,7 @@ import shlex
 
 from .config import Config
 ARGUMENT_KEYS = ("arguments", "args", "input", "parameters")
-EVALUATION_RE = re.compile(r"evaluation fixture|retrieval[- ]check|retrieval-test|\bRC-\d{2}\b", re.I)
+EVALUATION_RE = re.compile(r"evaluation fixture|retrieval[- ](check|test)|\bRC-\d{2}\b", re.I)
 ROUTINE_RE = re.compile(r"^cron\b|^cron_", re.I)
 
 

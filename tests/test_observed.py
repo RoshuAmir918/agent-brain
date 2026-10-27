@@ -289,3 +289,9 @@ def test_session_kind_classifies_conversation_routine_and_evaluation():
     assert session_tools.session_kind([{"title": "Evaluation fixture: Q09", "source": "slack"}], user) == "evaluation"
     assert session_tools.session_kind([{"title": "x"}], [{"role": "user", "content": "Evaluation fixture: what is the capital"}]) == "evaluation"
     assert session_tools.session_kind([{"title": "retrieval-test RC-04"}], user) == "evaluation"
+
+
+def test_evaluation_kind_matches_retrieval_test_with_a_space_like_the_markdown_filename():
+    from brain import session_tools
+    user = [{"role": "user", "content": "answer only"}]
+    assert session_tools.session_kind([{"title": "Subagent: read-only memory retrieval test. Answer only"}], user) == "evaluation"
