@@ -7,6 +7,7 @@ Usage:
   brain attribute [--vault <path>] [--sessions-dir <dir>] [--write]
   brain digest [--vault <path>] --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]
   (sessions default to $HERMES_HOME/records/sessions, the profile's own export)
+  brain audit [--vault <path>] [--date YYYY-MM-DD] [--days 14] [--sessions-dir <dir>] [--json]
   brain compile-context [--vault <path>] [--out <path>] [--write]
   brain retrieve [--vault <path>] <query> [--limit 12] [--json]
   brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
@@ -35,7 +36,7 @@ from datetime import date
 from pathlib import Path
 
 from . import activation as act
-from . import attribute, compile_context, digest, fm, health, index, retrieve, session_context, triggers, validate
+from . import attribute, audit, compile_context, digest, fm, health, index, retrieve, session_context, triggers, validate
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import Config
@@ -476,6 +477,12 @@ def cmd_simulate(a):
     print(act.simulate_table(a.h, a.w))
 
 
+def cmd_audit(args):
+    directory = Path(args.sessions_dir).resolve() if args.sessions_dir else None
+    data = audit.report(args.config, date.fromisoformat(args.date) if args.date else None, args.days, directory)
+    print(audit.to_json(data) if args.json else audit.render(data), end="" if not args.json else "\n")
+
+
 def cmd_health(args):
     data = health.report(args.config, date.fromisoformat(args.date) if args.date else None)
     if args.write:
@@ -572,6 +579,8 @@ def main(argv=None):
     s = sub.add_parser("health"); s.add_argument("--vault"); s.add_argument("--date")
     s.add_argument("--json", action="store_true"); s.add_argument("--write", action="store_true", help="write <hermes_dir>/health.md")
     s.set_defaults(fn=cmd_health)
+    s = sub.add_parser("audit"); s.add_argument("--vault"); s.add_argument("--date"); s.add_argument("--days", type=int, default=14)
+    s.add_argument("--sessions-dir"); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_audit)
     s = sub.add_parser("session-context"); s.add_argument("--vault")
     for option in ("platform", "user-id", "user-id-alt", "user-name", "chat-id"):
         s.add_argument("--" + option, default="")

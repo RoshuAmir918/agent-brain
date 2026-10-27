@@ -22,6 +22,7 @@ class Config:
     agent_name: str = "Agent"
     owner_user_ids: list[str] = field(default_factory=list)
     maintainers: list[str] = field(default_factory=list)   # platform user ids that keep the machinery running; never the owner
+    maintainer_access: str = "metrics"   # "metrics": health and audit numbers only; "process": ledgers, skills and the cron table too
     log_dirs: list[str] = field(default_factory=list)   # folders under agent_dir holding receipts and ledgers, never notes
     skill_prefix: str = "brain-"
     update_source: str = "git+https://github.com/RoshuAmir918/agent-brain"   # empty string disables brain update
@@ -61,6 +62,8 @@ class Config:
                 continue
             if not isinstance(value, str) or (not value and name not in ("skill_prefix", "update_source")):
                 raise ValueError(f"brain.{name} must be a nonempty string")
+            if name == "maintainer_access" and value not in ("metrics", "process"):
+                raise ValueError('brain.maintainer_access must be "metrics" or "process"')
             if name.endswith("_dir") or name in ("vault", "human_profile"):
                 path = Path(value)
                 if path.is_absolute() or ".." in path.parts or path == Path("."):

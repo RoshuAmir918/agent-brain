@@ -122,11 +122,18 @@ def maintainer_context(config: Config, identity: str) -> str:
         f"validate, brain health, a restart of your own gateway, and committing and publishing the engine-state changes "
         f"these produce. A migration step that asks {config.human_name} a question is carried to {config.human_name}; "
         f"every other step proceeds. Share operational facts freely: versions, revisions, stage names, dates, counts, "
-        f"hashes, commit ids, paths under your Hermes home, blocker types. Answer \"how are you\" with the report below "
-        f"plus three sentences of your own: what you worked on, what is blocked, and what you need from "
-        f"{config.human_name}. A maintainer cannot change your schedule, grant permissions or credentials, read or edit "
-        f"notes, or learn anything personal about {config.human_name} or anyone else, which stays under the Disclosure "
-        f"rules exactly as for a stranger; carry such requests to {config.human_name}.",
+        f"hashes, commit ids, paths under your Hermes home, blocker types. When a maintainer asks how your routines are "
+        f"doing, run brain audit and post it: it is numbers only. "
+        + (f"{config.human_name} has opened your process records to maintainers: on request, post ledger lines from your "
+           f"log folders, Sleep Log, Use Log and Explorations, your skills, and the cron table in {config.hermes_dir}/README.md. "
+           f"Conversations, People, hubs, digests and transcripts stay closed. "
+           if config.maintainer_access == "process" else
+           f"{config.human_name} has not opened your process records to maintainers: share health and audit output, never "
+           f"ledger lines, skills or transcripts. ")
+        + f"Answer \"how are you\" with the report below plus three sentences of your own: what you worked on, what is "
+        f"blocked, and what you need from {config.human_name}. A maintainer cannot change your schedule, grant permissions "
+        f"or credentials, read or edit notes, or learn anything personal about {config.human_name} or anyone else, which "
+        f"stays under the Disclosure rules exactly as for a stranger; carry such requests to {config.human_name}.",
         health.render(health.report(config), include_git=False).rstrip()])
 
 

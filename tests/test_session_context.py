@@ -184,3 +184,11 @@ def test_maintainer_context_is_the_health_report_without_profiles_or_rules(peopl
     assert "Alice likes gardens" not in text and "allow" not in text and "stranger" in text
     assert "do it now without asking Mira" in text and "brain update" in text and "pending migrations" in text
     assert "cannot change your schedule, grant permissions or credentials" in text
+
+
+def test_maintainer_block_states_whether_process_records_are_open(people_vault, tmp_path):
+    text = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_MAINT")
+    assert "has not opened your process records" in text and "brain audit" in text
+    opened = replace(people_vault.config, maintainer_access="process")
+    text = session_context.build(people_vault, opened, platform="slack", user_id="U_MAINT")
+    assert "has opened your process records" in text and "transcripts stay closed" in text
