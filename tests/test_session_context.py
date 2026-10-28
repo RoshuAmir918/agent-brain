@@ -10,7 +10,8 @@ from brain.vault import Vault
 def people_vault(tmp_path, monkeypatch):
     monkeypatch.delenv("BRAIN_HUMAN_NAME", raising=False)
     (tmp_path / "brain.toml").write_text(
-        '[brain]\nhuman_name = "Mira"\nowner_user_ids = ["U_OWNER", "12345"]\nmaintainers = ["U_MAINT"]\n', encoding="utf-8")
+        '[brain]\nhuman_name = "Mira"\nowner_user_ids = ["U_OWNER", "12345", "demiurge:k57owner"]\n'
+        'maintainers = ["U_MAINT", "demiurge:j57maint"]\n', encoding="utf-8")
     root = tmp_path / "memory"
     notes = {
         "people/Alice/Profile.md": "# Alice\nSlack: U_ALICE\nAlice likes gardens.\n",
@@ -39,6 +40,7 @@ def people_vault(tmp_path, monkeypatch):
 @pytest.mark.parametrize("identity", [
     {"platform": "cli"}, {"platform": "slack", "user_id": "U_OWNER"},
     {"platform": "telegram", "user_id": "NOPE", "user_id_alt": "12345"},
+    {"platform": "demiurge", "user_id": "mira", "user_id_alt": "k57owner"},
 ])
 def test_owner_context_is_only_owner_identification(people_vault, identity):
     assert session_context.build(people_vault, people_vault.config, **identity) == (
@@ -92,7 +94,7 @@ def test_unknown_context_is_fail_closed(people_vault):
 
 
 def test_ambiguous_context_lists_profiles_and_treats_identity_as_unknown(people_vault):
-    people_vault.notes["people/Bob/Profile.md"].body += "Also U_ALICE\n"
+    people_vault.notes["people/Bob/Profile.md"].body += "Slack: U_ALICE\n"
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
     assert block.startswith("Identity is ambiguous; matching profiles: memory/people/Alice/Profile.md, "
                             "memory/people/Bob/Profile.md. Treat as unknown.\n\n")
@@ -195,3 +197,53 @@ def test_maintainer_block_licenses_plain_talk_about_work_and_closes_the_owners_c
     assert "setting up access to the X site for Mira and it keeps failing because of Y" in text
     assert "brain audit" in text and "ledger lines" in text and "do it now without asking Mira" in text
     assert "What you do not pass along is Mira's content" in text and "whoever they talk to next" in text
+
+
+@pytest.fixture
+def demiurge_vault(people_vault):
+    people_vault.notes["people/Orpheus/Profile.md"] = replace(
+        people_vault.notes["people/Bob/Profile.md"], rel="people/Orpheus/Profile.md",
+        body="# Orpheus\n- **Demiurge:** `k57orpheus` (@orpheus; permanent id, confirmed 2026-10-28)\n")
+    people_vault.notes["people/Bob/Profile.md"].body += "Bob introduced orpheus and k57orpheus last week.\n"
+    return people_vault
+
+
+def test_qualified_platform_line_wins_over_a_prose_mention(demiurge_vault):
+    block = session_context.build(demiurge_vault, demiurge_vault.config, platform="demiurge",
+                                  user_id="orpheus", user_id_alt="k57orpheus")
+    assert block.startswith("This session is with Orpheus (demiurge orpheus).")
+
+
+@pytest.mark.parametrize("line", ["- **Demiurge:** `k57orpheus` (@orpheus)", "- demiurge: k57orpheus",
+                                  "Demiurge: `k57orpheus`", "**Demiurge**: k57orpheus"])
+def test_permanent_id_matches_a_qualified_line_by_alt_id(demiurge_vault, line):
+    demiurge_vault.notes["people/Orpheus/Profile.md"].body = f"# Orpheus\n{line}\n"
+    assert session_context.matching_profiles(
+        demiurge_vault, demiurge_vault.config, ("renamed", "k57orpheus"), "demiurge") == [
+        demiurge_vault.notes["people/Orpheus/Profile.md"]]
+
+
+def test_qualified_line_needs_the_sessions_platform_and_a_whole_id(demiurge_vault):
+    orpheus = demiurge_vault.notes["people/Orpheus/Profile.md"]
+    orpheus.body = "- Demiurge: `k57orpheus2`\n- Slack: k57orpheus\n"
+    assert session_context.has_qualified_id(orpheus.body, "demiurge", ("k57orpheus",)) is False
+    assert session_context.has_qualified_id(orpheus.body, "slack", ("k57orpheus",)) is True
+
+
+def test_email_local_part_is_not_a_handle(people_vault):
+    people_vault.notes["people/Alice/Profile.md"].body = "# Alice\nEmail: orpheus@gmail.com\n"
+    assert session_context.matching_profiles(people_vault, people_vault.config, ("orpheus",), "demiurge") == []
+    people_vault.notes["people/Alice/Profile.md"].body += "Handle @orpheus\n"
+    assert session_context.matching_profiles(people_vault, people_vault.config, ("orpheus",), "demiurge") == [
+        people_vault.notes["people/Alice/Profile.md"]]
+
+
+def test_platform_qualified_maintainer_matches_only_that_platform(people_vault):
+    text = session_context.build(people_vault, people_vault.config, platform="demiurge",
+                                 user_id="hermes", user_id_alt="j57maint")
+    assert text.startswith("This session is with a maintainer of this brain (demiurge hermes), not the owner.")
+    for platform in ("slack", ""):
+        text = session_context.build(people_vault, people_vault.config, platform=platform, user_id="j57maint")
+        assert "maintainer" not in text and "the owner." not in text
+    assert session_context.build(people_vault, people_vault.config, platform="slack", user_id="k57owner") != (
+        "This session is with Mira, the owner.")

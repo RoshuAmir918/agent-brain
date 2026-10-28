@@ -12,21 +12,42 @@ WORD_LIMIT = 400
 PROFILE_WORD_LIMIT = 250
 
 
+TOKEN_END = r"(?![\w-])(?![@.]\w)"
+
+
 def contains_token(text: str, token: str) -> bool:
     if not token:
         return False
-    return re.search(r"(?<![\w-])" + re.escape(token) + r"(?![\w-])", text) is not None
+    return re.search(r"(?<![\w-])(?<!\w@)" + re.escape(token) + TOKEN_END, text) is not None
 
 
-def matching_profiles(vault: Vault, config: Config, user_ids: tuple[str, ...]) -> list[Note]:
-    matches = []
-    for rel, note in sorted(vault.notes.items()):
-        path = PurePosixPath(rel)
-        if path.parent.parent != PurePosixPath(config.people_dir) or path.name != "Profile.md":
-            continue
-        if any(contains_token(note.body, user_id) for user_id in user_ids):
-            matches.append(note)
-    return matches
+def has_qualified_id(text: str, platform: str, user_ids: tuple[str, ...]) -> bool:
+    ids = "|".join(re.escape(user_id) for user_id in user_ids if user_id)
+    if not platform or not ids:
+        return False
+    line = (r"(?m)^[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?(?i:" + re.escape(platform) + ")"
+            + r"(?:\*\*)?[ \t]*:[ \t]*(?:\*\*)?[ \t]*`?(?:" + ids + ")`?" + TOKEN_END)
+    return re.search(line, text) is not None
+
+
+def matching_profiles(vault: Vault, config: Config, user_ids: tuple[str, ...], platform: str = "") -> list[Note]:
+    profiles = [note for rel, note in sorted(vault.notes.items())
+                if PurePosixPath(rel).parent.parent == PurePosixPath(config.people_dir)
+                and PurePosixPath(rel).name == "Profile.md"]
+    qualified = [note for note in profiles if has_qualified_id(note.body, platform, user_ids)]
+    return qualified or [note for note in profiles
+                         if any(contains_token(note.body, user_id) for user_id in user_ids)]
+
+
+def listed(entries: list[str], platform: str, user_ids: tuple[str, ...]) -> bool:
+    for entry in entries:
+        label, separator, value = entry.partition(":")
+        if separator and re.fullmatch(r"[A-Za-z][\w-]*", label):
+            if label.casefold() == platform.casefold() and value in user_ids:
+                return True
+        elif entry in user_ids:
+            return True
+    return False
 
 
 def audience_targets(vault: Vault, config: Config, person: Note) -> set[str]:
@@ -148,14 +169,14 @@ def maintainer_context(config: Config, identity: str) -> str:
 def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = "",
           user_id_alt: str = "", user_name: str = "", chat_id: str = "") -> str:
     user_ids = tuple(value for value in (user_id, user_id_alt) if value)
-    if platform == "cli" or any(value in config.owner_user_ids for value in user_ids):
+    if platform == "cli" or listed(config.owner_user_ids, platform, user_ids):
         return f"This session is with {config.human_name}, the owner."
     identity = f"{platform or 'platform unknown'} {user_id or user_id_alt or 'id unavailable'}"
-    if any(value in config.maintainers for value in user_ids):
+    if listed(config.maintainers, platform, user_ids):
         return maintainer_context(config, identity)
     if not platform and not user_ids:
         return ""
-    profiles = matching_profiles(vault, config, user_ids)
+    profiles = matching_profiles(vault, config, user_ids, platform)
     if len(profiles) == 1:
         return known_context(vault, config, profiles[0], identity)
     blocks = []
