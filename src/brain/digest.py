@@ -126,7 +126,7 @@ def session_fallback(containers: list[dict], day: date, zone: ZoneInfo = PACIFIC
 
 
 SPEAKER_KEYS = ("user_name", "username", "display_name", "author", "sender", "from", "user", "user_id")
-# In a session shared by several people (a Demiurge room, a group thread), Hermes writes the speaker in front of each
+# In a session shared by several people (a group room or thread), Hermes writes the speaker in front of each
 # message: "[Arslan Amir] are we still on for friday". When every user message carries one, it names the speaker.
 SPEAKER_PREFIX = re.compile(r"^\[([^\]\n]{1,80})\][ \t]+")
 
