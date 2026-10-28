@@ -400,3 +400,29 @@ def test_digest_days_follow_the_configured_timezone(tmp_path, monkeypatch):
     assert "still up" in eastern and "23:30" in eastern
     pacific, _ = digest.build(Config(tmp_path), date(2026, 10, 26), records.parent)
     assert "still up" in pacific and "20:30" in pacific
+
+
+def test_a_shared_room_session_names_each_speaker_from_the_hermes_prefix(tmp_path):
+    import json
+    from datetime import date
+    from brain import digest
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\nhuman_name = 'Owner'\n", encoding="utf-8")
+    sessions = tmp_path / "memory" / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
+    room = {"id": "r", "source": "demiurge", "chat_type": "group", "chat_name": "Hearth", "messages": [
+        {"role": "user", "content": "[Arslan Amir] @orphan are we still on for friday", "timestamp": "2026-10-28T19:00:00-07:00"},
+        {"role": "assistant", "content": "Yes, at eight.", "timestamp": "2026-10-28T19:00:05-07:00"},
+        {"role": "user", "content": "[Roshan Amir] thanks", "timestamp": "2026-10-28T19:01:00-07:00"}]}
+    dm = {"id": "d", "source": "demiurge", "messages": [
+        {"role": "user", "content": "[draft] not a speaker in a one-person session", "timestamp": "2026-10-28T20:00:00-07:00"}]}
+    (sessions / "all.jsonl").write_text(json.dumps(room) + "\n" + json.dumps(dm) + "\n", encoding="utf-8")
+    text, _ = digest.build(Config.load(tmp_path / "memory"), date(2026, 10, 28), sessions, 25000)
+    assert "**Arslan Amir** 19:00" in text and "@orphan are we still on for friday" in text
+    assert "**Roshan Amir** 19:01" in text and "[Arslan Amir]" not in text
+    assert "[draft] not a speaker" in text  # a lone bracket in an ordinary session is just text
+    unlabelled = {"id": "u", "source": "demiurge", "messages": [
+        {"role": "user", "content": "[Kevin Pak] first", "timestamp": "2026-10-28T21:00:00-07:00"},
+        {"role": "user", "content": "[Kevin Pak] second", "timestamp": "2026-10-28T21:01:00-07:00"}]}
+    (sessions / "all.jsonl").write_text(json.dumps(unlabelled) + "\n", encoding="utf-8")
+    text, _ = digest.build(Config.load(tmp_path / "memory"), date(2026, 10, 28), sessions, 25000)
+    assert "**Kevin Pak** 21:00" in text  # no chat type recorded, but every message carries a speaker

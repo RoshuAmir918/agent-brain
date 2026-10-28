@@ -126,6 +126,18 @@ def session_fallback(containers: list[dict], day: date, zone: ZoneInfo = PACIFIC
 
 
 SPEAKER_KEYS = ("user_name", "username", "display_name", "author", "sender", "from", "user", "user_id")
+# In a session shared by several people (a Demiurge room, a group thread), Hermes writes the speaker in front of each
+# message: "[Arslan Amir] are we still on for friday". When every user message carries one, it names the speaker.
+SPEAKER_PREFIX = re.compile(r"^\[([^\]\n]{1,80})\][ \t]+")
+
+
+def shared_session(containers: list[dict], messages: list[dict]) -> bool:
+    """A group session (Hermes records the chat type), or, without that, every one of several user messages prefixed."""
+    if text_field(containers, ("chat_type",), "").lower() in ("group", "channel", "thread"):
+        return True
+    said = [content_text(m.get("content", m.get("text", ""))) for m in messages if str(m.get("role", "")).strip().lower() == "user"]
+    said = [text for text in said if text]
+    return len(said) >= 2 and all(SPEAKER_PREFIX.match(text) for text in said)
 
 
 def select_session(record: dict, source: str, day: date, config: Config,
@@ -137,6 +149,7 @@ def select_session(record: dict, source: str, day: date, config: Config,
     if note and fallback_note:
         note = fallback_note
     turns, pending_reads, pending_retrievals = [], [], []
+    shared = shared_session(containers, messages)
     for message, stamp in zip(messages, timestamps):
         previous = stamp or previous
         role = str(message.get("role", "")).strip().lower()
@@ -153,8 +166,11 @@ def select_session(record: dict, source: str, day: date, config: Config,
             continue
         if text:
             speaker = text_field([message], SPEAKER_KEYS, "") if role == "user" else ""
+            prefix = SPEAKER_PREFIX.match(text) if role == "user" and shared else None
+            if prefix:
+                speaker, text = speaker or prefix.group(1).strip(), text[prefix.end():]
             turns.append(Turn(role, text, previous, reads, retrievals, speaker))
-    title = text_field(containers, ("title", "name", "session_title", "id", "session_id"), source)
+    title = text_field(containers, ("title", "name", "session_title", "chat_name", "id", "session_id"), source)
     source = text_field(containers, ("source", "platform", "channel"), source)
     turns.sort(key=lambda turn: turn.timestamp.timestamp())
     return Session(title, source, turns, note)
