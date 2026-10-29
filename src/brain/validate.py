@@ -101,6 +101,18 @@ def access_problems(vault: Vault) -> list[str]:
     return problems
 
 
+OWNER_PROFILE_WORDS = 500
+
+
+def owner_profile(vault: Vault) -> list[str]:
+    """On demand only: the owner's profile is loaded into their sessions, so it has to stay short."""
+    rel = vault.config.human_profile
+    note = vault.notes.get(rel)
+    words = len(note.body.split()) if note else 0
+    return [f"{rel}: {words} words; keep it under {OWNER_PROFILE_WORDS}, dated material in History.md"] \
+        if words > OWNER_PROFILE_WORDS else []
+
+
 def responsibilities(vault: Vault) -> list[str]:
     """Every own skill is a responsibility: a hub at the vault root names it and its records folder. On demand only; the nightly write is never blocked on it."""
     problems = []

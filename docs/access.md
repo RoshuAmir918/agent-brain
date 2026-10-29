@@ -1,6 +1,6 @@
 # Access: who may learn what, and ask for what
 
-Status: design for engine 0.14. The owner decides, the agent applies, the engine resolves and records. Nothing here
+Status: engine 0.14. The owner decides, the agent applies, the engine resolves and records. Nothing here
 knows about any one platform; a client (Demiurge, Slack) only reads what `brain state` and `brain access` export.
 
 Today `People/Disclosure.md` is a table the agent reads as prose: a row per grant, groups as notes that link their
@@ -16,7 +16,7 @@ From most to least specific:
 2. **A group**: `People/Groups/<Name>.md`, frontmatter `kind: group`. Its members are the profiles linked under its
    `## Members` heading, so one note shows who is in "close friends". Additions come only from the owner, recorded with
    date and source in the group note, as today. A person may be in several groups.
-3. **`known`**: anyone with a profile.
+3. **`known`**: anyone with a confirmed profile. A profile marked "identity unconfirmed" gets only what `anyone` may.
 4. **`anyone`**: everyone, strangers included.
 
 The owner and the maintainers in `brain.toml` sit outside the table: the owner may know everything, a maintainer what
@@ -68,10 +68,12 @@ The table in `People/Disclosure.md`, one row per rule:
 
 **Precedence.** For a person and a subject, the most specific audience with a rule decides: their own row, else their
 groups' rows, else `known`, else `anyone`, else the default (`none`, `no`). Among the groups a person is in, the most
-generous row wins: groups add access. To hold one friend back, give that person a row of their own. `anything` rows
+generous row wins: groups add access. Rows for one audience that disagree keep the strictest. To hold one friend back,
+give that person a row of their own. `anything` rows
 apply to every subject at their audience level; a subject's own row at the same level beats them.
 
-`brain validate` reports an unknown subject, level, group or profile, a rule without date or source, and a duplicate id.
+`brain validate` reports an unknown subject, level, group or profile, a rule without date or source, a duplicate id, and
+a hub whose `subject:` is not in the vocabulary.
 
 ## The resolver
 
@@ -134,9 +136,23 @@ An audience without telling access has an empty tell map and empty lists, but gr
 A client shows each viewer the richest audience they belong to; a close friend sees more of an agent than a stranger
 does. This is what a collective view (Demiurge's World) renders.
 
+A grant narrowed by `## Grant scope` prose is not exported, since an export cannot honour it unattended; a private
+responsibility's receipts are never exported, whatever their routine; and a vault still on the old table exports every
+audience with nothing granted.
+
+## The owner's profile and the agent's impression
+
+`{human_profile}` keeps six sections, under 500 words (`brain validate` flags more): Who, Working together, Their
+people, What they're about, On my own, and Impression. The People review maintains it like any profile; dated material
+lives in `History.md` beside it. The Impression is the agent's own view of its owner, honest rather than flattering,
+each point dated, sourced and revised when contradicted, and raised to the owner as a `confirm` when new. Sessions with
+the owner carry Working together and Impression (about 250 words). The impression is never disclosed, whatever a rule
+allows: that is an engine rule, not a default.
+
 ## Defaults
 
-New vaults start generous to friends and discreet with everyone else, as starter rows the owner edits:
+New vaults start generous to friends and discreet with everyone else, as starter rows the owner edits (the friend row is
+added once the owner names their close friends):
 
 | audience | schedule | whereabouts | plans | work | everything else |
 | --- | --- | --- | --- | --- | --- |
@@ -148,11 +164,15 @@ New vaults start generous to friends and discreet with everyone else, as starter
 
 ## Migration (0.14.0)
 
-Unattended. The agent rewrites its Disclosure.md rows into the new columns, keeping ids, dates and quotes: an old
-`allow` becomes `tell: details` unless its scope prose says less, an old `deny` becomes `tell: none`. Each group note
-gets `kind: group` and a `## Members` heading if it lacks one. Declined requests move into `People/Access/` with their
-dates. The agent adds the default rows for audiences that have none, marked `granted by: default (engine 0.14)`, and
-raises one `confirm` listing them so the owner can correct.
+Unattended, and closed where unclear: nothing it does widens what anyone could learn before. The agent rewrites its
+rows into the new columns, keeping ids, dates and quotes (allow is `details`, or `gist` if its scope limits it to
+whether or when; deny is `none | no`), maps old subjects (`location` to whereabouts, `contact details` to contacts,
+`about <person>` to a subject of its own, never `people`), keeps an old deny as a person row wherever groups adding
+access would flip it, and parks rows it cannot map under `## Unmapped (0.14)`. It never creates a group or adds a
+member. A close-friends group gets the friend defaults; no `known` or `anyone` row is written, only proposed. Profiles
+get their person's name as title (unresolved ones are marked "identity unconfirmed"), sensitive hubs get a `subject:`,
+and the owner's profile is restructured with a first Impression. Two `confirm`s carry the impression and everything the
+owner should check.
 
 ## Later: evaluating it
 

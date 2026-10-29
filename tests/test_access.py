@@ -359,3 +359,14 @@ def test_configured_people_directory_is_used_for_all_access_operations(access_va
     assert result.subjects["schedule"].tell == "details"
     assert access.matching_people(loaded, loaded.config, "alice example")[0].rel == person
     assert validate.access_problems(loaded) == []
+
+
+def test_an_owner_profile_past_its_budget_is_a_validation_problem(access_vault):
+    from brain import fm
+    path = access_vault.root / access_vault.config.human_profile
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(path, {"kind": "hub"}, "# Owner\n" + "word " * 501)
+    assert validate.owner_profile(Vault(access_vault.root)) == [
+        f"{access_vault.config.human_profile}: 503 words; keep it under 500, dated material in History.md"]
+    fm.write(path, {"kind": "hub"}, "# Owner\nShort.\n")
+    assert validate.owner_profile(Vault(access_vault.root)) == []

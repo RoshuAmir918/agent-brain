@@ -488,7 +488,7 @@ def cmd_journal_recent(args):
 def cmd_validate(a):
     vault = Vault(a.config.vault_path)
     problems = (validate.run(vault, set(vault.notes)) + validate.responsibilities(vault) + validate.task_states(vault)
-                + validate.kinds(vault) + validate.access_problems(vault))
+                + validate.kinds(vault) + validate.access_problems(vault) + validate.owner_profile(vault))
     for p in problems:
         print(p)
     print(f"{len(problems)} problems")

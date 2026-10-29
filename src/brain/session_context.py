@@ -7,7 +7,10 @@ from pathlib import PurePosixPath
 from .config import Config
 from .vault import Note, Vault, WIKILINK_RE
 
-DEFAULT_RULE = "Default for everything else: do not disclose; decline and log it."
+DEFAULT_RULE = ("Default for everything else: decline briefly, offer to ask the owner, and note the request in your "
+                "after-session record. Your own impression of the owner is never shared with anyone, whatever a rule "
+                "allows.")
+OWNER_CARD_WORDS = 250
 WORD_LIMIT = 400
 PROFILE_WORD_LIMIT = 250
 
@@ -159,6 +162,26 @@ def known_context(vault: Vault, config: Config, person: Note, identity: str) -> 
     return "\n\n".join([*blocks, DEFAULT_RULE])
 
 
+def owner_card(vault: Vault, config: Config) -> str:
+    """How to work with the owner and what the agent has come to think of them, from their profile, kept short."""
+    note = vault.notes.get(config.human_profile)
+    if note is None:
+        return ""
+    parts = []
+    for title in ("Working together", "Impression"):
+        heading = re.search(r"^##[ \t]+" + title + r"\b[^\n]*$", note.body, re.M)
+        if heading is None:
+            continue
+        following = re.search(r"^##?[ \t]+", note.body[heading.end():], re.M)
+        section = note.body[heading.start():heading.end() + (following.start() if following else len(note.body))].strip()
+        if len(section.split()) > 1:
+            parts.append(section)
+    if not parts:
+        return ""
+    return (truncate_words("\n\n".join(parts), OWNER_CARD_WORDS) + f"\n\nTalk about your Impression only with "
+            f"{config.human_name} alone, never where anyone else can read it. Full profile: {config.link(config.human_profile)}.")
+
+
 def legacy(vault: Vault, config: Config) -> bool:
     """A vault not yet migrated to the 0.14 table (tell and do columns, no allow/deny rows) keeps today's raw rows."""
     from . import access
@@ -243,7 +266,8 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
           user_id_alt: str = "", user_name: str = "", chat_id: str = "") -> str:
     user_ids = tuple(value for value in (user_id, user_id_alt) if value)
     if is_owner(config, platform, user_ids):
-        return with_notice(f"This session is with {config.human_name}, the owner.", config)
+        return with_notice("\n\n".join(part for part in (f"This session is with {config.human_name}, the owner.",
+                                                          owner_card(vault, config)) if part), config)
     identity = f"{platform or 'platform unknown'} {user_id or user_id_alt or 'id unavailable'}"
     if listed(config.maintainers, platform, user_ids):
         return with_notice(maintainer_context(config, identity), config)

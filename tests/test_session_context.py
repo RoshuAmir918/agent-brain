@@ -60,7 +60,8 @@ def test_known_person_context_has_profile_paths_and_applicable_rules(people_vaul
         "| D3 | projects | [[memory/people/Groups/Friends\\|Friends]] | allow |\n"
         "| D4 | health | Friends | deny |\n"
         "| D5 | public | anyone | allow |\n\n"
-        "Default for everything else: do not disclose; decline and log it.")
+        "Default for everything else: decline briefly, offer to ask the owner, and note the request in your "
+        "after-session record. Your own impression of the owner is never shared with anyone, whatever a rule allows.")
 
 
 def test_disclosure_row_selection_includes_person_group_and_anyone_only(people_vault):
@@ -329,3 +330,21 @@ def test_the_owners_profile_is_never_matched_as_a_person(people_vault, tmp_path)
     fm.write(owner, {"kind": "hub"}, "# Mira\nSlack: U_MIRA_ALT\n## Impression\n- Private.\n")
     vault = Vault(people_vault.root)
     assert session_context.matching_profiles(vault, vault.config, ("U_MIRA_ALT",), "slack") == []
+
+
+def test_the_owner_hears_how_to_work_with_them_and_what_the_agent_thinks_of_them(people_vault):
+    (people_vault.root / "human").mkdir()
+    fm.write(people_vault.root / "human/Profile.md", {"kind": "hub"},
+             "# Mira\n\n## Who\nMira, Lisbon.\n\n## Working together\n- Terse answers; challenge her reasoning.\n\n"
+             "## Impression\n- Decides fast, then wants pushback (likely; Oct 20, Oct 27).\n\n## Open questions\n- Hobbies?\n")
+    vault = Vault(people_vault.root)
+    block = session_context.build(vault, vault.config, platform="cli")
+    assert block.startswith("This session is with Mira, the owner.\n\n## Working together\n- Terse answers")
+    assert "## Impression\n- Decides fast" in block and "Hobbies" not in block and "Lisbon" not in block
+    assert block.endswith("Talk about your Impression only with Mira alone, never where anyone else can read it. "
+                          "Full profile: memory/human/Profile.md.")
+
+
+def test_the_owners_impression_is_never_disclosed(people_vault):
+    block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
+    assert block.endswith("Your own impression of the owner is never shared with anyone, whatever a rule allows.")
