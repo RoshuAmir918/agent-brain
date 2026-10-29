@@ -247,3 +247,30 @@ def test_platform_qualified_maintainer_matches_only_that_platform(people_vault):
         assert "maintainer" not in text and "the owner." not in text
     assert session_context.build(people_vault, people_vault.config, platform="slack", user_id="k57owner") != (
         "This session is with Mira, the owner.")
+
+
+def pending(vault):
+    path = vault.root / vault.config.hermes_dir / "pending-migration.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("# Engine migration\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("platform, user_id", [("slack", "U_OWNER"), ("cli", ""), ("slack", "U_MAINT"), ("cron", "")])
+def test_a_pending_migration_is_named_in_every_session_that_can_do_it(people_vault, platform, user_id):
+    assert "migration is pending" not in session_context.build(people_vault, people_vault.config,
+                                                                platform=platform, user_id=user_id)
+    pending(people_vault)
+    text = session_context.build(people_vault, people_vault.config, platform=platform, user_id=user_id)
+    assert "An engine migration is pending: memory/hermes/pending-migration." in text
+    assert "never a reason to stop" in text and "`brain migrate-done`" in text
+
+
+@pytest.mark.parametrize("platform, user_id", [("slack", "U_ALICE"), ("slack", "U_STRANGER")])
+def test_never_in_a_session_with_someone_else(people_vault, platform, user_id):
+    pending(people_vault)
+    text = session_context.build(people_vault, people_vault.config, platform=platform, user_id=user_id)
+    assert "migration" not in text
+
+
+def test_a_cron_run_with_nothing_pending_gets_no_stranger_warning(people_vault):
+    assert session_context.build(people_vault, people_vault.config, platform="cron") == ""

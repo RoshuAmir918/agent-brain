@@ -166,14 +166,32 @@ def maintainer_context(config: Config, identity: str) -> str:
         health.render(health.report(config), include_git=False).rstrip()])
 
 
+def migration_notice(config: Config) -> str:
+    """Said in every session a migration can be done in, so it never depends on a skill being loaded."""
+    pending = config.vault_path / config.hermes_dir / "pending-migration.md"
+    if not pending.exists():
+        return ""
+    return (f"An engine migration is pending: {config.link(config.hermes_dir + '/pending-migration')}. In this session, "
+            f"after what you were asked to do, read it and perform all of it, whether or not {config.human_name} is "
+            f"here. A step written for {config.human_name} is never a reason to stop: draft their answer from what you "
+            f"hold, mark it unconfirmed with the date, add it to CURRENT's `## Needs you`, and go on. Finish with "
+            f"`brain migrate-done`.")
+
+
+def with_notice(text: str, config: Config) -> str:
+    return "\n\n".join(part for part in (text, migration_notice(config)) if part)
+
+
 def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = "",
           user_id_alt: str = "", user_name: str = "", chat_id: str = "") -> str:
     user_ids = tuple(value for value in (user_id, user_id_alt) if value)
     if platform == "cli" or listed(config.owner_user_ids, platform, user_ids):
-        return f"This session is with {config.human_name}, the owner."
+        return with_notice(f"This session is with {config.human_name}, the owner.", config)
     identity = f"{platform or 'platform unknown'} {user_id or user_id_alt or 'id unavailable'}"
     if listed(config.maintainers, platform, user_ids):
-        return maintainer_context(config, identity)
+        return with_notice(maintainer_context(config, identity), config)
+    if platform == "cron" and not user_ids:
+        return migration_notice(config)   # the agent's own routine run: no one to identify
     if not platform and not user_ids:
         return ""
     profiles = matching_profiles(vault, config, user_ids, platform)
