@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 import os
+import shutil
 import subprocess
 import sys
 from importlib.metadata import version as installed_version
@@ -159,8 +160,31 @@ def migrate_check(config: Config) -> Path | None:
             "Perform each section in order, then run `brain migrate-done`. Sections without `unattended: true` need the owner present.", ""]
     for tag, prompt in pending:
         body += [f"## {tag}", "", prompt.strip(), ""]
-    target.write_text("\n".join(body), encoding="utf-8")
+    text = "\n".join(body)
+    fresh = not target.exists() or target.read_text(encoding="utf-8") != text
+    target.write_text(text, encoding="utf-8")
+    if fresh:
+        start_migration(config)
     return target
+
+
+MIGRATION_RUN = ("An engine migration is pending in this vault. Perform all of it now, as your session context "
+                 "describes, and finish with `brain migrate-done`.")
+
+
+def start_migration(config: Config) -> bool:
+    """A new migration starts now, not at the agent's next session: one run of the agent, two minutes out, in this
+    profile (HERMES_HOME). Nothing happens where Hermes is not installed."""
+    hermes = shutil.which("hermes")
+    if hermes is None:
+        return False
+    try:
+        subprocess.run([hermes, "cron", "create", "2m", MIGRATION_RUN, "--repeat", "1", "--name", "brain-migration",
+                        "--deliver", "local", "--workdir", str(config.repo)],
+                       check=True, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return True
 
 
 def migrate_done(config: Config, deferred: list[str] | None = None) -> str:

@@ -248,3 +248,41 @@ def test_migrate_done_carries_a_deferred_step_as_an_ask(tmp_path, monkeypatch):
     assert install.recorded_version(config) == "1.2.0"
     [ask] = needs.items(config, date(2026, 10, 28))
     assert ask.kind == "ask" and ask.text == "Migration to 1.2.0 left for you: Reword SOUL's routing to Home and Hearth."
+
+
+
+def test_a_new_migration_starts_once_and_a_repeat_check_does_not_start_it_again(tmp_path, monkeypatch, migration_runs):
+    from brain import install
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    install.record_version(config, "1.0.0")
+    monkeypatch.setattr(install, "installed_version", lambda name: "1.1.0")
+    monkeypatch.setattr(install, "pending_migrations", lambda config: [("1.1.0", "Do the thing.")])
+    install.migrate_check(config)
+    install.migrate_check(config)
+    assert len(migration_runs) == 1
+    monkeypatch.setattr(install, "installed_version", lambda name: "1.2.0")
+    monkeypatch.setattr(install, "pending_migrations", lambda config: [("1.1.0", "Do the thing."), ("1.2.0", "And more.")])
+    install.migrate_check(config)
+    assert len(migration_runs) == 2
+
+
+def test_starting_a_migration_is_one_hermes_run_in_the_vault_and_nothing_without_hermes(tmp_path, monkeypatch):
+    from brain import install
+    from brain.config import Config
+    from conftest import START_MIGRATION
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    calls = []
+    monkeypatch.setattr(install.shutil, "which", lambda name: None)
+    assert START_MIGRATION(config) is False
+    monkeypatch.setattr(install.shutil, "which", lambda name: "/usr/local/bin/hermes")
+    monkeypatch.setattr(install.subprocess, "run", lambda command, **kw: calls.append(command))
+    assert START_MIGRATION(config) is True
+    assert calls == [["/usr/local/bin/hermes", "cron", "create", "2m", install.MIGRATION_RUN, "--repeat", "1",
+                      "--name", "brain-migration", "--deliver", "local", "--workdir", str(tmp_path)]]
+    def fail(command, **kw):
+        raise install.subprocess.CalledProcessError(1, command)
+    monkeypatch.setattr(install.subprocess, "run", fail)
+    assert START_MIGRATION(config) is False

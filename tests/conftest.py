@@ -75,3 +75,16 @@ def repo(tmp_path, monkeypatch):
     git(work, "remote", "add", "origin", str(remote))
     git(work, "push", "origin", "HEAD:main")
     return root, remote
+
+
+from brain import install as _install
+
+START_MIGRATION = _install.start_migration
+
+
+@pytest.fixture(autouse=True)
+def migration_runs(monkeypatch):
+    """No test schedules a real Hermes run; each records what it would have started."""
+    started = []
+    monkeypatch.setattr(_install, "start_migration", lambda config: started.append(config) or True)
+    return started
