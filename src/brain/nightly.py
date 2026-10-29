@@ -39,7 +39,7 @@ from pathlib import Path
 
 from . import activation as act
 from . import attribute, audit, compile_context, digest, fm, health, index, journal, ledger, needs, retrieve, session_context, state, triggers, validate
-from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, task_activation, write_archive
+from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, quiet, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import Config
 from .lock import vault_lock
@@ -551,12 +551,24 @@ def cmd_retrieve(a):
 
 
 def cmd_needs_you(args):
+    if args.source and not args.ask:
+        raise SystemExit("brain needs-you: --source goes with --ask")
+    if args.ask:
+        journal.add_ask(args.config, args.config.today(), args.ask, args.source)
+        return
     items = needs.items(args.config, args.config.today())
     if args.json:
         print(json.dumps([asdict(item) for item in items], ensure_ascii=False, indent=2))
     else:
         for item in items:
             print(f"{item.kind} · {item.text} · {item.source}")
+
+
+def cmd_stale_tasks(args):
+    tasks, archived = load_tasks(args.config)
+    for task, touched in quiet(tasks + archived, args.config.today()):
+        line = f"{task.tid} · {task.task_state or 'open'} · {task.state.get('tier', 'untiered')} · last touched {touched or 'never'} · {task.title}"
+        print(line + (f" · {task.first_status()}" if task.first_status() else ""))
 
 
 def cmd_state(args):
@@ -688,7 +700,13 @@ def main(argv=None):
     s = sub.add_parser("retrieve"); s.add_argument("--vault"); s.add_argument("query")
     s.add_argument("--limit", type=int, default=12); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_retrieve)
     s = sub.add_parser("needs-you"); s.add_argument("--vault")
-    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_needs_you)
+    mode = s.add_mutually_exclusive_group()
+    mode.add_argument("--json", action="store_true")
+    mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored)")
+    s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
+    s.set_defaults(fn=cmd_needs_you)
+    s = sub.add_parser("stale-tasks", help="open tasks gone quiet long enough for the evening review")
+    s.add_argument("--vault"); s.set_defaults(fn=cmd_stale_tasks)
     s = sub.add_parser("state"); s.add_argument("--vault")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_state)
     s = sub.add_parser("health"); s.add_argument("--vault"); s.add_argument("--date")

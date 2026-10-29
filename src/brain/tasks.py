@@ -13,8 +13,11 @@ TASK_HEAD_RE = re.compile(r"^### (T-\d{3}) — (.+?)\s*$", re.M)
 STATE_RE = re.compile(r"^<!-- brain: (.*?) -->\s*$", re.M)
 DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 MAX_WORDS = 150
-TASK_STATES = ("ready", "in_progress", "blocked", "waiting_for_owner", "completed", "cancelled")
-STATE_SYNONYMS = {"done": "completed", "complete": "completed", "canceled": "cancelled"}
+TASK_STATES = ("ready", "in_progress", "blocked", "waiting_for_owner", "set_aside", "completed", "cancelled")
+STATE_SYNONYMS = {"done": "completed", "complete": "completed", "canceled": "cancelled",
+                  "parked": "set_aside", "deferred": "set_aside", "deprioritized": "set_aside"}
+QUIET_DAYS = 21          # an open task untouched this long is reviewed by the evening routine
+OWNER_QUIET_DAYS = 14    # sooner for one waiting on the owner: it is in their queue
 
 
 def normal_state(value: str) -> str:
@@ -74,6 +77,17 @@ class Task:
         ds = DATE_RE.findall(self.body)
         return max(ds) if ds else ""
 
+    def last_touched(self) -> str:
+        """The latest day credited to this task: a use, an inferred use, or any date its title or entry names, so a
+        deadline still ahead keeps it out of review. A malformed date is skipped, never fatal."""
+        days = []
+        for value in (*self.uses, *self.uses_inferred, *DATE_RE.findall(self.title), *DATE_RE.findall(self.body)):
+            try:
+                days.append(date.fromisoformat(value.strip()).isoformat())
+            except ValueError:
+                pass
+        return max(days, default="")
+
     def _comment(self) -> str:
         parts = (f"{key}={value}" for key, value in self.state.items()
                  if key != "status" or "state" not in self.state)
@@ -123,6 +137,20 @@ def is_open(t: Task) -> bool:
     if "state" in t.state:
         return t.task_state not in ("completed", "cancelled")
     return t.state.get("status", "open") == "open"   # legacy: only an explicit open, or none, is open
+
+
+def quiet(tasks: list[Task], today: date) -> list[tuple[Task, str]]:
+    """Open tasks that have gone untouched long enough to review, oldest first, with the day each was last touched.
+    A set-aside task is already decided; the review never sees it again until its state changes."""
+    out = []
+    for t in tasks:
+        if not is_open(t) or t.task_state == "set_aside":
+            continue
+        touched = t.last_touched()
+        days = QUIET_DAYS if t.task_state != "waiting_for_owner" else OWNER_QUIET_DAYS
+        if not touched or (today - date.fromisoformat(touched)).days >= days:
+            out.append((t, touched))
+    return sorted(out, key=lambda pair: pair[1])
 
 
 def seed_uses_from_body(t: Task, today: date, config: Config) -> None:

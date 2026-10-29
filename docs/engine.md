@@ -105,7 +105,9 @@ Standing work with judgment in it is a responsibility with three linked homes: a
 
 ## Needs you
 
-`brain needs-you [--json] [--vault PATH]` computes one owner list: bullets in CURRENT's `## Needs you` section, tasks whose effective state is `waiting_for_owner` (including archived open tasks), then `proposed` improvements in responsibility and topic hubs. Trigger rows are the agent's commitments, not owner requests, and are excluded. Asks sort before confirms; each kind keeps source order. Text output is `ask · text · source`; JSON includes stable IDs, kind, text, origin, since and source pointers.
+`brain needs-you [--json] [--vault PATH]` computes one owner list: bullets in CURRENT's `## Needs you` section, tasks whose effective state is `waiting_for_owner` (including archived open tasks), then `proposed` improvements in responsibility and topic hubs. Trigger rows are the agent's commitments, not owner requests, and are excluded. Asks sort before confirms; each kind keeps source order. Text output is `ask · text · source`; JSON includes stable IDs, kind, text, origin, since and source pointers. `brain needs-you --ask TEXT [--source NOTE]` adds an ask to that section; a repeat of an open ask is ignored.
+
+`brain stale-tasks [--vault PATH]` lists the open tasks the evening routine reviews, oldest first: untouched for 21 days, or 14 when waiting on the owner. A task is touched by a use, an inferred use or any date its entry names, so a deadline still ahead keeps it off the list. Set-aside tasks are already decided and never listed.
 
 Outside CURRENT's generated active-threads markers, write:
 
@@ -245,7 +247,7 @@ Read Gmail or any connector, capture conversations, judge salience or surprise, 
 ## State
 
 - Note frontmatter: `tier`, `activation`, `uses`, `uses_inferred`, `pinned`, `consolidated`, optional `index_line`.
-- Register comments: `<!-- brain: state=ready; uses=...; inferred=...; tier=...; activation=... -->` under each `### T-nnn` heading. `state` is `ready`, `in_progress`, `blocked`, `waiting_for_owner`, `completed` or `cancelled`; a task is open unless completed or cancelled. Written states are normalised (case, spaces and hyphens; `done` is `completed`). Legacy comments without `state` keep their meaning: only `status=open`, or no status, is open. `state` wins over `status`, which is dropped on rendering; the engine never invents a missing state. `brain validate` reports an unknown state; the nightly never gates on one, so a mistyped state cannot stop the night's commit.
+- Register comments: `<!-- brain: state=ready; uses=...; inferred=...; tier=...; activation=... -->` under each `### T-nnn` heading. `state` is `ready`, `in_progress`, `blocked`, `waiting_for_owner`, `set_aside`, `completed` or `cancelled`; a task is open unless completed or cancelled. `set_aside` is open and recoverable but never in `needs-you`, Sleep 2's nudges or `stale-tasks`. Written states are normalised (case, spaces and hyphens; `done` is `completed`; `parked`, `deferred` and `deprioritized` are `set_aside`). Legacy comments without `state` keep their meaning: only `status=open`, or no status, is open. `state` wins over `status`, which is dropped on rendering; the engine never invents a missing state. `brain validate` reports an unknown state; the nightly never gates on one, so a mistyped state cannot stop the night's commit.
 - Task fields: `- **Status:**` keeps the human-readable detail; optional `- **Hub:** [[Target]]` names the hub the task serves. Labels and anchors are allowed (`[[Target|label]]`, `[[Target#anchor]]`); the hub is `Target`.
 - Legacy `.brain/state.json` (not managed or required by the package): only `channels`, the Gmail acknowledged-coverage checkpoints described in [[memory/agent/Channels|Channels]]. The agent maintains it; the script never reads or writes it.
 

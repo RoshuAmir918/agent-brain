@@ -6,7 +6,7 @@ from brain import fm, nightly, validate
 from brain.config import Config
 from brain.tasks import (
     TASK_STATES, Task, archived_open_tasks, is_open, load_tasks, parse_register,
-    parse_state, read_archived_task, write_archive,
+    parse_state, quiet, read_archived_task, write_archive,
 )
 from brain.vault import Vault
 
@@ -23,7 +23,7 @@ def test_parse_task_state(state):
 
 @pytest.mark.parametrize("state, opened", [
     ("ready", True), ("in_progress", True), ("blocked", True),
-    ("waiting_for_owner", True), ("completed", False), ("cancelled", False),
+    ("waiting_for_owner", True), ("set_aside", True), ("completed", False), ("cancelled", False),
     ("waitng", True), ("", True),
 ])
 @pytest.mark.parametrize("status", [None, "open", "completed", "cancelled"])
@@ -164,7 +164,33 @@ def test_state_and_hub_survive_task_tiering(vault):
 @pytest.mark.parametrize("written, state, opened", [
     ("In Progress", "in_progress", True), ("waiting for owner", "waiting_for_owner", True),
     ("waiting-for-owner", "waiting_for_owner", True), ("done", "completed", False), ("Canceled", "cancelled", False),
+    ("Parked", "set_aside", True), ("set aside", "set_aside", True), ("deferred", "set_aside", True),
 ])
 def test_written_states_are_normalised(written, state, opened):
     task = Task("T-023", "Sample", "", {"state": written})
     assert task.task_state == state and is_open(task) is opened
+
+
+def test_quiet_tasks_are_open_undecided_and_untouched_long_enough_oldest_first():
+    today = date(2026, 10, 29)
+    tasks = [
+        Task("T-001", "Fresh", "", {"state": "ready", "uses": "2026-10-20"}),
+        Task("T-002", "Quiet", "", {"state": "ready", "uses": "2026-10-01"}),
+        Task("T-003", "Owner, two weeks", "", {"state": "waiting_for_owner", "uses": "2026-10-15"}),
+        Task("T-004", "Set aside", "", {"state": "set_aside", "uses": "2026-01-01"}),
+        Task("T-005", "Done", "", {"state": "completed", "uses": "2026-01-01"}),
+        Task("T-006", "Never touched", "- **Status:** no dates\n", {"state": "blocked"}),
+        Task("T-007", "Deadline ahead", "- **Due:** 2026-11-15\n", {"state": "ready", "uses": "2026-09-01"}),
+        Task("T-008", "Inferred use", "", {"state": "ready", "uses": "2026-09-01", "inferred": "2026-10-25"}),
+    ]
+    assert [(t.tid, touched) for t, touched in quiet(tasks, today)] == [
+        ("T-006", ""), ("T-002", "2026-10-01"), ("T-003", "2026-10-15")]
+
+
+def test_quiet_skips_malformed_dates_and_honours_a_deadline_in_the_title():
+    today = date(2026, 10, 29)
+    tasks = [
+        Task("T-001", "Mixed", "- **Note:** 2026-13-45\n", {"state": "ready", "uses": "2026-09-01,unknown", "inferred": "bad"}),
+        Task("T-002", "Renew by 2026-11-15", "", {"state": "ready", "uses": "2026-09-01"}),
+    ]
+    assert [(t.tid, touched) for t, touched in quiet(tasks, today)] == [("T-001", "2026-09-01")]

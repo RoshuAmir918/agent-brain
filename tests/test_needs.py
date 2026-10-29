@@ -390,3 +390,38 @@ def test_empty_cli(vault, capsys):
 ])
 def test_improvement_status_accepts_the_field_and_the_inline_form(entry, status):
     assert needs.improvement_status(entry) == status
+
+
+def test_a_set_aside_task_is_not_an_ask(vault):
+    write_tasks(vault, Task("T-001", "Parked", "", {"state": "set_aside"}),
+                Task("T-002", "Waiting", "", {"state": "waiting_for_owner"}))
+    assert [item.text for item in needs.items(Config.load(vault), TODAY)] == ["Waiting"]
+
+
+def test_cli_ask_adds_once_with_its_source(vault, capsys):
+    for _ in range(2):
+        nightly.main(["needs-you", "--vault", str(vault), "--ask", "Still renew the lease?", "--source", "agent/Tasks#T-004"])
+    asks = [item for item in needs.parse_section(fm.read(vault / "CURRENT.md")[1]) if item.kind == "ask"]
+    assert [(item.text, item.source) for item in asks] == [("Still renew the lease?", "agent/Tasks#T-004")]
+
+
+def test_cli_stale_tasks(vault, capsys):
+    write_tasks(vault, Task("T-001", "Old", "- **Status:** parked by nobody\n", {"state": "ready", "uses": "2020-01-01", "tier": "cold"}),
+                Task("T-002", "Set aside", "", {"state": "set_aside", "uses": "2020-01-01"}))
+    nightly.main(["stale-tasks", "--vault", str(vault)])
+    assert capsys.readouterr().out.splitlines() == [
+        "T-001 · ready · cold · last touched 2020-01-01 · Old · Status: parked by nobody"]
+
+
+def test_cli_ask_is_not_suppressed_by_a_confirm_with_the_same_words(vault):
+    write_current(vault, "- 2026-10-28 · confirm · Renew the lease.\n")
+    nightly.main(["needs-you", "--vault", str(vault), "--ask", "Renew the lease."])
+    assert [item.kind for item in needs.parse_section(fm.read(vault / "CURRENT.md")[1])] == ["confirm", "ask"]
+
+
+@pytest.mark.parametrize("argv", [["--json", "--ask", "x"], ["--source", "agent/Tasks#T-001"]])
+def test_cli_ask_rejects_conflicting_arguments(vault, argv):
+    before = snapshot(vault.parent)
+    with pytest.raises(SystemExit):
+        nightly.main(["needs-you", "--vault", str(vault), *argv])
+    assert snapshot(vault.parent) == before
