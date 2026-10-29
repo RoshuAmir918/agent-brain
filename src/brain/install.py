@@ -163,8 +163,15 @@ def migrate_check(config: Config) -> Path | None:
     return target
 
 
-def migrate_done(config: Config) -> str:
+def migrate_done(config: Config, deferred: list[str] | None = None) -> str:
+    """Records the version. A step the agent could not complete here (a protected file it may not edit unattended)
+    is carried as an ask in CURRENT's Needs you instead of holding the migration open."""
     current = installed_version("agent-brain")
+    if deferred:
+        from datetime import datetime
+        from .journal import add_ask
+        for step in deferred:
+            add_ask(config, datetime.now(config.zone).date(), f"Migration to {current} left for you: {step}", None)
     record_version(config, current)
     pending = config.vault_path / config.hermes_dir / "pending-migration.md"
     if pending.exists():

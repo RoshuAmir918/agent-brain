@@ -174,8 +174,10 @@ def migration_notice(config: Config) -> str:
     return (f"An engine migration is pending: {config.link(config.hermes_dir + '/pending-migration')}. In this session, "
             f"after what you were asked to do, read it and perform all of it, whether or not {config.human_name} is "
             f"here. A step written for {config.human_name} is never a reason to stop: draft their answer from what you "
-            f"hold, mark it unconfirmed with the date, add it to CURRENT's `## Needs you`, and go on. Finish with "
-            f"`brain migrate-done`.")
+            f"hold, mark it unconfirmed with the date, add it to CURRENT's `## Needs you`, and go on. A step that edits a "
+            f"file you may not change unattended (SOUL.md, the Hermes config) is left for {config.human_name}: finish "
+            f"everything else and run `brain migrate-done --defer \"<that step>\"`. A step that waits on a future event "
+            f"becomes a trigger, not a reason to keep the migration open. Finish with `brain migrate-done`.")
 
 
 def with_notice(text: str, config: Config) -> str:

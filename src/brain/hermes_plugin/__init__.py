@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
 import threading
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 try:
     from agent.memory_provider import MemoryProvider
@@ -95,8 +98,19 @@ def turns(messages) -> int:
                if message.get("role") in ("user", "assistant") and _text(message.get("content")).strip())
 
 
-def find_repo(cwd: str = "") -> Path | None:
-    for candidate in (cwd, os.environ.get("VAULT_REPO"), Path.home() / "brain"):
+def configured_cwd(hermes_home: str) -> str:
+    """The profile's terminal working directory, which is where its vault lives on a Hermes host."""
+    try:
+        text = (Path(hermes_home) / "config.yaml").read_text(encoding="utf-8")
+    except Exception:
+        return ""
+    match = re.search(r"^terminal:[ \t]*\n(?:[ \t]+.*\n)*?[ \t]+cwd:[ \t]*[\"']?([^\"'\n#]+)", text, re.M)
+    return match[1].strip() if match else ""
+
+
+def find_repo(cwd: str = "", hermes_home: str = "") -> Path | None:
+    for candidate in (cwd, os.environ.get("VAULT_REPO"), configured_cwd(hermes_home) if hermes_home else "",
+                      Path.home() / "brain"):
         if not candidate:
             continue
         path = Path(candidate).expanduser().resolve()
@@ -143,11 +157,11 @@ class BrainMemoryProvider(MemoryProvider):
             return None
 
     def is_available(self) -> bool:
+        """Available wherever the brain CLI runs. The vault is found per session, from what Hermes passes then;
+        a missing VAULT_REPO must not switch the brain off before the session says where it is."""
         try:
-            if self.repo is None:
-                self.repo = find_repo()
-            return (self.repo is not None and (self.repo / "brain.toml").is_file()
-                    and self._run("--help") is not None)
+            subprocess.run(["brain", "--help"], capture_output=True, text=True, check=True, timeout=5)
+            return True
         except Exception:
             return False
 
@@ -166,7 +180,10 @@ class BrainMemoryProvider(MemoryProvider):
                 setattr(self, field, value)
                 if value:
                     arguments.extend(["--" + field.replace("_", "-"), value])
-            self.repo = find_repo(kwargs.get("cwd") or "")
+            self.repo = find_repo(kwargs.get("cwd") or "", kwargs.get("hermes_home") or "")
+            if self.repo is None:
+                logger.warning("brain provider: no vault found (session cwd, VAULT_REPO, the profile's terminal.cwd, "
+                               "~/brain); this session runs without the brain")
             self._context = self._run(*arguments) or ""
         except Exception:
             self._context = ""

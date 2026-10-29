@@ -73,3 +73,23 @@ def test_report_outside_git_is_still_a_report(tmp_path):
     data = health.report(Config.load(root), date(2026, 10, 6))
     assert all(entry["state"] == "never" for entry in data["stages"].values())
     assert "no git repository" in health.render(data)
+
+
+def test_pending_since_is_when_this_migration_arrived_not_when_the_last_one_left(tmp_path):
+    import os
+    root = repo_vault(tmp_path)
+    pending = root / "hermes/pending-migration.md"
+    env = {"GIT_COMMITTER_DATE": "2026-10-21T12:00:00", "GIT_AUTHOR_DATE": "2026-10-21T12:00:00"}
+    def dated(day, *args):
+        os.environ.update({"GIT_COMMITTER_DATE": f"{day}T12:00:00", "GIT_AUTHOR_DATE": f"{day}T12:00:00"})
+        try:
+            git(tmp_path, *args)
+        finally:
+            for key in env:
+                os.environ.pop(key, None)
+    dated("2026-10-21", "add", "-A"); dated("2026-10-21", "commit", "-q", "-m", "older migration arrives")
+    pending.unlink(); dated("2026-10-27", "add", "-A"); dated("2026-10-27", "commit", "-q", "-m", "older migration done")
+    pending.write_text("# newer\n")
+    assert health.report(Config.load(root), date(2026, 10, 28))["engine"]["pending_migration_since"] == "uncommitted"
+    dated("2026-10-28", "add", "-A"); dated("2026-10-28", "commit", "-q", "-m", "newer migration arrives")
+    assert health.report(Config.load(root), date(2026, 10, 28))["engine"]["pending_migration_since"] == "2026-10-28"

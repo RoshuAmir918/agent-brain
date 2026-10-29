@@ -57,7 +57,10 @@ def report(config: Config, today: date | None = None) -> dict:
     pending = config.vault_path / config.hermes_dir / "pending-migration.md"
     pending_since = None
     if pending.exists():
-        pending_since = git(config.repo, "log", "-1", "--format=%cs", "--", pending.relative_to(config.repo).as_posix()) or "uncommitted"
+        rel = pending.relative_to(config.repo).as_posix()
+        # The commit that added this file, not the last one touching the path: that can be the deletion of an older one.
+        tracked = not (git(config.repo, "status", "--porcelain", "--", rel) or "").startswith(("??", "A"))
+        pending_since = (tracked and git(config.repo, "log", "-1", "--diff-filter=A", "--format=%cs", "--", rel)) or "uncommitted"
     try:
         installed = installed_version("agent-brain")
     except PackageNotFoundError:

@@ -232,3 +232,19 @@ def test_pending_migrations_selects_versions_in_range(tmp_path, monkeypatch):
         def joinpath(self, name): return Dir()
     monkeypatch.setattr(install, "files", lambda package: Root())
     assert install.pending_migrations(config) == [("0.1.3", "mid"), ("0.1.4", "new")]
+
+
+def test_migrate_done_carries_a_deferred_step_as_an_ask(tmp_path, monkeypatch):
+    from brain import install, needs
+    from brain.config import Config
+    from datetime import date
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    config.vault_path.mkdir(parents=True, exist_ok=True)
+    (config.vault_path / "CURRENT.md").write_text("# Current\n", encoding="utf-8")
+    install.record_version(config, "1.0.0")
+    monkeypatch.setattr(install, "installed_version", lambda name: "1.2.0")
+    assert install.migrate_done(config, ["Reword SOUL's routing to Home and Hearth."]) == "1.2.0"
+    assert install.recorded_version(config) == "1.2.0"
+    [ask] = needs.items(config, date(2026, 10, 28))
+    assert ask.kind == "ask" and ask.text == "Migration to 1.2.0 left for you: Reword SOUL's routing to Home and Hearth."

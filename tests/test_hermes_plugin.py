@@ -96,21 +96,23 @@ def test_repository_discovery_prefers_cwd_then_environment_then_home(provider_re
     assert hermes_plugin.find_repo() is None
 
 
-def test_is_available_requires_config_and_successful_help(provider_repo, monkeypatch):
+def test_is_available_wherever_the_cli_runs_whatever_the_vault(provider_repo, monkeypatch):
     calls = []
 
     def run(command, **kwargs):
-        calls.append((command, kwargs))
+        calls.append(command)
         return SimpleNamespace(stdout="")
 
     monkeypatch.setattr(hermes_plugin.subprocess, "run", run)
-    provider = hermes_plugin.BrainMemoryProvider()
-    assert provider.is_available()
-    assert calls[0][0] == ["brain", "--help"]
-    assert calls[0][1]["cwd"] == provider_repo and calls[0][1]["timeout"] == 5
     (provider_repo / "brain.toml").unlink()
-    assert not provider.is_available()
-    assert len(calls) == 1
+    assert hermes_plugin.BrainMemoryProvider().is_available()
+    assert calls == [["brain", "--help"]]
+
+    def missing(command, **kwargs):
+        raise FileNotFoundError("brain")
+
+    monkeypatch.setattr(hermes_plugin.subprocess, "run", missing)
+    assert not hermes_plugin.BrainMemoryProvider().is_available()
 
 
 @pytest.mark.parametrize("query", ["", "the and for you", "gardens", "gardens and the"])
@@ -170,14 +172,29 @@ def test_subprocess_failures_never_escape_to_hermes(provider, monkeypatch, failu
     assert provider.prefetch("harbor deployment") == ""
 
 
-def test_provider_without_a_repository_is_unavailable_and_injects_nothing(tmp_path, monkeypatch):
+def test_without_a_vault_anywhere_the_session_runs_without_the_brain_and_says_so(tmp_path, monkeypatch, caplog):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("VAULT_REPO", raising=False)
     provider = hermes_plugin.BrainMemoryProvider()
-    assert not provider.is_available()
-    provider.initialize("session-1", platform="slack", user_id="NOPE")
+    provider.initialize("session-1", platform="slack", user_id="NOPE", hermes_home=str(tmp_path / "nohome"))
+    assert provider.repo is None and "no vault found" in caplog.text
     assert provider.system_prompt_block() == ""
     assert provider.prefetch("harbor deployment") == ""
+
+
+def test_the_profiles_terminal_cwd_finds_the_vault_without_vault_repo(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("VAULT_REPO", raising=False)
+    vault = tmp_path / "amicus"
+    vault.mkdir()
+    (vault / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    home = tmp_path / ".hermes" / "profiles" / "amicus"
+    home.mkdir(parents=True)
+    (home / "config.yaml").write_text(f"model: x\nterminal:\n  backend: local\n  cwd: \"{vault}\"  # the vault\n", encoding="utf-8")
+    monkeypatch.setattr(hermes_plugin.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=""))
+    provider = hermes_plugin.BrainMemoryProvider()
+    provider.initialize("session-1", platform="slack", user_id="U1", hermes_home=str(home))
+    assert provider.repo == vault.resolve()
 
 
 def test_other_hooks_are_noops_and_registration_supplies_the_provider(provider):

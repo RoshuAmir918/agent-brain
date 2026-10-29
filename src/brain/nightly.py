@@ -627,7 +627,8 @@ def cmd_migrate_check(args):
 
 
 def cmd_migrate_done(args):
-    print(f"migrated to {install.migrate_done(args.config)}")
+    print(f"migrated to {install.migrate_done(args.config, args.defer)}"
+          + (f"; {len(args.defer)} step(s) left for the owner in Needs you" if args.defer else ""))
 
 
 def cmd_install_scripts(args):
@@ -714,7 +715,10 @@ def main(argv=None):
     s.set_defaults(fn=cmd_install_skills)
     s = sub.add_parser("update"); s.add_argument("--vault"); s.set_defaults(fn=cmd_update)
     s = sub.add_parser("migrate-check"); s.add_argument("--vault"); s.set_defaults(fn=cmd_migrate_check)
-    s = sub.add_parser("migrate-done"); s.add_argument("--vault"); s.set_defaults(fn=cmd_migrate_done)
+    s = sub.add_parser("migrate-done"); s.add_argument("--vault")
+    s.add_argument("--defer", action="append", default=[], metavar="STEP",
+                   help="a step left for the owner (repeatable); it becomes an ask in CURRENT's Needs you")
+    s.set_defaults(fn=cmd_migrate_done)
     s = sub.add_parser("install-scripts"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_scripts)
     s = sub.add_parser("install-provider"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_provider)
     s = sub.add_parser("paths"); s.add_argument("--vault")
