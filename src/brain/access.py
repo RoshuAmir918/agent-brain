@@ -109,6 +109,15 @@ def subjects(vault: Vault, config: Config) -> dict[str, str]:
     return vocabulary
 
 
+def hub_subject(vault: Vault, config: Config, rel: str) -> str:
+    """Use a hub's declared subject when known, otherwise its directory default."""
+    note = vault.notes.get(rel)
+    subject = note.data.get("subject") if note else None
+    if isinstance(subject, str) and subject in subjects(vault, config):
+        return subject
+    return "people" if PurePosixPath(rel).is_relative_to(config.people_dir) else "plans"
+
+
 def groups(vault: Vault, config: Config) -> dict[str, list[str]]:
     """Group note paths and their linked profile members, including empty groups."""
     profiles = {note.rel for note in _profiles(vault, config)}
@@ -196,10 +205,17 @@ def _decision(tiers: list[list[Rule]], subject: str, dimension: str,
     return levels[0], None
 
 
-def resolve(vault: Vault, config: Config, person: str | None) -> Access:
-    """Resolve tell and do independently, from the most specific audience down."""
-    person = person if person in {note.rel for note in _profiles(vault, config)} else None
-    group_rels = [rel for rel, members in groups(vault, config).items() if person in members]
+def resolve(vault: Vault, config: Config, person: str | None = None, *, audience: Audience | None = None) -> Access:
+    """Resolve tell and do independently, for a person or an audience without personal rules."""
+    memberships = groups(vault, config)
+    if audience is None:
+        person = person if person in {note.rel for note in _profiles(vault, config)} else None
+        group_rels = [rel for rel, members in memberships.items() if person in members]
+        known = person is not None and confirmed(vault.notes[person])
+    else:
+        person = None
+        group_rels = [audience.target] if audience.kind == "group" and audience.target in memberships else []
+        known = bool(group_rels) or audience.kind == "known"
     tiers: list[list[Rule]] = [[], [], [], []]
     for rule in rules(vault, config):
         audience = rule.audience
@@ -209,7 +225,7 @@ def resolve(vault: Vault, config: Config, person: str | None) -> Access:
             tiers[0].append(rule)
         elif audience.kind == "group" and audience.target in group_rels:
             tiers[1].append(rule)
-        elif person and confirmed(vault.notes[person]) and audience.kind == "known":
+        elif known and audience.kind == "known":
             tiers[2].append(rule)
         elif audience.kind == "anyone":
             tiers[3].append(rule)

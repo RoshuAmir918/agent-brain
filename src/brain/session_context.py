@@ -21,13 +21,21 @@ def contains_token(text: str, token: str) -> bool:
     return re.search(r"(?<![\w-])(?<!\w@)" + re.escape(token) + TOKEN_END, text) is not None
 
 
+def _qualified_id_line(platform: str, ids: str) -> str:
+    return (r"(?m)^[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?(?i:" + platform + ")"
+            + r"(?:\*\*)?[ \t]*:[ \t]*(?:\*\*)?[ \t]*`?(?:" + ids + ")`?" + TOKEN_END)
+
+
 def has_qualified_id(text: str, platform: str, user_ids: tuple[str, ...]) -> bool:
     ids = "|".join(re.escape(user_id) for user_id in user_ids if user_id)
-    if not platform or not ids:
-        return False
-    line = (r"(?m)^[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?(?i:" + re.escape(platform) + ")"
-            + r"(?:\*\*)?[ \t]*:[ \t]*(?:\*\*)?[ \t]*`?(?:" + ids + ")`?" + TOKEN_END)
-    return re.search(line, text) is not None
+    return bool(platform and ids and re.search(_qualified_id_line(re.escape(platform), ids), text))
+
+
+def profile_ids(text: str) -> list[str]:
+    """Only explicit platform id lines, never prose or email addresses."""
+    line = _qualified_id_line(r"(?P<platform>demiurge|slack|telegram|discord)", r"(?P<id>[^\s`]+)")
+    return list(dict.fromkeys(f"{match['platform'].casefold()}:{match['id']}" for match in re.finditer(line, text)
+                             if re.fullmatch(r"[\w-]+", match["id"])))
 
 
 PLATFORMS = ("slack", "demiurge", "telegram", "discord", "whatsapp", "signal", "email")

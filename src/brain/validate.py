@@ -91,6 +91,10 @@ def access_problems(vault: Vault) -> list[str]:
         for field in ("date", "source"):
             if not rule.fields.get(field):
                 problems.append(f"{prefix}: missing {field}")
+    for rel, note in vault.notes.items():
+        subject = note.data.get("subject")
+        if subject is not None and vault.kind_for(rel) == "hub" and subject not in vocabulary:
+            problems.append(f"{rel}: unknown subject '{subject}'; add it under ## Subjects in Disclosure.md or use one there")
     for rel, members in access.groups(vault, config).items():
         if not members:
             problems.append(f"{rel}: group has no members")

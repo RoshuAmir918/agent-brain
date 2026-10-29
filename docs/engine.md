@@ -135,6 +135,10 @@ Schema 1 uses deterministic ordering and no generation timestamp, so unchanged v
 
 Hubs and outputs exclude the configured sources directory, the human profile's folder, people and agents directories, the Hermes directory, notes with `tier: private`, and notes with `kind: conversation`. These exclusions also apply to ledger discovery and needs-you source pointers, so private proposals cannot leak through the owner queue. Resolvable needs-you links become vault-relative source paths, retaining anchors and IDs.
 
+The additive `shareable` object exports audience-filtered hub titles, ledger receipts, and group member platform ids;
+see [what each audience may see](access.md#what-each-audience-may-see-brain-state). It never includes person-specific
+grants, note bodies, or outputs. The non-JSON count summary is unchanged.
+
 ## Parallel operation boundary
 
 Run only one nightly process per vault. The engine assumes it is the only writer during `--write`.
