@@ -274,3 +274,58 @@ def test_never_in_a_session_with_someone_else(people_vault, platform, user_id):
 
 def test_a_cron_run_with_nothing_pending_gets_no_stranger_warning(people_vault):
     assert session_context.build(people_vault, people_vault.config, platform="cron") == ""
+
+
+MIGRATED = (
+    "# Disclosure\n\n| id | audience | subject | tell | do | date | source |\n| --- | --- | --- | --- | --- | --- | --- |\n"
+    "| D1 | [[memory/people/Groups/Friends\\|Friends]] | schedule | details | ask | 2026-10-29 | Mira, \"friends can see my calendar\" |\n"
+    "| D2 | known | plans | gist |  | 2026-10-29 | default |\n"
+    "| D3 | [[memory/people/Alice/Profile\\|Alice]] | health | none |  | 2026-10-29 | Mira |\n\n"
+    "## Grant scope\n\nD1 covers reading the calendar, not changing it without Mira.\n"
+)
+
+
+def test_a_migrated_vault_gives_a_known_person_their_resolved_access(people_vault):
+    people_vault.notes["people/Disclosure.md"].body = MIGRATED
+    block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
+    assert ("What Alice may learn, resolved from memory/people/Disclosure.md (groups: Friends). Gist is the shape "
+            "without specifics (whether and roughly when); details are the specifics:") in block
+    assert "- schedule: tell details (D1); ask Mira before acting for them (D1)" in block
+    assert "- plans: tell gist (D2)" in block
+    assert "health" not in block.split("may learn")[1].split("Scope:")[0]
+    assert "Scope: D1 covers reading the calendar" in block
+    assert "| D1 |" not in block and block.endswith(session_context.DEFAULT_RULE)
+    bob = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_BOB")
+    assert "- plans: tell gist (D2)" in bob and "schedule" not in bob.split("may learn")[1]
+
+
+def test_a_stranger_hears_only_what_anyone_may_learn(people_vault):
+    people_vault.notes["people/Disclosure.md"].body = MIGRATED
+    closed = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_NOBODY")
+    assert "may be disclosed;" in closed and "What anyone may learn" not in closed
+    people_vault.notes["people/Disclosure.md"].body = MIGRATED.replace("| D2 | known |", "| D2 | anyone |")
+    open_ = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_NOBODY")
+    assert "beyond what anyone may learn, below" in open_ and "- plans: tell gist (D2)" in open_
+
+
+def test_an_anything_grant_is_shown_subject_by_subject_so_a_deny_is_not_hidden(people_vault):
+    people_vault.notes["people/Disclosure.md"].body = (
+        "| id | audience | subject | tell | do | date | source |\n| --- | --- | --- | --- | --- | --- | --- |\n"
+        "| D1 | anyone | anything | details | yes | 2026-10-29 | Mira |\n| D2 | anyone | health | none | no | 2026-10-29 | Mira |\n")
+    block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
+    assert "- anything:" not in block and "- health:" not in block and "- schedule: tell details (D1)" in block
+
+
+def test_an_id_given_for_one_platform_never_identifies_a_speaker_on_another(people_vault):
+    assert session_context.matching_profiles(people_vault, people_vault.config, ("U_ALICE",), "slack")
+    assert session_context.matching_profiles(people_vault, people_vault.config, ("U_ALICE",), "demiurge") == []
+
+
+def test_the_owners_profile_is_never_matched_as_a_person(people_vault, tmp_path):
+    (tmp_path / "brain.toml").write_text((tmp_path / "brain.toml").read_text().replace(
+        "[brain]\n", '[brain]\nhuman_profile = "people/Mira/Profile.md"\n'), encoding="utf-8")
+    owner = people_vault.root / "people/Mira/Profile.md"
+    owner.parent.mkdir()
+    fm.write(owner, {"kind": "hub"}, "# Mira\nSlack: U_MIRA_ALT\n## Impression\n- Private.\n")
+    vault = Vault(people_vault.root)
+    assert session_context.matching_profiles(vault, vault.config, ("U_MIRA_ALT",), "slack") == []

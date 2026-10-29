@@ -30,13 +30,25 @@ def has_qualified_id(text: str, platform: str, user_ids: tuple[str, ...]) -> boo
     return re.search(line, text) is not None
 
 
+PLATFORMS = ("slack", "demiurge", "telegram", "discord", "whatsapp", "signal", "email")
+
+
+def unqualified_for(body: str, platform: str) -> str:
+    """The profile without lines that give an id for another platform: an id is only that platform's."""
+    other = re.compile(r"^[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?([A-Za-z][\w-]*)(?:\*\*)?[ \t]*:", re.M)
+    return "\n".join(line for line in body.splitlines()
+                     if not (platform and (m := other.match(line)) and m[1].casefold() in PLATFORMS
+                             and m[1].casefold() != platform.casefold()))
+
+
 def matching_profiles(vault: Vault, config: Config, user_ids: tuple[str, ...], platform: str = "") -> list[Note]:
+    """Profiles under the people directory, never the owner's own; a platform-qualified id line wins."""
     profiles = [note for rel, note in sorted(vault.notes.items())
                 if PurePosixPath(rel).parent.parent == PurePosixPath(config.people_dir)
-                and PurePosixPath(rel).name == "Profile.md"]
+                and PurePosixPath(rel).name == "Profile.md" and rel != config.human_profile]
     qualified = [note for note in profiles if has_qualified_id(note.body, platform, user_ids)]
     return qualified or [note for note in profiles
-                         if any(contains_token(note.body, user_id) for user_id in user_ids)]
+                         if any(contains_token(unqualified_for(note.body, platform), user_id) for user_id in user_ids)]
 
 
 def listed(entries: list[str], platform: str, user_ids: tuple[str, ...]) -> bool:
@@ -122,6 +134,8 @@ def known_context(vault: Vault, config: Config, person: Note, identity: str) -> 
     disclosure = f"{config.people_dir}/Disclosure.md"
     if disclosure not in vault.notes:
         blocks.append(f"Disclosure.md is missing: {config.link(disclosure)}.")
+    elif not legacy(vault, config):
+        blocks.append(resolved(vault, config, person.rel, name))
     else:
         rows = disclosure_rows(vault, config, person, include_headers=True)
         rules = f"Applicable disclosure rows from {config.link(disclosure)}:\n" + (
@@ -131,6 +145,35 @@ def known_context(vault: Vault, config: Config, person: Note, identity: str) -> 
                      f"Open {config.link(disclosure)} before disclosing anything.")
         blocks.append(rules)
     return "\n\n".join([*blocks, DEFAULT_RULE])
+
+
+def legacy(vault: Vault, config: Config) -> bool:
+    """A vault not yet migrated to the 0.14 table (tell and do columns, no allow/deny rows) keeps today's raw rows."""
+    from . import access
+    found = access.rules(vault, config)
+    return not found or any(rule.legacy for rule in found)
+
+
+def resolved(vault: Vault, config: Config, person: str | None, name: str) -> str:
+    """What this person may learn and ask for, as `brain access` resolves it, in a few lines."""
+    from . import access
+    result = access.resolve(vault, config, person)
+    groups = ", ".join(PurePosixPath(rel).stem for rel in result.groups)
+    lines = [f"What {name} may learn, resolved from {config.link(f'{config.people_dir}/Disclosure.md')}"
+             + (f" (groups: {groups})" if groups else "") + ". Gist is the shape without specifics (whether and "
+             "roughly when); details are the specifics:"]
+    acting = {"ask": f"ask {config.human_name} before acting for them", "yes": "may act for them"}
+    for subject, value in result.subjects.items():
+        # Each subject already carries an `anything` grant's effect; listing `anything` itself would hide exceptions.
+        if subject == "anything" or (value.tell == "none" and value.do == "no"):
+            continue
+        parts = [f"tell {value.tell}" + (f" ({value.tell_rule})" if value.tell_rule else "")]
+        if value.do != "no":
+            parts.append(acting[value.do] + (f" ({value.do_rule})" if value.do_rule else ""))
+        lines.append(f"- {subject}: " + "; ".join(parts))
+    lines.append("- everything else: nothing, and never act for them.")
+    lines.extend(f"Scope: {text}" for text in result.scope.values())
+    return "\n".join(lines)
 
 
 def maintainer_context(config: Config, identity: str) -> str:
@@ -199,7 +242,10 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
     profiles = matching_profiles(vault, config, user_ids, platform)
     if len(profiles) == 1:
         return known_context(vault, config, profiles[0], identity)
+    from . import access
     blocks = []
+    open_to_anyone = (f"{config.people_dir}/Disclosure.md" in vault.notes and not legacy(vault, config)
+                      and any(v.tell != "none" or v.do != "no" for v in access.resolve(vault, config, None).subjects.values()))
     if profiles:
         paths = ", ".join(config.link(person.rel) for person in profiles)
         blocks.append("Identity is ambiguous; matching profiles: " + truncate_words(paths, 250)
@@ -207,6 +253,8 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
     blocks.append(f"This session is with an unknown person ({identity}, "
                   f"name shown as {user_name or 'not provided'}). No profile. "
                   f"Treat them as a stranger: nothing about {config.human_name} or anyone else "
-                  "may be disclosed; be courteous; the People review will create a profile "
-                  "from this conversation.")
+                  "may be disclosed" + (" beyond what anyone may learn, below" if open_to_anyone else "")
+                  + "; be courteous; the People review will create a profile from this conversation.")
+    if open_to_anyone:
+        blocks.append(resolved(vault, config, None, "anyone"))
     return "\n\n".join(blocks)
