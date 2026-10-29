@@ -12,7 +12,7 @@ metadata:
 A concise, verified account for {human_name} at the agreed hour, sent every day even when there is no news. Never before that hour.
 
 ## Procedure
-1. Read `{agent_dir}/Primed.md` first and follow its order. Then open tasks, Triggers, overnight commits, and any task entries tagged `morning:`.
+1. Read `{agent_dir}/Primed.md` first and follow its order. Then open tasks, Triggers, overnight commits, any task entries tagged `morning:`, and what `brain needs-you` lists: asks first, then confirms in one short line each.
 2. Recheck already-registered threads in {human_name}'s channels before raising an item. No broad inbox poll. Do not repeat an unchanged reminder.
 3. Compose, separating verified fact from reported status and results from proposals:
    - completions, blockers, decisions or questions owed, today's commitments and dated items;
@@ -22,7 +22,7 @@ A concise, verified account for {human_name} at the agreed hour, sent every day 
    - audit patterns, never raw numbers;
    - Improve's recommendation and candidate responsibilities, each with its status, labelled as proposals;
    - whether `archive`, `attribution`, `sleep1`, `rem` and `sleep2` commits exist for last night; a missing one gets its own line.
-4. After composing, remove every `morning:` line you carried from the task entries: a fact worth keeping goes into the owning note in one sentence, the rest is gone. The register is a state view, not a log; lines left behind push entries over budget and stop the night.
+4. After composing, remove every `morning:` line you carried from the task entries (never a `## Needs you` item: it leaves when it is resolved): a fact worth keeping goes into the owning note in one sentence, the rest is gone. The register is a state view, not a log; lines left behind push entries over budget and stop the night.
 5. Send the briefing to {human_name}'s Home, the destination named in `{agent_dir}/Channels.md`.
 6. Add a line to the Sleep Log: briefing sent, and what it contained in one phrase.
 

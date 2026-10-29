@@ -29,7 +29,7 @@ The night's main job. Yesterday becomes long-term memory: new facts are written 
    - new topic with no owning note: create `{vault}/<Topic>.md` with the standard frontmatter, `kind: hub`, and today as its first use; link it from the nearest hub;
    - a person: update the profile if it exists; if not, leave a line in `{people_dir}/README.md` for the People review, do not create the profile here;
    - a promise with a date or condition: a row in Triggers; a deadline: a dated item in CURRENT; a request for work: a task, with {human_name}'s words as the source;
-   - uncertain: leave it out and write the question for the morning.
+   - uncertain: leave it out and add the question to CURRENT's `## Needs you` as an `ask`.
 5. **Tidy what grew.** For every note you touched, and for any hub over 1,500 words:
    - fold dated entries older than two weeks into the prose of their section, keeping each fact and its date, dropping the diary form;
    - a section over 400 words gets a two-sentence summary at its top;

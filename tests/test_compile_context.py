@@ -123,3 +123,15 @@ def test_context_includes_goals_when_present_and_skips_them_until_then(context_v
     assert text.index("# Current") < text.index("GOALS_BODY") < text.index("# Triggers")
     assert "human/Goals" not in compile_context.directory(vault)
     assert Config.load(context_vault).template_values()["human_goals"] == "human/Goals.md"
+
+
+def test_context_keeps_open_tasks_that_carry_state_without_status(context_vault):
+    vault = context_vault
+    path = vault / "agent/Tasks.md"
+    data, body = fm.read(path)
+    stated = Task("T-005", "Stated task", "STATED_BODY\n", {"state": "waiting_for_owner"})
+    done = Task("T-006", "Done task", "DONE_BODY\n", {"state": "completed"})
+    fm.write(path, data, body + "\n" + stated.render() + "\n" + done.render())
+    text = compile_context.build(Vault(vault))
+    assert "### T-005" in text and "STATED_BODY" in text
+    assert "### T-006" not in text and "DONE_BODY" not in text

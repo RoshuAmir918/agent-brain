@@ -6,7 +6,7 @@ from pathlib import Path
 
 from . import fm
 from .config import Config
-from .tasks import load_tasks, parse_register
+from .tasks import is_open, load_tasks, parse_register
 from .vault import Vault
 
 WORD_LIMIT = 6000
@@ -18,7 +18,7 @@ def repo_root(config: Config) -> Path:
 
 def open_register(vault: Vault, body: str) -> str:
     registered, _ = load_tasks(vault.config)
-    open_ids = {task.tid for task in registered if task.state.get("status") == "open"}
+    open_ids = {task.tid for task in registered if task.state and is_open(task)}
     spans, _ = parse_register(body)
     sections, seen = [], set()
     for task_id, start, end in spans:
@@ -73,7 +73,7 @@ def directory(vault: Vault) -> str:
         elif kind == "hub":
             hubs.append(rel[:-3])
     registered, archived = load_tasks(vault.config)
-    tasks = [f"{t.tid} {t.title}" for t in registered + archived if t.state.get("status") == "open"]
+    tasks = [f"{t.tid} {t.title}" for t in registered + archived if t.state and is_open(t)]
     _, trig = fm.read(vault.root / vault.config.agent("Triggers.md"))
     triggers = sorted(set(re.findall(r"\bTR-\d{3}\b", trig)))
     lines = ["## Directory: what the vault knows", "",

@@ -13,6 +13,14 @@ TASK_HEAD_RE = re.compile(r"^### (T-\d{3}) — (.+?)\s*$", re.M)
 STATE_RE = re.compile(r"^<!-- brain: (.*?) -->\s*$", re.M)
 DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 MAX_WORDS = 150
+TASK_STATES = ("ready", "in_progress", "blocked", "waiting_for_owner", "completed", "cancelled")
+STATE_SYNONYMS = {"done": "completed", "complete": "completed", "canceled": "cancelled"}
+
+
+def normal_state(value: str) -> str:
+    """`In progress`, `waiting-for-owner` and `done` mean what they say; anything else stays as written."""
+    key = "_".join(value.strip().lower().replace("-", " ").split())
+    return STATE_SYNONYMS.get(key, key)
 
 
 @dataclass
@@ -21,6 +29,20 @@ class Task:
     title: str
     body: str                      # everything after the heading line, excluding the brain comment
     state: dict = field(default_factory=dict)
+
+    @property
+    def task_state(self) -> str | None:
+        if "state" in self.state:
+            return normal_state(self.state["state"])
+        status = self.state.get("status")
+        return status if status in ("completed", "cancelled") else None
+
+    @property
+    def hub(self) -> str | None:
+        match = re.search(r"^[ \t]*-[ \t]+\*\*Hub:\*\*[ \t]*\[\[([^\]\n]+)\]\]", self.body, re.M)
+        if not match:
+            return None
+        return match[1].split("|", 1)[0].split("#", 1)[0].strip() or None
 
     @property
     def uses(self) -> list[str]:
@@ -52,15 +74,18 @@ class Task:
         ds = DATE_RE.findall(self.body)
         return max(ds) if ds else ""
 
+    def _comment(self) -> str:
+        parts = (f"{key}={value}" for key, value in self.state.items()
+                 if key != "status" or "state" not in self.state)
+        return "<!-- brain: " + "; ".join(parts) + " -->"
+
     def render(self) -> str:
-        comment = "<!-- brain: " + "; ".join(f"{k}={v}" for k, v in self.state.items()) + " -->"
-        return f"### {self.tid} — {self.title}\n{comment}\n{self.body.rstrip()}\n"
+        return f"### {self.tid} — {self.title}\n{self._comment()}\n{self.body.rstrip()}\n"
 
     def render_line(self, config: Config) -> str:
         tail = self.first_status()
         ev = self.last_evidence_date()
-        comment = "<!-- brain: " + "; ".join(f"{k}={v}" for k, v in self.state.items()) + " -->"
-        return f"### {self.tid} — {self.title}\n{comment}\n- **Warm:** {tail} · last evidence {ev or 'unknown'} · full entry in [[{config.link(config.agent('Tasks Archive/' + self.tid))}|{self.tid} archive]]\n"
+        return f"### {self.tid} — {self.title}\n{self._comment()}\n- **Warm:** {tail} · last evidence {ev or 'unknown'} · full entry in [[{config.link(config.agent('Tasks Archive/' + self.tid))}|{self.tid} archive]]\n"
 
 
 def parse_state(s: str) -> dict:
@@ -95,8 +120,9 @@ def task_activation(t: Task, today: date) -> float:
 
 
 def is_open(t: Task) -> bool:
-    s = t.state.get("status", "open")
-    return s == "open"
+    if "state" in t.state:
+        return t.task_state not in ("completed", "cancelled")
+    return t.state.get("status", "open") == "open"   # legacy: only an explicit open, or none, is open
 
 
 def seed_uses_from_body(t: Task, today: date, config: Config) -> None:
@@ -182,7 +208,7 @@ def bounded_hot_body(t: Task, config: Config) -> str:
 def write_archive(config: Config, t: Task, reason: str, today: date) -> None:
     p = archive_path(config, t.tid)
     p.parent.mkdir(parents=True, exist_ok=True)
-    comment = "<!-- brain: " + "; ".join(f"{k}={v}" for k, v in t.state.items()) + " -->"
+    comment = t._comment()
     existing = p.read_text(encoding="utf-8") if p.exists() else ""
     generated = "by the nightly script.\n\n" in existing
     moved = re.search(r"\bMoved (20\d{2}-\d{2}-\d{2})\b",
@@ -230,8 +256,7 @@ def read_archived_task(config: Config, path: Path) -> Task | None:
     sm = STATE_RE.search(text)
     state = parse_state(sm.group(1)) if sm else {}
     body = read_archive_body(config, m.group(1)) or ""
-    task = Task(m.group(1), m.group(2).strip(), body, state)
-    return task if is_open(task) else None
+    return Task(m.group(1), m.group(2).strip(), body, state)
 
 
 def archived_open_tasks(config: Config) -> list[Task]:
@@ -241,7 +266,7 @@ def archived_open_tasks(config: Config) -> list[Task]:
     out = []
     for p in sorted(d.glob("T-*.md")):
         t = read_archived_task(config, p)
-        if t:
+        if t and is_open(t):
             out.append(t)
     return out
 

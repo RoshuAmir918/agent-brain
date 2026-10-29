@@ -192,3 +192,292 @@ def test_other_hooks_are_noops_and_registration_supplies_the_provider(provider):
     hermes_plugin.register(SimpleNamespace(register_memory_provider=registered.append))
     assert len(registered) == 1
     assert registered[0].name == "brain"
+
+
+# ── after the session ────────────────────────────────────────────────────────
+
+def chat(*pairs):
+    return [message for user, assistant in pairs
+            for message in ({"role": "user", "content": user}, {"role": "assistant", "content": assistant})]
+
+
+class FakeLlm:
+    def __init__(self, *results):
+        self.results, self.calls = list(results), []
+
+    def complete_structured(self, **kwargs):
+        self.calls.append(kwargs)
+        result = self.results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return SimpleNamespace(parsed=result if isinstance(result, dict) else None,
+                               text=result if isinstance(result, str) else json.dumps(result))
+
+
+@pytest.fixture
+def writes(provider, monkeypatch):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append((command[1:], json.loads(kwargs["input"]) if kwargs.get("input", "").startswith("{") else kwargs.get("input")))
+        return SimpleNamespace(stdout="", returncode=0)
+
+    monkeypatch.setattr(hermes_plugin.subprocess, "run", run)
+    provider.session_id, provider.platform = "20261028_140500_abc", "demiurge"
+    return calls
+
+
+RECORD = {"headline": "Compared fares.", "outcome": "progress", "needsYou": "Book the 16th?", "next": None}
+
+
+def test_a_quiet_conversation_becomes_one_journal_row_and_only_new_turns_are_recorded_again(provider, writes):
+    provider.llm = FakeLlm(RECORD, {**RECORD, "headline": "Booked it."})
+    provider.sync_turn("a", "b", messages=chat(("Find fares", "Found two")))
+    provider._cancel()
+    provider._settled(provider._generation)
+    assert writes == [(["journal", "append", "--platform", "demiurge"], RECORD)]
+    provider.on_session_end(None)
+    assert len(writes) == 1   # nothing new since the row
+    provider.sync_turn("c", "d", messages=chat(("Find fares", "Found two"), ("Book it", "Booked")))
+    provider.on_session_end(None)
+    assert writes[-1][1]["headline"] == "Booked it."
+    assert "Book it" in provider.llm.calls[-1]["input"][0]["text"] and "Find fares" not in provider.llm.calls[-1]["input"][0]["text"]
+
+
+def test_a_newer_turn_supersedes_a_pending_settle(provider, writes, monkeypatch):
+    started = []
+    monkeypatch.setattr(hermes_plugin.threading, "Timer", lambda delay, fn, args: SimpleNamespace(
+        daemon=False, start=lambda: started.append((delay, args)), cancel=lambda: None))
+    provider.llm = FakeLlm(RECORD)
+    provider.sync_turn("a", "b", messages=chat(("one", "two")))
+    provider.sync_turn("c", "d", messages=chat(("one", "two"), ("three", "four")))
+    assert [delay for delay, _ in started] == [hermes_plugin.SETTLE_SECONDS] * 2
+    provider._settled(started[0][1][0])
+    assert writes == []
+    provider._settled(started[1][1][0])
+    assert len(writes) == 1
+
+
+@pytest.mark.parametrize("messages", [[], chat(("hi", ""))])
+def test_too_little_said_writes_nothing_and_asks_nothing(provider, writes, messages):
+    provider.llm = FakeLlm()
+    provider.sync_turn("a", "b", messages=messages)
+    provider.on_session_end(None)
+    assert writes == [] and provider.llm.calls == []
+
+
+def test_nothing_outcome_writes_no_journal_row(provider, writes):
+    provider.llm = FakeLlm({"headline": "Small talk.", "outcome": "nothing"})
+    provider.on_session_end(chat(("hi", "hello")))
+    assert writes == []
+
+
+def test_invalid_json_is_retried_then_falls_back_to_its_first_line(provider, writes):
+    provider.llm = FakeLlm(RuntimeError("timeout"), "I compared the fares\nand more")
+    provider.on_session_end(chat(("fares?", "compared")))
+    assert writes == [(["journal", "append", "--platform", "demiurge"],
+                       {"headline": "I compared the fares and more", "outcome": "progress"})]
+
+
+def test_without_a_host_llm_nothing_is_written(provider, writes):
+    provider.llm = None
+    provider.on_session_end(chat(("fares?", "compared")))
+    assert writes == []
+
+
+def test_a_cron_run_leaves_one_ledger_row_named_by_its_skill(provider, writes, monkeypatch):
+    jobs = SimpleNamespace(get_job=lambda job_id: {"skills": ["brain-recall", "brain-watch"]} if job_id == "j1" else None)
+    monkeypatch.setitem(__import__("sys").modules, "cron.jobs", jobs)
+    monkeypatch.setitem(__import__("sys").modules, "cron", SimpleNamespace(jobs=jobs))
+    provider.session_id, provider._cron_job = "cron_j1_20261028_090000", "j1"
+    provider.llm = FakeLlm({"headline": "Mail checked; nothing new.", "outcome": "nothing", "next": None})
+    provider.sync_turn("run", "done", messages=chat(("run watch", "checked mail")))
+    assert provider._timer is None   # a routine is recorded when it is torn down, not when it goes quiet
+    provider.on_session_end(None)
+    assert writes == []
+    provider.shutdown()
+    provider.shutdown()
+    assert writes == [(["ledger", "append", "--json"],
+                       {"skill": "brain-watch", "outcome": "nothing", "account": "Mail checked; nothing new.", "next": ""})]
+    assert provider.llm.calls[0]["instructions"] == hermes_plugin.ROUTINE
+
+
+def test_a_cron_run_without_a_known_job_writes_nothing(provider, writes, monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "cron.jobs", SimpleNamespace(get_job=lambda job_id: None))
+    provider.session_id, provider._cron_job = "cron_gone_20261028_090000", "gone"
+    provider.llm = FakeLlm()
+    provider.on_session_end(chat(("run", "done")))
+    provider.shutdown()
+    assert writes == [] and provider.llm.calls == []
+
+
+def test_register_hands_the_host_llm_to_the_provider():
+    registered = []
+    hermes_plugin.register(SimpleNamespace(llm="host-llm", register_memory_provider=registered.append))
+    assert registered[0].llm == "host-llm"
+
+
+# ── what the reviews found ───────────────────────────────────────────────────
+
+class Collector:
+    """The shape Hermes gives a memory provider: only register_* calls reach the real context."""
+    def __init__(self):
+        self.registered = []
+
+    def register_memory_provider(self, provider):
+        self.registered.append(provider)
+
+    def __getattr__(self, attr):
+        raise AttributeError(attr)
+
+
+def test_under_the_real_collector_the_provider_builds_the_host_model_itself(provider, writes, monkeypatch):
+    built = []
+    fake = SimpleNamespace(PluginLlm=lambda plugin_id: built.append(plugin_id) or FakeLlm(RECORD))
+    monkeypatch.setitem(__import__("sys").modules, "agent.plugin_llm", fake)
+    collector = Collector()
+    hermes_plugin.register(collector)
+    registered = collector.registered[0]
+    assert registered.llm is None
+    provider.llm = None
+    provider.on_session_end(chat(("fares?", "compared")))
+    assert built == ["brain"] and len(writes) == 1
+
+
+def test_a_recording_in_flight_keeps_its_own_vault_when_a_new_session_starts(provider, writes, tmp_path):
+    started, release = __import__("threading").Event(), __import__("threading").Event()
+
+    class Slow(FakeLlm):
+        def complete_structured(self, **kwargs):
+            started.set()
+            release.wait(5)
+            return SimpleNamespace(parsed=RECORD, text="")
+
+    provider.llm = Slow()
+    old_repo = provider.repo
+    provider.sync_turn("a", "b", messages=chat(("fares?", "compared")))
+    worker = __import__("threading").Thread(target=provider.on_session_end, args=(None,))
+    worker.start()
+    assert started.wait(5)
+    provider.repo = tmp_path / "other-vault"
+    provider._new_session(reset=True)
+    release.set()
+    worker.join(5)
+    assert len(writes) == 1 and provider._recorded == 0
+    provider.sync_turn("c", "d", messages=chat(("new", "session")))
+    assert provider._messages[provider._recorded:] == chat(("new", "session"))
+    assert old_repo != provider.repo
+
+
+def test_a_settle_and_a_session_end_at_once_write_one_row(provider, writes):
+    threading = __import__("threading")
+    inside = threading.Event()
+
+    class Slow(FakeLlm):
+        def complete_structured(self, **kwargs):
+            inside.set()
+            __import__("time").sleep(0.2)
+            return SimpleNamespace(parsed=RECORD, text="")
+
+    provider.llm = Slow()
+    provider.sync_turn("a", "b", messages=chat(("fares?", "compared")))
+    provider._cancel()
+    first = threading.Thread(target=provider._record_conversation)
+    first.start()
+    assert inside.wait(5)
+    provider.on_session_end(None)
+    first.join(5)
+    assert len(writes) == 1
+
+
+def test_a_failed_model_call_leaves_the_turns_for_the_next_attempt(provider, writes):
+    provider.llm = FakeLlm(RuntimeError("down"), RuntimeError("down"), RECORD)
+    provider.on_session_end(chat(("fares?", "compared")))
+    assert writes == []
+    provider.on_session_end(None)
+    assert len(writes) == 1
+
+
+def test_a_failed_write_leaves_the_turns_too(provider, monkeypatch):
+    calls = []
+    monkeypatch.setattr(hermes_plugin.subprocess, "run", lambda *a, **k: calls.append(1) or (_ for _ in ()).throw(OSError()))
+    provider.session_id = "s"
+    provider.llm = FakeLlm(RECORD, RECORD)
+    provider.on_session_end(chat(("fares?", "compared")))
+    provider.on_session_end(None)
+    assert len(calls) == 2
+
+
+def test_a_timer_that_cannot_start_never_raises_into_hermes(provider, writes, monkeypatch):
+    def broken(*args, **kwargs):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(hermes_plugin.threading, "Timer", broken)
+    provider.sync_turn("a", "b", messages=chat(("fares?", "compared")))
+    provider.on_session_switch("next", reset=False)
+
+
+def test_after_compression_only_turns_after_it_are_new(provider, writes):
+    provider.llm = FakeLlm(RECORD)
+    provider.sync_turn("a", "b", messages=chat(("one", "1"), ("two", "2"), ("three", "3")))
+    provider._recorded = 6
+    provider.on_session_switch("compressed", reset=False)
+    provider.sync_turn("c", "d", messages=[{"role": "user", "content": "summary of before"}] + chat(("four", "4")))
+    provider.on_session_end(None)
+    sent = provider.llm.calls[0]["input"][0]["text"]
+    assert "four" in sent and "summary of before" not in sent
+
+
+def test_night_stages_cost_no_model_call(provider, writes, monkeypatch):
+    jobs = SimpleNamespace(get_job=lambda job_id: {"skills": ["orphan-sleep1"]})
+    monkeypatch.setitem(__import__("sys").modules, "cron.jobs", jobs)
+    provider.session_id, provider._cron_job = "cron_n1_20261028_023000", "n1"
+    provider.llm = FakeLlm()
+    provider.on_session_end(chat(("consolidate", "done")))
+    provider.shutdown()
+    assert provider.llm.calls == [] and writes == []
+
+
+def test_a_cron_run_that_compresses_still_leaves_one_row_and_never_a_journal_row(provider, writes, monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "cron.jobs",
+                        SimpleNamespace(get_job=lambda job_id: {"skills": ["brain-watch"]}))
+    provider.session_id, provider._cron_job = "cron_j1_20261028_090000", "j1"
+    provider.llm = FakeLlm({"headline": "Mail checked.", "outcome": "done"})
+    provider.sync_turn("a", "b", messages=chat(("run watch", "checking"), ("more", "still")))
+    provider.on_session_end(None)                     # compression ends the session partway
+    provider.on_session_switch("20261028_090500_ab12", reset=False)
+    provider.sync_turn("c", "d", messages=[{"role": "user", "content": "summary"}] + chat(("go on", "done")))
+    assert provider._timer is None                     # still a routine after the new id
+    provider.on_session_end(None)
+    provider.shutdown()
+    assert [args for args, _ in writes] == [["ledger", "append", "--json"]]
+    assert provider.llm.calls[0]["timeout"] == hermes_plugin.ROUTINE_TIMEOUT
+
+
+def test_a_session_end_does_not_wait_on_a_recording_already_running(provider, writes):
+    provider.llm = FakeLlm(RECORD)
+    provider.sync_turn("a", "b", messages=chat(("fares?", "compared")))
+    provider._recording.acquire()
+    try:
+        provider.on_session_end(None)
+    finally:
+        provider._recording.release()
+    assert writes == [] and provider._recorded == 0   # the turns wait for the next writer
+    provider.on_session_end(None)
+    assert len(writes) == 1
+
+
+def test_a_prose_nothing_stays_nothing(provider, writes):
+    provider.llm = FakeLlm("Nothing worth recording.", "Nothing worth recording.")
+    provider.on_session_end(chat(("hi", "hello")))
+    assert writes == []
+
+
+def test_a_compressed_transcript_is_not_journaled_again_at_session_end(provider, writes):
+    provider.llm = FakeLlm(RECORD)
+    provider.sync_turn("a", "b", messages=chat(("one", "1"), ("two", "2")))
+    provider._recorded = 4
+    provider.on_session_switch("compressed", reset=False)
+    provider.on_session_end([{"role": "user", "content": "summary of one and two"}] + chat(("three", "3")))
+    sent = provider.llm.calls[0]["input"][0]["text"]
+    assert "three" in sent and "summary of one and two" not in sent

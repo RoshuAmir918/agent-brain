@@ -1,11 +1,12 @@
 """Checks run after every nightly write and on demand."""
 from __future__ import annotations
 
+import re
 from importlib.resources import files
 
 from . import fm
 from .vault import Vault
-from .tasks import parse_register, read_archived_task
+from .tasks import TASK_STATES, is_open, parse_register, read_archived_task
 
 
 def run(vault: Vault, changed: set[str], body_changed: set[str] | None = None) -> list[str]:
@@ -42,10 +43,27 @@ def run(vault: Vault, changed: set[str], body_changed: set[str] | None = None) -
         index_text = idx.read_text(encoding="utf-8") if idx.exists() else ""
         for p in arch_dir.glob("T-*.md"):
             tid = p.stem
-            if tid in in_register or read_archived_task(vault.config, p) is None:
+            task = read_archived_task(vault.config, p)
+            if tid in in_register or task is None or not is_open(task):
                 continue
             if f"Tasks Archive/{tid}|" not in index_text:
                 problems.append(f"{tid}: open task archived but not listed in Warm Index")
+    return problems
+
+
+def task_states(vault: Vault) -> list[str]:
+    """On demand only, never a nightly gate: one mistyped state must not stop the night's commit."""
+    cfg = vault.config
+    reg = vault.root / cfg.agent("Tasks.md")
+    arch_dir = vault.root / cfg.agent("Tasks Archive")
+    problems = []
+    for path in ([reg] if reg.exists() else []) + sorted(arch_dir.glob("*.md")):
+        text = fm.read(path)[1]
+        if path != reg:
+            text = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", text, flags=re.M)
+        for task in parse_register(text)[1]:
+            if "state" in task.state and task.task_state not in TASK_STATES:
+                problems.append(f"{task.tid}: unknown task state '{task.state['state']}'")
     return problems
 
 
@@ -69,3 +87,13 @@ def responsibilities(vault: Vault) -> list[str]:
             if routine not in packaged and folder.name not in hubs:
                 problems.append(f"{vault.config.hermes_dir}/skills/{folder.name}: own skill without a responsibility hub (frontmatter skill: {folder.name})")
     return problems
+
+
+KINDS = ("hub", "profile", "episode", "reflection", "task", "trigger", "log", "dream", "orientation", "primed",
+         "draft", "conversation", "procedure")
+
+
+def kinds(vault: Vault) -> list[str]:
+    """On demand only, never a nightly gate: vaults written before a kind was declared keep committing."""
+    return [f"{rel}: undeclared kind {kind!r}" for rel, note in sorted(vault.notes.items())
+            if (kind := note.data.get("kind")) is not None and kind not in KINDS]

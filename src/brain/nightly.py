@@ -10,6 +10,8 @@ Usage:
   brain audit [--vault <path>] [--date YYYY-MM-DD] [--days 14] [--sessions-dir <dir>] [--json]
   brain compile-context [--vault <path>] [--out <path>] [--write]
   brain retrieve [--vault <path>] <query> [--limit 12] [--json]
+  brain needs-you [--vault <path>] [--json]
+  brain state [--vault <path>] [--json]
   brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
   brain simulate [--h 7 --w 28]
   brain install-skills [--vault <path>]
@@ -32,14 +34,15 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import attribute, audit, compile_context, digest, fm, health, index, retrieve, session_context, triggers, validate
+from . import attribute, audit, compile_context, digest, fm, health, index, journal, ledger, needs, retrieve, session_context, state, triggers, validate
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import Config
+from .lock import vault_lock
 from . import install
 
 HOT_BUDGET_WORDS = 6000
@@ -323,12 +326,27 @@ def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
     changed |= fire_triggers(vault, tasks + archived, today, report)
     # Persist task uses before consuming the triggers that supplied them. If
     # task processing is interrupted, the still-active trigger can safely retry.
-    for rel in changed - {vault.config.agent("Triggers.md")}:
-        vault.notes[rel].save()
+    with vault_lock(config):   # an ask may have reached CURRENT since the load: keep its body, save our frontmatter
+        for rel in changed - {vault.config.agent("Triggers.md")}:
+            if rel == "CURRENT.md":
+                fm.write(vault.root / rel, vault.notes[rel].data, fm.read(vault.root / rel)[1])
+            else:
+                vault.notes[rel].save()
     open_tasks, cold_open = process_tasks(config, today, tasks, archived, report)
     if vault.config.agent("Triggers.md") in changed:
         vault.notes[vault.config.agent("Triggers.md")].save()
-    rebuild_current(config, open_tasks, today, report)
+    with vault_lock(config):   # the after-session writer adds asks to CURRENT at any hour
+        rebuild_current(config, open_tasks, today, report)
+        removed = needs.expire_confirms(config, today)
+    if removed:
+        changed.add("CURRENT.md")
+        report.extend(f"needs-you: confirm accepted after 7 days: {text}" for text in removed)
+    with vault_lock(config):
+        collapsed = ledger.collapse(config, today)
+    for path in collapsed:
+        rel = path.relative_to(config.vault_path).as_posix()
+        changed.add(rel)
+        report.append(f"ledger: collapsed nothing rows in {rel}")
     vault.load()
     (root / "Hot Set.md").write_text(index.build_hot_set(vault, today, HOT_BUDGET_WORDS), encoding="utf-8")
     (root / "Warm Index.md").write_text(index.build_warm_index(vault, today, cold_open, HOT_BUDGET_WORDS), encoding="utf-8")
@@ -386,7 +404,7 @@ def commit(root: Path, message: str) -> str:
 def push(root: Path) -> None:
     repo = Config.load(root).repo
     try:
-        sh(repo, "pull", "--rebase", "-q", "origin", "main")
+        sh(repo, "pull", "--rebase", "--autostash", "-q", "origin", "main")   # rows written after the commit wait
     except subprocess.CalledProcessError:
         subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
         sys.exit("pull --rebase conflicted; resolve it by hand, nothing was pushed")
@@ -414,9 +432,61 @@ def cmd_nightly(a):
             print("pushed")
 
 
+def cmd_ledger_append(args):
+    try:
+        if args.json:
+            if any(value is not None for value in (args.routine, args.skill, args.outcome, args.account, args.next, args.at)):
+                raise ValueError("--json cannot be combined with row arguments")
+            values = json.load(sys.stdin)
+            if not isinstance(values, dict):
+                raise ValueError("--json needs one JSON object")
+        else:
+            values = {name: getattr(args, name) for name in ("routine", "skill", "outcome", "account", "next", "at")
+                      if getattr(args, name) is not None}
+        if "routine" not in values and isinstance(values.get("skill"), str):
+            values["routine"] = ledger.routine_for_skill(args.config, values["skill"])
+            if values["routine"].casefold() in ledger.NIGHT_STAGES:
+                print(f"skipped: {values['routine']} is a night stage; git is its ledger")
+                return
+        for name in ("routine", "outcome", "account"):
+            if name not in values:
+                raise ValueError(f"missing required field: {name}")
+        for name in ("routine", "outcome", "account", "next", "at"):
+            if name in values and not isinstance(values[name], str):
+                raise ValueError(f"{name} must be a string")
+        at = datetime.strptime(values["at"], "%Y-%m-%d %H:%M") if "at" in values else datetime.now(args.config.zone)
+        print(ledger.append(args.config, values["routine"], values["outcome"], values["account"], values.get("next", ""), at))
+    except (OSError, ValueError) as error:
+        sys.exit(f"ledger append: {error}")
+
+
+def cmd_journal_append(args):
+    """Reads one after-session record as JSON on stdin, or with --synthesis the catch-up's text."""
+    try:
+        at = datetime.strptime(args.at, "%Y-%m-%d %H:%M") if args.at else datetime.now(args.config.zone)
+        if args.synthesis:
+            text = sys.stdin.read()
+            if not text.strip():
+                raise ValueError("empty synthesis")
+            print(journal.append_synthesis(args.config, text, at))
+            return
+        record = json.load(sys.stdin)
+        if not isinstance(record, dict):
+            raise ValueError("needs one JSON object")
+        print(journal.append_entry(args.config, record, args.platform, at))
+    except (OSError, ValueError) as error:
+        sys.exit(f"journal append: {error}")
+
+
+def cmd_journal_recent(args):
+    for entry in journal.recent(args.config, args.config.today(), args.count):
+        print(entry.line)
+
+
 def cmd_validate(a):
     vault = Vault(a.config.vault_path)
-    problems = validate.run(vault, set(vault.notes)) + validate.responsibilities(vault)
+    problems = (validate.run(vault, set(vault.notes)) + validate.responsibilities(vault) + validate.task_states(vault)
+                + validate.kinds(vault))
     for p in problems:
         print(p)
     print(f"{len(problems)} problems")
@@ -478,6 +548,24 @@ def cmd_retrieve(a):
     else:
         for candidate in candidates:
             print(f"{candidate.score:g}  {candidate.tier}  {candidate.path}  — {candidate.reason}")
+
+
+def cmd_needs_you(args):
+    items = needs.items(args.config, args.config.today())
+    if args.json:
+        print(json.dumps([asdict(item) for item in items], ensure_ascii=False, indent=2))
+    else:
+        for item in items:
+            print(f"{item.kind} · {item.text} · {item.source}")
+
+
+def cmd_state(args):
+    data = state.build(args.config, args.config.today())
+    if args.json:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        print(" · ".join(f"{len(data[key])} {key}" for key in
+                         ("tasks", "hubs", "routines", "triggers", "ledger", "journal", "needsYou", "outputs")))
 
 
 def cmd_simulate(a):
@@ -572,6 +660,17 @@ def main(argv=None):
     s.add_argument("--write", action="store_true"); s.add_argument("--commit", action="store_true"); s.add_argument("--push", action="store_true")
     s.add_argument("--sessions-dir")
     s.set_defaults(fn=cmd_nightly)
+    s = sub.add_parser("ledger")
+    ledger_sub = s.add_subparsers(dest="ledger_cmd", required=True)
+    s = ledger_sub.add_parser("append"); s.add_argument("routine", nargs="?"); s.add_argument("--vault")
+    s.add_argument("--skill"); s.add_argument("--outcome"); s.add_argument("--account"); s.add_argument("--next")
+    s.add_argument("--at"); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_ledger_append)
+    s = sub.add_parser("journal")
+    journal_sub = s.add_subparsers(dest="journal_cmd", required=True)
+    s = journal_sub.add_parser("append"); s.add_argument("--vault"); s.add_argument("--platform", default="hermes")
+    s.add_argument("--at"); s.add_argument("--synthesis", action="store_true"); s.set_defaults(fn=cmd_journal_append)
+    s = journal_sub.add_parser("recent"); s.add_argument("--vault"); s.add_argument("--count", type=int, default=30)
+    s.set_defaults(fn=cmd_journal_recent)
     s = sub.add_parser("validate"); s.add_argument("--vault"); s.set_defaults(fn=cmd_validate)
     s = sub.add_parser("attribute"); s.add_argument("--vault")
     source = s.add_mutually_exclusive_group()
@@ -587,6 +686,10 @@ def main(argv=None):
     s.add_argument("--write", action="store_true"); s.set_defaults(fn=cmd_digest)
     s = sub.add_parser("retrieve"); s.add_argument("--vault"); s.add_argument("query")
     s.add_argument("--limit", type=int, default=12); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_retrieve)
+    s = sub.add_parser("needs-you"); s.add_argument("--vault")
+    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_needs_you)
+    s = sub.add_parser("state"); s.add_argument("--vault")
+    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_state)
     s = sub.add_parser("health"); s.add_argument("--vault"); s.add_argument("--date")
     s.add_argument("--json", action="store_true"); s.add_argument("--write", action="store_true", help="write <hermes_dir>/health.md")
     s.set_defaults(fn=cmd_health)

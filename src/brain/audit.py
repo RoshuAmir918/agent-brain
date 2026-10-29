@@ -55,7 +55,7 @@ def ledgers(vault: Vault) -> list[dict]:
     for rel, note in sorted(vault.notes.items()):
         if vault.kind_for(rel) != "log" or not MONTHLY.match(Path(rel).stem):
             continue
-        rows = [line for line in note.body.splitlines() if line.strip() and not line.startswith(("#", "---"))]
+        rows = [line for line in note.body.splitlines() if line.strip() and not line.startswith(("#", "---", "Format:"))]
         out.append({"ledger": rel, "rows": len(rows), "mean_words_per_row": mean([words(row) for row in rows])})
     return out
 
