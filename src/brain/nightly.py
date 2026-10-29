@@ -11,6 +11,7 @@ Usage:
   brain compile-context [--vault <path>] [--out <path>] [--write]
   brain retrieve [--vault <path>] <query> [--limit 12] [--json]
   brain needs-you [--vault <path>] [--json]
+  brain access <who> [--vault <path>] [--json]
   brain state [--vault <path>] [--json]
   brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
   brain simulate [--h 7 --w 28]
@@ -38,7 +39,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import attribute, audit, compile_context, digest, fm, health, index, journal, ledger, needs, retrieve, session_context, state, triggers, validate
+from . import access, attribute, audit, compile_context, digest, fm, health, index, journal, ledger, needs, retrieve, session_context, state, triggers, validate
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, quiet, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import Config
@@ -486,7 +487,7 @@ def cmd_journal_recent(args):
 def cmd_validate(a):
     vault = Vault(a.config.vault_path)
     problems = (validate.run(vault, set(vault.notes)) + validate.responsibilities(vault) + validate.task_states(vault)
-                + validate.kinds(vault))
+                + validate.kinds(vault) + validate.access_problems(vault))
     for p in problems:
         print(p)
     print(f"{len(problems)} problems")
@@ -562,6 +563,33 @@ def cmd_needs_you(args):
     else:
         for item in items:
             print(f"{item.kind} · {item.text} · {item.source}")
+
+
+def cmd_access(args):
+    config = args.config
+    vault = Vault(config.vault_path)
+    matches = access.matching_people(vault, config, args.who)
+    if len(matches) > 1:
+        raise SystemExit("brain access: ambiguous person; matching profiles: "
+                         + ", ".join(config.link(note.rel) for note in matches))
+    result = access.resolve(vault, config, matches[0].rel if matches else None)
+    if args.json:
+        if not matches:
+            print(f"brain access: no profile matches {args.who!r}; resolving as stranger.", file=sys.stderr)
+        data = {"person": result.person, "groups": result.groups,
+                "subjects": {subject: {"tell": value.tell, "tellRule": value.tell_rule,
+                                       "do": value.do, "doRule": value.do_rule}
+                             for subject, value in result.subjects.items()}, "scope": result.scope}
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+    person = config.link(result.person) if result.person else f"stranger (no profile matches {args.who!r})"
+    print(f"Person: {person} · Groups: {', '.join(config.link(rel) for rel in result.groups) or 'none'}")
+    for subject, value in result.subjects.items():
+        if value.tell != "none" or value.do != "no":
+            print(f"{subject}: {value.tell} ({value.tell_rule or 'default'}) / {value.do} ({value.do_rule or 'default'})")
+    print("Everything else: none / no")
+    for text in result.scope.values():
+        print(f"Scope: {text}")
 
 
 def cmd_stale_tasks(args):
@@ -685,6 +713,8 @@ def main(argv=None):
     s = journal_sub.add_parser("recent"); s.add_argument("--vault"); s.add_argument("--count", type=int, default=30)
     s.set_defaults(fn=cmd_journal_recent)
     s = sub.add_parser("validate"); s.add_argument("--vault"); s.set_defaults(fn=cmd_validate)
+    s = sub.add_parser("access"); s.add_argument("who"); s.add_argument("--vault")
+    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_access)
     s = sub.add_parser("attribute"); s.add_argument("--vault")
     source = s.add_mutually_exclusive_group()
     source.add_argument("--file"); source.add_argument("--sessions-dir", help="default: $HERMES_HOME/records/sessions")

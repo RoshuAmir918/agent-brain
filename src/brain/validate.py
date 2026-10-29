@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from importlib.resources import files
 
-from . import fm
+from . import access, fm
 from .vault import Vault
 from .tasks import TASK_STATES, is_open, parse_register, read_archived_task
 
@@ -67,6 +67,36 @@ def task_states(vault: Vault) -> list[str]:
     return problems
 
 
+def access_problems(vault: Vault) -> list[str]:
+    """On demand only: invalid access grants must never gate the nightly pass."""
+    config = vault.config
+    vocabulary = access.subjects(vault, config)
+    problems = []
+    seen = set()
+    for rule in access.rules(vault, config):
+        if rule.legacy:
+            continue   # the old allow/deny rows are read as they are until the 0.14 migration rewrites them
+        prefix = f"{config.people_dir}/Disclosure.md: {rule.id}"
+        if rule.id in seen:
+            problems.append(f"{prefix}: duplicate id")
+        seen.add(rule.id)
+        if rule.subject not in vocabulary:
+            problems.append(f"{prefix}: unknown subject '{rule.subject}'")
+        for dimension, levels in (("tell", access.TELL_LEVELS), ("do", access.DO_LEVELS)):
+            value = getattr(rule, dimension)
+            if value is not None and value not in levels:
+                problems.append(f"{prefix}: unknown {dimension} level '{value}'")
+        if rule.audience is None:
+            problems.append(f"{prefix}: audience resolves to nothing: {rule.line.strip()}")
+        for field in ("date", "source"):
+            if not rule.fields.get(field):
+                problems.append(f"{prefix}: missing {field}")
+    for rel, members in access.groups(vault, config).items():
+        if not members:
+            problems.append(f"{rel}: group has no members")
+    return problems
+
+
 def responsibilities(vault: Vault) -> list[str]:
     """Every own skill is a responsibility: a hub at the vault root names it and its records folder. On demand only; the nightly write is never blocked on it."""
     problems = []
@@ -89,7 +119,7 @@ def responsibilities(vault: Vault) -> list[str]:
     return problems
 
 
-KINDS = ("hub", "profile", "episode", "reflection", "task", "trigger", "log", "dream", "orientation", "primed",
+KINDS = ("hub", "profile", "group", "episode", "reflection", "task", "trigger", "log", "dream", "orientation", "primed",
          "draft", "conversation", "procedure")
 
 
