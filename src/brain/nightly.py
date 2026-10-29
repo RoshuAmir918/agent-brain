@@ -474,7 +474,8 @@ def cmd_journal_append(args):
         record = json.load(sys.stdin)
         if not isinstance(record, dict):
             raise ValueError("needs one JSON object")
-        print(journal.append_entry(args.config, record, args.platform, at))
+        print(journal.append_entry(args.config, record, args.platform, at,
+                                   user_id=args.user_id, user_id_alt=args.user_id_alt))
     except (OSError, ValueError) as error:
         sys.exit(f"journal append: {error}")
 
@@ -709,6 +710,7 @@ def main(argv=None):
     s = sub.add_parser("journal")
     journal_sub = s.add_subparsers(dest="journal_cmd", required=True)
     s = journal_sub.add_parser("append"); s.add_argument("--vault"); s.add_argument("--platform", default="hermes")
+    s.add_argument("--user-id", default=""); s.add_argument("--user-id-alt", default="")
     s.add_argument("--at"); s.add_argument("--synthesis", action="store_true"); s.set_defaults(fn=cmd_journal_append)
     s = journal_sub.add_parser("recent"); s.add_argument("--vault"); s.add_argument("--count", type=int, default=30)
     s.set_defaults(fn=cmd_journal_recent)

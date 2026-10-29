@@ -6,7 +6,9 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import PurePosixPath
 
+from . import access, access_log
 from .config import Config
 from .tasks import archive_path, load_tasks
 from .vault import Vault
@@ -112,6 +114,40 @@ def _improvements(body: str, source: str) -> list[Item]:
     return out
 
 
+def _access_items(vault: Vault, config: Config, today: date) -> list[Item]:
+    rules = access.rules(vault, config)
+    out, seen = [], set()
+    for entry in access_log.recent(config, today, 14):
+        if entry.outcome != "declined" or entry.person.startswith("stranger ("):
+            continue
+        people = vault.links_in(entry.person)
+        if len(people) != 1:
+            continue
+        resolved = access.resolve(vault, config, people[0])
+        decision = resolved.subjects.get(entry.subject)
+        if resolved.person is None or decision is None:
+            continue
+        # Any rule of the owner's for this person or one of their groups settles it, whatever it says.
+        if any(rule.audience is not None and rule.subject in (entry.subject, "anything")
+               and (rule.audience == access.Audience("person", resolved.person)
+                    or rule.audience.kind == "group" and rule.audience.target in resolved.groups)
+               for rule in rules):
+            continue
+        pair = (resolved.person, entry.subject)
+        if pair in seen:
+            continue
+        seen.add(pair)
+        name = PurePosixPath(resolved.person).parent.name.replace("_", " ")
+        audience = PurePosixPath(resolved.groups[0]).stem.replace("_", " ") if resolved.groups else "them"
+        text = (f"{name} asked {entry.asked.rstrip('.?!')}. "
+                f"Let {audience} see your {entry.subject} from now on?")
+        item = Item("ask", text, "access", entry.when[:10], entry.source)
+        key = json.dumps(["access", *pair], ensure_ascii=False)
+        item.id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+        out.append(item)
+    return out
+
+
 def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     vault = vault_or_config if isinstance(vault_or_config, Vault) else Vault(vault_or_config.vault_path)
     config = vault_or_config if isinstance(vault_or_config, Config) else vault.config
@@ -130,6 +166,7 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     for rel, note in vault.notes.items():
         if vault.kind_for(rel) == "hub":
             out.extend(_improvements(note.body, rel))
+    out.extend(_access_items(vault, config, today))
     return sorted(out, key=lambda item: KINDS.index(item.kind))
 
 

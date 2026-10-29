@@ -44,8 +44,15 @@ RECORD_SCHEMA = {
         "needsYou": {"type": ["string", "null"], "maxLength": 160},
         "next": {"type": ["string", "null"], "maxLength": 120},
         "thought": {"type": ["string", "null"], "maxLength": 280},
+        "access": {"type": "array", "maxItems": 5, "items": {
+            "type": "object", "required": ["subject", "asked", "outcome", "rule"], "additionalProperties": False,
+            "properties": {"subject": {"type": "string"}, "asked": {"type": "string", "maxLength": 120},
+                           "outcome": {"enum": ["told gist", "told details", "declined", "asked owner", "did"]},
+                           "rule": {"type": ["string", "null"]}}}},
     },
 }
+ROUTINE_SCHEMA = {**RECORD_SCHEMA, "properties": {key: value for key, value in RECORD_SCHEMA["properties"].items()
+                                               if key != "access"}}
 SYSTEM = ("You are the agent whose session this was, keeping your own records. Answer only with the JSON object "
           "the schema describes.")
 CONVERSATION = (
@@ -57,6 +64,9 @@ CONVERSATION = (
     "- needsYou: a decision only your owner can make, phrased as a question, or null. Not a status update.\n"
     "- next: your next step, or null.\n"
     "- thought: one or two first-person sentences about what you are thinking, or null.\n"
+    "- access: list each time someone other than the owner asked for something a vault subject covers, and what you "
+    "did; leave empty for the owner and small talk. Use the vault's subject, asked in a few words without sensitive "
+    "specifics (at most 120 characters), the outcome, and a rule id from Disclosure.md or null.\n"
     "Record what you did, never what you did not do.")
 ROUTINE = (
     "The routine run above has ended. Record it for the routine's ledger.\n"
@@ -309,15 +319,20 @@ class BrainMemoryProvider(MemoryProvider):
             return
         try:
             with self._lock:
-                epoch, repo, platform = self._epoch, self.repo, self.platform or "hermes"
+                epoch, repo, platform = self._epoch, self.repo, self.platform
+                user_id, user_id_alt, context = self.user_id, self.user_id_alt, self._context.split("\n\n", 1)[0]
                 fresh, upto = self._messages[self._recorded:], len(self._messages)
             if turns(fresh) < 2:
                 return
-            record = self._ask(CONVERSATION + self._open_asks(repo), fresh)
+            record = self._ask(CONVERSATION + ("\n" + context if context else "") + self._open_asks(repo), fresh)
             if record is None:
                 return
-            if record["outcome"] != "nothing" and not self._write(
-                    repo, ["journal", "append", "--platform", platform], json.dumps(record)):
+            arguments = ["journal", "append", "--platform", platform]
+            for flag, value in (("--user-id", user_id), ("--user-id-alt", user_id_alt)):
+                if value:
+                    arguments.extend([flag, value])
+            if (record["outcome"] != "nothing" or record.get("access")) and not self._write(
+                    repo, arguments, json.dumps(record)):
                 return
             with self._lock:
                 if self._epoch == epoch:
@@ -348,7 +363,7 @@ class BrainMemoryProvider(MemoryProvider):
             skill = self._cron_skill()
             if skill is None or skill.rsplit("-", 1)[-1] in NIGHT_STAGES or not turns(messages):
                 return
-            record = self._ask(ROUTINE, messages, timeout=ROUTINE_TIMEOUT, attempts=1)
+            record = self._ask(ROUTINE, messages, timeout=ROUTINE_TIMEOUT, attempts=1, schema=ROUTINE_SCHEMA)
             if record is None:
                 return
             self._write(repo, ["ledger", "append", "--json"], json.dumps(
@@ -379,7 +394,8 @@ class BrainMemoryProvider(MemoryProvider):
                 return None
         return self.llm
 
-    def _ask(self, instructions: str, messages: list, timeout: float = MODEL_TIMEOUT, attempts: int = 2) -> dict | None:
+    def _ask(self, instructions: str, messages: list, timeout: float = MODEL_TIMEOUT, attempts: int = 2,
+             schema: dict = RECORD_SCHEMA) -> dict | None:
         """One structured call, retried once; a model that will not give JSON still leaves its first line."""
         complete = getattr(self._model(), "complete_structured", None)
         if complete is None:
@@ -389,7 +405,7 @@ class BrainMemoryProvider(MemoryProvider):
         for _ in range(attempts):
             try:
                 result = complete(instructions=instructions, input=[{"type": "text", "text": transcript}],
-                                  json_schema=RECORD_SCHEMA, schema_name="after_session", system_prompt=SYSTEM,
+                                  json_schema=schema, schema_name="after_session", system_prompt=SYSTEM,
                                   max_tokens=700, timeout=timeout, purpose="brain-after-session")
             except Exception:
                 continue

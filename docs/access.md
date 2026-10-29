@@ -90,11 +90,20 @@ includes it: who, subject, what was asked in a few words, what happened (`told g
 `asked owner`, `did`), and the rule id. The engine writes them to `People/Access/YYYY-MM.md`, one line each. The agent
 never writes the log by hand.
 
-A `declined` line with no rule of its own for that person also becomes a Needs-you item, origin `access`: "Kevin asked
-what you have on Thursday. Let Close friends see your schedule details?" Answering it is the owner's grant, recorded
+Each conversation may record up to five requests, with `asked` at most 120 characters and no sensitive specifics.
+The engine resolves the speaker from the session's platform ids and appends under the vault lock:
+
+`- 2026-10-29 14:05 · [[People/Kevin/Profile]] · schedule · declined · default · what you have on Thursday`
+
+An ambiguous or unknown speaker is recorded as `stranger (<platform> <id>)`; owner sessions and routine runs add none.
+A `declined` line in the last 14 days with no person or group rule for its subject also becomes a Needs-you item,
+origin `access`: "Kevin asked what you have on Thursday. Let Close friends see your schedule from now on?"
+Strangers are log-only; repeat declines produce one item per person and subject, dated from the earliest decline.
+Any person or group rule, including `tell: none`, settles it. Answering it is the owner's grant, recorded
 as a rule with the answer as its source. One refusal, one tap, settled for the group from then on.
 
-The hand-kept `## Declined requests` list in Disclosure.md retires into the log.
+The migration layer will move the hand-kept `## Declined requests` list in Disclosure.md into the log; this writer
+leaves it untouched.
 
 ## What each audience may see: `brain state`
 

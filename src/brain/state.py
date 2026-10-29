@@ -218,7 +218,7 @@ def build(config: Config, today: date) -> dict:
                        for trigger in parsed] if _public(vault, config.agent("Triggers.md")) else []
     owner_items = []
     for item in needs.items(vault, today):
-        source = _source(vault, item.source)
+        source = item.source if item.origin == "access" else _source(vault, item.source)
         if source is None and item.origin == "current":
             source = "CURRENT.md"
         if source is not None:

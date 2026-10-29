@@ -62,6 +62,10 @@ def listed(entries: list[str], platform: str, user_ids: tuple[str, ...]) -> bool
     return False
 
 
+def is_owner(config: Config, platform: str, user_ids: tuple[str, ...]) -> bool:
+    return platform == "cli" or listed(config.owner_user_ids, platform, user_ids)
+
+
 def audience_targets(vault: Vault, config: Config, person: Note) -> set[str]:
     targets = {person.rel}
     directory = PurePosixPath(config.people_dir) / "Groups"
@@ -230,7 +234,7 @@ def with_notice(text: str, config: Config) -> str:
 def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = "",
           user_id_alt: str = "", user_name: str = "", chat_id: str = "") -> str:
     user_ids = tuple(value for value in (user_id, user_id_alt) if value)
-    if platform == "cli" or listed(config.owner_user_ids, platform, user_ids):
+    if is_owner(config, platform, user_ids):
         return with_notice(f"This session is with {config.human_name}, the owner.", config)
     identity = f"{platform or 'platform unknown'} {user_id or user_id_alt or 'id unavailable'}"
     if listed(config.maintainers, platform, user_ids):

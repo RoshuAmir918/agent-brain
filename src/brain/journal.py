@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-from . import fm, ledger
+from . import access_log, fm, ledger
 from .lock import vault_lock
 from .config import Config
 from .vault import Vault
@@ -57,8 +57,10 @@ def parse(text: str) -> list[Entry]:
     return entries
 
 
-def append_entry(config: Config, record: dict, platform: str, at: datetime) -> Path:
-    """Writes one row, keeping only touched notes that exist; a `needsYou` becomes an ask in CURRENT."""
+def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
+                 user_id: str = "", user_id_alt: str = "") -> Path:
+    """Writes one row, keeping only touched notes that exist; a `needsYou` becomes an ask in CURRENT; requests from
+    anyone but the owner go to the access log."""
     outcome = record.get("outcome")
     headline = _clean(record.get("headline"))
     if outcome not in ledger.OUTCOMES:
@@ -79,9 +81,11 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime) -> P
     if thought := _clean(record.get("thought")):
         lines.append(f"  - thought: {thought}")
     path = path_for(config, local.strftime("%Y-%m"))
-    _append(config, path, "\n".join(lines) + "\n")
+    if outcome != "nothing":   # a quiet conversation keeps no row, only the requests it answered
+        _append(config, path, "\n".join(lines) + "\n")
     if needs_you:
         add_ask(config, local.date(), needs_you, touched[0] if touched else None)
+    access_log.append(config, record.get("access"), platform, at, user_id=user_id, user_id_alt=user_id_alt)
     return path
 
 

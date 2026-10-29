@@ -521,3 +521,49 @@ def test_the_record_is_told_what_already_waits_on_the_owner(provider, writes):
     instructions = provider.llm.calls[0]["instructions"]
     assert "Approve the Tailscale share?" in instructions and "Adopt? Shorter briefings" in instructions
     assert "Set states on 3 tasks." not in instructions   # a confirm is not a question to avoid repeating
+
+
+def test_access_schema_is_optional_bounded_and_conversation_only():
+    schema = hermes_plugin.RECORD_SCHEMA
+    assert "access" not in schema["required"]
+    access = schema["properties"]["access"]
+    assert access["type"] == "array" and access["maxItems"] == 5
+    entry = access["items"]
+    assert entry["type"] == "object" and entry["additionalProperties"] is False
+    assert set(entry["required"]) == {"subject", "asked", "outcome", "rule"}
+    assert entry["properties"] == {
+        "subject": {"type": "string"}, "asked": {"type": "string", "maxLength": 120},
+        "outcome": {"enum": ["told gist", "told details", "declined", "asked owner", "did"]},
+        "rule": {"type": ["string", "null"]},
+    }
+    assert "access" not in hermes_plugin.ROUTINE_SCHEMA["properties"]
+
+
+def test_access_is_written_even_when_nothing_was_worth_a_journal_headline(provider, writes):
+    record = {"headline": "A request answered in passing.", "outcome": "nothing", "access": [
+        {"subject": "schedule", "asked": "tomorrow's plans", "outcome": "declined", "rule": None}]}
+    provider.user_id, provider.user_id_alt = "k57kevin", "other-id"
+    provider._context = "This session is with Kevin.\n\nPrivate profile text."
+    provider.llm = FakeLlm(record)
+    provider.on_session_end(chat(("tomorrow?", "sorry")))
+    assert writes == [(["journal", "append", "--platform", "demiurge", "--user-id", "k57kevin",
+                       "--user-id-alt", "other-id"], record)]
+    call = provider.llm.calls[0]
+    assert call["json_schema"] is hermes_plugin.RECORD_SCHEMA
+    assert "This session is with Kevin." in call["instructions"]
+    assert "Private profile text" not in call["instructions"]
+    provider.on_session_end(None)
+    assert len(writes) == 1
+
+
+def test_routine_uses_a_schema_without_access_and_never_writes_access(provider, writes, monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "cron.jobs",
+                        SimpleNamespace(get_job=lambda job_id: {"skills": ["brain-watch"]}))
+    provider._cron_job = "j1"
+    provider.llm = FakeLlm({"headline": "Checked.", "outcome": "nothing", "access": [
+        {"subject": "schedule", "asked": "plans", "outcome": "declined", "rule": None}]})
+    provider.on_session_end(chat(("run", "done")))
+    provider.shutdown()
+    assert provider.llm.calls[0]["json_schema"] is hermes_plugin.ROUTINE_SCHEMA
+    assert writes == [(["ledger", "append", "--json"],
+                       {"skill": "brain-watch", "outcome": "nothing", "account": "Checked.", "next": ""})]
