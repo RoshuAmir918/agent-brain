@@ -214,11 +214,17 @@ class FakeLlm:
                                text=result if isinstance(result, str) else json.dumps(result))
 
 
+open_asks = [""]
+
+
 @pytest.fixture
 def writes(provider, monkeypatch):
     calls = []
+    open_asks[0] = ""
 
     def run(command, **kwargs):
+        if command[1:] == ["needs-you"]:
+            return SimpleNamespace(stdout=open_asks[0], returncode=0)   # a read, not a write
         calls.append((command[1:], json.loads(kwargs["input"]) if kwargs.get("input", "").startswith("{") else kwargs.get("input")))
         return SimpleNamespace(stdout="", returncode=0)
 
@@ -400,7 +406,13 @@ def test_a_failed_model_call_leaves_the_turns_for_the_next_attempt(provider, wri
 
 def test_a_failed_write_leaves_the_turns_too(provider, monkeypatch):
     calls = []
-    monkeypatch.setattr(hermes_plugin.subprocess, "run", lambda *a, **k: calls.append(1) or (_ for _ in ()).throw(OSError()))
+    def run(command, **kwargs):
+        if command[1:] == ["needs-you"]:
+            return SimpleNamespace(stdout="", returncode=0)
+        calls.append(1)
+        raise OSError()
+
+    monkeypatch.setattr(hermes_plugin.subprocess, "run", run)
     provider.session_id = "s"
     provider.llm = FakeLlm(RECORD, RECORD)
     provider.on_session_end(chat(("fares?", "compared")))
@@ -481,3 +493,14 @@ def test_a_compressed_transcript_is_not_journaled_again_at_session_end(provider,
     provider.on_session_end([{"role": "user", "content": "summary of one and two"}] + chat(("three", "3")))
     sent = provider.llm.calls[0]["input"][0]["text"]
     assert "three" in sent and "summary of one and two" not in sent
+
+
+def test_the_record_is_told_what_already_waits_on_the_owner(provider, writes):
+    open_asks[0] = ("ask · Approve the Tailscale share? · CURRENT.md\n"
+                    "confirm · Set states on 3 tasks. · agent/Tasks.md\n"
+                    "ask · Adopt? Shorter briefings · Briefing.md#Oct 27\n")
+    provider.llm = FakeLlm(RECORD)
+    provider.on_session_end(chat(("fares?", "compared")))
+    instructions = provider.llm.calls[0]["instructions"]
+    assert "Approve the Tailscale share?" in instructions and "Adopt? Shorter briefings" in instructions
+    assert "Set states on 3 tasks." not in instructions   # a confirm is not a question to avoid repeating

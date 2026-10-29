@@ -143,3 +143,10 @@ def test_the_nightly_pull_stashes_rows_written_after_the_agent_committed(vault, 
     monkeypatch.setattr(nightly, "sh", lambda repo, *args: calls.append(args))
     nightly.push(vault)
     assert calls[0][:3] == ("pull", "--rebase", "--autostash")
+
+
+def test_the_same_question_is_asked_once(config):
+    journal.append_entry(config, record(needsYou="Book the 16th?"), "demiurge", AT)
+    journal.append_entry(config, record(needsYou="book the 16th?"), "slack", AT)
+    asks = [item.text for item in needs.items(config, TODAY) if item.origin == "current"]
+    assert asks == ["Book the 16th?"]

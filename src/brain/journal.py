@@ -118,6 +118,9 @@ def _add_ask(config: Config, day: date, text: str, source: str | None) -> None:
     path = config.vault_path / "CURRENT.md"
     data, body = fm.read(path) if path.exists() else ({}, "")
     text = " ".join(text.replace("·", "-").split())   # the separator, inside the text, would break the bullet
+    from .needs import parse_section
+    if any(item.text.casefold() == text.casefold() for item in parse_section(body)):
+        return   # already asked; the first one stands until it is resolved
     bullet = f"- {day.isoformat()} · ask · {text}" + (f" · [[{source}]]" if source else "")
     heading = re.search(r"^## Needs you[ \t]*$", body, re.M)
     if heading is None:

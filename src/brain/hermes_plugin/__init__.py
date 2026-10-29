@@ -296,7 +296,7 @@ class BrainMemoryProvider(MemoryProvider):
                 fresh, upto = self._messages[self._recorded:], len(self._messages)
             if turns(fresh) < 2:
                 return
-            record = self._ask(CONVERSATION, fresh)
+            record = self._ask(CONVERSATION + self._open_asks(repo), fresh)
             if record is None:
                 return
             if record["outcome"] != "nothing" and not self._write(
@@ -307,6 +307,22 @@ class BrainMemoryProvider(MemoryProvider):
                     self._recorded = max(self._recorded, upto)
         finally:
             self._recording.release()
+
+    @staticmethod
+    def _open_asks(repo) -> str:
+        """What already waits on the owner, so a conversation's record raises a question only when it is new."""
+        if repo is None:
+            return ""
+        try:
+            listed = subprocess.run(["brain", "needs-you"], cwd=repo, capture_output=True, text=True, check=True,
+                                    timeout=5).stdout.strip().splitlines()
+        except Exception:
+            return ""
+        asks = [line.split(" · ", 2)[1] for line in listed if line.startswith("ask · ") and line.count(" · ") >= 2]
+        if not asks:
+            return ""
+        return ("\nAlready waiting on your owner; leave needsYou null if the conversation only raised one of these "
+                "again, in any wording:\n" + "\n".join(f"- {ask[:160]}" for ask in asks[:20]))
 
     def _record_routine(self) -> None:
         with self._recording:
