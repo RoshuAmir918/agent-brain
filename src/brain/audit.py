@@ -138,9 +138,9 @@ def routines(directory: Path, today: date, days: int) -> list[dict]:
     return out
 
 
-def commits(repo: Path, days: int) -> dict[str, int]:
+def commits(repo: Path, days: int, now: datetime) -> dict[str, int]:
     out: dict[str, int] = {}
-    for subject in (git(repo, "log", f"--since={days} days ago", "--format=%s") or "").splitlines():
+    for subject in (git(repo, "log", f"--since={(now - timedelta(days=days)).isoformat(timespec='seconds')}", "--format=%s") or "").splitlines():
         match = STAGE_RE.match(subject)
         key = match.group(1) if match else (re.match(r"^([\w-]+)[(:]", subject).group(1) if re.match(r"^([\w-]+)[(:]", subject) else "other")
         out[key] = out.get(key, 0) + 1
@@ -154,7 +154,7 @@ def report(config: Config, today: date | None = None, days: int = 14, sessions_d
     return {"agent": config.agent_name, "date": today.isoformat(), "days": days,
             "notes": notes_by_kind(vault), "folders": folders(vault, config), "ledgers": ledgers(vault),
             "episodes": episodes(vault, today, days), "context": context(vault, config), "skills": skills(config),
-            "routines": routines(directory, today, days), "commits": commits(config.repo, days)}
+            "routines": routines(directory, today, days), "commits": commits(config.repo, days, config.now())}
 
 
 def render(data: dict) -> str:

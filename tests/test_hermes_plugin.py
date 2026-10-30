@@ -567,3 +567,72 @@ def test_routine_uses_a_schema_without_access_and_never_writes_access(provider, 
     assert provider.llm.calls[0]["json_schema"] is hermes_plugin.ROUTINE_SCHEMA
     assert writes == [(["ledger", "append", "--json"],
                        {"skill": "brain-watch", "outcome": "nothing", "account": "Checked.", "next": ""})]
+
+
+@pytest.fixture
+def prefetch_env(monkeypatch):
+    for env, _ in hermes_plugin.PREFETCH.values():
+        monkeypatch.delenv(env, raising=False)
+    return monkeypatch
+
+
+def recall(provider, monkeypatch, candidates):
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(stdout=json.dumps(candidates))
+
+    monkeypatch.setattr(hermes_plugin.subprocess, "run", run)
+    return provider.prefetch("harbor deployment"), calls
+
+
+CANDIDATES = [{"path": f"memory/Note {n}.md", "tier": "warm", "reason": f"title/path: {n}", "text": f"Body {n}."}
+              for n in range(4)]
+
+
+def test_prefetch_settings_default_to_todays_values(provider, prefetch_env):
+    assert hermes_plugin.prefetch_settings(provider.repo) == {
+        "prefetch": True, "prefetch_limit": 6, "prefetch_chars": 1500, "prefetch_form": "names"}
+    assert hermes_plugin.prefetch_settings(None)["prefetch_limit"] == 6
+
+
+def test_prefetch_off_starts_no_subprocess(provider, prefetch_env):
+    prefetch_env.setenv("BRAIN_PREFETCH", "0")
+    prefetch_env.setattr(hermes_plugin.subprocess, "run", lambda *a, **k: pytest.fail("prefetch is off"))
+    assert provider.prefetch("harbor deployment") == ""
+
+
+def test_prefetch_limit_and_chars_from_toml_and_env_wins(provider, prefetch_env):
+    (provider.repo / "brain.toml").write_text("[brain]\n\n[context]\nprefetch_limit = 3\nprefetch_chars = 120\n")
+    block, calls = recall(provider, prefetch_env, CANDIDATES)
+    assert calls[0] == ["brain", "retrieve", "--json", "--limit", "3", "--", "harbor deployment"]
+    assert block == "\n".join([hermes_plugin.RECALL_HEADER, *(f"- memory/Note {n}.md (warm): title/path: {n}"
+                                                              for n in range(3))])[:120]
+    prefetch_env.setenv("BRAIN_PREFETCH_LIMIT", "2")
+    prefetch_env.setenv("BRAIN_PREFETCH_CHARS", "1500")
+    block, calls = recall(provider, prefetch_env, CANDIDATES)
+    assert calls[0][4] == "2" and block.count("\n- ") == 2
+
+
+def test_prefetch_snippet_and_full_forms(provider, prefetch_env):
+    (provider.repo / "brain.toml").write_text('[brain]\n\n[context]\nprefetch_form = "snippet"\nprefetch_limit = 2\n')
+    block, calls = recall(provider, prefetch_env, CANDIDATES)
+    assert calls[0] == ["brain", "retrieve", "--json", "--limit", "2", "--form", "snippet", "--", "harbor deployment"]
+    assert block == hermes_plugin.RECALL_HEADER + "\n- memory/Note 0.md (warm): Body 0.\n- memory/Note 1.md (warm): Body 1."
+    prefetch_env.setenv("BRAIN_PREFETCH_FORM", "full")
+    block, calls = recall(provider, prefetch_env, CANDIDATES)
+    assert calls[0][5:7] == ["--form", "full"]
+    assert block == (hermes_plugin.FULL_HEADER + "\n\n## memory/Note 0.md (warm)\n\nBody 0.\n\n"
+                     "## memory/Note 1.md (warm)\n\nBody 1.")
+
+
+@pytest.mark.parametrize("env, value", [("BRAIN_PREFETCH", "on"), ("BRAIN_PREFETCH_LIMIT", "six"),
+                                        ("BRAIN_PREFETCH_CHARS", "-5"), ("BRAIN_PREFETCH_FORM", "summary")])
+def test_invalid_prefetch_settings_log_an_error_and_recall_nothing(provider, prefetch_env, caplog, env, value):
+    prefetch_env.setenv(env, value)
+    prefetch_env.setattr(hermes_plugin.subprocess, "run", lambda *a, **k: pytest.fail("invalid settings never run"))
+    assert provider.prefetch("harbor deployment") == ""
+    assert env in caplog.text and "invalid prefetch setting" in caplog.text
+    with pytest.raises(ValueError, match=env):
+        hermes_plugin.prefetch_settings(provider.repo)

@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, version as installed_version
 from pathlib import Path
 
@@ -26,10 +26,10 @@ def git(repo: Path, *args: str) -> str | None:
         return None
 
 
-def stages(repo: Path, today: date) -> dict[str, dict]:
+def stages(repo: Path, today: date, now: datetime) -> dict[str, dict]:
     """Last recorded run of each night stage, from commit subjects; ok when it covers yesterday or later."""
     last: dict[str, str] = {}
-    for line in (git(repo, "log", "--since=21 days ago", "--format=%s") or "").splitlines():
+    for line in (git(repo, "log", f"--since={(now - timedelta(days=21)).isoformat(timespec='seconds')}", "--format=%s") or "").splitlines():
         match = STAGE_RE.match(line)
         if match and match.group(1) not in last:
             last[match.group(1)] = match.group(2)
@@ -70,7 +70,7 @@ def report(config: Config, today: date | None = None) -> dict:
     return {
         "agent": config.agent_name,
         "date": today.isoformat(),
-        "stages": stages(config.repo, today),
+        "stages": stages(config.repo, today, config.now()),
         "engine": {"installed": installed, "recorded": install.recorded_version(config),
                    "pending_migration_since": pending_since},
         "export": {"expected": yesterday, "digest": yesterday if digest.exists() else None, "coverage": coverage},

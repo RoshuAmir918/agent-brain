@@ -14,3 +14,13 @@ log_dirs = []   # folders under agent_dir that hold receipts, ledgers or results
 skill_prefix = "brain-"
 timezone = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest days, health and audit dates
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables the nightly auto-update
+
+[context]   # each key also has a BRAIN_* environment override; see docs/engine.md
+hot_words = 6000
+sections = ["start", "current", "goals", "triggers", "tasks", "hot", "directory"]
+prefetch = true
+prefetch_limit = 6
+prefetch_chars = 1500
+prefetch_form = "names"
+hot_threshold = 7
+warm_threshold = 28

@@ -27,7 +27,9 @@ disclosure rows; unknown or ambiguous identities receive a stranger warning.
 
 Before each API call, messages with at least two non-stopword tokens trigger
 `brain retrieve --json --limit 6`. Queries are capped at 300 characters and the
-recalled block at 1500 characters. These are pointers, not full notes. Neither
+recalled block at 1500 characters. These are pointers, not full notes, unless the
+vault's `brain.toml` `[context]` table or the `BRAIN_PREFETCH*` variables say
+otherwise (see the engine docs). Neither
 injected block earns attribution credit; only subsequent on-demand note opens
 can be observed uses. This provider adds no tools and writes no conversation
 memory. Disclosure instructions guide the agent; they are not a retrieval

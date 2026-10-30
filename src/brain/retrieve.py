@@ -89,6 +89,16 @@ def id_matches(vault: Vault, terms: set[str]) -> list[Candidate]:
     return matches
 
 
+def text(vault: Vault, candidate: Candidate, form: str) -> str:
+    """A candidate's index line (snippet) or body (full); a task match gives its own entry."""
+    rel, _, anchor = candidate.path.removeprefix(vault.config.vault + "/").partition("#")
+    note = vault.notes[rel]
+    task = next((task for task in parse_register(note.body)[1] if anchor.startswith(task.tid + " ")), None) if anchor else None
+    if task is not None:
+        return task.title if form == "snippet" else task.body.strip()
+    return index.index_line(note) if form == "snippet" else note.body.strip()
+
+
 def search(vault: Vault, query: str, limit: int = 12) -> list[Candidate]:
     terms = tokens(query)
     if not terms:

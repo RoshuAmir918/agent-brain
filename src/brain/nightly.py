@@ -9,7 +9,7 @@ Usage:
   (sessions default to $HERMES_HOME/records/sessions, the profile's own export)
   brain audit [--vault <path>] [--date YYYY-MM-DD] [--days 14] [--sessions-dir <dir>] [--json]
   brain compile-context [--vault <path>] [--out <path>] [--write]
-  brain retrieve [--vault <path>] <query> [--limit 12] [--json]
+  brain retrieve [--vault <path>] <query> [--limit 12] [--json [--form names|snippet|full]]
   brain needs-you [--vault <path>] [--json]
   brain access <who> [--vault <path>] [--json]
   brain state [--vault <path>] [--json]
@@ -42,11 +42,10 @@ from . import activation as act
 from . import access, attribute, audit, compile_context, digest, fm, health, index, journal, ledger, needs, retrieve, session_context, state, triggers, validate
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, quiet, task_activation, write_archive
 from .vault import DAILY, Vault
-from .config import Config
+from .config import FORMS, Config
 from .lock import vault_lock
 from . import install
 
-HOT_BUDGET_WORDS = 6000
 MARK_START = "<!-- brain:active-threads start -->"
 MARK_END = "<!-- brain:active-threads end -->"
 
@@ -143,6 +142,7 @@ def fold_uses(vault: Vault, tasks: list[Task], today: date, report: list[str]) -
 
 def retier(vault: Vault, today: date, report: list[str]) -> set[str]:
     changed = set()
+    h, w = vault.config.context.hot_threshold, vault.config.context.warm_threshold
     for rel, n in vault.notes.items():
         kind = vault.kind_for(rel)
         if not mechanical(vault, rel) or kind == "orientation":
@@ -151,15 +151,15 @@ def retier(vault: Vault, today: date, report: list[str]) -> set[str]:
         iages = act.ages_from_dates([str(x) for x in n.data.get("uses_inferred", [])], today)
         b = act.activation(ages, iages)
         if kind == "episode" and rel.startswith("Conversations/") and not n.data.get("consolidated"):
-            tier = "hot" if act.tier_for(b) == "hot" else "warm"   # unconsolidated records cannot go cold
+            tier = "hot" if act.tier_for(b, h=h, w=w) == "hot" else "warm"   # unconsolidated records cannot go cold
         elif kind == "primed" and not n.data.get("pinned"):
             try:
                 expired = date.fromisoformat(Path(rel).stem) < today
             except ValueError:
                 expired = False
-            tier = "cold" if expired else act.tier_for(b)
+            tier = "cold" if expired else act.tier_for(b, h=h, w=w)
         else:
-            tier = act.tier_for(b, bool(n.data.get("pinned")))
+            tier = act.tier_for(b, bool(n.data.get("pinned")), h, w)
         newb = round(b, 2) if b != float("-inf") else -99.0
         if n.data.get("tier") != tier or n.data.get("activation") != newb:
             if n.data.get("tier") != tier:
@@ -200,7 +200,7 @@ def place(config: Config, t: Task, today: date, cold_open: list, report: list[st
     """Tier one open task and return its register text: full entry, one line, or nothing."""
     prev = t.state.get("tier")
     b = task_activation(t, today)
-    tier = act.tier_for(b, t.state.get("pinned") == "true")
+    tier = act.tier_for(b, t.state.get("pinned") == "true", config.context.hot_threshold, config.context.warm_threshold)
     t.state["tier"] = tier
     t.state["activation"] = f"{b:.2f}" if b != float("-inf") else "-99"
     if tier == "hot":
@@ -349,8 +349,8 @@ def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
         changed.add(rel)
         report.append(f"ledger: collapsed nothing rows in {rel}")
     vault.load()
-    (root / "Hot Set.md").write_text(index.build_hot_set(vault, today, HOT_BUDGET_WORDS), encoding="utf-8")
-    (root / "Warm Index.md").write_text(index.build_warm_index(vault, today, cold_open, HOT_BUDGET_WORDS), encoding="utf-8")
+    (root / "Hot Set.md").write_text(index.build_hot_set(vault, today, config.context.hot_words), encoding="utf-8")
+    (root / "Warm Index.md").write_text(index.build_warm_index(vault, today, cold_open, config.context.hot_words), encoding="utf-8")
     report.append(compile_context.write(vault))
     vault.load()
     problems = validate.run(vault, changed | vault.config.generated_views)
@@ -455,7 +455,7 @@ def cmd_ledger_append(args):
         for name in ("routine", "outcome", "account", "next", "at"):
             if name in values and not isinstance(values[name], str):
                 raise ValueError(f"{name} must be a string")
-        at = datetime.strptime(values["at"], "%Y-%m-%d %H:%M") if "at" in values else datetime.now(args.config.zone)
+        at = datetime.strptime(values["at"], "%Y-%m-%d %H:%M") if "at" in values else args.config.now(datetime.now(args.config.zone))
         print(ledger.append(args.config, values["routine"], values["outcome"], values["account"], values.get("next", ""), at))
     except (OSError, ValueError) as error:
         sys.exit(f"ledger append: {error}")
@@ -464,7 +464,7 @@ def cmd_ledger_append(args):
 def cmd_journal_append(args):
     """Reads one after-session record as JSON on stdin, or with --synthesis the catch-up's text."""
     try:
-        at = datetime.strptime(args.at, "%Y-%m-%d %H:%M") if args.at else datetime.now(args.config.zone)
+        at = datetime.strptime(args.at, "%Y-%m-%d %H:%M") if args.at else args.config.now(datetime.now(args.config.zone))
         if args.synthesis:
             text = sys.stdin.read()
             if not text.strip():
@@ -524,7 +524,7 @@ def cmd_compile_context(a):
     else:
         text = compile_context.build(vault)
         print(text, end="")
-        result = compile_context.summary(text)
+        result = compile_context.summary(text, a.config.context.hot_words)
     print(result, file=sys.stderr)
 
 
@@ -542,9 +542,11 @@ def cmd_digest(args):
 
 
 def cmd_retrieve(a):
-    candidates = retrieve.search(Vault(a.config.vault_path), a.query, a.limit)
+    vault = Vault(a.config.vault_path)
+    candidates = retrieve.search(vault, a.query, a.limit)
     if a.json:
-        print(json.dumps([asdict(candidate) for candidate in candidates], ensure_ascii=False, indent=2))
+        print(json.dumps([asdict(candidate) | ({"text": retrieve.text(vault, candidate, a.form)} if a.form != "names" else {})
+                          for candidate in candidates], ensure_ascii=False, indent=2))
     elif not candidates:
         print("no candidates")
     else:
@@ -610,7 +612,8 @@ def cmd_state(args):
 
 
 def cmd_simulate(a):
-    print(act.simulate_table(a.h, a.w))
+    print(act.simulate_table(a.config.context.hot_threshold if a.h is None else a.h,
+                             a.config.context.warm_threshold if a.w is None else a.w))
 
 
 def cmd_audit(args):
@@ -730,7 +733,9 @@ def main(argv=None):
     s.add_argument("--include-routines", action="store_true", help="also digest the agent's own cron sessions")
     s.add_argument("--write", action="store_true"); s.set_defaults(fn=cmd_digest)
     s = sub.add_parser("retrieve"); s.add_argument("--vault"); s.add_argument("query")
-    s.add_argument("--limit", type=int, default=12); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_retrieve)
+    s.add_argument("--limit", type=int, default=12); s.add_argument("--json", action="store_true")
+    s.add_argument("--form", choices=FORMS, default="names", help="with --json: add each note's index line or body as text")
+    s.set_defaults(fn=cmd_retrieve)
     s = sub.add_parser("needs-you"); s.add_argument("--vault")
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true")
@@ -750,7 +755,7 @@ def main(argv=None):
     for option in ("platform", "user-id", "user-id-alt", "user-name", "chat-id"):
         s.add_argument("--" + option, default="")
     s.set_defaults(fn=cmd_session_context)
-    s = sub.add_parser("simulate"); s.add_argument("--h", type=int, default=act.H_DAYS); s.add_argument("--w", type=int, default=act.W_DAYS)
+    s = sub.add_parser("simulate"); s.add_argument("--h", type=int); s.add_argument("--w", type=int)
     s.add_argument("--vault")
     s.set_defaults(fn=cmd_simulate)
     s = sub.add_parser("shard-sessions"); s.add_argument("jsonl"); s.add_argument("directory"); s.add_argument("--vault"); s.set_defaults(fn=cmd_shard_sessions)

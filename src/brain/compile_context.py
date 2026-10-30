@@ -39,8 +39,9 @@ def automatic_load(body: str) -> str:
 
 def build(vault: Vault) -> str:
     config = vault.config
-    sources = [rel for rel in config.context_sources
-               if rel != config.human_goals or (vault.root / rel).is_file()]   # Goals is written with the owner, so a vault may not have one yet
+    named = dict(zip(("start", "current", "goals", "triggers", "tasks", "hot"), config.context_sources))
+    sources = [rel for name, rel in named.items() if name in config.context.sections
+               and (rel != config.human_goals or (vault.root / rel).is_file())]   # Goals is written with the owner, so a vault may not have one yet
     header = ("Generated nightly by `brain`.\n"
               "Edits to this file are overwritten.\n"
               "Edit the source notes instead: " + ", ".join(config.link(rel) for rel in sources) + ".")
@@ -52,7 +53,8 @@ def build(vault: Vault) -> str:
         elif rel == "Hot Set.md":
             body = automatic_load(body)
         sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
-    sections.append(directory(vault))
+    if "directory" in config.context.sections:
+        sections.append(directory(vault))
     sections.append("Warm Index, Conversations and everything else are retrieved on demand with `brain retrieve`.")
     return "\n\n".join(sections) + "\n"
 
@@ -89,13 +91,13 @@ def directory(vault: Vault) -> str:
     return "\n".join(lines)
 
 
-def summary(text: str) -> str:
+def summary(text: str, limit: int = WORD_LIMIT) -> str:
     words = len(text.split())
-    warning = f"; WARNING: over {WORD_LIMIT} words" if words > WORD_LIMIT else ""
+    warning = f"; WARNING: over {limit} words" if words > limit else ""
     return f"context: {words} words{warning}"
 
 
 def write(vault: Vault, out: Path | None = None) -> str:
     text = build(vault)
     (out if out is not None else repo_root(vault.config) / ".hermes.md").write_text(text, encoding="utf-8")
-    return summary(text)
+    return summary(text, vault.config.context.hot_words)

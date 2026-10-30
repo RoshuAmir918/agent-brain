@@ -192,10 +192,9 @@ def migrate_done(config: Config, deferred: list[str] | None = None) -> str:
     is carried as an ask in CURRENT's Needs you instead of holding the migration open."""
     current = installed_version("agent-brain")
     if deferred:
-        from datetime import datetime
         from .journal import add_ask
         for step in deferred:
-            add_ask(config, datetime.now(config.zone).date(), f"Migration to {current} left for you: {step}", None)
+            add_ask(config, config.today(), f"Migration to {current} left for you: {step}", None)
     record_version(config, current)
     pending = config.vault_path / config.hermes_dir / "pending-migration.md"
     if pending.exists():

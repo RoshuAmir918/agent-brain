@@ -111,3 +111,20 @@ def test_stopword_query_has_no_candidates(retrieval_vault, capsys):
     assert capsys.readouterr().out == "no candidates\n"
     nightly.main(["retrieve", "--vault", str(retrieval_vault.root), "the and", "--json"])
     assert json.loads(capsys.readouterr().out) == []
+
+
+def test_retrieval_json_forms_add_index_line_or_body(retrieval_vault, capsys):
+    argv = ["retrieve", "--vault", str(retrieval_vault.root), "harbor", "--limit", "1", "--json"]
+    nightly.main(argv + ["--form", "snippet"])
+    assert json.loads(capsys.readouterr().out)[0]["text"] == "Quiet description."
+    nightly.main(argv + ["--form", "full"])
+    assert json.loads(capsys.readouterr().out)[0]["text"] == "# Harbor project\nQuiet description.\n## Build pipelines\n[[Linked]]"
+    nightly.main(argv + ["--form", "names"])
+    assert set(json.loads(capsys.readouterr().out)[0]) == {"path", "tier", "score", "reason"}
+
+
+def test_retrieval_full_form_of_a_task_match_is_its_entry(retrieval_vault, capsys):
+    nightly.main(["retrieve", "--vault", str(retrieval_vault.root), "t-001", "--json", "--form", "full"])
+    row = json.loads(capsys.readouterr().out)[0]
+    assert row["path"].startswith("memory/agent/Tasks.md#T-001") and "ORIGINAL_FULL_BODY" in row["text"]
+    assert "### T-001" not in row["text"]

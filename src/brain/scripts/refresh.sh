@@ -15,6 +15,6 @@ if ! cmp -s "$SOUL" "$HERMES_HOME/SOUL.md"; then
 fi
 git add .hermes.md "$(dirname "$(brain paths skills)")"
 if ! git diff --cached --quiet; then
-  git commit -q -m "context($(date +%F)): refresh context and skills"
+  git commit -q -m "context(${BRAIN_TODAY:-$(date +%F)}): refresh context and skills"
   git push -q origin main
 fi

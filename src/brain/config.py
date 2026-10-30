@@ -6,8 +6,77 @@ import subprocess
 import tomllib
 from dataclasses import dataclass, field, fields, replace
 from datetime import date, datetime
+from functools import cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+SECTIONS = ("start", "current", "goals", "triggers", "tasks", "hot", "directory")   # the parts of .hermes.md, in order
+FORMS = ("names", "snippet", "full")
+
+
+def pinned_today() -> date | None:
+    """BRAIN_TODAY=YYYY-MM-DD pins the engine's today, for evaluations against throwaway vaults."""
+    value = os.environ.get("BRAIN_TODAY")
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise ValueError(f"BRAIN_TODAY must be a date as YYYY-MM-DD: {value!r}")
+
+
+@dataclass(frozen=True)
+class Context:
+    """What enters an agent's context: brain.toml's [context], each key overridden by its BRAIN_* variable."""
+    hot_words: int = 6000
+    sections: tuple[str, ...] = SECTIONS
+    prefetch: bool = True
+    prefetch_limit: int = 6
+    prefetch_chars: int = 1500
+    prefetch_form: str = "names"
+    hot_threshold: int = 7
+    warm_threshold: int = 28
+
+    ENV = {"hot_words": "BRAIN_HOT_WORDS", "sections": "BRAIN_CONTEXT_SECTIONS", "prefetch": "BRAIN_PREFETCH",
+           "prefetch_limit": "BRAIN_PREFETCH_LIMIT", "prefetch_chars": "BRAIN_PREFETCH_CHARS",
+           "prefetch_form": "BRAIN_PREFETCH_FORM", "hot_threshold": "BRAIN_HOT_THRESHOLD",
+           "warm_threshold": "BRAIN_WARM_THRESHOLD"}
+
+    @classmethod
+    def load(cls, values) -> Context:
+        if not isinstance(values, dict) or set(values) - set(cls.ENV):
+            raise ValueError("brain.toml [context] must contain only supported context keys")
+        settings = {}
+        for name, env in cls.ENV.items():
+            raw = os.environ.get(env)
+            if raw is None and name not in values:
+                continue
+            where, value = (env, raw) if raw is not None else (f"context.{name}", values[name])
+            if name == "sections":
+                value = [part.strip() for part in value.split(",") if part.strip()] if raw is not None else value
+                if not isinstance(value, list) or not all(isinstance(part, str) for part in value):
+                    raise ValueError(f"{where} must be a list of section names")
+                unknown = [part for part in value if part not in SECTIONS]
+                if unknown:
+                    raise ValueError(f"{where} has unknown sections {', '.join(unknown)}; known: {', '.join(SECTIONS)}")
+                value = tuple(value)
+            elif name == "prefetch":
+                if raw is not None and raw not in ("0", "1") or raw is None and not isinstance(value, bool):
+                    raise ValueError(f"{where} must be 0 or 1 (true or false in brain.toml)")
+                value = raw == "1" if raw is not None else value
+            elif name == "prefetch_form":
+                if value not in FORMS:
+                    raise ValueError(f"{where} must be one of {', '.join(FORMS)}")
+            else:
+                if raw is not None:
+                    value = int(raw) if raw.strip().isdigit() else None
+                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                    raise ValueError(f"{where} must be a non-negative integer")
+            settings[name] = value
+        context = cls(**settings)
+        if context.hot_threshold > context.warm_threshold:
+            raise ValueError("the hot threshold cannot exceed the warm threshold")
+        return context
 
 
 @dataclass(frozen=True)
@@ -75,6 +144,8 @@ class Config:
             ZoneInfo(config.timezone)
         except (ZoneInfoNotFoundError, ValueError):
             raise ValueError(f"brain.timezone is not a known zone: {config.timezone}")
+        pinned_today()
+        config.context   # invalid context settings fail here, not mid-command
         return replace(config,
                        **paths,
                        human_name=os.environ.get("BRAIN_HUMAN_NAME", config.human_name),
@@ -94,8 +165,22 @@ class Config:
     def zone(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
 
+    def now(self, moment: datetime | None = None) -> datetime:
+        """The current time in the owner's zone, or `moment`, on BRAIN_TODAY's date when it is set."""
+        moment = moment or datetime.now(self.zone)
+        pinned = pinned_today()
+        return moment if pinned is None else datetime.combine(pinned, moment.timetz())
+
     def today(self) -> date:
-        return datetime.now(self.zone).date()
+        return self.now().date()
+
+    @cached_property
+    def context(self) -> Context:
+        path = self.repo / "brain.toml"
+        if not path.is_file():
+            return Context.load({})
+        with path.open("rb") as stream:
+            return Context.load(tomllib.load(stream).get("context", {}))
 
     @property
     def human_goals(self) -> str:

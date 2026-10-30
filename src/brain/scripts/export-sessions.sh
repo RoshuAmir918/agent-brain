@@ -11,7 +11,11 @@ VAULT="$(brain paths vault)"
 OUT="$VAULT/Conversations/Sessions"
 RECORDS="$(brain paths records)/sessions"
 ZONE="${BRAIN_TZ:-$(brain timezone)}"   # the owner's zone from brain.toml: "yesterday" is theirs, whatever the host clock says
-DATE="$(TZ="$ZONE" date -v-1d +%F 2>/dev/null || TZ="$ZONE" date -d yesterday +%F)"
+if [ -n "${BRAIN_TODAY:-}" ]; then   # a pinned today, as the engine reads it
+  DATE="$(date -j -v-1d -f %F "$BRAIN_TODAY" +%F 2>/dev/null || date -d "$BRAIN_TODAY -1 day" +%F)"
+else
+  DATE="$(TZ="$ZONE" date -v-1d +%F 2>/dev/null || TZ="$ZONE" date -d yesterday +%F)"
+fi
 mkdir -p "$OUT" "$RECORDS"
 git pull --rebase --autostash -q origin main
 

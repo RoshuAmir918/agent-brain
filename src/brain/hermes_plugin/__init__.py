@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import threading
+import tomllib
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,10 @@ STOPWORDS = set("a an and are as at be been but by can could did do does for fro
                 "i if in into is it its me my not of on or our that the their them there these they "
                 "this those to was we were what when where which who why will with would you your".split())
 RECALL_HEADER = "Vault notes that match this message (names and index lines; open what you need):"
+FULL_HEADER = "Vault notes that match this message (their text, cut to fit):"
+PREFETCH = {"prefetch": ("BRAIN_PREFETCH", True), "prefetch_limit": ("BRAIN_PREFETCH_LIMIT", 6),
+            "prefetch_chars": ("BRAIN_PREFETCH_CHARS", 1500), "prefetch_form": ("BRAIN_PREFETCH_FORM", "names")}
+FORMS = ("names", "snippet", "full")
 
 # After a session, one bounded side call turns the transcript into a structured record: a journal row for a
 # conversation once it has been quiet this long, a ledger row for a routine run when it ends. The model judges;
@@ -130,6 +135,35 @@ def find_repo(cwd: str = "", hermes_home: str = "") -> Path | None:
     return None
 
 
+def prefetch_settings(repo) -> dict:
+    """The prefetch keys of brain.toml's [context], each overridden by its BRAIN_* variable, as the engine reads them."""
+    path = Path(repo) / "brain.toml" if repo is not None else None
+    values = {}
+    if path is not None and path.is_file():
+        with path.open("rb") as stream:
+            values = tomllib.load(stream).get("context", {})
+    if not isinstance(values, dict):
+        raise ValueError("brain.toml [context] must be a table")
+    settings = {}
+    for name, (env, default) in PREFETCH.items():
+        raw = os.environ.get(env)
+        where, value = (env, raw) if raw is not None else (f"context.{name}", values.get(name, default))
+        if name == "prefetch":
+            if raw is not None and raw not in ("0", "1") or raw is None and not isinstance(value, bool):
+                raise ValueError(f"{where} must be 0 or 1 (true or false in brain.toml)")
+            value = raw == "1" if raw is not None else value
+        elif name == "prefetch_form":
+            if value not in FORMS:
+                raise ValueError(f"{where} must be one of {', '.join(FORMS)}")
+        else:
+            if raw is not None:
+                value = int(raw) if raw.strip().isdigit() else None
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"{where} must be a non-negative integer")
+        settings[name] = value
+    return settings
+
+
 class BrainMemoryProvider(MemoryProvider):
     def __init__(self):
         self.platform = ""
@@ -203,22 +237,32 @@ class BrainMemoryProvider(MemoryProvider):
 
     def prefetch(self, query, *, session_id="") -> str:
         try:
+            settings = prefetch_settings(self.repo)
+        except (OSError, ValueError) as error:
+            logger.error("brain provider: invalid prefetch setting, no recall this turn: %s", error)
+            return ""
+        if not settings["prefetch"]:
+            return ""
+        limit, form = settings["prefetch_limit"], settings["prefetch_form"]
+        try:
             terms = re.findall(r"\b[^\W_]+\b", query.lower())
             if sum(term not in STOPWORDS for term in terms) < 2:
                 return ""
-            text = self._run("retrieve", "--json", "--limit", "6", "--", query[:300])
+            text = self._run("retrieve", "--json", "--limit", str(limit), *(["--form", form] if form != "names" else []),
+                             "--", query[:300])
             if not text:
                 return ""
             candidates = json.loads(text)
             if not isinstance(candidates, list) or not candidates:
                 return ""
-            lines = [RECALL_HEADER]
-            for candidate in candidates[:6]:
+            lines = [FULL_HEADER if form == "full" else RECALL_HEADER]
+            for candidate in candidates[:limit]:
                 path, tier, reason = (candidate[key] for key in ("path", "tier", "reason"))
-                if not all(isinstance(value, str) for value in (path, tier, reason)):
+                body = reason if form == "names" else candidate.get("text")
+                if not all(isinstance(value, str) for value in (path, tier, body)):
                     return ""
-                lines.append(f"- {path} ({tier}): {reason}")
-            return "\n".join(lines)[:1500]
+                lines.append(f"## {path} ({tier})\n\n{body}" if form == "full" else f"- {path} ({tier}): {body}")
+            return ("\n\n" if form == "full" else "\n").join(lines)[:settings["prefetch_chars"]]
         except Exception:
             return ""
 
