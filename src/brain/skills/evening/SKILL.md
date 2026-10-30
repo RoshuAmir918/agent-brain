@@ -1,7 +1,7 @@
 ---
 name: {prefix}evening
 description: Evening register update before the night
-version: 1.0.0
+version: 1.1.0
 metadata:
   hermes:
     tags: [routine, day]
@@ -20,7 +20,7 @@ Leave Tasks accurate for the night.
    - Ask only when it has gone quiet and something is at stake: `brain needs-you --ask "<one question>" --source <Tasks note>#<id>`. At most two a week.
    - Leave it when it waits on someone else or on a date still ahead.
    Write each decision into the task as `- **Reviewed:** <date> — <set aside | dropped | asked>: <why, in one clause>`. The run's account gives the counts ("set aside 3, dropped 1, asked 0") and names them.
-4. Message {human_name} only for important developments, deadlines or decisions. No no-news message.
+4. Message {human_name} only for important developments, deadlines or decisions. No no-news message. A channel that is not registered in `{agent_dir}/Channels.md` does not exist for this pass: never report a mailbox, workspace or connection {human_name} has not set up as missing, failing or unread, and never raise this profile's own connections or tools with them; a gap in what you can see is a Sleep Log matter, not theirs.
 5. Commit `evening(<date>)` if anything changed.
 
 ## Boundaries

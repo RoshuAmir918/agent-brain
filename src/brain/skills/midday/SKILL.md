@@ -1,7 +1,7 @@
 ---
 name: {prefix}midday
 description: Noon check of commitments and mail
-version: 1.0.0
+version: 1.1.0
 metadata:
   hermes:
     tags: [routine, day]
@@ -11,7 +11,7 @@ metadata:
 
 ## Procedure
 1. For any message you will answer, run `brain session-context --platform <platform> --user-id <sender handle or address> --user-id-alt <permanent id, if any>` first and follow the block. Read recent sessions, open tasks, Triggers, and targeted rechecks of registered threads in the channels listed in `{agent_dir}/Channels.md` and {agent_name}'s own mailbox. Check later replies before treating anything as open.
-2. Message {human_name} only for important developments, approaching deadlines or needed decisions, grouped. No repeated reminders; no no-news message.
+2. Message {human_name} only for important developments, approaching deadlines or needed decisions, grouped. No repeated reminders; no no-news message. A channel that is not registered in `{agent_dir}/Channels.md` does not exist for this pass: never report a mailbox, workspace or connection {human_name} has not set up as missing, failing or unread, and never raise this profile's own connections or tools with them; a gap in what you can see is a Sleep Log matter, not theirs.
 3. Proactive outreach to anyone other than {human_name} happens only under a roster and pacing rules {human_name} has approved in writing, recorded under Standing state in `{agent_dir}/Tasks.md`. With no such record, send nothing.
 4. Update task state fields for anything that moved. Ask before anything else that needs approval.
 
