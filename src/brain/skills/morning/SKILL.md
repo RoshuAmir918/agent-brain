@@ -9,7 +9,7 @@ metadata:
 ---
 # Morning briefing
 
-What today is for {human_name}, at the agreed hour, every day, even when there is little to say. Never before that hour. It reads like a good assistant's word at the door, under two hundred words, not a status report: the machinery's health lives in the Sleep Log and `brain health`, where a maintainer reads it.
+What today is for {human_name}, at the agreed hour, every day, even when there is little to say. Never before that hour. It reads like a good assistant's word at the door, not a status report: two hundred words is the ceiling, and a hundred is a good morning. The machinery's health lives in the Sleep Log and `brain health`, where a maintainer reads it; none of it is for {human_name}.
 
 ## Procedure
 1. Read `{agent_dir}/Primed.md` first; it is the brief Sleep 2 wrote for today. Then Upcoming in the session context, Triggers, open tasks, any task entries tagged `morning:`, and what `brain needs-you` lists.
@@ -20,7 +20,7 @@ What today is for {human_name}, at the agreed hour, every day, even when there i
    - **Needs you.** Asks first, then confirms, one short line each, from `brain needs-you`. Primed's nudges verbatim, once. Sleep 1's open conflicts and questions.
    - **Coming up.** The dated items in the next week that need something from them, from Upcoming. Only those; the rest stays in context.
    - **Noticed**, labelled as inference: a new reflection, a pattern the audit found, Improve's recommendation with its status, the weekly service line when Sleep 2 wrote one. Never raw numbers.
-4. What the briefing leaves out: whether last night's commits exist, routine drift, retrieval-audit counts, consolidation disagreements. They are in the Sleep Log; `brain health` reports the stages; a maintainer asks for them. A missing night stage that affects today is one plain sentence: "I didn't consolidate last night, so this is from the day before."
+4. What the briefing leaves out: whether last night's commits exist, which stages ran, routine drift, retrieval-audit counts, consolidation disagreements, source-coverage caveats, and anything about this profile's own connections or tools. They are in the Sleep Log; `brain health` reports the stages; a maintainer asks for them. When the night did not run, that is one sentence in total, however many stages are missing ("I didn't consolidate last night, so this is from the day before"), never a list. A responsibility's prepared piece (a letter, a comparison, a companion) is one line under Done for you with where it is, not its contents.
 5. After composing, remove every `morning:` line you carried from the task entries (never a `## Needs you` item: it leaves when it is resolved): a fact worth keeping goes into the owning note in one sentence, the rest is gone. The register is a state view, not a log; lines left behind push entries over budget and stop the night.
 6. Send the briefing to {human_name}'s Home, the destination named in `{agent_dir}/Channels.md`.
 7. Add a line to the Sleep Log: briefing sent, and what it contained in one phrase.
