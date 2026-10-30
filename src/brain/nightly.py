@@ -641,6 +641,14 @@ def cmd_session_context(args):
         print(text)
 
 
+def cmd_show_skill(args):
+    try:
+        print(install.render_skill(args.config, args.name), end="")
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_people_mentioned(args):
     text = session_context.mentioned(Vault(args.config.vault_path), args.config, args.text, args.form)
     if text:
@@ -757,6 +765,8 @@ def main(argv=None):
     s.set_defaults(fn=cmd_health)
     s = sub.add_parser("audit"); s.add_argument("--vault"); s.add_argument("--date"); s.add_argument("--days", type=int, default=14)
     s.add_argument("--sessions-dir"); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_audit)
+    s = sub.add_parser("show-skill", help="print the package's current text of one routine, rendered for this vault")
+    s.add_argument("name"); s.add_argument("--vault"); s.set_defaults(fn=cmd_show_skill)
     s = sub.add_parser("people-mentioned"); s.add_argument("--vault"); s.add_argument("text")
     s.add_argument("--form", choices=("line", "card"), default="line")
     s.set_defaults(fn=cmd_people_mentioned)

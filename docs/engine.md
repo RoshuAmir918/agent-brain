@@ -202,6 +202,7 @@ brain retrieve "harbor CI" [--limit 12] [--json [--form names|snippet|full]]
 brain session-context [--platform demiurge] [--user-id <handle>] [--user-id-alt <permanent id>] [--user-name <name>] [--chat-id <id>]
 brain simulate [--h 7 --w 28]
 brain install-skills
+brain show-skill <routine>
 brain install-scripts
 brain install-provider
 brain timezone
@@ -211,6 +212,8 @@ brain paths <soul|skills|scripts|provider|vault|repo>
 Every subcommand accepts optional `--vault <path>`. `python3 -m brain` is also supported. `brain paths` prints an absolute path: SOUL, rendered skills, installed scripts, provider or records directory, the active vault or repository root. `--sessions-dir`, `--file` and `--out` paths are relative to cwd, not the vault; adjust example session paths to your config.
 
 `--date` is the Pacific date of the occurrence; `digest` requires it, while `nightly` allows omitting it for an ad hoc run. `attribute` prints explicit uses and JSONL observed on-demand reads, and `--write` appends them to monthly Use Logs. Rows are `timestamp | target | reason | explicit/inferred/observed/live [| confirmed/unconfirmed]`. `simulate` prints the spec's decay table.
+
+`show-skill <routine>` prints the package's current text of one routine rendered for this vault, so an agent can adopt a changed day routine (morning, midday, evening, which the engine never re-renders) by hand, keeping its own steps.
 
 `compile-context` prints generated context without writing unless `--write` is given. Its word count goes to stderr, with a non-fatal warning over 6000 words. Output defaults to the configured repository's `.hermes.md`; `--out` overrides this only when writing. Context includes frontmatter-free START, CURRENT and Triggers, only explicitly open task sections exactly as represented in the register, Hot Set's Automatic load section, and a names-only directory. Full archived warm-task bodies and overflow notes remain on demand.
 

@@ -286,3 +286,13 @@ def test_starting_a_migration_is_one_hermes_run_in_the_vault_and_nothing_without
         raise install.subprocess.CalledProcessError(1, command)
     monkeypatch.setattr(install.subprocess, "run", fail)
     assert START_MIGRATION(config) is False
+
+
+def test_show_skill_renders_one_routine_for_this_vault(vault, capsys):
+    (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nhuman_name = "Mira"\nagent_name = "Echo"\nskill_prefix = "echo-"\n')
+    nightly.main(["show-skill", "morning", "--vault", str(vault)])
+    text = capsys.readouterr().out
+    assert text.startswith("---\nname: echo-morning\n") and "What today is for Mira" in text and "{human_name}" not in text
+    with pytest.raises(SystemExit):
+        nightly.main(["show-skill", "nope", "--vault", str(vault)])
+    assert "no such routine: nope" in capsys.readouterr().err

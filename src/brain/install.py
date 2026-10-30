@@ -44,6 +44,19 @@ def local_section(text: str) -> str:
     return text[match.start():].rstrip("\n") + "\n" if match else ""
 
 
+def render_skill(config: Config, name: str) -> str:
+    """The package's current text of one routine, rendered for this vault: what `install-skills` would write for a core
+    routine, and what a vault-owned day routine (morning, midday, evening) can adopt by hand, keeping its own steps."""
+    template = files("brain").joinpath("skills", name, "SKILL.md")
+    if not template.is_file():
+        raise ValueError(f"no such routine: {name}; the package has " + ", ".join(
+            sorted(p.name for p in files("brain").joinpath("skills").iterdir() if p.joinpath("SKILL.md").is_file())))
+    text = template.read_text(encoding="utf-8")
+    for token, value in config.template_values().items():
+        text = text.replace("{" + token + "}", value)
+    return text
+
+
 def skills(config: Config, force: bool = False) -> Path:
     for routine in sorted(files("brain").joinpath("skills").iterdir(), key=lambda path: path.name):
         template = routine.joinpath("SKILL.md")
