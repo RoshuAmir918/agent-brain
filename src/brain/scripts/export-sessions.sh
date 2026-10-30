@@ -23,11 +23,13 @@ git pull --rebase --autostash -q origin main
 # with --force so a session that grew since last night is refreshed.
 # The full export goes to a scratch file and is split into one shard per session under the records folder; only
 # shards that changed are rewritten.
-EXPORT="$(mktemp "${TMPDIR:-/tmp}/sessions.XXXXXX.jsonl")"
+# A scratch folder, not a file with a suffix: BSD mktemp wants the Xs last, and a TMPDIR ending in a slash broke it on one profile.
+SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/sessions.XXXXXX")"
+EXPORT="$SCRATCH/all.jsonl"
 hermes sessions export "$EXPORT" --format jsonl
 brain shard-sessions "$EXPORT" "$RECORDS"
 kinds="$(brain session-ids "$EXPORT" --with-kind)"
-rm -f "$EXPORT"
+rm -rf "$SCRATCH"
 failed=0
 while IFS="$(printf '\t')" read -r id kind; do
   [ -n "$id" ] || continue
