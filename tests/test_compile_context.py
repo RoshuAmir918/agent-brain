@@ -113,7 +113,7 @@ def test_context_directory_lists_hubs_people_and_open_tasks(context_vault):
 
 def test_context_includes_goals_when_present_and_skips_them_until_then(context_vault):
     text = compile_context.build(Vault(context_vault))
-    assert "Goals" not in text
+    assert "## memory/human/Goals.md" not in text
     (context_vault / "human").mkdir()
     fm.write(context_vault / "human/Goals.md", {"kind": "orientation", "pinned": True, "tier": "hot"},
              "# Goals\n## Active goals\nGOALS_BODY\n")
@@ -135,3 +135,67 @@ def test_context_keeps_open_tasks_that_carry_state_without_status(context_vault)
     text = compile_context.build(Vault(vault))
     assert "### T-005" in text and "STATED_BODY" in text
     assert "### T-006" not in text and "DONE_BODY" not in text
+
+
+def test_context_includes_primed_after_current_once_the_night_wrote_it(context_vault):
+    text = compile_context.build(Vault(context_vault))
+    assert "## memory/agent/Primed.md" not in text
+    fm.write(context_vault / "agent/Primed.md", {"kind": "primed", "tier": "hot"},
+             "# Today\nWHERE_AND_WITH_WHOM\n\ngestures: open\n")
+    text = compile_context.build(Vault(context_vault))
+    assert "## memory/agent/Primed.md\n\n# Today\nWHERE_AND_WITH_WHOM" in text
+    assert text.index("# Current") < text.index("WHERE_AND_WITH_WHOM") < text.index("# Triggers")
+    assert "memory/agent/Primed.md" in text.splitlines()[2]
+
+
+def test_upcoming_lists_dates_in_the_next_week_from_hubs_and_histories_only(context_vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-10-30")
+    fm.write(context_vault / "Harbor.md", {"kind": "hub", "tier": "warm"},
+             "# Harbor\nBenefits enrollment is due October 30. The offsite is November 4.\n"
+             "The old deadline was October 2. Planning starts 2026-11-20.\n")
+    (context_vault / "people/Faisal").mkdir(parents=True)
+    fm.write(context_vault / "people/Faisal/History.md", {"kind": "log", "tier": "cold"},
+             "- 2026-10-28 · said he is in Madison until November 2.\n")
+    (context_vault / "agent/Explorations").mkdir(exist_ok=True)
+    fm.write(context_vault / "agent/Explorations/2026-10.md", {"kind": "log", "tier": "cold"},
+             "2026-10-29 10:30 | work | thing | drafted for November 3 | held\n")
+    (context_vault / "Conversations").mkdir(exist_ok=True)
+    fm.write(context_vault / "Conversations/2026-10-29 chat.md", {"kind": "conversation", "tier": "cold"},
+             "He mentioned November 1 in passing.\n")
+    text = compile_context.build(Vault(context_vault))
+    block = text.split("## Upcoming: the next 7 days", 1)[1].split("\n## ", 1)[0]
+    assert "- Fri Oct 30 · Benefits enrollment is due October 30. · [[Harbor]]" in block
+    assert "- Wed Nov 4 · Benefits enrollment is due October 30. The offsite is November 4. · [[Harbor]]" in block
+    assert block.count("Fri Oct 30") == 1
+    assert "- Mon Nov 2 · 2026-10-28 · said he is in Madison until November 2. · [[people/Faisal/History]]" in block
+    assert "October 2" not in block and "November 20" not in block
+    assert "November 3" not in block and "November 1" not in block
+    assert text.index("# Triggers") < text.index("## Upcoming") < text.index("### T-001")
+
+
+def test_upcoming_section_can_be_switched_off_and_says_when_nothing_is_dated(context_vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-10-30")
+    text = compile_context.build(Vault(context_vault))
+    assert "## Upcoming: the next 7 days\n\n" in text and "- nothing dated" in text
+    monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start, tasks")
+    assert "## Upcoming" not in compile_context.build(Vault(context_vault))
+
+
+def test_prepared_drafts_are_drafts_not_hubs_and_never_auto_load(context_vault):
+    (context_vault / "agent/Prepared").mkdir()
+    fm.write(context_vault / "agent/Prepared/2026-10-29 putting game.md", {"kind": "draft", "tier": "hot", "uses": ["2026-10-29"]},
+             "# Putting game\nHELD_THING\n")
+    vault = Vault(context_vault)
+    assert vault.kind_for("agent/Prepared/2026-10-29 putting game.md") == "draft"
+    assert "Prepared" not in compile_context.directory(vault)
+    from brain import index
+    selected, _, _ = index.hot_selection(vault, 6000)
+    assert all("Prepared" not in n.rel for n in selected)
+
+
+def test_before_answering_opens_the_context_and_can_be_switched_off(context_vault, monkeypatch):
+    text = compile_context.build(Vault(context_vault))
+    assert text.index("## Before answering") < text.index("## memory/START.md")
+    assert "A reminder the owner asks for is a dated Triggers row, never a Needs you line." in text
+    monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start, tasks")
+    assert "## Before answering" not in compile_context.build(Vault(context_vault))

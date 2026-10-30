@@ -255,7 +255,15 @@ def test_lookup_frontmatter_display_name_and_qualified_id_precedence(access_vaul
     access_vault.notes[BOB].body += "Bob mentioned k57alice yesterday.\n"
     assert access.matching_people(access_vault, access_vault.config, "ALICE E.") == [access_vault.notes[ALICE]]
     assert access.matching_people(access_vault, access_vault.config, "demiurge:k57alice") == [access_vault.notes[ALICE]]
-    assert len(access.matching_people(access_vault, access_vault.config, "k57alice")) == 2
+    assert access.matching_people(access_vault, access_vault.config, "k57alice") == [access_vault.notes[ALICE]]
+
+
+def test_a_bare_name_or_id_in_prose_never_resolves_to_that_profile(access_vault):
+    access_vault.notes[BOB].body += "Bob keeps asking about TARS and about k57carol.\n"
+    assert access.matching_people(access_vault, access_vault.config, "TARS") == []
+    assert access.matching_people(access_vault, access_vault.config, "k57carol") == []
+    access_vault.notes[BOB].body += "- **Demiurge:** `k57carol`\n"
+    assert access.matching_people(access_vault, access_vault.config, "k57carol") == [access_vault.notes[BOB]]
 
 
 @pytest.mark.parametrize("who", ["alicia", "demiurge:k57alice", "k57alice"])
@@ -370,3 +378,21 @@ def test_an_owner_profile_past_its_budget_is_a_validation_problem(access_vault):
         f"{access_vault.config.human_profile}: 503 words; keep it under 500, dated material in History.md"]
     fm.write(path, {"kind": "hub"}, "# Owner\nShort.\n")
     assert validate.owner_profile(Vault(access_vault.root)) == []
+
+
+def test_an_intellect_session_resolves_its_owners_access_inline(access_vault):
+    from brain import session_context
+    disclosure(access_vault, "# Disclosure\n\n" + HEADER
+               + f"| D1 | [[memory/{ALICE}|Alice]] | schedule | details | ask | 2026-10-05 | owner |\n"
+               + f"| D2 | [[memory/{ALICE}|Alice]] | whereabouts | gist | no | 2026-10-05 | owner |\n")
+    root = access_vault.root
+    (root / "agents/Nameless").mkdir(parents=True)
+    fm.write(root / "agents/Nameless/Profile.md", {"kind": "profile", "tier": "warm"},
+             f"# Nameless\n\n- **Owner:** [[memory/{ALICE.removesuffix('.md')}|Alice]]\n- **Demiurge:** `k57nameless`\n")
+    vault = Vault(root)
+    block = session_context.build(vault, vault.config, platform="demiurge", user_id="k57nameless")
+    assert ", owned by Alice." in block
+    assert "What Alice may learn, resolved from memory/people/Disclosure.md" in block
+    assert "- schedule: tell details (D1); ask" in block and "- whereabouts: tell gist (D2)" in block
+    assert "could not be resolved" not in block
+    assert "A request it relays for" in block

@@ -93,7 +93,7 @@ def test_at_wins_over_brain_today(vault, monkeypatch, capsys):
 def test_defaults_are_the_hard_coded_values(vault):
     assert Config.load(vault).context == Context()
     default = compile_context.build(Vault(vault))
-    toml(vault, 'hot_words = 6000\nsections = ["start", "current", "goals", "triggers", "tasks", "hot", "directory"]\n'
+    toml(vault, 'hot_words = 6000\nsections = ["before", "start", "current", "primed", "goals", "triggers", "upcoming", "tasks", "hot", "directory"]\n'
                 'prefetch = true\nprefetch_limit = 6\nprefetch_chars = 1500\nprefetch_form = "names"\n'
                 'hot_threshold = 7\nwarm_threshold = 28\n')
     assert Config.load(vault).context == Context()

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from .config import Config
-from .session_context import matching_profiles, table_cells
+from .session_context import matching_profiles, table_cells, has_id_line
 from .vault import Note, Vault, WIKILINK_RE
 
 SUBJECTS = {
@@ -264,4 +264,4 @@ def matching_people(vault: Vault, config: Config, who: str) -> list[Note]:
     platform, separator, user_id = who.partition(":")
     if separator and re.fullmatch(r"[A-Za-z][\w-]*", platform) and user_id:
         return matching_profiles(vault, config, (user_id,), platform)
-    return matching_profiles(vault, config, (who,))
+    return [note for note in profiles if has_id_line(note.body, (who,))]   # an id line, never prose: a profile that mentions someone is not them

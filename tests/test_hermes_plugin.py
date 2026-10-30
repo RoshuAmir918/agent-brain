@@ -117,11 +117,75 @@ def test_is_available_wherever_the_cli_runs_whatever_the_vault(provider_repo, mo
 
 @pytest.mark.parametrize("query", ["", "the and for you", "gardens", "gardens and the"])
 def test_prefetch_skips_fewer_than_two_non_stopword_tokens(provider, monkeypatch, query):
-    def unexpected_call(*args, **kwargs):
-        pytest.fail("Short and stopword-only queries must not start a subprocess")
+    calls = []
 
-    monkeypatch.setattr(hermes_plugin.subprocess, "run", unexpected_call)
+    def run(command, **kwargs):
+        if command[1] == "retrieve":
+            pytest.fail("Short and stopword-only queries must not start a retrieve")
+        calls.append(command)
+        return SimpleNamespace(stdout="")
+
+    monkeypatch.setattr(hermes_plugin.subprocess, "run", run)
+    provider._context = "This session is with Mira, the owner."
     assert provider.prefetch(query) == ""
+    assert [command[1] for command in calls] == ([] if query in ("", "the and for you") else ["people-mentioned"])
+
+
+def test_people_pointer_names_each_person_once_per_session(provider, monkeypatch):
+    calls = []
+    pointer = ("People named in this message, from their profiles:\n"
+               "- Hope Dobbelaere: Roshan's partner. (memory/people/Hope_Dobbelaere)\n"
+               "- Faisal Shaikh: close friend in Madison. (memory/people/Faisal_Shaikh)")
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(stdout=pointer if command[1] == "people-mentioned" else "[]")
+
+    monkeypatch.setattr(hermes_plugin.subprocess, "run", run)
+    provider._context = "This session is with Mira, the owner."
+    assert provider.prefetch("hope texted me about faisal") == pointer
+    assert calls[0] == ["brain", "people-mentioned", "--form", "card", "--", "hope texted me about faisal"]
+    assert provider.prefetch("hope again please") == ""   # both already named this session
+    provider._people_seen.clear()   # what initialize does for the next session
+    assert provider.prefetch("hope texted me about faisal") == pointer
+
+
+def test_people_pointer_never_runs_in_anyone_elses_session(provider, monkeypatch):
+    calls = []
+    monkeypatch.setattr(hermes_plugin.subprocess, "run",
+                        lambda command, **kwargs: (calls.append(command), SimpleNamespace(stdout="[]"))[1])
+    for context in ("", "This session is with Alice (slack U_ALICE). Their profile and the disclosure rules that apply follow.",
+                    "This session is with an unknown person (demiurge k57who, name shown as Kevin). No profile.",
+                    "This session is with Nameless (demiurge k57n), an intellect registered under memory/agents/Nameless/Profile.md"):
+        provider._context = context
+        provider.prefetch("is hope around?")
+    assert all(command[1] == "retrieve" for command in calls)
+    provider._context = "Engine migration pending; see the file.\n\nThis session is with Mira, the owner."
+    provider.prefetch("is hope around?")
+    assert calls[-2][1] == "people-mentioned"
+
+
+def test_initialize_resets_the_people_seen_for_each_session(provider, monkeypatch):
+    monkeypatch.setattr(hermes_plugin.subprocess, "run", lambda command, **kwargs: SimpleNamespace(stdout=""))
+    provider._people_seen = {"Hope Dobbelaere"}
+    provider.initialize("session-2", platform="demiurge", user_id="mira")
+    assert provider._people_seen == set()
+
+
+def test_people_pointer_form_from_toml_env_and_off(provider, prefetch_env):
+    calls = []
+    prefetch_env.setattr(hermes_plugin.subprocess, "run",
+                         lambda command, **kwargs: (calls.append(command), SimpleNamespace(stdout=""))[1])
+    provider._context = "This session is with Mira, the owner."
+    (provider.repo / "brain.toml").write_text('[brain]\n\n[context]\npeople = "line"\n')
+    provider.prefetch("hope texted me")
+    assert calls[0][1:4] == ["people-mentioned", "--form", "line"]
+    prefetch_env.setenv("BRAIN_PEOPLE", "off")
+    calls.clear()
+    provider.prefetch("hope texted me")
+    assert [command[1] for command in calls] == ["retrieve"]
+    prefetch_env.setenv("BRAIN_PEOPLE", "faces")
+    assert provider.prefetch("hope texted me") == ""
 
 
 def test_prefetch_formats_candidates_and_truncates_the_query(provider, monkeypatch):
@@ -130,6 +194,8 @@ def test_prefetch_formats_candidates_and_truncates_the_query(provider, monkeypat
                   {"path": "memory/Deploy.md", "tier": "hot", "reason": "title/path: deployment"}]
 
     def run(command, **kwargs):
+        if command[1] == "people-mentioned":
+            return SimpleNamespace(stdout="")
         calls.append((command, kwargs))
         return SimpleNamespace(stdout=json.dumps(candidates))
 
@@ -580,6 +646,8 @@ def recall(provider, monkeypatch, candidates):
     calls = []
 
     def run(command, **kwargs):
+        if command[1] == "people-mentioned":
+            return SimpleNamespace(stdout="")
         calls.append(command)
         return SimpleNamespace(stdout=json.dumps(candidates))
 
@@ -593,13 +661,14 @@ CANDIDATES = [{"path": f"memory/Note {n}.md", "tier": "warm", "reason": f"title/
 
 def test_prefetch_settings_default_to_todays_values(provider, prefetch_env):
     assert hermes_plugin.prefetch_settings(provider.repo) == {
-        "prefetch": True, "prefetch_limit": 6, "prefetch_chars": 1500, "prefetch_form": "names"}
+        "prefetch": True, "prefetch_limit": 6, "prefetch_chars": 1500, "prefetch_form": "names", "people": "card"}
     assert hermes_plugin.prefetch_settings(None)["prefetch_limit"] == 6
 
 
 def test_prefetch_off_starts_no_subprocess(provider, prefetch_env):
     prefetch_env.setenv("BRAIN_PREFETCH", "0")
-    prefetch_env.setattr(hermes_plugin.subprocess, "run", lambda *a, **k: pytest.fail("prefetch is off"))
+    prefetch_env.setattr(hermes_plugin.subprocess, "run",
+                         lambda command, **k: pytest.fail("prefetch is off") if command[1] == "retrieve" else SimpleNamespace(stdout=""))
     assert provider.prefetch("harbor deployment") == ""
 
 

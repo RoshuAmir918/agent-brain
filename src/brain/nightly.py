@@ -72,7 +72,7 @@ def ensure_frontmatter(vault: Vault, today: date, report: list[str]) -> set[str]
         else:
             d.setdefault("pinned", False)
             d.setdefault("tier", "warm")
-        if "uses" not in d and kind in ("hub", "profile", "reflection", "episode", "primed"):
+        if "uses" not in d and kind in ("hub", "profile", "reflection", "episode", "primed", "draft"):
             d["uses"] = [today.isoformat()]  # a note's creation is its first use
         d.setdefault("uses", [])
         d.setdefault("uses_inferred", [])
@@ -641,6 +641,12 @@ def cmd_session_context(args):
         print(text)
 
 
+def cmd_people_mentioned(args):
+    text = session_context.mentioned(Vault(args.config.vault_path), args.config, args.text, args.form)
+    if text:
+        print(text)
+
+
 def cmd_shard_sessions(args):
     written, unchanged = digest.shard(Path(args.jsonl), Path(args.directory))
     print(f"sharded: {written} written, {unchanged} unchanged")
@@ -751,6 +757,9 @@ def main(argv=None):
     s.set_defaults(fn=cmd_health)
     s = sub.add_parser("audit"); s.add_argument("--vault"); s.add_argument("--date"); s.add_argument("--days", type=int, default=14)
     s.add_argument("--sessions-dir"); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_audit)
+    s = sub.add_parser("people-mentioned"); s.add_argument("--vault"); s.add_argument("text")
+    s.add_argument("--form", choices=("line", "card"), default="line")
+    s.set_defaults(fn=cmd_people_mentioned)
     s = sub.add_parser("session-context"); s.add_argument("--vault")
     for option in ("platform", "user-id", "user-id-alt", "user-name", "chat-id"):
         s.add_argument("--" + option, default="")

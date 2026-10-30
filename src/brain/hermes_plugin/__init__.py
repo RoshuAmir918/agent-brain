@@ -23,7 +23,9 @@ STOPWORDS = set("a an and are as at be been but by can could did do does for fro
 RECALL_HEADER = "Vault notes that match this message (names and index lines; open what you need):"
 FULL_HEADER = "Vault notes that match this message (their text, cut to fit):"
 PREFETCH = {"prefetch": ("BRAIN_PREFETCH", True), "prefetch_limit": ("BRAIN_PREFETCH_LIMIT", 6),
-            "prefetch_chars": ("BRAIN_PREFETCH_CHARS", 1500), "prefetch_form": ("BRAIN_PREFETCH_FORM", "names")}
+            "prefetch_chars": ("BRAIN_PREFETCH_CHARS", 1500), "prefetch_form": ("BRAIN_PREFETCH_FORM", "names"),
+            "people": ("BRAIN_PEOPLE", "card")}
+PEOPLE_FORMS = ("off", "line", "card")
 FORMS = ("names", "snippet", "full")
 
 # After a session, one bounded side call turns the transcript into a structured record: a journal row for a
@@ -155,6 +157,9 @@ def prefetch_settings(repo) -> dict:
         elif name == "prefetch_form":
             if value not in FORMS:
                 raise ValueError(f"{where} must be one of {', '.join(FORMS)}")
+        elif name == "people":
+            if value not in PEOPLE_FORMS:
+                raise ValueError(f"{where} must be one of {', '.join(PEOPLE_FORMS)}")
         else:
             if raw is not None:
                 value = int(raw) if raw.strip().isdigit() else None
@@ -213,6 +218,7 @@ class BrainMemoryProvider(MemoryProvider):
         self._context = ""
         self.repo = None
         self.session_id = session_id
+        self._people_seen = set()   # once per person per session, never per process
         self._new_session(reset=True)
         match = CRON_SESSION.match(session_id or "")
         self._cron_job, self._routine_done = (match[1] if match else None), False
@@ -241,6 +247,31 @@ class BrainMemoryProvider(MemoryProvider):
         except (OSError, ValueError) as error:
             logger.error("brain provider: invalid prefetch setting, no recall this turn: %s", error)
             return ""
+        return "\n\n".join(filter(None, (self._people(query, settings["people"]), self._recall(query, settings))))
+
+    def _owner_session(self) -> bool:
+        """The engine's block for the owner begins with one fixed sentence; anyone else gets a profile or a warning."""
+        return re.search(r"^This session is with .+, the owner\.$", self._context, re.M) is not None
+
+    def _people(self, query, form) -> str:
+        """Who the people named in the message are, each once per session: `line` is a sentence, `card` the profile.
+        Owner sessions only: a friend asking about another friend must not have that person's profile put in front of
+        the model; disclosure decides what they hear, from what the agent chooses to open."""
+        if form not in ("line", "card") or not self._owner_session():
+            return ""
+        if not any(term not in STOPWORDS for term in re.findall(r"\b[^\W_]+\b", query.lower())):
+            return ""
+        text = self._run("people-mentioned", "--form", form, "--", query[:2000]) or ""
+        if not text.strip():
+            return ""
+        seen = self.__dict__.setdefault("_people_seen", set())   # a provider used without initialize still works
+        parts = re.split(r"\n(?=- |### )", text.strip())
+        names = [re.match(r"(?:- |### )([^:(]+)", part) for part in parts[1:]]
+        fresh = [part for part, name in zip(parts[1:], names) if name and name[1].strip() not in seen]
+        seen.update(name[1].strip() for name in names if name)
+        return "\n".join([parts[0], *fresh]) if fresh else ""
+
+    def _recall(self, query, settings) -> str:
         if not settings["prefetch"]:
             return ""
         limit, form = settings["prefetch_limit"], settings["prefetch_form"]

@@ -2,14 +2,30 @@
 from __future__ import annotations
 
 import re
+from datetime import date, timedelta
 from pathlib import Path
 
 from . import fm
-from .config import Config
+from .config import SECTIONS, Config
 from .tasks import is_open, load_tasks, parse_register
 from .vault import Vault
 
 WORD_LIMIT = 6000
+BEFORE = ("## Before answering\n\n"
+          "Before answering a plan, an advice question or anything about a person, look again at what is already loaded: "
+          "CURRENT's dated items and Needs you, the open tasks' Verified, Next and Blocker lines, Primed, the upcoming dates "
+          "and Goals. If something there bears on the request (a trip, a deadline, a pending decision, an offer waiting on "
+          "the owner, a goal), say the connection in a sentence. A friend's name in the owner's message is a reason to open "
+          "that person's profile and history before replying. A task the owner parked has no question for them. A reminder "
+          "the owner asks for is a dated Triggers row, never a Needs you line. An answer any assistant could give without "
+          "this vault is a miss.")
+UPCOMING_DAYS = 7
+UPCOMING_ITEMS = 12
+AHEAD = re.compile(r"\b(due|deadline|until|flight|flying|trip|visit|leav|arriv|call|renew|expire|starts?|ends?|meet)", re.I)   # today's lines that look forward, not today's evidence
+MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november",
+          "december")
+DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b|\b(" + "|".join(m[:3] for m in MONTHS) + r")[a-z]*\.? (\d{1,2})(?:st|nd|rd|th)?\b(?:,? (\d{4}))?",
+                  re.I)
 
 
 def repo_root(config: Config) -> Path:
@@ -39,24 +55,74 @@ def automatic_load(body: str) -> str:
 
 def build(vault: Vault) -> str:
     config = vault.config
-    named = dict(zip(("start", "current", "goals", "triggers", "tasks", "hot"), config.context_sources))
+    named = dict(zip(("start", "current", "primed", "goals", "triggers", "tasks", "hot"), config.context_sources))
+    optional = (config.agent("Primed.md"), config.human_goals)   # Primed is written by the night, Goals with the owner: a vault may not have them yet
     sources = [rel for name, rel in named.items() if name in config.context.sections
-               and (rel != config.human_goals or (vault.root / rel).is_file())]   # Goals is written with the owner, so a vault may not have one yet
+               and (rel not in optional or (vault.root / rel).is_file())]
     header = ("Generated nightly by `brain`.\n"
               "Edits to this file are overwritten.\n"
               "Edit the source notes instead: " + ", ".join(config.link(rel) for rel in sources) + ".")
     sections = [header]
-    for rel in sources:
-        _, body = fm.read(vault.root / rel)
-        if rel == config.agent("Tasks.md"):
-            body = open_register(vault, body)
-        elif rel == "Hot Set.md":
-            body = automatic_load(body)
-        sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
-    if "directory" in config.context.sections:
-        sections.append(directory(vault))
+    for name in SECTIONS:
+        if name not in config.context.sections:
+            continue
+        if name == "before":
+            sections.append(BEFORE)
+        elif name == "upcoming":
+            sections.append(upcoming(vault))
+        elif name == "directory":
+            sections.append(directory(vault))
+        elif named[name] in sources:
+            rel = named[name]
+            _, body = fm.read(vault.root / rel)
+            if rel == config.agent("Tasks.md"):
+                body = open_register(vault, body)
+            elif rel == "Hot Set.md":
+                body = automatic_load(body)
+            sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
     sections.append("Warm Index, Conversations and everything else are retrieved on demand with `brain retrieve`.")
     return "\n\n".join(sections) + "\n"
+
+
+def upcoming(vault: Vault, days: int = UPCOMING_DAYS) -> str:
+    """Sentences anywhere in the hubs, profiles, histories and registers that name a date in the coming days, so a
+    deadline kept in a hub or a friend's visit noted in their history reaches the agent before the day passes."""
+    config, today = vault.config, vault.config.today()
+    found: dict[tuple[date, str], str] = {}
+    for rel, note in sorted(vault.notes.items()):
+        history = rel.endswith("/History.md")   # trips and visits land in a person's history first
+        kind = vault.kind_for(rel)
+        if kind in ("episode", "reflection", "dream", "primed") or rel.startswith(config.log_paths) \
+                or (kind == "log" and not history) or f"/{config.agent('Journal/')}" in f"/{rel}":
+            continue
+        _, body = fm.read(note.path)
+        for line in body.splitlines():
+            sentences = re.split(r"(?<=[.!?])\s+", line.strip(" -*>#|"))
+            for i, sentence in enumerate(sentences):
+                shown = f"{sentences[i - 1]} {sentence}" if i and len(sentence) < 80 else sentence   # a short sentence leans on the one before for its subject
+                for m in DATE.finditer(sentence):   # only this sentence's own dates; the one before had its turn
+                    when = mentioned(m, today)
+                    if when and (today < when <= today + timedelta(days=days) or when == today and AHEAD.search(sentence)):
+                        text = re.sub(r"\[\[(?:[^]|]*\|)?([^]]*)\]\]", r"\1", shown).replace("**", "").strip()[:240]
+                        found.setdefault((when, text), rel[:-3])
+    ahead = sorted(item for item in found.items() if item[0][0] > today)
+    items = sorted([item for item in found.items() if item[0][0] == today][:4] + ahead)[:UPCOMING_ITEMS]
+    lines = [f"## Upcoming: the next {days} days", "",
+             "Dates named anywhere in the vault's notes. Raise one when it bears on the request or on the owner's plans; "
+             "a due date the vault cannot show as done is worth one sentence.", ""]
+    lines += [f"- {when:%a %b %-d} · {text} · [[{rel}]]" for (when, text), rel in items] or ["- nothing dated"]
+    return "\n".join(lines)
+
+
+def mentioned(m: re.Match, today: date) -> date | None:
+    try:
+        if m.group(1):
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        month = [name[:3] for name in MONTHS].index(m.group(4).lower()[:3]) + 1
+        when = date(int(m.group(6) or today.year), month, int(m.group(5)))
+        return when if m.group(6) or when >= today - timedelta(days=180) else date(today.year + 1, month, int(m.group(5)))
+    except ValueError:
+        return None
 
 
 def directory(vault: Vault) -> str:

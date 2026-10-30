@@ -77,9 +77,9 @@ a hub whose `subject:` is not in the vocabulary.
 
 ## The resolver
 
-`brain access <person>` (a profile path, a name, or a platform id like `demiurge:k57…`) prints the effective access:
+`brain access <person>` (a profile path, a folder or display name, or a platform id like `demiurge:k57…` or bare `k57…`) prints the effective access:
 the person, their groups, and per subject the level for telling and doing with the rule id that decided it, then any
-grant-scope prose for those ids. `--json` for clients.
+grant-scope prose for those ids. `--json` for clients. A bare id matches id lines only, never a mention in prose: a profile that talks about TARS is not TARS's.
 
 Session context for a known person carries this resolved block, not raw table rows: deterministic, short, the same in
 every agent. A stranger gets the `anyone` row. The agent still applies it by judgment; the engine makes the judgment's

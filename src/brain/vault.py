@@ -129,6 +129,8 @@ class Vault:
             return "reflection"
         if rel == self.config.agent("Primed.md") or rel.startswith(self.config.agent("Primed/")):
             return "primed"   # one file, overwritten nightly; the dated folder is the older layout
+        if rel.startswith(self.config.agent("Prepared/")):
+            return "draft"   # made or drafted for the owner and held until wanted; retrievable, never auto-loaded
         return "hub"
 
     def resolve(self, target: str) -> str | None:

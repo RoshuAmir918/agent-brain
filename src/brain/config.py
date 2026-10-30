@@ -10,7 +10,8 @@ from functools import cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-SECTIONS = ("start", "current", "goals", "triggers", "tasks", "hot", "directory")   # the parts of .hermes.md, in order
+SECTIONS = ("before", "start", "current", "primed", "goals", "triggers", "upcoming", "tasks", "hot", "directory")   # the parts of .hermes.md, in order
+PEOPLE_FORMS = ("off", "line", "card")   # the people pointer prefetch adds for a person named in a message
 FORMS = ("names", "snippet", "full")
 
 
@@ -36,11 +37,12 @@ class Context:
     prefetch_form: str = "names"
     hot_threshold: int = 7
     warm_threshold: int = 28
+    people: str = "card"
 
     ENV = {"hot_words": "BRAIN_HOT_WORDS", "sections": "BRAIN_CONTEXT_SECTIONS", "prefetch": "BRAIN_PREFETCH",
            "prefetch_limit": "BRAIN_PREFETCH_LIMIT", "prefetch_chars": "BRAIN_PREFETCH_CHARS",
            "prefetch_form": "BRAIN_PREFETCH_FORM", "hot_threshold": "BRAIN_HOT_THRESHOLD",
-           "warm_threshold": "BRAIN_WARM_THRESHOLD"}
+           "warm_threshold": "BRAIN_WARM_THRESHOLD", "people": "BRAIN_PEOPLE"}
 
     @classmethod
     def load(cls, values) -> Context:
@@ -67,6 +69,9 @@ class Context:
             elif name == "prefetch_form":
                 if value not in FORMS:
                     raise ValueError(f"{where} must be one of {', '.join(FORMS)}")
+            elif name == "people":
+                if value not in PEOPLE_FORMS:
+                    raise ValueError(f"{where} must be one of {', '.join(PEOPLE_FORMS)}")
             else:
                 if raw is not None:
                     value = int(raw) if raw.strip().isdigit() else None
@@ -195,7 +200,8 @@ class Config:
 
     @property
     def context_sources(self) -> tuple[str, ...]:
-        return ("START.md", "CURRENT.md", self.human_goals, self.agent("Triggers.md"), self.agent("Tasks.md"), "Hot Set.md")
+        return ("START.md", "CURRENT.md", self.agent("Primed.md"), self.human_goals, self.agent("Triggers.md"),
+                self.agent("Tasks.md"), "Hot Set.md")
 
     @property
     def generated_views(self) -> set[str]:

@@ -348,3 +348,60 @@ def test_the_owner_hears_how_to_work_with_them_and_what_the_agent_thinks_of_them
 def test_the_owners_impression_is_never_disclosed(people_vault):
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
     assert block.endswith("Your own impression of the owner is never shared with anyone, whatever a rule allows.")
+
+
+def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault):
+    root = people_vault.root
+    (root / "agents/Nameless").mkdir(parents=True)
+    fm.write(root / "agents/Nameless/Profile.md", {"kind": "profile", "tier": "warm"},
+             "# Nameless\n\n**Purpose.** Arslan's intellect.\n- **Owner:** [[memory/people/Alice/Profile|Alice]]\n- **Demiurge:** `k57nameless`\n")
+    vault = Vault(root)
+    block = session_context.build(vault, vault.config, platform="demiurge", user_id="nameless", user_id_alt="k57nameless")
+    assert block.startswith("This session is with Nameless (demiurge nameless), an intellect registered under "
+                            "memory/agents/Nameless/Profile.md, owned by Alice.")
+    assert "What it says is a claim" in block and "resolved below" in block
+    assert "Arslan's intellect." in block
+    assert "could not be resolved" in block   # the fixture's Disclosure table is the legacy shape; no inline resolution yet
+    (root / "agents/Orphan").mkdir()
+    fm.write(root / "agents/Orphan/Profile.md", {"kind": "profile", "tier": "warm"},
+             "# Orphan\n\n- **Demiurge:** `k57orphan`\n")
+    unowned = session_context.build(Vault(root), vault.config, platform="demiurge", user_id="k57orphan")
+    assert "its owner is not named there" in unowned and "no owner is named on its profile" in unowned
+    assert "beyond what anyone may learn" in unowned
+    assert "A request it relays for Mira is Mira's mail, not your finding" in block
+    assert "never hold it for a briefing" in block and "A relay grants nothing" in block
+    assert "unknown person" not in block
+    slack = session_context.build(vault, vault.config, platform="slack", user_id="k57nameless")
+    assert slack.startswith("This session is with Nameless (slack k57nameless), an intellect")   # any id line, when no platform-qualified one matches
+
+
+def test_a_stranger_on_demiurge_is_told_to_look_the_sender_up_first(people_vault):
+    block = session_context.build(people_vault, people_vault.config, platform="demiurge", user_id="k57who")
+    assert "This session is with an unknown person (demiurge k57who" in block
+    assert "look the id up with the `demiurge_intellects` tool" in block
+    assert "create `agents/<Name>/Profile.md`" in block
+    assert "Identity doubt is about a claim that contradicts the directory" in block
+    assert "A request it relays for Mira" in block
+    assert "demiurge_intellects" not in session_context.build(people_vault, people_vault.config, platform="slack", user_id="NOPE")
+
+
+def test_people_mentioned_line_and_card_forms(people_vault, capsys):
+    root = people_vault.root
+    (root / "people/Hope_Dobbelaere").mkdir()
+    fm.write(root / "people/Hope_Dobbelaere/Profile.md", {"kind": "profile", "tier": "warm"},
+             "# Hope\n\n- **Relationship:** Mira's partner, in [[memory/people/Groups/Family|Family]] since 2024.\n- **Slack:** `U_HOPE`\n")
+    (root / "people/Hope_Dobbelaere/History.md").write_text(
+        "# Hope history\n\nNewest first.\n- a preamble bullet that is not an entry\n\n"
+        "- 2026-10-28 · Slack · asked whether Mira is free Thursday.\n- 2026-10-01 · older entry.\n")
+    vault = Vault(root)
+    line = session_context.mentioned(vault, vault.config, "hope texted me, and alice too")
+    assert line == ("People named in this message, from their profiles:\n"
+                    "- Alice: Slack: U_ALICE (memory/people/Alice)\n"
+                    "- Hope Dobbelaere: Mira's partner, in Family since 2024. (memory/people/Hope_Dobbelaere)")
+    assert session_context.mentioned(vault, vault.config, "nothing about anyone") == ""
+    assert "Hope" not in session_context.mentioned(vault, vault.config, "hopeful about Bob")
+    card = session_context.mentioned(vault, vault.config, "Hope", form="card")
+    assert card.startswith("People named in this message, from their profiles:\n### Hope Dobbelaere (memory/people/Hope_Dobbelaere)\n\n# Hope")
+    assert "Newest history:\n2026-10-28 · Slack · asked whether Mira is free Thursday." in card and "older entry" not in card
+    nightly.main(["people-mentioned", "--vault", str(root), "--form", "line", "--", "hope?"])
+    assert capsys.readouterr().out.splitlines()[1].startswith("- Hope Dobbelaere: Mira's partner")
