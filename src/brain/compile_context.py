@@ -12,13 +12,15 @@ from .vault import Vault
 
 WORD_LIMIT = 6000
 BEFORE = ("## Before answering\n\n"
-          "Before answering a plan, an advice question or anything about a person, look again at what is already loaded: "
-          "CURRENT's dated items and Needs you, the open tasks' Verified, Next and Blocker lines, Primed, the upcoming dates "
-          "and Goals. If something there bears on the request (a trip, a deadline, a pending decision, an offer waiting on "
-          "the owner, a goal), say the connection in a sentence. A friend's name in the owner's message is a reason to open "
-          "that person's profile and history before replying. A task the owner parked has no question for them. A reminder "
+          "What you need is usually already in front of you: this file (CURRENT's dated items and Needs you, the open "
+          "tasks' Verified, Next and Blocker lines, Primed, the upcoming dates, Goals) and, under the owner's message, the "
+          "vault notes that match it and the card of anyone it names. Answer from that in one reply. Open a note only when "
+          "the loaded text does not hold the answer, and a person's history only when the question is about them and the "
+          "card is not enough. Do not run retrieval the recall block already ran, and do not read a note quoted here in "
+          "full. If something loaded bears on the request (a trip, a deadline, a pending decision, an offer waiting on the "
+          "owner, a goal), say the connection in a sentence. A task the owner parked has no question for them. A reminder "
           "the owner asks for is a dated Triggers row, never a Needs you line. An answer any assistant could give without "
-          "this vault is a miss.")
+          "this vault is a miss; so is a lookup for what was already here.")
 UPCOMING_DAYS = 7
 UPCOMING_ITEMS = 12
 AHEAD = re.compile(r"\b(due|deadline|until|flight|flying|trip|visit|leav|arriv|call|renew|expire|starts?|ends?|meet)", re.I)   # today's lines that look forward, not today's evidence
@@ -145,7 +147,8 @@ def directory(vault: Vault) -> str:
     _, trig = fm.read(vault.root / vault.config.agent("Triggers.md"))
     triggers = sorted(set(re.findall(r"\bTR-\d{3}\b", trig)))
     lines = ["## Directory: what the vault knows", "",
-             "Names only. If a request touches one of these, run `brain retrieve` before answering.", ""]
+             "Names only. The notes matching each message are already recalled under it; run `brain retrieve` only when a request "
+             "touches one of these and nothing recalled or loaded answers it.", ""]
     lines.append("- Hubs and topics: " + ", ".join(hubs))
     lines.append("- People with profiles: " + (", ".join(people) or "none"))
     lines.append("- Agents registered: " + (", ".join(agents) or "none"))

@@ -20,7 +20,7 @@ except ImportError:
 STOPWORDS = set("a an and are as at be been but by can could did do does for from had has have how "
                 "i if in into is it its me my not of on or our that the their them there these they "
                 "this those to was we were what when where which who why will with would you your".split())
-RECALL_HEADER = "Vault notes that match this message (names and index lines; open what you need):"
+RECALL_HEADER = "Vault notes that match this message (names and index lines; open one only if what is loaded does not answer):"
 FULL_HEADER = "Vault notes that match this message (their text, cut to fit):"
 PREFETCH = {"prefetch": ("BRAIN_PREFETCH", True), "prefetch_limit": ("BRAIN_PREFETCH_LIMIT", 6),
             "prefetch_chars": ("BRAIN_PREFETCH_CHARS", 1500), "prefetch_form": ("BRAIN_PREFETCH_FORM", "names"),

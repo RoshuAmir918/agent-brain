@@ -202,7 +202,7 @@ def test_prefetch_formats_candidates_and_truncates_the_query(provider, monkeypat
     monkeypatch.setattr(hermes_plugin.subprocess, "run", run)
     query = "harbor deployment " + "x" * 400
     assert provider.prefetch(query, session_id="session-1") == (
-        "Vault notes that match this message (names and index lines; open what you need):\n"
+        "Vault notes that match this message (names and index lines; open one only if what is loaded does not answer):\n"
         "- memory/Harbor.md (warm): index line: harbor\n"
         "- memory/Deploy.md (hot): title/path: deployment")
     assert calls[0][0] == ["brain", "retrieve", "--json", "--limit", "6", "--", query[:300]]

@@ -193,9 +193,12 @@ def test_prepared_drafts_are_drafts_not_hubs_and_never_auto_load(context_vault):
     assert all("Prepared" not in n.rel for n in selected)
 
 
-def test_before_answering_opens_the_context_and_can_be_switched_off(context_vault, monkeypatch):
+def test_before_answering_answers_from_the_context_and_can_be_switched_off(context_vault, monkeypatch):
     text = compile_context.build(Vault(context_vault))
     assert text.index("## Before answering") < text.index("## memory/START.md")
+    assert "Answer from that in one reply." in text
+    assert "Do not run retrieval the recall block already ran" in text
+    assert "run `brain retrieve` only when" in text
     assert "A reminder the owner asks for is a dated Triggers row, never a Needs you line." in text
     monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start, tasks")
     assert "## Before answering" not in compile_context.build(Vault(context_vault))
