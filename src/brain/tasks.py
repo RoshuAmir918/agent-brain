@@ -160,6 +160,39 @@ def hand_off(config: Config, tid: str, today: date, report_to: str = "") -> Task
     if task.task_state in (None, "ready", *RESTING):
         task.state["state"] = "in_progress"
         task.state.pop("status", None)
+    save_task(config, task, today)
+    return task
+
+
+def set_aside(config: Config, tid: str, today: date, why: str) -> Task:
+    """Park an open task, with a dated Reviewed line saying why; it is never asked about until it comes up again."""
+    registered, archived = load_tasks(config)
+    task = next((t for t in registered + archived if t.tid == tid), None)
+    if task is None or not is_open(task):
+        raise ValueError(f"{tid} is not an open task")
+    task.state["state"] = "set_aside"
+    task.state.pop("status", None)
+    task.body = task.body.rstrip("\n") + f"\n- **Reviewed:** {today.isoformat()} — set aside: {why}\n"
+    save_task(config, task, today)
+    return task
+
+
+def complete(config: Config, tid: str, today: date, evidence: str) -> Task:
+    """Close an open task as completed, with its evidence on a dated line."""
+    registered, archived = load_tasks(config)
+    task = next((t for t in registered + archived if t.tid == tid), None)
+    if task is None or not is_open(task):
+        raise ValueError(f"{tid} is not an open task")
+    task.state["state"] = "completed"
+    task.state.pop("status", None)
+    task.body = task.body.rstrip("\n") + f"\n- **Completed:** {today.isoformat()} — {evidence}\n"
+    save_task(config, task, today)
+    return task
+
+
+def save_task(config: Config, task: Task, today: date) -> None:
+    """Write a changed task where its full entry lives: the register, or the archive when the register holds a warm line."""
+    tid = task.tid
     reg = config.vault_path / config.agent("Tasks.md")
     data, body = fm.read(reg)
     spans, parsed = parse_register(body)
@@ -169,7 +202,6 @@ def hand_off(config: Config, tid: str, today: date, report_to: str = "") -> Task
         fm.write(reg, data, body[:s] + task.render() + ("\n" if body[e:] and not body[e:].startswith("\n") else "") + body[e:])
     else:
         write_archive(config, task, task.state.get("tier", "warm"), today)
-    return task
 
 
 def due(tasks: list[Task]) -> list[Task]:

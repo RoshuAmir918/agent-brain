@@ -581,6 +581,15 @@ def cmd_needs_you(args):
                 sys.exit(1)
         print(f"resolved {item.kind}: {item.text}")
         return
+    if args.dismiss:
+        with vault_lock(args.config):
+            try:
+                item = needs.dismiss(args.config, args.dismiss, args.config.today(), args.reason)
+            except ValueError as error:
+                print(error, file=sys.stderr)
+                sys.exit(1)
+        print(f"dismissed ({args.reason}) {item.kind}: {item.text}")
+        return
     if args.stale:
         for item in needs.stale(args.config, args.config.today()):
             print(f"{item.since} · {item.text} · {item.source}")
@@ -834,7 +843,10 @@ def main(argv=None):
     mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored; refused at the ceiling of open asks)")
     mode.add_argument("--stale", action="store_true", help="asks unanswered for 14 days or more, for the evening to decide or retire")
     mode.add_argument("--resolve", metavar="ID_OR_TEXT", help="remove an answered item from CURRENT's Needs you and record the evidence")
+    mode.add_argument("--dismiss", metavar="ID_OR_TEXT", help="the owner said no: drop the item, act on nothing, never raise it again")
     s.add_argument("--because", metavar="EVIDENCE", help="with --resolve: what answered it, in a sentence")
+    s.add_argument("--reason", choices=("no", "done", "stop-asking"), default="no",
+                   help="with --dismiss: what the owner chose (no, done: they did it, stop-asking: no questions like it)")
     s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
     s.set_defaults(fn=cmd_needs_you)
     s = sub.add_parser("channels", help="the channel registry; `sync` registers completed connect grants (from stdin, or --run for `connect list`)")

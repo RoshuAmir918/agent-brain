@@ -8,7 +8,7 @@ import pytest
 
 from brain import fm, needs, nightly, triggers
 from brain.config import Config
-from brain.tasks import Task, write_archive
+from brain.tasks import Task, load_tasks, write_archive
 from brain.vault import Vault
 from conftest import nightly_argv, snapshot
 
@@ -517,3 +517,38 @@ def test_resolve_refuses_what_it_cannot_settle(vault, capsys, which, because, me
     out = capsys.readouterr()
     assert message in out.err + str(out.out) or because == ""
     assert "Book the dinner" in fm.read(vault / "CURRENT.md")[1]
+
+
+def test_dismiss_no_sets_the_task_aside_and_the_item_never_returns(vault, capsys, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
+    write_tasks(vault, Task("T-011", "Hands share", "- **Status:** waiting\n", {"state": "ready"}))
+    write_current(vault, "- 2026-10-28 · ask · Accept Kevin's share for Hands? · [[agent/Tasks#T-011]]\n")
+    nightly.main(["needs-you", "--vault", str(vault), "--dismiss", "Kevin's share"])
+    assert capsys.readouterr().out == "dismissed (no) ask: Accept Kevin's share for Hands?\n"
+    assert "Kevin's share" not in fm.read(vault / "CURRENT.md")[1]
+    task, = [t for t in load_tasks(Config.load(vault))[0] if t.tid == "T-011"]
+    assert task.task_state == "set_aside" and "- **Reviewed:** 2026-11-03 — set aside: dismissed by the owner in their app" in task.body
+    log = (vault / "agent/Answered/2026-11.md").read_text()
+    assert "· dismissed no · ask · Accept Kevin's share for Hands? · id:" in log
+
+
+def test_dismiss_done_completes_a_waiting_task(vault, capsys, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
+    write_tasks(vault, Task("T-012", "Renew registration", "- **Status:** waiting on Roshan\n", {"state": "waiting_for_owner"}))
+    item, = needs.items(Config.load(vault), date(2026, 11, 3))
+    nightly.main(["needs-you", "--vault", str(vault), "--dismiss", item.id, "--reason", "done"])
+    task, = [t for t in load_tasks(Config.load(vault))[0] if t.tid == "T-012"]
+    assert task.task_state == "completed" and "the owner said they did it, in their app" in task.body
+    assert needs.items(Config.load(vault), date(2026, 11, 3)) == []
+
+
+def test_dismiss_drops_a_proposal_and_stop_asking_is_logged_for_the_people_review(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
+    fm.write(vault / "Hub.md", {}, "# Hub\n\n## Improvements\n\n" + improvement("October 27 — Weekly digest", "proposed"))
+    item, = needs.items(Config.load(vault), TODAY)
+    needs.dismiss(Config.load(vault), item.id, TODAY, "stop-asking")
+    assert "`dropped`, dismissed by the owner 2026-10-28" in (vault / "Hub.md").read_text()
+    assert needs.items(Config.load(vault), TODAY) == []
+    assert "· dismissed stop-asking · ask · Adopt? Weekly digest · id:" in (vault / "agent/Answered/2026-10.md").read_text()
+    with pytest.raises(ValueError):
+        needs.dismiss(Config.load(vault), "anything", TODAY, "maybe")

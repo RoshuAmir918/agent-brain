@@ -195,7 +195,8 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     shown = {id(item) for item in sorted(recent, key=lambda item: item.since or "", reverse=True)[:LISTED_PROPOSALS]}
     out.extend(item for item in recent if id(item) in shown)
     out.extend(_access_items(vault, config, today))
-    return sorted(out, key=lambda item: KINDS.index(item.kind))
+    gone = dismissed_ids(config)
+    return sorted((item for item in out if item.id not in gone), key=lambda item: KINDS.index(item.kind))
 
 
 def open_asks(body: str) -> list[Item]:
@@ -236,13 +237,19 @@ def retire_asks(config: Config, today: date, days: int = RETIRE_DAYS) -> list[st
 ANSWERED_HEADER = "---\nkind: log\ntier: cold\n---\n# Answered\n\nAsks and confirms resolved by evidence, one line each: date, kind, what it was, the evidence.\n\n"
 
 
-def resolve(config: Config, which: str, because: str, today: date) -> Item:
-    """Remove one item from CURRENT's Needs you because something answered it, and record what did, in
-    `<agent_dir>/Answered/YYYY-MM.md`. `which` is an item id from `brain needs-you --json`, or text that matches exactly
-    one open item. Tasks, proposals and access requests are resolved where they live, not here."""
-    because = " ".join(because.replace("|", "/").split())
-    if not because:
-        raise ValueError("say what answered it: --because \"<the evidence>\"")
+DISMISSED = re.compile(r"· dismissed(?: [a-z-]+)? · .* · id:([0-9a-f]{12})\b")
+REASONS = ("no", "done", "stop-asking")   # what the owner said by dismissing: never inferred, only chosen
+
+
+def dismissed_ids(config: Config) -> set[str]:
+    """Items the owner dismissed, from the Answered logs: computed items (an access request) would otherwise return."""
+    folder = config.vault_path / config.agent("Answered")
+    if not folder.is_dir():
+        return set()
+    return {m[1] for path in folder.glob("*.md") for m in DISMISSED.finditer(path.read_text(encoding="utf-8"))}
+
+
+def _pick(config: Config, which: str, today: date) -> Item:
     candidates = items(config, today)
     chosen = [item for item in candidates if item.id == which]
     if not chosen:
@@ -251,11 +258,10 @@ def resolve(config: Config, which: str, because: str, today: date) -> Item:
     if len(chosen) != 1:
         raise ValueError(("no open item matches " if not chosen else f"{len(chosen)} open items match ") + repr(which)
                          + "; use an id from `brain needs-you --json`")
-    item = chosen[0]
-    if item.origin != "current":
-        where = {"task": "change the task's state", "improvement": "set the proposal's status in its hub",
-                 "access": "write or decline the grant (setup)"}[item.origin]
-        raise ValueError(f"this item lives elsewhere: {where}")
+    return chosen[0]
+
+
+def _remove_bullet(config: Config, item: Item) -> None:
     path = config.vault_path / "CURRENT.md"
     body = path.read_bytes().decode("utf-8")
     span = _section(body, "Needs you")
@@ -267,15 +273,93 @@ def resolve(config: Config, which: str, because: str, today: date) -> Item:
             continue
         kept.append(line)
     path.write_bytes((body[:span[0]] + "".join(kept) + body[span[1]:]).encode("utf-8"))
+
+
+def _answered(config: Config, today: date, line: str) -> None:
     log = config.vault_path / config.agent("Answered") / f"{today:%Y-%m}.md"
     log.parent.mkdir(parents=True, exist_ok=True)
     if not log.exists():
         log.write_text(ANSWERED_HEADER, encoding="utf-8")
+    with log.open("a", encoding="utf-8") as stream:
+        stream.write(line + "\n")
+
+
+TASK_SOURCE = re.compile(r"#(T-\d{3})$")
+
+
+def dismiss(config: Config, which: str, today: date, reason: str = "no") -> Item:
+    """The owner closed an item without answering it, and chose why. The item leaves the list and is never raised
+    again; what happens to its source depends on the reason, never on a guess:
+    - `no`: nothing is done. An ask's or a waiting task's task is set aside, a proposal is dropped, an access request is
+      declined with no grant written, a confirm is accepted.
+    - `done`: the owner did it themselves. Its task is completed, with that as evidence.
+    - `stop-asking`: as `no`, and the owner wants no questions like it; the People review turns it into a dated line in
+      Working together. Only this reason teaches the agent anything beyond the one item.
+    Each is logged in Answered with its reason."""
+    from . import tasks as task_mod
+    if reason not in REASONS:
+        raise ValueError(f"reason must be one of {', '.join(REASONS)}")
+    item = _pick(config, which, today)
+    tid = None
+    if item.origin == "current":
+        _remove_bullet(config, item)
+        source_task = TASK_SOURCE.search(item.source)
+        tid = source_task[1] if item.kind == "ask" and source_task else None
+    elif item.origin == "task":
+        tid = item.source.rsplit("#", 1)[-1] if "#" in item.source else pathlib_stem(item.source)
+    elif item.origin == "improvement":
+        _drop_proposal(config, item, today)
+    if tid:
+        try:
+            if reason == "done":
+                task_mod.complete(config, tid, today, "the owner said they did it, in their app")
+            else:
+                task_mod.set_aside(config, tid, today, "dismissed by the owner in their app")
+        except ValueError:
+            pass
+    text = item.text.replace("·", "-")
+    _answered(config, today, f"- {today.isoformat()} · dismissed {reason} · {item.kind} · {text} · id:{item.id}"
+              + (f" · [[{item.source}]]" if item.source != "CURRENT.md" else ""))
+    return item
+
+
+def pathlib_stem(source: str) -> str:
+    return source.rsplit("/", 1)[-1].removesuffix(".md")
+
+
+def _drop_proposal(config: Config, item: Item, today: date) -> None:
+    rel, _, anchor = item.source.partition("#")
+    path = config.vault_path / rel
+    body = path.read_text(encoding="utf-8")
+    heading = body.find("### " + anchor)
+    if heading < 0:
+        return
+    following = re.compile(r"^#{2,3} ", re.M).search(body, heading + 4)
+    end = following.start() if following else len(body)
+    entry = body[heading:end]
+    changed = STATUS_FIELD.sub(lambda m: m[0].replace(m[1], f"`dropped`, dismissed by the owner {today.isoformat()}"), entry, count=1)
+    if changed == entry:
+        changed = entry.rstrip("\n") + f"\n- **Status:** `dropped`, dismissed by the owner {today.isoformat()}\n\n"
+    path.write_text(body[:heading] + changed + body[end:], encoding="utf-8")
+
+
+def resolve(config: Config, which: str, because: str, today: date) -> Item:
+    """Remove one item from CURRENT's Needs you because something answered it, and record what did, in
+    `<agent_dir>/Answered/YYYY-MM.md`. `which` is an item id from `brain needs-you --json`, or text that matches exactly
+    one open item. Tasks, proposals and access requests are resolved where they live, not here."""
+    because = " ".join(because.replace("|", "/").split())
+    if not because:
+        raise ValueError("say what answered it: --because \"<the evidence>\"")
+    item = _pick(config, which, today)
+    if item.origin != "current":
+        where = {"task": "change the task's state", "improvement": "set the proposal's status in its hub",
+                 "access": "write or decline the grant (setup)"}[item.origin]
+        raise ValueError(f"this item lives elsewhere: {where}")
+    _remove_bullet(config, item)
     line = f"- {today.isoformat()} · {item.kind} · {item.text} · because {because}"
     if item.source != "CURRENT.md":
         line += f" · [[{item.source}]]"
-    with log.open("a", encoding="utf-8") as stream:
-        stream.write(line + "\n")
+    _answered(config, today, line)
     return item
 
 
