@@ -60,8 +60,11 @@ def test_known_person_context_has_profile_paths_and_applicable_rules(people_vaul
         "| D3 | projects | [[memory/people/Groups/Friends\\|Friends]] | allow |\n"
         "| D4 | health | Friends | deny |\n"
         "| D5 | public | anyone | allow |\n\n"
-        "Default for everything else: decline briefly, offer to ask the owner, and note the request in your "
-        "after-session record. Your own impression of the owner is never shared with anyone, whatever a rule allows.")
+        "Default for everything else: decline briefly. When what they ask needs the owner (an answer only the "
+        "owner can give, a thing the owner holds, a status the owner knows), ask the owner now, in this session "
+        "(`demiurge_tell_owner` on Demiurge, else an ask in CURRENT's Needs you), and tell them you have; never "
+        "offer to ask and stop. Note the request in your after-session record. Your own impression of the owner "
+        "is never shared with anyone, whatever a rule allows.")
 
 
 def test_disclosure_row_selection_includes_person_group_and_anyone_only(people_vault):

@@ -1,22 +1,26 @@
 ---
 name: {prefix}watch
-description: Hourly urgent pass over mail and tasks
-version: 1.2.0
+description: Hourly pass for what needs the owner today and for loops the agent left open
+version: 2.0.0
 metadata:
   hermes:
     tags: [routine, day]
     category: brain
 ---
-# Watch guard
+# Watch
 
-An hourly pass for deadlines, things needing {human_name} today, and register accuracy. Not a memory path.
+The hourly pass over everything that could be waiting: {human_name}'s channels for what needs them today, and {agent_name}'s own conversations for loops it left open, a message never answered, a promise never kept, a person still waiting on an answer. Not a memory path: facts go to the owning task, bodies are never copied.
 
 ## Procedure
-1. For any message you will answer, run `brain session-context --platform <platform> --user-id <sender handle or address> --user-id-alt <permanent id, if any>` first and follow the block. Read the last hour of {human_name}'s channels and {agent_name}'s own: the registry table in `{agent_dir}/Channels.md`, rows with status `live`, opened the way their reach column says (`owner` and `shared` rows are perception, `own` rows are yours); check later replies first. A `pending` or `revoked` row is not read and not a gap.
-2. Reconcile only important, actionable facts into the owning task: status, deadline, waiting-on, next step. A date-conditioned commitment becomes a commitment trigger. Durable but non-urgent facts get a dated line on the task with a `morning:` tag; Sleep 1 consolidates them.
-3. Message {human_name} only for something that needs them today. Overnight findings wait for 08:00. Flag ambiguity instead of inventing decisions. A channel that is not registered in `{agent_dir}/Channels.md` does not exist for this pass: never report a mailbox, workspace or connection {human_name} has not set up as missing, failing or unread, and never raise this profile's own connections or tools with them; a gap in what you can see is a Sleep Log matter, not theirs.
-4. Proactive outreach to anyone other than {human_name} happens only if {human_name} has approved it in writing, with a roster and pacing rules recorded under Standing state in `{agent_dir}/Tasks.md`.
-5. Overwrite `$HERMES_HOME/records/watch/state.json` with the window checked and the ids handled. Write no ledger row: the engine records every run after it ends and folds a day's quiet runs into one row. With no state file record, send nothing.
+1. **Window.** Read `$HERMES_HOME/records/watch/state.json` for the end of the last window; the window is from there to now (the last hour on a first run). For any message you will answer, run `brain session-context --platform <platform> --user-id <sender handle or address> --user-id-alt <permanent id, if any>` first and follow the block.
+2. **{human_name}'s channels.** The `live` rows of the registry table in `{agent_dir}/Channels.md` whose `whose` is `owner` or `shared`, opened the way each row's reach column says; check later replies before treating anything as open. Reconcile only important, actionable facts into the owning task: status, deadline, waiting-on, next step. A date-conditioned commitment becomes a commitment trigger. A durable, non-urgent fact gets a dated line on the task with a `morning:` tag. A `pending` or `revoked` row is not read and not a gap; a channel not in the registry does not exist for this pass.
+3. **{agent_name}'s own loops.** Your own conversations and rooms in the window: Home, the rooms you are in, direct conversations, the `own` rows of the registry. Three kinds of open loop, and each is closed in this pass, not noted for later:
+   - *Unanswered.* A message addressed to you, by name, mention or a question plainly yours, with no reply from you. Answer it now under the usual rules, or say in one line why not.
+   - *Promised and not done.* `brain journal recent --count 30` is the engine's record of each conversation; a row whose next step is something you said you would do ("ask Roshan about the share", "send the link", "check and get back to him") with nothing recorded since is a promise unkept. Do it now: an ask that needs {human_name} goes to them this run (`demiurge_tell_owner`, with `text` when someone is waiting on it), a send is sent, a check is checked; then tell whoever was waiting.
+   - *Waiting on an answer you owe.* A person or intellect who asked you something that needed {human_name}, and {human_name} has answered: relay it in their words, now. {human_name} has not answered after a day: tell the person once that it is still with {human_name}, and no more than once.
+   A loop you cannot close (the tool is gone, the channel is `revoked`) is one line to the person saying so, never silence.
+4. **{human_name}.** Message them only for what needs them today; overnight findings wait for the briefing. Never a message to say you are still watching. Never raise this profile's own connections or tools with them; a gap in what you can see is a Sleep Log matter.
+5. **Record.** Overwrite the state file with the end of the window and the ids handled. Write no ledger row: the engine records every run and folds a quiet day into one row. Your account names the loops closed (`answered Kevin in #lab; asked Roshan about the share for Kevin`); a quiet pass is `nothing`.
 
 ## Boundaries
-Never edit hubs, profiles or CURRENT's active threads. Never copy message bodies. No disclosure of profile or private information, no commitments on {human_name}'s behalf, no spending.
+Never edit hubs, profiles or CURRENT's active threads. Never copy message bodies. No disclosure beyond what the session block resolved, no commitments on {human_name}'s behalf, no spending. Proactive outreach to anyone who has not written to you happens only under a roster and pacing rules {human_name} approved in writing under Standing state in `{agent_dir}/Tasks.md`; closing a loop someone opened with you is not outreach. Handed-off tasks belong to the continue routine, not to this pass.

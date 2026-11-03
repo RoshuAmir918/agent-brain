@@ -7,9 +7,11 @@ from pathlib import PurePosixPath
 from .config import Config
 from .vault import Note, Vault, WIKILINK_RE
 
-DEFAULT_RULE = ("Default for everything else: decline briefly, offer to ask the owner, and note the request in your "
-                "after-session record. Your own impression of the owner is never shared with anyone, whatever a rule "
-                "allows.")
+DEFAULT_RULE = ("Default for everything else: decline briefly. When what they ask needs the owner (an answer only the "
+                "owner can give, a thing the owner holds, a status the owner knows), ask the owner now, in this session "
+                "(`demiurge_tell_owner` on Demiurge, else an ask in CURRENT's Needs you), and tell them you have; never "
+                "offer to ask and stop. Note the request in your after-session record. Your own impression of the owner "
+                "is never shared with anyone, whatever a rule allows.")
 OWNER_CARD_WORDS = 250
 MENTION_WORDS = {"line": 35, "card": 150}
 DATED = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}\b", re.I)
