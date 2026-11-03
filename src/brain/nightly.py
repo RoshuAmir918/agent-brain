@@ -489,7 +489,8 @@ def cmd_journal_recent(args):
 def cmd_validate(a):
     vault = Vault(a.config.vault_path)
     problems = (validate.run(vault, set(vault.notes)) + validate.responsibilities(vault) + validate.task_states(vault)
-                + validate.kinds(vault) + validate.access_problems(vault) + validate.owner_profile(vault))
+                + validate.kinds(vault) + validate.access_problems(vault) + validate.owner_profile(vault)
+                + validate.channels(vault))
     for p in problems:
         print(p)
     print(f"{len(problems)} problems")
@@ -594,6 +595,36 @@ def cmd_access(args):
     print("Everything else: none / no")
     for text in result.scope.values():
         print(f"Scope: {text}")
+
+
+def cmd_channels(args):
+    from . import channels as registry
+    vault = Vault(args.config.vault_path)
+    if args.sync:
+        if args.run:
+            try:
+                out = subprocess.run(["connect", "list", "--limit", "50"], capture_output=True, text=True, check=True).stdout
+            except (OSError, subprocess.CalledProcessError) as error:
+                print(f"connect list failed: {error}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            out = sys.stdin.read()
+        added = registry.sync(args.config, vault, out.splitlines(), args.config.today(), args.profile or None)
+        for row in added:
+            print(f"added {row.channel}: {row.reach} ({row.granted})")
+        if not added:
+            print("nothing new to register")
+        return
+    rows = registry.load(vault)
+    if args.json:
+        print(json.dumps([row.__dict__ for row in rows], ensure_ascii=False, indent=2))
+        return
+    for row in rows:
+        print(f"{row.channel} · {row.whose} · {row.status}" + (f" · {row.identity}" if row.identity else "")
+              + (f" · reach {row.reach}" if row.reach else "") + (f" · read: {row.read}" if row.read else "")
+              + (f" · write: {row.write}" if row.write else ""))
+    if not rows:
+        print("no channels registered")
 
 
 def cmd_handoff(args):
@@ -780,6 +811,9 @@ def main(argv=None):
     mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored)")
     s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
     s.set_defaults(fn=cmd_needs_you)
+    s = sub.add_parser("channels", help="the channel registry; `sync` registers completed connect grants (from stdin, or --run for `connect list`)")
+    s.add_argument("sync", nargs="?", choices=("sync",)); s.add_argument("--run", action="store_true"); s.add_argument("--profile", default="")
+    s.add_argument("--json", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_channels)
     s = sub.add_parser("handoff", help="mark a task the owner handed off: the continue routine works it until done or blocked")
     s.add_argument("tid"); s.add_argument("--report", default="", help="where to report, e.g. 'Home' or the room"); s.add_argument("--vault")
     s.set_defaults(fn=cmd_handoff)

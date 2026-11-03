@@ -202,6 +202,12 @@ def _shareable(vault: Vault, hubs: list[dict], recent: list[dict]) -> dict:
     return out
 
 
+def _channels(vault: Vault) -> list[dict]:
+    """The registry as the owner's app shows it: what their intellect can reach, with how, never a secret value."""
+    from . import channels as registry
+    return [row.__dict__ for row in registry.load(vault)]
+
+
 def _outputs(vault: Vault) -> list[dict]:
     out = []
     for source, note in sorted(vault.notes.items()):
@@ -272,4 +278,5 @@ def build(config: Config, today: date) -> dict:
     return {"schema": 1, "engine": engine, "version": version, "tasks": task_entries, "hubs": hubs,
             "routines": _routines(config, hubs, rows), "triggers": trigger_entries, "ledger": recent,
             "journal": _journal(vault, today), "needsYou": owner_items, "outputs": _outputs(vault),
+            "channels": _channels(vault),
             "shareable": _shareable(vault, hubs, recent)}

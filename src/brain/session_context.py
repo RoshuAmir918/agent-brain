@@ -253,6 +253,13 @@ def owner_card(vault: Vault, config: Config) -> str:
         section = note.body[heading.start():heading.end() + (following.start() if following else len(note.body))].strip()
         if len(section.split()) > 1:
             parts.append(section)
+    from . import channels as registry
+    reach = [f"{row.channel} ({row.whose}" + (f", {row.identity}" if row.identity else "") + ")"
+             + (f": read {row.read}" if row.read else "") + (f"; write {row.write}" if row.write else "")
+             for row in registry.live(registry.load(vault))]
+    if reach:
+        parts.append("What you can reach, from " + config.link(config.agent("Channels.md")) + ": " + "; ".join(reach)[:600]
+                     + ". Anything not listed, you cannot reach from here; say so in those words.")
     if not parts:
         return ""
     return (truncate_words("\n\n".join(parts), OWNER_CARD_WORDS) + f"\n\nTalk about your Impression only with "

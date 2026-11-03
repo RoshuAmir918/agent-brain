@@ -139,6 +139,11 @@ KINDS = ("hub", "profile", "group", "episode", "reflection", "task", "trigger", 
          "draft", "conversation", "procedure")
 
 
+def channels(vault: Vault) -> list[str]:
+    from . import channels as registry
+    return registry.problems(vault)
+
+
 def kinds(vault: Vault) -> list[str]:
     """On demand only, never a nightly gate: vaults written before a kind was declared keep committing."""
     return [f"{rel}: undeclared kind {kind!r}" for rel, note in sorted(vault.notes.items())
