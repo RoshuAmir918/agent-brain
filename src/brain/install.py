@@ -31,7 +31,11 @@ def sessions_records_path() -> Path:
     return records_path() / "sessions"
 
 
-CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall", "improve", "people", "explore", "watch", "continue"})
+CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall", "improve", "people", "explore", "watch", "continue",
+                  "prime", "setup", "morning", "evening"})
+# Day routines that were the vault's own until 0.18: the first render keeps the vault's copy beside the new one, as
+# previous.md, so its own steps can be moved under `## Local` and nothing the owner asked for is lost.
+ADOPTED = frozenset({"morning", "evening"})
 # the memory mechanism and the engine's own passes: always overwritten, keeping the vault's `## Local` section
 # everything else is a default the vault owns after first install
 
@@ -69,7 +73,11 @@ def skills(config: Config, force: bool = False) -> Path:
         for token, value in config.template_values().items():
             text = text.replace("{" + token + "}", value)
         if target.exists():
-            local = local_section(target.read_text(encoding="utf-8"))
+            current = target.read_text(encoding="utf-8")
+            previous = target.with_name("previous.md")
+            if routine.name in ADOPTED and not previous.exists() and not local_section(current) and current != text:
+                previous.write_text(current, encoding="utf-8")
+            local = local_section(current)
             if local:
                 text = text.rstrip("\n") + "\n\n" + local
         target.parent.mkdir(parents=True, exist_ok=True)

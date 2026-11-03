@@ -139,6 +139,14 @@ KINDS = ("hub", "profile", "group", "episode", "reflection", "task", "trigger", 
          "draft", "conversation", "procedure")
 
 
+def primed_size(vault: Vault) -> list[str]:
+    from .compile_context import PRIMED_WORDS
+    rel = vault.config.agent("Primed.md")
+    note = vault.notes.get(rel)
+    words = len(note.body.split()) if note else 0
+    return [f"{rel}: {words} words; at most {PRIMED_WORDS}, and the context loads only that many"] if words > PRIMED_WORDS else []
+
+
 def needs_ceiling(vault: Vault) -> list[str]:
     from . import needs
     note = vault.notes.get("CURRENT.md")

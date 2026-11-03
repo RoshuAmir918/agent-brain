@@ -11,6 +11,7 @@ from .tasks import is_open, load_tasks, parse_register
 from .vault import Vault
 
 WORD_LIMIT = 6000
+PRIMED_WORDS = 300   # Primed loads in every session; the prime routine writes the most important first
 BEFORE = ("## Before answering\n\n"
           "What you need is usually already in front of you: this file (CURRENT's dated items and Needs you, the open "
           "tasks' Verified, Next and Blocker lines, Primed, the upcoming dates, Goals) and, under the owner's message, the "
@@ -81,9 +82,23 @@ def build(vault: Vault) -> str:
                 body = open_register(vault, body)
             elif rel == "Hot Set.md":
                 body = automatic_load(body)
+            elif rel == config.agent("Primed.md"):
+                body = capped(body, PRIMED_WORDS, config.link(rel))
             sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
     sections.append("Warm Index, Conversations and everything else are retrieved on demand with `brain retrieve`.")
     return "\n\n".join(sections) + "\n"
+
+
+def capped(body: str, limit: int, where: str) -> str:
+    """The first `limit` words, cut at a line, with a pointer to the rest."""
+    lines, kept, words = body.strip().splitlines(), [], 0
+    for line in lines:
+        n = len(line.split())
+        if words + n > limit and kept:
+            return "\n".join(kept).rstrip() + f"\n\n(cut at {limit} words; the rest is in {where})"
+        kept.append(line)
+        words += n
+    return "\n".join(kept)
 
 
 def upcoming(vault: Vault, days: int = UPCOMING_DAYS) -> str:

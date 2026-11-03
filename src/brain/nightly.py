@@ -492,7 +492,7 @@ def cmd_validate(a):
     vault = Vault(a.config.vault_path)
     problems = (validate.run(vault, set(vault.notes)) + validate.responsibilities(vault) + validate.task_states(vault)
                 + validate.kinds(vault) + validate.access_problems(vault) + validate.owner_profile(vault)
-                + validate.channels(vault) + validate.needs_ceiling(vault))
+                + validate.channels(vault) + validate.needs_ceiling(vault) + validate.primed_size(vault))
     for p in problems:
         print(p)
     print(f"{len(problems)} problems")

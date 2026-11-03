@@ -20,7 +20,7 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
     assert capsys.readouterr().out == str(config.skills_path) + "\n"
     templates = [path for path in files("brain").joinpath("skills").iterdir()
                  if path.joinpath("SKILL.md").is_file()]
-    assert len(templates) == 13
+    assert len(templates) == 14
     assert len(list(config.skills_path.glob("*/SKILL.md"))) == len(templates)
     for routine in templates:
         text = (config.skills_path / (prefix + routine.name) / "SKILL.md").read_text()
@@ -110,7 +110,7 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
     assert (vault / "Conversations/Sessions/s1.md").exists()
     assert (home / "records/sessions/cron_j_1.md").exists() and not (vault / "Conversations/Sessions/cron_j_1.md").exists()
     assert len(list((vault / "Conversations/Digests").glob("*.md"))) == 1
-    assert len(list((vault / "hermes/skills").glob("*/SKILL.md"))) == 13
+    assert len(list((vault / "hermes/skills").glob("*/SKILL.md"))) == 14
 
 
 def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
@@ -125,8 +125,14 @@ def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
     morning.write_text("mine", encoding="utf-8")
     sleep1.write_text("mine", encoding="utf-8")
     install.skills(config)
-    assert morning.read_text(encoding="utf-8") == "mine"
-    assert sleep1.read_text(encoding="utf-8") != "mine"
+    # Morning is the engine's since 0.18: the vault's own copy is kept once, beside the new text, to move under Local.
+    assert morning.read_text(encoding="utf-8") != "mine"
+    assert morning.with_name("previous.md").read_text(encoding="utf-8") == "mine"
+    assert sleep1.read_text(encoding="utf-8") != "mine" and not sleep1.with_name("previous.md").exists()
+    morning.write_text(morning.read_text(encoding="utf-8") + "\n## Local\n\n- MY_OWN_STEP\n", encoding="utf-8")
+    install.skills(config)
+    assert "MY_OWN_STEP" in morning.read_text(encoding="utf-8")
+    assert morning.with_name("previous.md").read_text(encoding="utf-8") == "mine"
     improve = config.skills_path / "brain-improve" / "SKILL.md"
     improve.write_text("mine", encoding="utf-8")
     install.skills(config)

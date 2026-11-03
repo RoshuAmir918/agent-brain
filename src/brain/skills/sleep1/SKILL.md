@@ -1,7 +1,7 @@
 ---
 name: {prefix}sleep1
 description: Nightly consolidation of yesterday into memory
-version: 2.2.0
+version: 2.3.0
 metadata:
   hermes:
     tags: [memory, night]
@@ -25,12 +25,12 @@ The night's main job. Yesterday becomes long-term memory: new facts are written 
    - already stated: nothing; the note earned a use;
    - {human_name}'s own correction, or primary evidence: supersede in place with dated provenance, keeping the old text under a "superseded by" line;
    - a correction about how to work with {human_name} (style, format, scope, tone, how much to quote them): a dated line in `Working together` of `{human_profile}`, merged with a duplicate, the section kept under 150 words;
-   - unverified conflict with a third-party claim: keep both, dated, and write a morning question;
+   - unverified conflict with a third-party claim: keep both, dated, side by side;
    - new fact with an owning note: add it there, in prose, with date and source;
    - new topic with no owning note: create `{vault}/<Topic>.md` with the standard frontmatter, `kind: hub`, and today as its first use; link it from the nearest hub;
-   - a person: update the profile if it exists; if not, leave a line in `{people_dir}/README.md` for the People review, do not create the profile here;
+   - a person: update the profile if it exists; if not, create `{people_dir}/<Name>/Profile.md` from the template with what was said about them, attributed and dated, marked "identity unconfirmed by {human_name}", and link it from `{people_dir}/README.md`;
    - a promise with a date or condition: a row in Triggers; a deadline: a dated item in CURRENT; a request for work: a task, with {human_name}'s words as the source;
-   - uncertain: leave it out and add the question to CURRENT's `## Needs you` as an `ask`.
+   - uncertain: write the likeliest reading, marked as your inference with its source, and move on; an ask (recall's Needs you rules) only when it is a decision only {human_name} can make.
 5. **Tidy what grew.** For every note you touched, and for any hub over 1,500 words:
    - fold dated entries older than two weeks into the prose of their section, keeping each fact and its date, dropping the diary form;
    - a section over 400 words gets a two-sentence summary at its top;

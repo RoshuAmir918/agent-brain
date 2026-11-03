@@ -1,7 +1,7 @@
 ---
 name: {prefix}watch
 description: Hourly pass for what needs the owner today and for loops the agent left open
-version: 2.0.0
+version: 2.1.0
 metadata:
   hermes:
     tags: [routine, day]
@@ -13,10 +13,11 @@ The hourly pass over everything that could be waiting: {human_name}'s channels f
 
 ## Procedure
 1. **Window.** Read `$HERMES_HOME/records/watch/state.json` for the end of the last window; the window is from there to now (the last hour on a first run). For any message you will answer, run `brain session-context --platform <platform> --user-id <sender handle or address> --user-id-alt <permanent id, if any>` first and follow the block.
-2. **{human_name}'s channels.** The `live` rows of the registry table in `{agent_dir}/Channels.md` whose `whose` is `owner` or `shared`, opened the way each row's reach column says; check later replies before treating anything as open. Reconcile only important, actionable facts into the owning task: status, deadline, waiting-on, next step. A date-conditioned commitment becomes a commitment trigger. A durable, non-urgent fact gets a dated line on the task with a `morning:` tag. A `pending` or `revoked` row is not read and not a gap; a channel not in the registry does not exist for this pass.
+2. **{human_name}'s channels.** Their live channels in the registry (`{agent_dir}/Channels.md`), opened the way each row says; check later replies before treating anything as open. Reconcile only important, actionable facts into the owning task: status, deadline, waiting-on, next step. A date-conditioned commitment becomes a commitment trigger. A durable, non-urgent fact gets a dated line on the task with a `morning:` tag.
 3. **{agent_name}'s own loops.** Your own conversations and rooms in the window: Home, the rooms you are in, direct conversations, the `own` rows of the registry. Three kinds of open loop, and each is closed in this pass, not noted for later:
    - *Unanswered.* A message addressed to you, by name, mention or a question plainly yours, with no reply from you. Answer it now under the usual rules, or say in one line why not.
    - *Promised and not done.* `brain journal recent --count 30` is the engine's record of each conversation; a row whose next step is something you said you would do ("ask Roshan about the share", "send the link", "check and get back to him") with nothing recorded since is a promise unkept. Do it now: an ask that needs {human_name} goes to them this run (`demiurge_tell_owner`, with `text` when someone is waiting on it), a send is sent, a check is checked; then tell whoever was waiting.
+   - *Handed to you and not handed off.* A row recording {human_name} asking for work to be done ("look into…", "have something by morning"), not a question and not your own plan, with no handed-off task behind it: write or find the task with their words, `brain handoff T-nnn --report <platform>`, and leave the rest to continue.
    - *Waiting on an answer you owe.* A person or intellect who asked you something that needed {human_name}, and {human_name} has answered: relay it in their words, now. {human_name} has not answered after a day: tell the person once that it is still with {human_name}, and no more than once.
    A loop you cannot close (the tool is gone, the channel is `revoked`) is one line to the person saying so, never silence.
 4. **{human_name}.** Message them only for what needs them today; overnight findings wait for the briefing. Never a message to say you are still watching. Never raise this profile's own connections or tools with them; a gap in what you can see is a Sleep Log matter.

@@ -13,8 +13,8 @@ from .config import Config
 from .tasks import is_open, parse_register
 from .vault import Vault
 
-STAGES = ("archive", "attribution", "sleep1", "rem", "sleep2", "people", "context")
-STAGE_RE = re.compile(r"^(archive|attribution|sleep1|rem|sleep2|people|context)\((\d{4}-\d{2}-\d{2})\)")
+STAGES = ("archive", "attribution", "sleep1", "rem", "sleep2", "people", "prime", "context")
+STAGE_RE = re.compile(r"^(archive|attribution|sleep1|rem|sleep2|people|prime|context)\((\d{4}-\d{2}-\d{2})\)")
 COVERAGE_RE = re.compile(r"^coverage: (.*)$", re.M)
 KNOWLEDGE = ("hub", "profile", "reflection", "episode")
 

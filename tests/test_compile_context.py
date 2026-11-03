@@ -202,3 +202,15 @@ def test_before_answering_answers_from_the_context_and_can_be_switched_off(conte
     assert "A reminder the owner asks for is a dated Triggers row, never a Needs you line." in text
     monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start, tasks")
     assert "## Before answering" not in compile_context.build(Vault(context_vault))
+
+
+def test_primed_loads_at_most_its_cap_and_validate_names_the_overrun(context_vault):
+    from brain import validate
+    lines = [f"- line {n} " + "word " * 18 for n in range(30)]   # 20 words a line, 600 in all
+    fm.write(context_vault / "agent/Primed.md", {"kind": "primed", "tier": "hot"}, "# Today\n" + "\n".join(lines) + "\n")
+    text = compile_context.build(Vault(context_vault))
+    block = text.split("## memory/agent/Primed.md\n\n", 1)[1].split("\n## ", 1)[0]
+    assert "line 0 " in block and "line 29 " not in block
+    assert "(cut at 300 words; the rest is in memory/agent/Primed.md)" in block
+    assert len(block.split()) <= 300 + 12
+    assert validate.primed_size(Vault(context_vault)) == ["agent/Primed.md: 632 words; at most 300, and the context loads only that many"]
