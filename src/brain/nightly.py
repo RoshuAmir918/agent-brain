@@ -659,6 +659,25 @@ def cmd_channels(args):
         print("no channels registered")
 
 
+def cmd_task(args):
+    try:
+        if args.action == "yours":
+            registered, archived = load_tasks(args.config)
+            task = next((t for t in registered + archived if t.tid == args.tid), None)
+            if task is None or not tasks_mod.is_open(task):
+                raise ValueError(f"{args.tid} is not an open task")
+            task.state["state"] = "yours"
+            task.state.pop("status", None)
+            tasks_mod.save_task(args.config, task, args.config.today())
+        else:
+            task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
+                                   args.why or "the owner closed it in their app")
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        sys.exit(1)
+    print(f"{task.tid} {task.task_state}: {task.title}")
+
+
 def cmd_handoff(args):
     try:
         task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), args.report or "")
@@ -852,6 +871,9 @@ def main(argv=None):
     s = sub.add_parser("channels", help="the channel registry; `sync` registers completed connect grants (from stdin, or --run for `connect list`)")
     s.add_argument("sync", nargs="?", choices=("sync",)); s.add_argument("--run", action="store_true"); s.add_argument("--profile", default="")
     s.add_argument("--json", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_channels)
+    s = sub.add_parser("task", help="change one task for the owner: done, drop, or yours (their own work)")
+    s.add_argument("tid"); s.add_argument("action", choices=("done", "drop", "yours")); s.add_argument("--why", default="")
+    s.add_argument("--vault"); s.set_defaults(fn=cmd_task)
     s = sub.add_parser("handoff", help="mark a task the owner handed off: the continue routine works it until done or blocked")
     s.add_argument("tid"); s.add_argument("--report", default="", help="where to report, e.g. 'Home' or the room"); s.add_argument("--vault")
     s.set_defaults(fn=cmd_handoff)

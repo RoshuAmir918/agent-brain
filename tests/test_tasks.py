@@ -228,3 +228,32 @@ def test_continue_exits_one_when_nothing_is_handed_off_and_handoff_cli_reports(v
     from brain import state as state_mod
     exported = state_mod.build(Config.load(vault), date(2026, 11, 3))
     assert [task["handoff"] for task in exported["tasks"] if task["id"] == "T-001"] == ["2026-11-03"]
+
+
+def test_yours_is_open_never_owed_to_the_owner_and_never_continued(vault):
+    from brain import needs
+    from brain.tasks import due, quiet
+    path = vault / "agent/Tasks.md"
+    data, _ = fm.read(path)
+    mine = Task("T-020", "Complete Hope's résumé", "- **Status:** Roshan's own, when he is ready\n- **Handed off:** 2026-10-01\n- **Evidence:** 2026-10-20\n",
+                {"state": "yours"})
+    fm.write(path, data, "# Tasks\n\n## Active work\n\n" + mine.render())
+    registered, _ = load_tasks(Config.load(vault))
+    assert is_open(registered[0]) and registered[0].task_state == "yours"
+    assert needs.items(Config.load(vault), date(2026, 11, 3)) == []
+    assert due(registered) == []
+    assert [t.tid for t, _ in quiet(registered, date(2026, 11, 2))] == []      # 13 days quiet
+    assert [t.tid for t, _ in quiet(registered, date(2026, 11, 3))] == ["T-020"]  # 14: the evening asks once
+
+
+def test_task_command_marks_yours_completes_and_drops(vault, capsys):
+    nightly.main(["task", "T-001", "yours", "--vault", str(vault)])
+    assert capsys.readouterr().out.startswith("T-001 yours: Sample")
+    registered, _ = load_tasks(Config.load(vault))
+    assert registered[0].task_state == "yours" and "ORIGINAL_FULL_BODY" in registered[0].body
+    nightly.main(["task", "T-001", "done", "--vault", str(vault), "--why", "Roshan sent it"])
+    registered, _ = load_tasks(Config.load(vault))
+    assert registered[0].task_state == "completed" and "— Roshan sent it" in registered[0].body
+    with pytest.raises(SystemExit):
+        nightly.main(["task", "T-001", "drop", "--vault", str(vault)])
+    assert "is not an open task" in capsys.readouterr().err

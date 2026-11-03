@@ -13,11 +13,12 @@ TASK_HEAD_RE = re.compile(r"^### (T-\d{3}) — (.+?)\s*$", re.M)
 STATE_RE = re.compile(r"^<!-- brain: (.*?) -->\s*$", re.M)
 DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 MAX_WORDS = 150
-TASK_STATES = ("ready", "in_progress", "blocked", "waiting_for_owner", "set_aside", "completed", "cancelled")
+TASK_STATES = ("ready", "in_progress", "blocked", "waiting_for_owner", "yours", "set_aside", "completed", "cancelled")
+# yours: the owner's own work, paced by them; the agent supports it and never asks about it on a short clock
 STATE_SYNONYMS = {"done": "completed", "complete": "completed", "canceled": "cancelled",
-                  "parked": "set_aside", "deferred": "set_aside", "deprioritized": "set_aside"}
+                  "parked": "set_aside", "deferred": "set_aside", "deprioritized": "set_aside", "owner": "yours", "owners": "yours"}
 QUIET_DAYS = 21          # an open task untouched this long is reviewed by the evening routine
-OWNER_QUIET_DAYS = 14    # sooner for one waiting on the owner: it is in their queue
+OWNER_QUIET_DAYS = 14    # sooner for one waiting on the owner, or the owner's own: it is in their hands
 
 
 def normal_state(value: str) -> str:
@@ -136,7 +137,7 @@ def parse_register(text: str) -> tuple[list[tuple[str, int, int]], list[Task]]:
 
 
 HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
-RESTING = ("waiting_for_owner", "set_aside", "blocked")
+RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
 
 
 def with_handoff(body: str, today: date, report_to: str) -> str:
@@ -190,6 +191,22 @@ def complete(config: Config, tid: str, today: date, evidence: str) -> Task:
     return task
 
 
+def close(config: Config, tid: str, today: date, done: bool, why: str) -> Task:
+    """The owner closing their own task from the app: `done` completes it, otherwise it is cancelled. Either way a dated
+    line says so; nothing else is decided for them."""
+    if done:
+        return complete(config, tid, today, why)
+    registered, archived = load_tasks(config)
+    task = next((t for t in registered + archived if t.tid == tid), None)
+    if task is None or not is_open(task):
+        raise ValueError(f"{tid} is not an open task")
+    task.state["state"] = "cancelled"
+    task.state.pop("status", None)
+    task.body = task.body.rstrip("\n") + f"\n- **Dropped:** {today.isoformat()} — {why}\n"
+    save_task(config, task, today)
+    return task
+
+
 def save_task(config: Config, task: Task, today: date) -> None:
     """Write a changed task where its full entry lives: the register, or the archive when the register holds a warm line."""
     tid = task.tid
@@ -228,7 +245,7 @@ def quiet(tasks: list[Task], today: date) -> list[tuple[Task, str]]:
         if not is_open(t) or t.task_state == "set_aside":
             continue
         touched = t.last_touched()
-        days = QUIET_DAYS if t.task_state != "waiting_for_owner" else OWNER_QUIET_DAYS
+        days = OWNER_QUIET_DAYS if t.task_state in ("waiting_for_owner", "yours") else QUIET_DAYS
         if not touched or (today - date.fromisoformat(touched)).days >= days:
             out.append((t, touched))
     return sorted(out, key=lambda pair: pair[1])
