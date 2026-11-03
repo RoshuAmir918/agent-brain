@@ -134,7 +134,7 @@ Standing work with judgment in it is a responsibility with three linked homes: a
 
 ## Handoffs
 
-A task the owner handed off carries `- **Handed off:** YYYY-MM-DD · report in <where>` in its entry; `brain handoff T-nnn [--report <where>]` writes it (in the register's full entry, or the archive body when the register holds only a warm line) and sets a resting state to `in_progress`. `brain continue --due` lists the handed-off tasks that are open and not resting on the owner (`waiting_for_owner`, `set_aside`, `blocked`), oldest handoff first, with each task's Next line, and exits 1 when there are none; the continue routine runs every thirty minutes and starts with it. `brain state --json` exports `handoff` on each task. The explore routine never picks a handed-off task.
+A task the owner handed off carries `- **Handed off:** YYYY-MM-DD · report in <where>` in its entry; `brain handoff T-nnn [--report <where>]` writes it (in the register's full entry, or the archive body when the register holds only a warm line) and sets a resting state to `in_progress`. `brain continue --due` lists the handed-off tasks that are open and not resting on the owner (`waiting_for_owner`, `set_aside`, `blocked`), oldest handoff first, with each task's Next line, and exits 1 when there are none; the continue routine runs every thirty minutes and starts with it. On an empty pass the routine reads the Journal rows written since its last run and hands off any request for work the live turn missed, keyed on the owner's ask in the row, never on the agent's own next step. `brain state --json` exports `handoff` on each task. The explore routine never picks a handed-off task.
 
 ## Needs you
 
