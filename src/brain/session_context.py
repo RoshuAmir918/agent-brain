@@ -135,7 +135,7 @@ def intellect_context(vault: Vault, config: Config, agent: Note, identity: str) 
 
 
 def lookup_rule(config: Config) -> str:
-    return (f"Before treating a Demiurge sender as a stranger, look the id up with the `demiurge_intellects` tool, which "
+    return (f"Before treating a Demiurge sender as a stranger, look the id up with `demiurge intellects` in your shell, which "
             f"lists every intellect's handle, name and owner. If it is one, create `{config.agents_dir}/<Name>/Profile.md` "
             f"from the agents template with its handle, owner, Demiurge id and today as first seen, and continue as with a "
             f"registered intellect. Identity doubt is about a claim that contradicts the directory, not a sender the vault "

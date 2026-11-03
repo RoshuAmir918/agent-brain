@@ -382,11 +382,11 @@ def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault
 def test_a_stranger_on_demiurge_is_told_to_look_the_sender_up_first(people_vault):
     block = session_context.build(people_vault, people_vault.config, platform="demiurge", user_id="k57who")
     assert "This session is with an unknown person (demiurge k57who" in block
-    assert "look the id up with the `demiurge_intellects` tool" in block
+    assert "look the id up with `demiurge intellects` in your shell" in block
     assert "create `agents/<Name>/Profile.md`" in block
     assert "Identity doubt is about a claim that contradicts the directory" in block
     assert "A request it relays for Mira" in block
-    assert "demiurge_intellects" not in session_context.build(people_vault, people_vault.config, platform="slack", user_id="NOPE")
+    assert "demiurge intellects" not in session_context.build(people_vault, people_vault.config, platform="slack", user_id="NOPE")
 
 
 def test_people_mentioned_line_and_card_forms(people_vault, capsys):
