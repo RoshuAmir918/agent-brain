@@ -1,7 +1,7 @@
 ---
 name: {prefix}morning
 description: The morning briefing
-version: 2.2.0
+version: 2.3.0
 metadata:
   hermes:
     tags: [routine, day]
@@ -22,7 +22,7 @@ What today is for {human_name}, at the agreed hour, every day, even when there i
    - **Noticed**, labelled as inference: a new reflection, or Improve's recommendation with its status. Never raw numbers.
 4. What the briefing leaves out: whether last night's commits exist, which stages ran, routine drift, retrieval-audit counts, consolidation disagreements, source-coverage caveats, and anything about this profile's own connections or tools. They are in the Sleep Log; `brain health` reports the stages; a maintainer asks for them. When the night did not run, that is one sentence in total, however many stages are missing ("I didn't consolidate last night, so this is from the day before"), never a list. A responsibility's prepared piece (a letter, a comparison, a companion) is one line under Done for you with where it is, not its contents.
 5. After composing, remove every `morning:` line you carried from the task entries (never a `## Needs you` item: it leaves when it is resolved): a fact worth keeping goes into the owning note in one sentence, the rest is gone. The register is a state view, not a log; lines left behind push entries over budget and stop the night.
-6. Send the briefing to {human_name}'s Home, the destination named in `{agent_dir}/Channels.md`. The engine records the run; write no Sleep Log line.
+6. **Deliver it.** When the `demiurge_today` tool is in this session, the briefing is Today, not a message: call it with `summary`, one line of at most 240 characters saying what matters about the day (where they are and the one thing due, from the Today part above), and `text`, one to three plain lines for their phone ending in what they can do, or nothing when the day needs nothing from them. Demiurge lists what needs them and what you did beneath it, from the brain, so the summary never repeats those. Then end the run with exactly `[SILENT]` and nothing else, so nothing is also posted to Home. Without that tool (another platform, a CLI), send the composed briefing to {human_name}'s Home, the destination named in `{agent_dir}/Channels.md`. Either way the engine records the run; write no Sleep Log line.
 
 ## Customise
 This is the natural place for anything {human_name} wants delivered daily: a reading, a reminder, a digest of a feed. Add it as a numbered step with its own boundaries, and record {human_name}'s request in a dated note so the instruction has a source.
