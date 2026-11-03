@@ -184,7 +184,7 @@ def test_triggers_are_not_owner_items(vault):
     assert needs.items(Config.load(vault), TODAY) == []
 
 
-def test_order_is_asks_then_confirms_with_source_order_preserved(vault):
+def test_order_is_ranked_asks_then_confirms_with_ties_in_written_order(vault):
     write_current(vault, "- 2026-10-28 · confirm · Confirm first.\n"
                   "- 2026-10-28 · ask · Current first.\n"
                   "- 2026-10-28 · ask · Current second.\n"
@@ -198,9 +198,11 @@ def test_order_is_asks_then_confirms_with_source_order_preserved(vault):
         fm.write(vault / (name + ".md"), {}, "## Improvements\n"
                  + improvement("October 27 — " + name + " newest", "proposed")
                  + improvement("October 26 — " + name + " older", "proposed"))
+    # Ranked: what blocks work (tasks waiting on the owner) first, then asks newest first, ties in written order;
+    # confirms last.
     assert [item.text for item in needs.items(Config.load(vault), TODAY)] == [
-        "Current first.", "Current second.", "Register first", "Register second",
-        "Archive T-003", "Archive T-005", "Adopt? A topic newest", "Adopt? Z topic newest",
+        "Register first", "Register second", "Archive T-003", "Archive T-005",
+        "Current first.", "Current second.", "Adopt? A topic newest", "Adopt? Z topic newest",
         "Confirm first.", "Confirm second."]
 
 
@@ -364,8 +366,8 @@ def test_cli_text_and_json(vault, capsys):
     fm.write(vault / "Topic.md", {}, "## Improvements\n" + improvement("October 26 — Better practice", "proposed"))
     before = snapshot(vault.parent)
     nightly.main(["needs-you", "--vault", str(vault)])
-    assert capsys.readouterr().out.splitlines() == [
-        "ask · Owner decision. · Trip", "ask · Waiting task · agent/Tasks.md#T-002",
+    assert capsys.readouterr().out.splitlines() == [   # ranked: what blocks work, then newest first, confirms last
+        "ask · Waiting task · agent/Tasks.md#T-002", "ask · Owner decision. · Trip",
         "ask · Adopt? Better practice · Topic.md#October 26 — Better practice",
         "confirm · Went ahead. · CURRENT.md"]
     nightly.main(["needs-you", "--json", "--vault", str(vault)])
@@ -440,25 +442,24 @@ def test_an_ask_unanswered_for_four_weeks_is_retired_and_reported(vault, capsys)
     assert "Twenty-eight days old." not in body and "Twenty-seven days old." in body
 
 
-def test_the_ceiling_refuses_a_sixth_ask_and_names_the_open_ones(vault, capsys):
+def test_a_sixth_ask_is_added_and_the_lowest_ranked_overflow_goes_to_the_evening(vault, capsys, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
     write_current(vault, "".join(f"- 2026-10-2{n} · ask · Question {n}.\n" for n in range(5))
                   + "- 2026-10-27 · confirm · Did a thing.\n")
     nightly.main(["needs-you", "--vault", str(vault), "--ask", "Question 1."])   # a repeat is not a new ask
-    with pytest.raises(SystemExit) as refused:
-        nightly.main(["needs-you", "--vault", str(vault), "--ask", "A sixth question?"])
-    assert refused.value.code == 1
-    err = capsys.readouterr().err
-    assert "already holds 5 open asks" in err and "2026-10-20 · Question 0." in err
+    nightly.main(["needs-you", "--vault", str(vault), "--ask", "Renew the registration by November 1?"])
+    assert "now holds 6 asks; tonight's evening decides the lowest-ranked down to 5" in capsys.readouterr().err
     body = fm.read(vault / "CURRENT.md")[1]
-    assert "A sixth question?" not in body and body.count("· ask ·") == 5
-    from brain import journal
-    from brain.config import Config
-    assert journal.add_ask(Config.load(vault), date(2026, 10, 28), "Migration step only you can take", None, force=True)
-    assert "Migration step only you can take" in fm.read(vault / "CURRENT.md")[1]
+    assert "Renew the registration" in body and body.count("· ask ·") == 6
+    ranked = [item.text for item in needs.items(Config.load(vault), TODAY)]
+    assert ranked[0] == "Renew the registration by November 1?"          # a date this week first
+    assert ranked[1:6] == ["Question 4.", "Question 3.", "Question 2.", "Question 1.", "Question 0."]   # then newest first
+    assert ranked[-1] == "Did a thing."
+    nightly.main(["needs-you", "--vault", str(vault), "--overflow"])
+    assert capsys.readouterr().out.splitlines() == ["2026-10-20 · Question 0. · CURRENT.md"]
     from brain import validate
     from brain.vault import Vault
-    assert validate.needs_ceiling(Vault(vault)) == ["CURRENT.md: 6 open asks in Needs you; at most 5: decide or retire the rest"]
-
+    assert validate.needs_ceiling(Vault(vault)) == ["CURRENT.md: 6 open asks in Needs you; the evening decides the lowest-ranked down to 5 (`brain needs-you --overflow`)"]
 
 def test_stale_lists_asks_two_weeks_old_oldest_first(vault, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")

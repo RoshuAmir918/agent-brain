@@ -167,7 +167,8 @@ def test_ledger_window_order_collapsed_rows_and_raw_ids(work):
 def test_needs_you_passthrough(work):
     expected = [asdict(item) for item in needs.items(work, TODAY)]
     assert state.build(work, TODAY)["needsYou"] == expected
-    assert [item["origin"] for item in expected] == ["current", "task", "task", "improvement", "current"]
+    assert sorted(item["origin"] for item in expected) == ["current", "current", "improvement", "task", "task"]
+    assert expected[-1]["kind"] == "confirm"
 
 
 def test_outputs_dates_kinds_and_ties(work):
@@ -205,10 +206,10 @@ def test_privacy_excludes_notes_outputs_routines_and_owner_proposals(work, folde
 def test_needs_you_normalizes_source_paths_without_changing_ids(work):
     note(work.vault_path, "CURRENT.md", "## Needs you\n"
          "- 2026-10-28 · ask · Choose? · [[memory/Work/Watch#Scope|Watch]]\n")
-    expected = asdict(needs.items(work, TODAY)[0])
+    expected = asdict(next(item for item in needs.items(work, TODAY) if item.text == "Choose?"))
     assert expected["source"] == "memory/Work/Watch#Scope"
     expected["source"] = "Work/Watch.md#Scope"
-    assert state.build(work, TODAY)["needsYou"][0] == expected
+    assert next(item for item in state.build(work, TODAY)["needsYou"] if item["text"] == "Choose?") == expected
 
 
 def test_deterministic_and_read_only(work):

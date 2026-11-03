@@ -14,7 +14,7 @@ from .tasks import archive_path, load_tasks
 from .vault import Vault
 
 KINDS = ("ask", "confirm")
-OPEN_ASKS = 5        # asks open in CURRENT at once: a sixth means deciding or retiring one first
+OPEN_ASKS = 5        # asks shown at once; past it, the evening decides the lowest-ranked down to it
 STALE_DAYS = 14      # an ask unanswered this long is the evening's to decide or retire
 RETIRE_DAYS = 28     # an ask unanswered this long leaves the list; silence is an answer
 LISTED_PROPOSALS = 2 # proposed improvements shown to the owner at once: the newest, from the last RETIRE_DAYS days
@@ -196,7 +196,27 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     out.extend(item for item in recent if id(item) in shown)
     out.extend(_access_items(vault, config, today))
     gone = dismissed_ids(config)
-    return sorted((item for item in out if item.id not in gone), key=lambda item: KINDS.index(item.kind))
+    return sorted((item for item in out if item.id not in gone), key=lambda item: rank(item, config, today))
+
+
+def rank(item: Item, config: Config, today: date) -> tuple:
+    """Asks before confirms; among asks, one naming a date in the coming week first, then what blocks work (a task
+    waiting on the owner, a request relayed by another intellect), then the rest newest first."""
+    from .compile_context import DATE, mentioned
+    if item.kind == "confirm":
+        return (1, 0, "")
+    soon = any((when := mentioned(m, today)) and today <= when <= date.fromordinal(today.toordinal() + 7)
+               for m in DATE.finditer(item.text))
+    blocking = item.origin == "task" or item.source.startswith(config.agents_dir + "/")
+    newest_first = "".join(chr(0x10FFFF - ord(c)) for c in (item.since or "0000-00-00"))
+    return (0, 0 if soon else 1 if blocking else 2, newest_first)
+
+
+def overflow(config: Config, today: date, ceiling: int = OPEN_ASKS) -> list[Item]:
+    """The asks in CURRENT past the ceiling, lowest-ranked first: what the evening decides tonight."""
+    asks = [item for item in items(config, today) if item.kind == "ask"]
+    extra = asks[ceiling:]
+    return [item for item in reversed(extra) if item.origin == "current"]
 
 
 def open_asks(body: str) -> list[Item]:

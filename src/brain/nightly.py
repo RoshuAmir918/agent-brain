@@ -562,13 +562,15 @@ def cmd_needs_you(args):
     if args.source and not args.ask:
         raise SystemExit("brain needs-you: --source goes with --ask")
     if args.ask:
-        if not journal.add_ask(args.config, args.config.today(), args.ask, args.source):
-            current = (args.config.vault_path / "CURRENT.md").read_bytes().decode("utf-8")
-            print(f"Needs you already holds {needs.OPEN_ASKS} open asks; decide or retire one before adding another:",
+        journal.add_ask(args.config, args.config.today(), args.ask, args.source)
+        count = len(needs.open_asks((args.config.vault_path / "CURRENT.md").read_bytes().decode("utf-8")))
+        if count > needs.OPEN_ASKS:
+            print(f"Needs you now holds {count} asks; tonight's evening decides the lowest-ranked down to {needs.OPEN_ASKS}.",
                   file=sys.stderr)
-            for item in needs.open_asks(current):
-                print(f"  {item.since} · {item.text[:140]}", file=sys.stderr)
-            sys.exit(1)
+        return
+    if args.overflow:
+        for item in needs.overflow(args.config, args.config.today()):
+            print(f"{item.since} · {item.text} · {item.source}")
         return
     if args.resolve:
         if not args.because:
@@ -859,8 +861,9 @@ def main(argv=None):
     s = sub.add_parser("needs-you"); s.add_argument("--vault")
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true")
-    mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored; refused at the ceiling of open asks)")
+    mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored; never refused)")
     mode.add_argument("--stale", action="store_true", help="asks unanswered for 14 days or more, for the evening to decide or retire")
+    mode.add_argument("--overflow", action="store_true", help="asks past the five shown, lowest-ranked first, for the evening to decide tonight")
     mode.add_argument("--resolve", metavar="ID_OR_TEXT", help="remove an answered item from CURRENT's Needs you and record the evidence")
     mode.add_argument("--dismiss", metavar="ID_OR_TEXT", help="the owner said no: drop the item, act on nothing, never raise it again")
     s.add_argument("--because", metavar="EVIDENCE", help="with --resolve: what answered it, in a sentence")

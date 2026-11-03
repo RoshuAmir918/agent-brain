@@ -195,10 +195,12 @@ def test_deduplication_since_and_stable_ids_across_changed_text_and_months(confi
     append(config, datetime(2026, 11, 1, 12), asked="your plans tomorrow")
     append(config, datetime(2026, 10, 22, 12))
     append(config, datetime(2026, 11, 2, 12), subject="health", asked="how you are")
-    schedule, health = access_items(config, date(2026, 11, 4))
+    found = access_items(config, date(2026, 11, 4))
+    schedule, = [item for item in found if "health" not in item.text]
+    health, = [item for item in found if "health" in item.text]
     assert schedule.since == "2026-10-22" and health.since == "2026-11-02"
     assert schedule.source == "People/Access/2026-10.md"
-    later = access_items(config, date(2026, 11, 5))[0]
+    later, = [item for item in access_items(config, date(2026, 11, 5)) if "health" not in item.text]
     assert later.since == "2026-11-01" and later.source == "People/Access/2026-11.md"
     assert later.text != schedule.text and later.id == schedule.id
     assert health.id != schedule.id

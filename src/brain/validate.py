@@ -153,7 +153,7 @@ def needs_ceiling(vault: Vault) -> list[str]:
     asks = needs.open_asks(note.body) if note else []
     if len(asks) <= needs.OPEN_ASKS:
         return []
-    return [f"CURRENT.md: {len(asks)} open asks in Needs you; at most {needs.OPEN_ASKS}: decide or retire the rest"]
+    return [f"CURRENT.md: {len(asks)} open asks in Needs you; the evening decides the lowest-ranked down to {needs.OPEN_ASKS} (`brain needs-you --overflow`)"]
 
 
 def channels(vault: Vault) -> list[str]:

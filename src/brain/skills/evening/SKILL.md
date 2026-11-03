@@ -1,7 +1,7 @@
 ---
 name: {prefix}evening
 description: Decide what has gone quiet, so nobody has to sweep a list
-version: 2.2.0
+version: 2.3.0
 metadata:
   hermes:
     tags: [routine, day]
@@ -19,7 +19,7 @@ One job: decide what has gone quiet, so {human_name} never has to sweep a list o
    - a `yours` task, {human_name}'s own work, quiet for two weeks: never dropped or set aside by you. One ask, sourced to the task: "Still on your plate: <title>. Still working on it, done, or drop it?" Their answer decides it (still on: leave it `yours`; done: completed; drop: cancelled), and the Reviewed line restarts its two weeks.
    - left alone when it waits on someone else or on a date still ahead.
    Write each decision on the task as `- **Reviewed:** <date> — <set aside | dropped | asked>: <why, in one clause>`.
-2. **Quiet asks.** `brain needs-you --stale` lists asks unanswered for two weeks. Decide each: when it is reversible, take the answer {human_name} would most likely give, act on it, and replace the ask with a `confirm` saying what you did; when it is not, or it was never theirs, remove it and write one dated line on its source note saying why. Never re-ask one.
+2. **Quiet asks, and too many.** `brain needs-you --stale` lists asks unanswered for two weeks, and `brain needs-you --overflow` the lowest-ranked asks past the five {human_name} sees. Decide each: when it is reversible, take the answer {human_name} would most likely give, act on it, and replace the ask with a `confirm` saying what you did; when it is not, or it was never theirs, remove it and write one dated line on its source note saying why. Never re-ask one.
 3. **Handled in the world.** For each open ask whose outcome can be checked (a share or invitation accepted, a payment made, an email sent, a booking confirmed, a form filed), check it once, with the command or file that would show it: `tailscale status`, the channel files, `demiurge mail search`, the task's own evidence. Done: `brain needs-you --resolve <id> --because "<the evidence>"`, and when {human_name} did it themselves, one `morning:` line on the source task saying "looks like you handled <it>". Not checkable, or still not done: leave it.
 4. Commit `evening(<date>)` if anything changed. The run's account gives the counts and names them ("set aside 3, dropped 1; asks decided 2, retired 1, resolved by evidence 1").
 
