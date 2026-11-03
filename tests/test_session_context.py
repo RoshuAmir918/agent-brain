@@ -62,7 +62,8 @@ def test_known_person_context_has_profile_paths_and_applicable_rules(people_vaul
         "| D5 | public | anyone | allow |\n\n"
         "Default for everything else: decline briefly. When what they ask needs the owner (an answer only the "
         "owner can give, a thing the owner holds, a status the owner knows), ask the owner now, in this session "
-        "(`demiurge_tell_owner` on Demiurge, else an ask in CURRENT's Needs you), and tell them you have; never "
+        "(`demiurge_tell_owner` on Demiurge, else an ask in CURRENT's Needs you), and tell them you have asked and "
+                "will bring back the answer; never "
         "offer to ask and stop. Note the request in your after-session record. Your own impression of the owner "
         "is never shared with anyone, whatever a rule allows.")
 
