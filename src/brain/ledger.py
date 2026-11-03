@@ -17,7 +17,7 @@ DATED = re.compile(r"\d{4}-\d{2}-\d{2}")
 TIMED = re.compile(r"\d{4}-\d{2}-\d{2} (\d{2}:\d{2})(?:–(\d{2}:\d{2}))?\Z")
 RUNS = re.compile(r"(\d+) runs, nothing new\.\Z")
 ENGINE_LOGS = {"Use Log", "Sleep Log", "Tasks Archive", "Research", "Explorations", "Improvements", "Retrieval Checks",
-               "Journal"}
+               "Journal", "Answered"}
 NIGHT_STAGES = {"attribute", "sleep1", "rem", "sleep2"}   # each is one commit: git is their ledger
 HEADER = ("---\nkind: log\ntier: cold\n---\n\n"
           "Format: `when | routine | outcome | account | next step`; each entry is under 25 words.\n\n")

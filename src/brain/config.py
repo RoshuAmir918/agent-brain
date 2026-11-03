@@ -210,7 +210,7 @@ class Config:
     @property
     def log_paths(self) -> tuple[str, ...]:
         """Agent-folder prefixes whose files are logs: engine ledgers plus the vault's own receipt folders."""
-        names = ("Research", "Explorations", "Improvements", "Use Log", "Sleep Log", "Tasks Archive", *self.log_dirs)
+        names = ("Research", "Explorations", "Improvements", "Use Log", "Sleep Log", "Tasks Archive", "Answered", *self.log_dirs)
         return tuple(self.agent(Path(name).as_posix() + "/") for name in names)
 
     @property

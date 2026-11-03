@@ -476,3 +476,44 @@ def test_proposals_shown_are_the_two_newest_and_none_past_four_weeks(vault):
              + improvement("October 27 — Newest", "proposed")
              + improvement("October 25 — Second newest", "proposed"))
     assert [item.text for item in needs.items(Config.load(vault), TODAY)] == ["Adopt? Newest", "Adopt? Second newest"]
+
+
+
+def test_resolve_removes_the_answered_item_and_records_the_evidence(vault, capsys, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
+    write_current(vault, "- 2026-10-28 · ask · Accept Kevin's Tailscale share for Hands? · [[agent/Tasks#T-037]]\n"
+                  "- 2026-10-29 · ask · Book the dinner for Saturday?\n"
+                  "- 2026-10-30 · confirm · Moved the dentist to Thursday.\n")
+    write_tasks(vault, Task("T-009", "Waiting task", "", {"state": "waiting_for_owner"}))
+    nightly.main(["needs-you", "--vault", str(vault), "--resolve", "tailscale share", "--because", "tailscale status shows Kevin's share accepted on Nov 2"])
+    assert capsys.readouterr().out == "resolved ask: Accept Kevin's Tailscale share for Hands?\n"
+    body = fm.read(vault / "CURRENT.md")[1]
+    assert "Tailscale" not in body and "Book the dinner" in body and "Moved the dentist" in body
+    log = (vault / "agent/Answered/2026-11.md").read_text()
+    assert log.startswith("---\nkind: log\ntier: cold\n---\n# Answered")
+    assert "- 2026-11-03 · ask · Accept Kevin's Tailscale share for Hands? · because tailscale status shows Kevin's share accepted on Nov 2 · [[agent/Tasks#T-037]]" in log
+    confirm, = [item for item in needs.items(Config.load(vault), date(2026, 11, 3)) if item.kind == "confirm"]
+    nightly.main(["needs-you", "--vault", str(vault), "--resolve", confirm.id, "--because", "Roshan said Thursday works"])
+    assert "Moved the dentist" not in fm.read(vault / "CURRENT.md")[1]
+    assert log.count("\n- ") + 1 == (vault / "agent/Answered/2026-11.md").read_text().count("\n- ")
+    from brain.vault import Vault
+    assert Vault(vault).kind_for("agent/Answered/2026-11.md") == "log"
+
+
+@pytest.mark.parametrize("which, because, message", [
+    ("nothing like this", "x", "no open item matches"),
+    ("?", "x", "open items match"),
+    ("Waiting task", "x", "change the task's state"),
+    ("dinner", "", "say what answered it"),
+])
+def test_resolve_refuses_what_it_cannot_settle(vault, capsys, which, because, message):
+    write_current(vault, "- 2026-10-29 · ask · Book the dinner for Saturday?\n- 2026-10-29 · ask · Call the plumber?\n")
+    write_tasks(vault, Task("T-009", "Waiting task", "", {"state": "waiting_for_owner"}))
+    args = ["needs-you", "--vault", str(vault), "--resolve", which]
+    if because:
+        args += ["--because", because]
+    with pytest.raises(SystemExit):
+        nightly.main(args)
+    out = capsys.readouterr()
+    assert message in out.err + str(out.out) or because == ""
+    assert "Book the dinner" in fm.read(vault / "CURRENT.md")[1]

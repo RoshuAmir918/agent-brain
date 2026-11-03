@@ -233,6 +233,52 @@ def retire_asks(config: Config, today: date, days: int = RETIRE_DAYS) -> list[st
     return removed
 
 
+ANSWERED_HEADER = "---\nkind: log\ntier: cold\n---\n# Answered\n\nAsks and confirms resolved by evidence, one line each: date, kind, what it was, the evidence.\n\n"
+
+
+def resolve(config: Config, which: str, because: str, today: date) -> Item:
+    """Remove one item from CURRENT's Needs you because something answered it, and record what did, in
+    `<agent_dir>/Answered/YYYY-MM.md`. `which` is an item id from `brain needs-you --json`, or text that matches exactly
+    one open item. Tasks, proposals and access requests are resolved where they live, not here."""
+    because = " ".join(because.replace("|", "/").split())
+    if not because:
+        raise ValueError("say what answered it: --because \"<the evidence>\"")
+    candidates = items(config, today)
+    chosen = [item for item in candidates if item.id == which]
+    if not chosen:
+        needle = " ".join(which.split()).casefold()
+        chosen = [item for item in candidates if needle and needle in item.text.casefold()]
+    if len(chosen) != 1:
+        raise ValueError(("no open item matches " if not chosen else f"{len(chosen)} open items match ") + repr(which)
+                         + "; use an id from `brain needs-you --json`")
+    item = chosen[0]
+    if item.origin != "current":
+        where = {"task": "change the task's state", "improvement": "set the proposal's status in its hub",
+                 "access": "write or decline the grant (setup)"}[item.origin]
+        raise ValueError(f"this item lives elsewhere: {where}")
+    path = config.vault_path / "CURRENT.md"
+    body = path.read_bytes().decode("utf-8")
+    span = _section(body, "Needs you")
+    kept, removed = [], False
+    for line in body[span[0]:span[1]].splitlines(keepends=True):
+        bullet = _bullet(line)
+        if not removed and bullet and bullet.id == item.id:
+            removed = True
+            continue
+        kept.append(line)
+    path.write_bytes((body[:span[0]] + "".join(kept) + body[span[1]:]).encode("utf-8"))
+    log = config.vault_path / config.agent("Answered") / f"{today:%Y-%m}.md"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    if not log.exists():
+        log.write_text(ANSWERED_HEADER, encoding="utf-8")
+    line = f"- {today.isoformat()} · {item.kind} · {item.text} · because {because}"
+    if item.source != "CURRENT.md":
+        line += f" · [[{item.source}]]"
+    with log.open("a", encoding="utf-8") as stream:
+        stream.write(line + "\n")
+    return item
+
+
 def expire_confirms(config: Config, today: date) -> list[str]:
     path = config.vault_path / "CURRENT.md"
     if not path.exists():
