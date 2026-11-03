@@ -112,19 +112,24 @@ def _append(config: Config, path: Path, text: str) -> None:
             stream.write(("" if ends_clean else "\n") + text)
 
 
-def add_ask(config: Config, day: date, text: str, source: str | None) -> None:
-    """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing."""
+def add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False) -> bool:
+    """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing. Returns
+    False, adding nothing, when the section already holds its ceiling of open asks (unless `force`, for a step only
+    the owner can take, such as a migration's edit to a protected file)."""
     with vault_lock(config):
-        _add_ask(config, day, text, source)
+        return _add_ask(config, day, text, source, force)
 
 
-def _add_ask(config: Config, day: date, text: str, source: str | None) -> None:
+def _add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False) -> bool:
     path = config.vault_path / "CURRENT.md"
     data, body = fm.read(path) if path.exists() else ({}, "")
     text = " ".join(text.replace("·", "-").split())   # the separator, inside the text, would break the bullet
-    from .needs import parse_section
-    if any(item.kind == "ask" and item.text.casefold() == text.casefold() for item in parse_section(body)):
-        return   # already asked; the first one stands until it is resolved
+    from .needs import OPEN_ASKS, open_asks
+    asks = open_asks(body)
+    if any(item.text.casefold() == text.casefold() for item in asks):
+        return True   # already asked; the first one stands until it is resolved
+    if len(asks) >= OPEN_ASKS and not force:
+        return False
     bullet = f"- {day.isoformat()} · ask · {text}" + (f" · [[{source}]]" if source else "")
     heading = re.search(r"^## Needs you[ \t]*$", body, re.M)
     if heading is None:
@@ -136,6 +141,7 @@ def _add_ask(config: Config, day: date, text: str, source: str | None) -> None:
         gap = "\n\n" if before.endswith("## Needs you") else "\n"
         body = before + gap + bullet + "\n" + ("\n" + after if after else "")
     fm.write(path, data, body)
+    return True
 
 
 def recent(config: Config, today: date, count: int = 30) -> list[Entry]:

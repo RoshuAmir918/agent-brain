@@ -340,9 +340,11 @@ def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
     with vault_lock(config):   # the after-session writer adds asks to CURRENT at any hour
         rebuild_current(config, open_tasks, today, report)
         removed = needs.expire_confirms(config, today)
-    if removed:
+        retired = needs.retire_asks(config, today)
+    if removed or retired:
         changed.add("CURRENT.md")
         report.extend(f"needs-you: confirm accepted after 7 days: {text}" for text in removed)
+        report.extend(f"needs-you: ask unanswered {needs.RETIRE_DAYS} days, retired: {text}" for text in retired)
     with vault_lock(config):
         collapsed = ledger.collapse(config, today)
     for path in collapsed:
@@ -490,7 +492,7 @@ def cmd_validate(a):
     vault = Vault(a.config.vault_path)
     problems = (validate.run(vault, set(vault.notes)) + validate.responsibilities(vault) + validate.task_states(vault)
                 + validate.kinds(vault) + validate.access_problems(vault) + validate.owner_profile(vault)
-                + validate.channels(vault))
+                + validate.channels(vault) + validate.needs_ceiling(vault))
     for p in problems:
         print(p)
     print(f"{len(problems)} problems")
@@ -560,7 +562,17 @@ def cmd_needs_you(args):
     if args.source and not args.ask:
         raise SystemExit("brain needs-you: --source goes with --ask")
     if args.ask:
-        journal.add_ask(args.config, args.config.today(), args.ask, args.source)
+        if not journal.add_ask(args.config, args.config.today(), args.ask, args.source):
+            current = (args.config.vault_path / "CURRENT.md").read_bytes().decode("utf-8")
+            print(f"Needs you already holds {needs.OPEN_ASKS} open asks; decide or retire one before adding another:",
+                  file=sys.stderr)
+            for item in needs.open_asks(current):
+                print(f"  {item.since} · {item.text[:140]}", file=sys.stderr)
+            sys.exit(1)
+        return
+    if args.stale:
+        for item in needs.stale(args.config, args.config.today()):
+            print(f"{item.since} · {item.text} · {item.source}")
         return
     items = needs.items(args.config, args.config.today())
     if args.json:
@@ -808,7 +820,8 @@ def main(argv=None):
     s = sub.add_parser("needs-you"); s.add_argument("--vault")
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true")
-    mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored)")
+    mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored; refused at the ceiling of open asks)")
+    mode.add_argument("--stale", action="store_true", help="asks unanswered for 14 days or more, for the evening to decide or retire")
     s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
     s.set_defaults(fn=cmd_needs_you)
     s = sub.add_parser("channels", help="the channel registry; `sync` registers completed connect grants (from stdin, or --run for `connect list`)")

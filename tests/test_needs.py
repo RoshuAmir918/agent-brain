@@ -273,7 +273,7 @@ def test_nightly_write_expires_and_reports_each_confirm(vault, capsys):
     write_current(vault, "- 2026-10-21 · confirm · First accepted.\n"
                   "- 2026-10-20 · confirm · Second accepted.\n"
                   "- 2026-10-22 · confirm · Still pending.\n"
-                  "- 2020-01-01 · ask · Still waiting.\n")
+                  "- 2026-10-10 · ask · Still waiting.\n")
     nightly.main(nightly_argv(vault, TODAY, "--write"))
     output = capsys.readouterr().out
     body = fm.read(vault / "CURRENT.md")[1]
@@ -425,3 +425,43 @@ def test_cli_ask_rejects_conflicting_arguments(vault, argv):
     with pytest.raises(SystemExit):
         nightly.main(["needs-you", "--vault", str(vault), *argv])
     assert snapshot(vault.parent) == before
+
+
+
+def test_an_ask_unanswered_for_four_weeks_is_retired_and_reported(vault, capsys):
+    write_current(vault, "- 2026-09-30 · ask · Twenty-eight days old.\n"
+                  "- 2026-10-01 · ask · Twenty-seven days old.\n")
+    nightly.main(nightly_argv(vault, TODAY, "--write"))
+    output = capsys.readouterr().out
+    body = fm.read(vault / "CURRENT.md")[1]
+    line = "needs-you: ask unanswered 28 days, retired: Twenty-eight days old."
+    assert line in output and line in (vault / "agent/Sleep Log/2026-10.md").read_text()
+    assert "Twenty-eight days old." not in body and "Twenty-seven days old." in body
+
+
+def test_the_ceiling_refuses_a_sixth_ask_and_names_the_open_ones(vault, capsys):
+    write_current(vault, "".join(f"- 2026-10-2{n} · ask · Question {n}.\n" for n in range(5))
+                  + "- 2026-10-27 · confirm · Did a thing.\n")
+    nightly.main(["needs-you", "--vault", str(vault), "--ask", "Question 1."])   # a repeat is not a new ask
+    with pytest.raises(SystemExit) as refused:
+        nightly.main(["needs-you", "--vault", str(vault), "--ask", "A sixth question?"])
+    assert refused.value.code == 1
+    err = capsys.readouterr().err
+    assert "already holds 5 open asks" in err and "2026-10-20 · Question 0." in err
+    body = fm.read(vault / "CURRENT.md")[1]
+    assert "A sixth question?" not in body and body.count("· ask ·") == 5
+    from brain import journal
+    from brain.config import Config
+    assert journal.add_ask(Config.load(vault), date(2026, 10, 28), "Migration step only you can take", None, force=True)
+    assert "Migration step only you can take" in fm.read(vault / "CURRENT.md")[1]
+    from brain import validate
+    from brain.vault import Vault
+    assert validate.needs_ceiling(Vault(vault)) == ["CURRENT.md: 6 open asks in Needs you; at most 5: decide or retire the rest"]
+
+
+def test_stale_lists_asks_two_weeks_old_oldest_first(vault, capsys, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
+    write_current(vault, "- 2026-10-20 · ask · Fresh.\n- 2026-10-14 · ask · Two weeks.\n- 2026-10-01 · ask · Older.\n"
+                  "- 2026-10-01 · confirm · Not an ask.\n")
+    nightly.main(["needs-you", "--vault", str(vault), "--stale"])
+    assert capsys.readouterr().out.splitlines() == ["2026-10-01 · Older. · CURRENT.md", "2026-10-14 · Two weeks. · CURRENT.md"]

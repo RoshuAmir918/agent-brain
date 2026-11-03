@@ -1,7 +1,7 @@
 ---
 name: {prefix}morning
 description: The morning briefing
-version: 2.0.0
+version: 2.1.0
 metadata:
   hermes:
     tags: [routine, day]
@@ -17,7 +17,7 @@ What today is for {human_name}, at the agreed hour, every day, even when there i
 3. Compose in this order, dropping any part with nothing in it, separating verified fact from reported status and results from proposals:
    - **Today.** Where they are, who they are with, what they said they would do, and what is due or happening today or tomorrow, from Primed and Upcoming. One or two sentences, not a list. When the vault cannot confirm a due thing was done, say so once: "due today; I can't see that it's done."
    - **Done for you.** The one thing {agent_name} prepared, found or finished since yesterday, if there is one, and where it is. A thing held under `{agent_dir}/Prepared/` is mentioned here once, as waiting, and never again.
-   - **Needs you.** Asks first, then confirms, one short line each, from `brain needs-you`. Primed's nudges verbatim, once. Sleep 1's open conflicts and questions.
+   - **Needs you.** The one or two asks that matter most today, a deadline first, one short line each, from `brain needs-you`; the rest wait in the app, and "nothing needs you today" is a good morning. Confirms are not questions: at most one line saying what you went ahead with. Primed's nudges once, only when they bear on today.
    - **Coming up.** The dated items in the next week that need something from them, from Upcoming. Only those; the rest stays in context.
    - **Noticed**, labelled as inference: a new reflection, a pattern the audit found, Improve's recommendation with its status, the weekly service line when Sleep 2 wrote one. Never raw numbers.
 4. What the briefing leaves out: whether last night's commits exist, which stages ran, routine drift, retrieval-audit counts, consolidation disagreements, source-coverage caveats, and anything about this profile's own connections or tools. They are in the Sleep Log; `brain health` reports the stages; a maintainer asks for them. When the night did not run, that is one sentence in total, however many stages are missing ("I didn't consolidate last night, so this is from the day before"), never a list. A responsibility's prepared piece (a letter, a comparison, a companion) is one line under Done for you with where it is, not its contents.

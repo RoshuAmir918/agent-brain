@@ -14,6 +14,9 @@ from .tasks import archive_path, load_tasks
 from .vault import Vault
 
 KINDS = ("ask", "confirm")
+OPEN_ASKS = 5        # asks open in CURRENT at once: a sixth means deciding or retiring one first
+STALE_DAYS = 14      # an ask unanswered this long is the evening's to decide or retire
+RETIRE_DAYS = 28     # an ask unanswered this long leaves the list; silence is an answer
 DATED_HEADING_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2}|(?:January|February|March|April|May|June|July|August|"
     r"September|October|November|December) \d{1,2}(?:, \d{4})?) — (.+)$")
@@ -168,6 +171,41 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
             out.extend(_improvements(note.body, rel))
     out.extend(_access_items(vault, config, today))
     return sorted(out, key=lambda item: KINDS.index(item.kind))
+
+
+def open_asks(body: str) -> list[Item]:
+    return [item for item in parse_section(body) if item.kind == "ask"]
+
+
+def stale(config: Config, today: date, days: int = STALE_DAYS) -> list[Item]:
+    """Asks in CURRENT unanswered for `days` or more, oldest first."""
+    path = config.vault_path / "CURRENT.md"
+    if not path.exists():
+        return []
+    body = path.read_bytes().decode("utf-8")
+    old = [item for item in open_asks(body) if (today - date.fromisoformat(item.since)).days >= days]
+    return sorted(old, key=lambda item: item.since)
+
+
+def retire_asks(config: Config, today: date, days: int = RETIRE_DAYS) -> list[str]:
+    """Remove asks unanswered for `days` or more: the backstop when no routine decided them. Returns their texts."""
+    path = config.vault_path / "CURRENT.md"
+    if not path.exists():
+        return []
+    body = path.read_bytes().decode("utf-8")
+    span = _section(body, "Needs you")
+    if span is None:
+        return []
+    kept, removed = [], []
+    for line in body[span[0]:span[1]].splitlines(keepends=True):
+        item = _bullet(line)
+        if item and item.kind == "ask" and (today - date.fromisoformat(item.since)).days >= days:
+            removed.append(item.text)
+        else:
+            kept.append(line)
+    if removed:
+        path.write_bytes((body[:span[0]] + "".join(kept) + body[span[1]:]).encode("utf-8"))
+    return removed
 
 
 def expire_confirms(config: Config, today: date) -> list[str]:

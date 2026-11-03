@@ -139,6 +139,15 @@ KINDS = ("hub", "profile", "group", "episode", "reflection", "task", "trigger", 
          "draft", "conversation", "procedure")
 
 
+def needs_ceiling(vault: Vault) -> list[str]:
+    from . import needs
+    note = vault.notes.get("CURRENT.md")
+    asks = needs.open_asks(note.body) if note else []
+    if len(asks) <= needs.OPEN_ASKS:
+        return []
+    return [f"CURRENT.md: {len(asks)} open asks in Needs you; at most {needs.OPEN_ASKS}: decide or retire the rest"]
+
+
 def channels(vault: Vault) -> list[str]:
     from . import channels as registry
     return registry.problems(vault)

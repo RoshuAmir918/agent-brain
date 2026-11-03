@@ -207,7 +207,7 @@ def migrate_done(config: Config, deferred: list[str] | None = None) -> str:
     if deferred:
         from .journal import add_ask
         for step in deferred:
-            add_ask(config, config.today(), f"Migration to {current} left for you: {step}", None)
+            add_ask(config, config.today(), f"Migration to {current} left for you: {step}", None, force=True)
     record_version(config, current)
     pending = config.vault_path / config.hermes_dir / "pending-migration.md"
     if pending.exists():

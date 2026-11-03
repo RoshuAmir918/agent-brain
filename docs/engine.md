@@ -142,7 +142,7 @@ A task the owner handed off carries `- **Handed off:** YYYY-MM-DD · report in <
 
 ## Needs you
 
-`brain needs-you [--json] [--vault PATH]` computes one owner list: bullets in CURRENT's `## Needs you` section, tasks whose effective state is `waiting_for_owner` (including archived open tasks), then `proposed` improvements in responsibility and topic hubs. Trigger rows are the agent's commitments, not owner requests, and are excluded. Asks sort before confirms; each kind keeps source order. Text output is `ask · text · source`; JSON includes stable IDs, kind, text, origin, since and source pointers. `brain needs-you --ask TEXT [--source NOTE]` adds an ask to that section; a repeat of an open ask is ignored.
+`brain needs-you [--json] [--vault PATH]` computes one owner list: bullets in CURRENT's `## Needs you` section, tasks whose effective state is `waiting_for_owner` (including archived open tasks), then `proposed` improvements in responsibility and topic hubs. Trigger rows are the agent's commitments, not owner requests, and are excluded. Asks sort before confirms; each kind keeps source order. Text output is `ask · text · source`; JSON includes stable IDs, kind, text, origin, since and source pointers. `brain needs-you --ask TEXT [--source NOTE]` adds an ask to that section; a repeat of an open ask is ignored, and a sixth open ask is refused with exit 1 and the five listed, so the agent decides or retires one first (a migration's step for the owner is always added). `brain needs-you --stale` lists asks unanswered for 14 days or more, oldest first, for the evening routine to decide or retire. `brain validate` reports more than five open asks.
 
 `brain stale-tasks [--vault PATH]` lists the open tasks the evening routine reviews, oldest first: untouched for 21 days, or 14 when waiting on the owner. A task is touched by a use, an inferred use or any date its entry names, so a deadline still ahead keeps it off the list. Set-aside tasks are already decided and never listed.
 
@@ -154,7 +154,7 @@ Outside CURRENT's generated active-threads markers, write:
 - 2026-10-28 · confirm · Went ahead with the refundable fare.
 ```
 
-The fields are ISO date, kind, text and an optional source wikilink, separated by ` · `. An `ask` is a decision only the owner can make; the agent may wait on it. A `confirm` records something already done so the owner can correct it; the agent never waits on one. Malformed bullets are ignored. `brain nightly --write` removes unanswered confirms dated seven or more days ago as accepted and records each removal in its report and Sleep Log. Asks never expire. Preview changes only its disposable copy; rebuilding active threads preserves this section verbatim.
+The fields are ISO date, kind, text and an optional source wikilink, separated by ` · `. An `ask` is a decision only the owner can make; the agent may wait on it. A `confirm` records something already done so the owner can correct it; the agent never waits on one. Malformed bullets are ignored. `brain nightly --write` removes unanswered confirms dated seven or more days ago as accepted, and asks dated 28 or more days ago as retired, and records each removal in its report and Sleep Log. Preview changes only its disposable copy; rebuilding active threads preserves this section verbatim.
 
 ## Audit
 
