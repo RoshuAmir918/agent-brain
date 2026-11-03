@@ -17,6 +17,7 @@ KINDS = ("ask", "confirm")
 OPEN_ASKS = 5        # asks open in CURRENT at once: a sixth means deciding or retiring one first
 STALE_DAYS = 14      # an ask unanswered this long is the evening's to decide or retire
 RETIRE_DAYS = 28     # an ask unanswered this long leaves the list; silence is an answer
+LISTED_PROPOSALS = 2 # proposed improvements shown to the owner at once: the newest, from the last RETIRE_DAYS days
 DATED_HEADING_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2}|(?:January|February|March|April|May|June|July|August|"
     r"September|October|November|December) \d{1,2}(?:, \d{4})?) — (.+)$")
@@ -93,7 +94,30 @@ def improvement_status(entry: str) -> str | None:
     return inline[1].lower() if inline else None
 
 
-def _improvements(body: str, source: str) -> list[Item]:
+def _heading_date(text: str, today: date | None) -> str | None:
+    """An ISO date, `October 26, 2026`, or `October 26` (the likeliest year: this one, or last if that is ahead)."""
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        pass
+    match = re.fullmatch(r"([A-Za-z]+) (\d{1,2})(?:, (\d{4}))?", text)
+    if not match:
+        return None
+    months = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+              "november", "december")
+    try:
+        month = months.index(match[1].lower()) + 1
+        if match[3]:
+            return date(int(match[3]), month, int(match[2])).isoformat()
+        if today is None:
+            return None
+        when = date(today.year, month, int(match[2]))
+        return (when if when <= today else date(today.year - 1, month, int(match[2]))).isoformat()
+    except ValueError:
+        return None
+
+
+def _improvements(body: str, source: str, today: date | None = None) -> list[Item]:
     span = _section(body, "Improvements")
     if span is None:
         return []
@@ -108,11 +132,7 @@ def _improvements(body: str, source: str) -> list[Item]:
         dated = DATED_HEADING_RE.fullmatch(anchor)
         title, since = anchor, None
         if dated:
-            title = dated[2]
-            try:
-                since = date.fromisoformat(dated[1]).isoformat()
-            except ValueError:
-                pass
+            title, since = dated[2], _heading_date(dated[1], today)
         out.append(Item("ask", "Adopt? " + title, "improvement", since, source + "#" + anchor))
     return out
 
@@ -166,9 +186,14 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
             source = (register + "#" + task.tid if task.tid in registered else
                       archive_path(config, task.tid).relative_to(config.vault_path).as_posix())
             out.append(Item("ask", task.title, "task", task.last_evidence_date() or None, source))
-    for rel, note in vault.notes.items():
-        if vault.kind_for(rel) == "hub":
-            out.extend(_improvements(note.body, rel))
+    proposals = [item for rel, note in vault.notes.items() if vault.kind_for(rel) == "hub"
+                 for item in _improvements(note.body, rel, today)]
+    # A proposal stays in its hub as long as it stands; the owner is shown the newest few, none past four weeks, and an
+    # undated one only when nothing newer fills the room.
+    recent = [item for item in proposals
+              if item.since is None or (today - date.fromisoformat(item.since)).days < RETIRE_DAYS]
+    shown = {id(item) for item in sorted(recent, key=lambda item: item.since or "", reverse=True)[:LISTED_PROPOSALS]}
+    out.extend(item for item in recent if id(item) in shown)
     out.extend(_access_items(vault, config, today))
     return sorted(out, key=lambda item: KINDS.index(item.kind))
 

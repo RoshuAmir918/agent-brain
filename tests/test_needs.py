@@ -139,7 +139,8 @@ def test_warm_waiting_task_uses_recovered_body(vault):
     ("", False), ("proposed was replaced by `adopted`", False),
     ("`trialing` then `proposed`", False),
 ])
-@pytest.mark.parametrize("day, since", [("2026-10-26", "2026-10-26"), ("October 26", None)])
+@pytest.mark.parametrize("day, since", [("2026-10-26", "2026-10-26"), ("October 26", "2026-10-26"),
+                                       ("October 26, 2026", "2026-10-26")])
 def test_improvement_status_and_heading_dates(vault, status, included, day, since):
     heading = day + " — Active supervision rather than status collection"
     fm.write(vault / "Supervision.md", {}, "# Supervision\n\n## Improvements\n\n" + improvement(heading, status))
@@ -172,8 +173,8 @@ def test_improvement_scope_and_undated_headings(vault):
     log.parent.mkdir(parents=True)
     fm.write(log, {}, body)
     result = needs.items(Config.load(vault), TODAY)
-    assert [item.text for item in result] == [
-        "Adopt? Undated proposal", "Adopt? Better — owner decisions", "Adopt? Bad date still readable"]
+    # Three undated proposals, two shown: the owner sees the newest few, never the whole backlog.
+    assert [item.text for item in result] == ["Adopt? Undated proposal", "Adopt? Better — owner decisions"]
     assert all(item.since is None for item in result)
 
 
@@ -199,8 +200,8 @@ def test_order_is_asks_then_confirms_with_source_order_preserved(vault):
                  + improvement("October 26 — " + name + " older", "proposed"))
     assert [item.text for item in needs.items(Config.load(vault), TODAY)] == [
         "Current first.", "Current second.", "Register first", "Register second",
-        "Archive T-003", "Archive T-005", "Adopt? A topic newest", "Adopt? A topic older",
-        "Adopt? Z topic newest", "Adopt? Z topic older", "Confirm first.", "Confirm second."]
+        "Archive T-003", "Archive T-005", "Adopt? A topic newest", "Adopt? Z topic newest",
+        "Confirm first.", "Confirm second."]
 
 
 def test_ids_are_stable_and_depend_on_origin_source_and_text(vault):
@@ -465,3 +466,13 @@ def test_stale_lists_asks_two_weeks_old_oldest_first(vault, capsys, monkeypatch)
                   "- 2026-10-01 · confirm · Not an ask.\n")
     nightly.main(["needs-you", "--vault", str(vault), "--stale"])
     assert capsys.readouterr().out.splitlines() == ["2026-10-01 · Older. · CURRENT.md", "2026-10-14 · Two weeks. · CURRENT.md"]
+
+
+
+def test_proposals_shown_are_the_two_newest_and_none_past_four_weeks(vault):
+    fm.write(vault / "Hub.md", {}, "# Hub\n\n## Improvements\n\n"
+             + improvement("September 20 — Too old to show", "proposed")
+             + improvement("October 20 — Third newest", "proposed")
+             + improvement("October 27 — Newest", "proposed")
+             + improvement("October 25 — Second newest", "proposed"))
+    assert [item.text for item in needs.items(Config.load(vault), TODAY)] == ["Adopt? Newest", "Adopt? Second newest"]
