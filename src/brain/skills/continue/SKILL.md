@@ -1,0 +1,23 @@
+---
+name: {prefix}continue
+description: Work a handed-off thread until it is done
+version: 1.0.0
+metadata:
+  hermes:
+    tags: [routine, day, night, work]
+    category: brain
+---
+# Continue
+
+The worker's pass. Every thirty minutes, day and night, {agent_name} picks up whatever {human_name} handed off and keeps going until it is done. A handoff is not a turn that runs and stops; it is a thread, and this routine is what keeps pulling on it while {human_name} sleeps, works or forgets they asked. Most runs find nothing handed off and end at once.
+
+## Procedure
+1. **What is due.** `brain continue --due`. Nothing due: stop here, with no message; the engine records the run. Otherwise take the first task listed (the oldest handoff). Read its full entry, its hub, anything held beside it under `{agent_dir}/Prepared/` or its own folder, and its records if it is a responsibility.
+2. **Do the next chunk.** Start from the task's Next line and keep going, step after step, for about twenty-five minutes or to a natural checkpoint. Work the way an autonomous colleague does with the permissions they have: when something is ambiguous, decide the way {human_name} would most likely want it, write the assumption on the task, and carry on; when one path waits on someone else, park that path and advance the others; when a tool or a route fails, try another; when you need a fact, go and find it. Verify what you did by reading it back; a thing claimed is not a thing done.
+3. **And then some.** A handoff is almost always open-ended: "look into this", "see what you can do with that", "have something for me in the morning". Before you stop, ask what {human_name} would be glad to find done that they did not spell out, inside the thread's subject: the adjacent question they will ask next, a second angle, the better version of what they asked for, the follow-up prepared and held. Do one of those too. Hold it beside the task as `kind: draft`, never push it. The wow is the thing they did not think to ask for; the restraint is that it stays within the thread.
+4. **Blocked means one thing.** The next step needs something only {human_name} can give, and nothing else on the task can move without it: a credential or account they have not connected, a decision they said they want to make themselves (money, a send in their name, a choice between options that changes the outcome for them), or permission for an outward action. It never means uncertainty (decide and record it), a missing preference (use their profile, else the likeliest), a failed attempt (try differently), waiting on a third party (park that path, work the rest), or a long thread (there is no limit). Before writing a blocker, ask whether a capable assistant with your permissions would stop here; if they would decide and keep going, so do you. A real blocker is `state=waiting_for_owner`, a `- **Blocker:**` line that says exactly what is needed and what you will do the moment you have it, one `ask` in CURRENT's `## Needs you`, and one message to {human_name} where the task says to report (`demiurge_tell_owner` on Demiurge, with `text` since they are waiting on it).
+5. **Done.** `state=completed`, the completion evidence on the task, and the report where it was handed off: what was done, what was verified against what was only attempted, what you decided on their behalf, and what you did beyond the ask. One message, in the conversation the task names if you can reach it, otherwise Home. No message is sent for anything less than done or blocked: progress shows in the task's lines, and the morning briefing's Done for you carries completions.
+6. **Otherwise, leave the thread ready for the next run.** Update the task's Verified, Next and Blocker lines so the next pass, which may be a different session with none of your context, can pick it straight up. Overwrite `$HERMES_HOME/records/continue/state.json` with the task and the chunk you reached. The engine records the run; your account names the task and what moved (`T-041: drafted the comparison, verified the prices; next: the summary`).
+
+## Boundaries
+A handoff is permission to work the thread, not to send to anyone but {human_name}, spend, sign up, or touch accounts; those stay with Standing state in `{agent_dir}/Tasks.md` as always. One task per run; a second handoff waits for the next pass. No edits to `{sources_dir}/`, SOUL, skills, Triggers' rules or the Memory Spec. Never message {human_name} to say you are still working.

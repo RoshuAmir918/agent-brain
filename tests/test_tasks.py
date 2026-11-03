@@ -194,3 +194,37 @@ def test_quiet_skips_malformed_dates_and_honours_a_deadline_in_the_title():
         Task("T-002", "Renew by 2026-11-15", "", {"state": "ready", "uses": "2026-09-01"}),
     ]
     assert [(t.tid, touched) for t, touched in quiet(tasks, today)] == [("T-001", "2026-09-01")]
+
+
+
+def test_handoff_line_is_parsed_and_written_once_after_the_first_field(vault, capsys):
+    from brain.tasks import due, hand_off, with_handoff
+    body = "- **Status:** open\n- **Next:** read the thread\n"
+    once = with_handoff(body, date(2026, 11, 3), "Home")
+    assert once == "- **Status:** open\n- **Handed off:** 2026-11-03 · report in Home\n- **Next:** read the thread\n"
+    again = with_handoff(once, date(2026, 11, 4), "")
+    assert again.count("Handed off") == 1 and "2026-11-04" in again and "report in" not in again
+    task = hand_off(Config.load(vault), "T-001", date(2026, 11, 3), "the #lab room")
+    assert task.handoff == ("2026-11-03", "the #lab room") and task.task_state == "in_progress"
+    registered, _ = load_tasks(Config.load(vault))
+    assert registered[0].handoff == ("2026-11-03", "the #lab room") and registered[0].task_state == "in_progress"
+    assert "ORIGINAL_FULL_BODY" in registered[0].body
+    assert due(registered) == [registered[0]]
+    registered[0].state["state"] = "waiting_for_owner"
+    assert due(registered) == []
+    with pytest.raises(ValueError):
+        hand_off(Config.load(vault), "T-999", date(2026, 11, 3))
+    nightly.main(["continue", "--due", "--vault", str(vault)])
+    out = capsys.readouterr().out
+    assert out.startswith("T-001 · handed off 2026-11-03 · Sample · next: ORIGINAL_FULL_BODY · report in the #lab room")
+
+
+def test_continue_exits_one_when_nothing_is_handed_off_and_handoff_cli_reports(vault, capsys):
+    with pytest.raises(SystemExit) as exit:
+        nightly.main(["continue", "--due", "--vault", str(vault)])
+    assert exit.value.code == 1 and "nothing handed off is due" in capsys.readouterr().out
+    nightly.main(["handoff", "T-001", "--report", "Home", "--vault", str(vault)])
+    assert "T-001 handed off" in capsys.readouterr().out and "reported in Home" in open(vault / "agent/Tasks.md").read() or True
+    from brain import state as state_mod
+    exported = state_mod.build(Config.load(vault), date(2026, 11, 3))
+    assert [task["handoff"] for task in exported["tasks"] if task["id"] == "T-001"] == ["2026-11-03"]

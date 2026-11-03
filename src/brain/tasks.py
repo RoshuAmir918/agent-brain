@@ -48,6 +48,12 @@ class Task:
         return match[1].split("|", 1)[0].split("#", 1)[0].strip() or None
 
     @property
+    def handoff(self) -> tuple[str, str] | None:
+        """(date, where to report) when the owner handed this task off: work it until done or blocked."""
+        match = re.search(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*·[ \t]*report in[ \t]*(.+?))?[ \t]*$", self.body, re.M)
+        return (match[1], (match[2] or "").strip()) if match else None
+
+    @property
     def uses(self) -> list[str]:
         return [x for x in self.state.get("uses", "").split(",") if x]
 
@@ -127,6 +133,49 @@ def parse_register(text: str) -> tuple[list[tuple[str, int, int]], list[Task]]:
         spans.append((h.group(1), start, end))
         tasks.append(Task(h.group(1), h.group(2), body, state))
     return spans, tasks
+
+
+HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
+RESTING = ("waiting_for_owner", "set_aside", "blocked")
+
+
+def with_handoff(body: str, today: date, report_to: str) -> str:
+    """The task's entry with one Handed off line, placed after its first field line."""
+    line = f"- **Handed off:** {today.isoformat()}" + (f" · report in {report_to}" if report_to else "")
+    body = HANDOFF_LINE.sub("", body)
+    lines = body.splitlines()
+    at = next((i + 1 for i, text in enumerate(lines) if text.lstrip().startswith("- **")), 0)
+    lines.insert(at, line)
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def hand_off(config: Config, tid: str, today: date, report_to: str = "") -> Task:
+    """Mark a task handed off by the owner and in progress, in the register entry or the archive body, whichever holds
+    the full entry; returns the task as written."""
+    registered, archived = load_tasks(config)
+    task = next((t for t in registered + archived if t.tid == tid), None)
+    if task is None or not is_open(task):
+        raise ValueError(f"{tid} is not an open task")
+    task.body = with_handoff(task.body, today, report_to)
+    if task.task_state in (None, "ready", *RESTING):
+        task.state["state"] = "in_progress"
+        task.state.pop("status", None)
+    reg = config.vault_path / config.agent("Tasks.md")
+    data, body = fm.read(reg)
+    spans, parsed = parse_register(body)
+    full = next(((s, e) for (t, s, e), entry in zip(spans, parsed) if t == tid and not is_register_summary(entry.body)), None)
+    if full:
+        s, e = full
+        fm.write(reg, data, body[:s] + task.render() + ("\n" if body[e:] and not body[e:].startswith("\n") else "") + body[e:])
+    else:
+        write_archive(config, task, task.state.get("tier", "warm"), today)
+    return task
+
+
+def due(tasks: list[Task]) -> list[Task]:
+    """Handed-off tasks the continue routine should work now, oldest handoff first: open, and not resting on the owner."""
+    return sorted((t for t in tasks if is_open(t) and t.handoff and t.task_state not in RESTING),
+                  key=lambda t: (t.handoff[0], t.tid))
 
 
 def task_activation(t: Task, today: date) -> float:

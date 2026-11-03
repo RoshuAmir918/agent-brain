@@ -31,7 +31,7 @@ def sessions_records_path() -> Path:
     return records_path() / "sessions"
 
 
-CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall", "improve", "people", "explore", "watch"})
+CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall", "improve", "people", "explore", "watch", "continue"})
 # the memory mechanism and the engine's own passes: always overwritten, keeping the vault's `## Local` section
 # everything else is a default the vault owns after first install
 

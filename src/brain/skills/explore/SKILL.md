@@ -1,7 +1,7 @@
 ---
 name: {prefix}explore
 description: Handle own inbound, then do one thing for {human_name}
-version: 2.0.0
+version: 2.1.0
 metadata:
   hermes:
     tags: [routine, day, research]
@@ -15,7 +15,7 @@ The standing-attention pass. Every two hours while {human_name} is awake, {agent
 1. **Inbound.** Before replying to anyone, run `brain session-context --platform email --user-id <sender address>` (in chat, `--platform <platform> --user-id <handle> --user-id-alt <stable id>`) and follow the block it prints: it names the person, their profile and the disclosure rows that apply, or says they are a stranger. Read {agent_name}'s own mailbox and any chat threads {agent_name} is part of, since the last run. Reply where a reply is {agent_name}'s to give (per SOUL: ask {human_name} for context rather than guess when a message is really for them). Record anything durable on the owning task or note.
 2. **Read what today is for them.** The session context carries Primed (today for {human_name}: where they are, who they are with, what they said they would do, what is held and waiting, whether gestures are open) and Upcoming (dates named anywhere in the vault for the next seven days). They are the brief; read both before choosing.
 3. **Candidates, three classes.**
-   - *Work:* an open question or "would be useful to know" in yesterday's sessions; an open task whose next step needs no approval; a dated item within the week that needs preparing; a hub {human_name} touched this week with a gap in it; an active goal in `{human_goals}` with recent evidence that two hours of preparation would advance (a thing to read, draft, find or set up), whether or not a responsibility covers it.
+   - *Work:* an open question or "would be useful to know" in yesterday's sessions; an open task whose next step needs no approval (never one {human_name} handed off: the continue routine owns those); a dated item within the week that needs preparing; a hub {human_name} touched this week with a gap in it; an active goal in `{human_goals}` with recent evidence that two hours of preparation would advance (a thing to read, draft, find or set up), whether or not a responsibility covers it.
    - *People:* someone in {human_name}'s life with something happening this week (a visit, a trip, a result, a date in their History); a person new to {human_name}'s platforms this week whom {agent_name} already knows something about. The work here is for {human_name}: what to remember, what they might want to ask or bring, a draft they could send. Never a message to the person themselves; see Boundaries.
    - *Occasion:* something {human_name} said or did in the last two days that invites one specific, small, made thing: a page, a tool, a reading, a plan for the free evening they mentioned. This class exists only with a fresh occasion. No occasion, no candidate, however long since the last one.
    Skip anything in the explore ledger (`{agent_dir}/Explore/`, or an older vault's `Explorations/`) from the last three days unless new evidence arrived. Choose the one candidate where two hours most plausibly produces something {human_name} would be glad of, work or not. When nothing clears that bar, the answer is nothing.

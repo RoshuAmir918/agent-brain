@@ -92,7 +92,7 @@ def test_tasks_use_engine_state_and_register_precedence(work):
     assert [task["id"] for task in result] == ["T-004", "T-001", "T-006", "T-002", "T-007",
                                                 "T-003", "T-005", "T-008", "T-009"]
     assert result[0] == {"id": "T-004", "title": "Working café", "state": "in_progress", "open": True,
-                         "detail": "Moving [[Evidence|proof]]", "next": "Ship [[Draft]]", "blockers": "None",
+                         "detail": "Moving [[Evidence|proof]]", "next": "Ship [[Draft]]", "handoff": None, "blockers": "None",
                          "hub": "Work/Watch", "tier": "hot", "archived": False, "source": "agent/Tasks.md#T-004"}
     assert [(task["state"], task["open"]) for task in result] == [
         ("in_progress", True), ("completed", False), ("cancelled", False), (None, True),

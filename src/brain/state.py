@@ -57,6 +57,7 @@ def _tasks(vault: Vault) -> list[dict]:
     return [{"id": task.tid, "title": task.title, "state": task.task_state, "open": tasks.is_open(task),
              "detail": _field(task.body, "Status"), "next": _field(task.body, "Next", "Next action"),
              "blockers": _field(task.body, "Blockers"), "hub": _public_link(vault, task.hub),
+             "handoff": task.handoff[0] if task.handoff else None,
              "tier": task.state.get("tier"), "archived": archived, "source": source}
             for task, archived, source in entries if _public(vault, source)]
 

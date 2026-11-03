@@ -40,6 +40,7 @@ from pathlib import Path
 
 from . import activation as act
 from . import access, attribute, audit, compile_context, digest, fm, health, index, journal, ledger, needs, retrieve, session_context, state, triggers, validate
+from . import tasks as tasks_mod
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, quiet, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import FORMS, Config
@@ -595,6 +596,29 @@ def cmd_access(args):
         print(f"Scope: {text}")
 
 
+def cmd_handoff(args):
+    try:
+        task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), args.report or "")
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        sys.exit(1)
+    where = task.handoff[1] if task.handoff else ""
+    print(f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: worked by the continue routine until done or "
+          f"blocked{', reported in ' + where if where else ''}.")
+
+
+def cmd_continue(args):
+    registered, archived = load_tasks(args.config)
+    ready = tasks_mod.due(registered + archived)
+    if not ready:
+        print("nothing handed off is due")
+        sys.exit(1)
+    for task in ready:
+        nxt = state._field(task.body, "Next", "Next action") or ""
+        print(f"{task.tid} · handed off {task.handoff[0]} · {task.title}" + (f" · next: {nxt[:160]}" if nxt else "")
+              + (f" · report in {task.handoff[1]}" if task.handoff[1] else ""))
+
+
 def cmd_stale_tasks(args):
     tasks, archived = load_tasks(args.config)
     for task, touched in quiet(tasks + archived, args.config.today()):
@@ -756,6 +780,11 @@ def main(argv=None):
     mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored)")
     s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
     s.set_defaults(fn=cmd_needs_you)
+    s = sub.add_parser("handoff", help="mark a task the owner handed off: the continue routine works it until done or blocked")
+    s.add_argument("tid"); s.add_argument("--report", default="", help="where to report, e.g. 'Home' or the room"); s.add_argument("--vault")
+    s.set_defaults(fn=cmd_handoff)
+    s = sub.add_parser("continue", help="handed-off tasks due now, oldest first; exits 1 when none")
+    s.add_argument("--due", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_continue)
     s = sub.add_parser("stale-tasks", help="open tasks gone quiet long enough for the evening review")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_stale_tasks)
     s = sub.add_parser("state"); s.add_argument("--vault")

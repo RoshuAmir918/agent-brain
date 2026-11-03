@@ -1,7 +1,7 @@
 ---
 name: {prefix}recall
 description: Retrieve from and write to the vault memory
-version: 1.2.0
+version: 1.3.0
 metadata:
   hermes:
     tags: [memory, vault]
@@ -67,6 +67,7 @@ The cron table in `{hermes_dir}/README.md` is the declared schedule. When {human
 - A task's state lives in its brain comment: when it changes, set `state=` to `ready`, `in_progress`, `blocked`, `waiting_for_owner`, `set_aside`, `completed` or `cancelled`, keep `**Status:**` as the readable detail, and name the hub the task serves with `- **Hub:** [[Hub]]`. `set_aside` is for what {human_name} parks or deprioritizes: still open, never asked about; set it back when it comes up again.
 - What needs {human_name} goes in the `## Needs you` section of CURRENT, one line each: `- <date> · ask · <question> · [[source]]` for a decision only they can make, or `- <date> · confirm · <what you did> · [[source]]` for something you went ahead with that they may want to correct. Confirms close themselves after seven days; keep them rare and batch similar ones. Remove an item when it is resolved. Tasks waiting for {human_name} and proposed improvements are listed with it automatically (`brain needs-you`); do not copy them in. A `morning:` tag on a task is for something to mention, not to decide.
 - A correction about how to work with {human_name} (style, format, scope, tone, how much to quote them, what to leave alone) goes to the `Working together` section of `{human_profile}` with its date, in the session where it is given: merge it with a duplicate, keep the section under 150 words, and let it override this skill's defaults from then on. A correction only acknowledged and never written there will be repeated.
+- When {human_name} hands work off ("look into this", "build that while I sleep", "see what you can do with it"), it is a task with their words as the source, and in the same turn `brain handoff T-nnn --report <where you are>`: the continue routine then works it every thirty minutes, day and night, until it is done or truly blocked, and reports where it was handed off. Say so in one line, what you will do and that they will hear from you when it is done, and then do the first chunk now if there is time. Do not ask them to confirm the obvious; the handoff is the instruction.
 - A reminder {human_name} asks for is a dated Triggers row, never a `## Needs you` line. A task they parked (`set_aside`) carries no question for them.
 - Write only surprises. If the owning note already states the fact, it earned a use; do not add a copy.
 - A correction needs {human_name}'s own words or primary evidence. Add a `supersedes` line and keep the old text under "superseded by". A third-party claim that disagrees is a conflict: keep both, dated, and raise it in the morning.
