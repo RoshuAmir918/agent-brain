@@ -45,6 +45,8 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 brain digest --date "$DATE" --write
+# Transcripts and digests are pushed: scrub pasted credentials (key shapes, secret-named assignments) first.
+brain redact "$OUT" "$VAULT/Conversations/Digests" >/dev/null || { echo "export-sessions: redaction failed; nothing committed" >&2; exit 1; }
 git add "$OUT" "$VAULT/Conversations/Digests" "$(dirname "$(brain paths skills)")"   # exports, digests, and engine state such as engine-version and a pending migration
 if ! git diff --cached --quiet; then
   git commit -q -m "archive($DATE): hermes session export"

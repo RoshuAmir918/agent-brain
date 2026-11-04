@@ -233,6 +233,7 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     config = vault_or_config if isinstance(vault_or_config, Config) else vault.config
     current = vault.notes.get("CURRENT.md")
     out = parse_section(current.body) if current else []
+    waiting = []
     register = config.agent("Tasks.md")
     if (config.vault_path / register).exists():
         tasks, archived = load_tasks(config)
@@ -243,8 +244,9 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
             source = (register + "#" + task.tid if task.tid in registered else
                       archive_path(config, task.tid).relative_to(config.vault_path).as_posix())
             ask, why = _owner_lines(task.body)
-            out.append(Item("ask", ask or task.title, "task", task.last_evidence_date() or None, source,
-                            detail=why, context=task.title if ask else "", label=task.title))
+            waiting.append((task.tid, Item("ask", ask or task.title, "task", task.last_evidence_date() or None, source,
+                                           detail=why, context=task.title if ask else "", label=task.title)))
+    out = [item for item in out if duplicates(item, waiting) is None] + [item for _, item in waiting]
     proposals = [item for rel, note in vault.notes.items() if vault.kind_for(rel) == "hub"
                  for item in _improvements(note.body, rel, today)]
     # A proposal stays in its hub as long as it stands; the owner is shown the newest few, none past four weeks, and an
@@ -256,6 +258,19 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     out.extend(_access_items(vault, config, today))
     gone = dismissed_ids(config)
     return sorted((item for item in out if item.id not in gone), key=lambda item: rank(item, config, today))
+
+
+def _plain(text: str) -> str:
+    return " ".join(text.casefold().split())
+
+
+def duplicates(item: Item, waiting: list[tuple[str, Item]]) -> str | None:
+    """The waiting task a CURRENT bullet repeats, by the same words or a source naming the task; the task is the one
+    the owner sees, since it carries the state."""
+    if item.origin != "current":
+        return None
+    named = set(re.findall(r"\bT-\d{3}\b", item.source))
+    return next((tid for tid, task in waiting if tid in named or _plain(task.text) == _plain(item.text)), None)
 
 
 def rank(item: Item, config: Config, today: date) -> tuple:

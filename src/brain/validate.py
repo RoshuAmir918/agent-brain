@@ -195,6 +195,26 @@ def needs_ceiling(vault: Vault) -> list[str]:
     return [f"CURRENT.md: {len(asks)} open asks in Needs you; the evening decides the lowest-ranked down to {needs.OPEN_ASKS} (`brain needs-you --overflow`)"]
 
 
+def needs_hygiene(vault: Vault) -> list[str]:
+    """Needs you holds the owner's own decisions, once: a bullet repeating a task already waiting on them, or one about
+    the brain itself (a migration, a skill, the Hermes setup), is named so the agent removes it."""
+    from . import needs
+    note = vault.notes.get("CURRENT.md")
+    if note is None:
+        return []
+    config = vault.config
+    waiting = [(item.source.split("#")[-1] if "#" in item.source else item.source.rsplit("/", 1)[-1].removesuffix(".md"), item)
+               for item in needs.items(vault, config.today()) if item.origin == "task"]
+    hermes = "/" + config.hermes_dir.strip("/") + "/"
+    out = []
+    for item in needs.parse_section(note.body):
+        if (tid := needs.duplicates(item, waiting)) is not None:
+            out.append(f"CURRENT.md: Needs you repeats {tid}, which already waits on the owner; remove the bullet: {item.text[:80]}")
+        elif hermes in "/" + item.source + "/" or re.search(r"\bmigrations?\b", item.text, re.I):
+            out.append(f"CURRENT.md: Needs you holds a note about the brain itself; it belongs in the Sleep Log: {item.text[:80]}")
+    return out
+
+
 def channels(vault: Vault) -> list[str]:
     from . import channels as registry
     return registry.problems(vault)

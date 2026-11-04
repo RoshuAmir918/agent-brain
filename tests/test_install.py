@@ -240,7 +240,7 @@ def test_pending_migrations_selects_versions_in_range(tmp_path, monkeypatch):
     assert install.pending_migrations(config) == [("0.1.3", "mid"), ("0.1.4", "new")]
 
 
-def test_migrate_done_carries_a_deferred_step_as_an_ask(tmp_path, monkeypatch):
+def test_migrate_done_carries_a_deferred_step_for_a_maintainer_not_the_owner(tmp_path, monkeypatch):
     from brain import install, needs
     from brain.config import Config
     from datetime import date
@@ -252,8 +252,14 @@ def test_migrate_done_carries_a_deferred_step_as_an_ask(tmp_path, monkeypatch):
     monkeypatch.setattr(install, "installed_version", lambda name: "1.2.0")
     assert install.migrate_done(config, ["Reword SOUL's routing to Home and Hearth."]) == "1.2.0"
     assert install.recorded_version(config) == "1.2.0"
-    [ask] = needs.items(config, date(2026, 10, 28))
-    assert ask.kind == "ask" and ask.text == "Migration to 1.2.0 left for you: Reword SOUL's routing to Home and Hearth."
+    assert needs.items(config, date(2026, 10, 28)) == []
+    assert install.deferred_steps(config) == [f"{config.today().isoformat()} · 1.2.0 · Reword SOUL's routing to Home and Hearth."]
+    from brain import session_context
+    from brain.vault import Vault
+    from dataclasses import replace
+    maintained = replace(config, maintainers=["demiurge:m1"])
+    text = session_context.build(Vault(config.vault_path), maintained, platform="demiurge", user_id="m1")
+    assert "1 migration step(s) wait for a maintainer" in text
 
 
 

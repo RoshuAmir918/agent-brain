@@ -72,7 +72,7 @@ def report(config: Config, today: date | None = None) -> dict:
         "date": today.isoformat(),
         "stages": stages(config.repo, today, config.now()),
         "engine": {"installed": installed, "recorded": install.recorded_version(config),
-                   "pending_migration_since": pending_since},
+                   "pending_migration_since": pending_since, "deferred_steps": len(install.deferred_steps(config))},
         "export": {"expected": yesterday, "digest": yesterday if digest.exists() else None, "coverage": coverage},
         "vault": {"validation_problems": len(validate.run(vault, set(vault.notes))), "notes": tiers,
                   "open_tasks": open_tasks},
@@ -86,6 +86,8 @@ def render(data: dict, *, include_git: bool = True) -> str:
     engine_text = f"{engine['installed']} installed, {engine['recorded']} recorded"
     if engine["pending_migration_since"]:
         engine_text += f", migration pending since {engine['pending_migration_since']}"
+    if engine.get("deferred_steps"):
+        engine_text += f", {engine['deferred_steps']} deferred step(s) for a maintainer"
     export = data["export"]
     export_text = f"digest {export['digest']}, {export['coverage']}" if export["digest"] else f"no digest for {export['expected']}"
     vault = data["vault"]

@@ -338,11 +338,23 @@ def migration_notice(config: Config) -> str:
         return ""
     return (f"An engine migration is pending: {config.link(config.hermes_dir + '/pending-migration')}. In this session, "
             f"after what you were asked to do, read it and perform all of it, whether or not {config.human_name} is "
-            f"here. A step written for {config.human_name} is never a reason to stop: draft their answer from what you "
-            f"hold, mark it unconfirmed with the date, add it to CURRENT's `## Needs you`, and go on. A step that edits a "
-            f"file you may not change unattended (SOUL.md, the Hermes config) is left for {config.human_name}: finish "
-            f"everything else and run `brain migrate-done --defer \"<that step>\"`. A step that waits on a future event "
+            f"here. A step written for {config.human_name} is never a reason to stop: when it is a decision about their own "
+            f"life, work, people or money, draft their answer from what you hold, add it as an ask to CURRENT's "
+            f"`## Needs you`, and go on. What you changed, set up or migrated in the brain itself is never theirs to "
+            f"confirm: it goes in the Sleep Log. A step that edits a file you may not change unattended (SOUL.md, the "
+            f"Hermes config) is left for a maintainer: finish everything else and run "
+            f"`brain migrate-done --defer \"<that step>\"`. A step that waits on a future event "
             f"becomes a trigger, not a reason to keep the migration open. Finish with `brain migrate-done`.")
+
+
+def deferred_notice(config: Config) -> str:
+    from .install import deferred_path, deferred_steps
+    steps = deferred_steps(config)
+    if not steps:
+        return ""
+    where = config.link(deferred_path(config).relative_to(config.vault_path).as_posix().removesuffix(".md"))
+    return (f"{len(steps)} migration step(s) wait for a maintainer in {where}: they edit a protected file, which needs "
+            f"this maintainer's live approval. Offer to do them in this session, and remove each line once done.")
 
 
 def with_notice(text: str, config: Config) -> str:
@@ -357,7 +369,8 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
                                                           owner_card(vault, config)) if part), config)
     identity = f"{platform or 'platform unknown'} {user_id or user_id_alt or 'id unavailable'}"
     if listed(config.maintainers, platform, user_ids):
-        return with_notice(maintainer_context(config, identity), config)
+        return with_notice("\n\n".join(part for part in (maintainer_context(config, identity), deferred_notice(config))
+                                       if part), config)
     if platform == "cron" and not user_ids:
         return migration_notice(config)   # the agent's own routine run: no one to identify
     if not platform and not user_ids:

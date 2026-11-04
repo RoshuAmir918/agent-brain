@@ -608,3 +608,22 @@ def test_a_task_items_id_holds_when_its_ask_is_reworded_and_removing_an_ask_take
     assert "Second?" in body and "the second reason" in body
     second_ask, = [item for item in needs.items(Config.load(vault), TODAY) if item.origin == "current"]
     assert second_ask.detail == "the second reason"
+
+
+def test_a_current_bullet_repeating_a_waiting_task_is_shown_once_and_validate_names_it(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
+    write_tasks(vault, Task("T-003", "Apartment token", "- **Ask:** Can you replace the apartment site's token?\n",
+                            {"state": "waiting_for_owner"}))
+    write_current(vault, "- 2026-10-27 · ask · Can you replace the apartment site's token? · [[agent/Tasks Archive/T-003]]\n"
+                         "- 2026-10-27 · ask · Same task, other words · [[agent/Tasks#T-003]]\n"
+                         "- 2026-10-27 · confirm · Migration draft: the goals stay empty until you write them · [[CURRENT]]\n"
+                         "- 2026-10-27 · ask · Book the Saturday dinner? · [[CURRENT]]\n")
+    found = needs.items(Config.load(vault), TODAY)
+    assert [(i.origin, i.text) for i in found if "token" in i.text or "other words" in i.text] == [
+        ("task", "Can you replace the apartment site's token?")]
+    from brain import validate
+    from brain.vault import Vault
+    problems = validate.needs_hygiene(Vault(vault))
+    assert len(problems) == 3
+    assert sum("repeats T-003" in p for p in problems) == 2
+    assert any("about the brain itself" in p and "Migration draft" in p for p in problems)

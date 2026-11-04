@@ -488,11 +488,19 @@ def cmd_journal_recent(args):
         print(entry.line)
 
 
+def cmd_redact(args):
+    from . import redact
+    changed = redact.redact_paths([Path(p).expanduser() for p in args.paths])
+    for path, n in changed.items():
+        print(f"redacted {n} credential(s) in {path}")
+    print(f"{sum(changed.values())} credential(s) redacted in {len(changed)} file(s)")
+
+
 def cmd_validate(a):
     vault = Vault(a.config.vault_path)
     problems = (validate.run(vault, set(vault.notes)) + validate.responsibilities(vault) + validate.task_states(vault)
                 + validate.kinds(vault) + validate.access_problems(vault) + validate.owner_profile(vault)
-                + validate.channels(vault) + validate.needs_ceiling(vault) + validate.primed_size(vault)
+                + validate.channels(vault) + validate.needs_ceiling(vault) + validate.needs_hygiene(vault) + validate.primed_size(vault)
                 + validate.owner_questions(vault))
     for p in problems:
         print(p)
@@ -917,6 +925,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_install_skills)
     s = sub.add_parser("update"); s.add_argument("--vault"); s.set_defaults(fn=cmd_update)
     s = sub.add_parser("migrate-check"); s.add_argument("--vault"); s.set_defaults(fn=cmd_migrate_check)
+    s = sub.add_parser("redact"); s.add_argument("paths", nargs="+"); s.add_argument("--vault"); s.set_defaults(fn=cmd_redact)
     s = sub.add_parser("migrate-done"); s.add_argument("--vault")
     s.add_argument("--defer", action="append", default=[], metavar="STEP",
                    help="a step left for the owner (repeatable); it becomes an ask in CURRENT's Needs you")
