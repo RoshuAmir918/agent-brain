@@ -769,7 +769,16 @@ def cmd_people(args):
 def cmd_channels(args):
     from . import channels as registry
     vault = Vault(args.config.vault_path)
-    if args.sync:
+    if args.action == "mail":
+        from . import channel_files
+        try:
+            since = channel_files.local_datetime(args.since, args.config)
+        except ValueError:
+            sys.exit("channels mail: --since must be an ISO datetime or YYYY-MM-DD")
+        data = channel_files.mail(vault, since)
+        print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else channel_files.render_mail(data))
+        return
+    if args.action == "sync":
         if args.run:
             try:
                 out = subprocess.run(["connect", "list", "--limit", "50"], capture_output=True, text=True, check=True).stdout
@@ -1033,8 +1042,9 @@ def main(argv=None):
     s.add_argument("--source", metavar="NOTE"); s.add_argument("--why", metavar="TEXT")
     s.add_argument("--needs", metavar="TEXT"); s.add_argument("--answer", choices=ideas.ANSWERS)
     s.set_defaults(fn=cmd_ideas)
-    s = sub.add_parser("channels", help="the channel registry; `sync` registers completed connect grants (from stdin, or --run for `connect list`)")
-    s.add_argument("sync", nargs="?", choices=("sync",)); s.add_argument("--run", action="store_true"); s.add_argument("--profile", default="")
+    s = sub.add_parser("channels", help="the channel registry; `sync` registers connect grants; `mail --since` lists new owner mail headers")
+    s.add_argument("action", nargs="?", choices=("sync", "mail")); s.add_argument("--run", action="store_true"); s.add_argument("--profile", default="")
+    s.add_argument("--since", help="with mail: ISO datetime or YYYY-MM-DD, in the owner's zone unless offset is given")
     s.add_argument("--json", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_channels)
     s = sub.add_parser("people", help="Demiurge's identity directory")
     actions = s.add_subparsers(dest="action", required=True)
@@ -1097,6 +1107,8 @@ def main(argv=None):
     s = sub.add_parser("paths"); s.add_argument("--vault")
     s.add_argument("path", choices=("soul", "skills", "scripts", "provider", "records", "vault", "repo", "python")); s.set_defaults(fn=cmd_paths)
     a = ap.parse_args(argv)
+    if a.cmd == "channels" and a.action == "mail" and not a.since:
+        ap.error("channels mail requires --since")
     if a.cmd == "attribute" and a.file and not a.ts:
         ap.error("--ts is required with --file")
     try:

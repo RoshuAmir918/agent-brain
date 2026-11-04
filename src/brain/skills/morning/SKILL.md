@@ -1,7 +1,7 @@
 ---
 name: {prefix}morning
 description: The morning briefing
-version: 2.3.0
+version: 2.4.0
 metadata:
   hermes:
     tags: [routine, day]
@@ -12,10 +12,10 @@ metadata:
 What today is for {human_name}, at the agreed hour, every day, even when there is little to say. Never before that hour. It reads like a good assistant's word at the door, not a status report: two hundred words is the ceiling, and a hundred is a good morning. The machinery's health lives in the Sleep Log and `brain health`, where a maintainer reads it; none of it is for {human_name}.
 
 ## Procedure
-1. Read `{agent_dir}/Primed.md` first; it is the brief the prime routine wrote for today. Then Upcoming in the session context, Triggers, open tasks, any task entries tagged `morning:`, and what `brain needs-you` lists.
-2. Recheck already-registered threads in {human_name}'s channels before raising an item. No broad inbox poll. Do not repeat an unchanged reminder.
+1. Read `{agent_dir}/Primed.md` first; it is the brief the prime routine wrote for today. Then Upcoming and the Calendar block (today and the next seven days) in the session context, Triggers, open tasks, any task entries tagged `morning:`, and what `brain needs-you` lists.
+2. New mail reaches the morning through Primed; morning itself does not search mail. Recheck already-registered threads through their owning tasks before raising an item. Do not repeat an unchanged reminder.
 3. Compose in this order, dropping any part with nothing in it, separating verified fact from reported status and results from proposals:
-   - **Today.** Where they are, who they are with, what they said they would do, and what is due or happening today or tomorrow, from Primed and Upcoming. One or two sentences, not a list. When the vault cannot confirm a due thing was done, say so once: "due today; I can't see that it's done."
+   - **Today.** Lead with where they are and what is on their calendar today when it matters, especially travel, an ongoing stay or an event. Include who they are with, what they said they would do, and what is due or happening today or tomorrow, from Primed, Upcoming and Calendar. One or two sentences, not a list. When the vault cannot confirm a due thing was done, say so once: "due today; I can't see that it's done."
    - **Done for you.** The one thing {agent_name} prepared, found or finished since yesterday, if there is one, and where it is. A thing held under `{agent_dir}/Prepared/` is mentioned here once, as waiting, and never again.
    - **Needs you.** The one or two asks that matter most today, a deadline first, one short line each, from `brain needs-you`; the rest wait in the app, and "nothing needs you today" is a good morning. Confirms are not questions: at most one line saying what you went ahead with. Primed's nudges once, only when they bear on today.
    - **Coming up.** The dated items in the next week that need something from them, from Upcoming. Only those; the rest stays in context.

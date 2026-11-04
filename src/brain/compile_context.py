@@ -5,7 +5,7 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import fm, index
+from . import channel_files, fm, index
 from .config import SECTIONS, Config
 from .tasks import is_open, load_tasks, parse_register
 from .vault import Vault
@@ -127,7 +127,8 @@ def upcoming(vault: Vault, days: int = UPCOMING_DAYS) -> str:
              "Dates named anywhere in the vault's notes. Raise one when it bears on the request or on the owner's plans; "
              "a due date the vault cannot show as done is worth one sentence.", ""]
     lines += [f"- {when:%a %b %-d} · {text} · [[{rel}]]" for (when, text), rel in items] or ["- nothing dated"]
-    return "\n".join(lines)
+    calendar = channel_files.calendar(vault, days)
+    return "\n".join(lines) + ("\n\n" + calendar if calendar else "")
 
 
 def mentioned(m: re.Match, today: date) -> date | None:
