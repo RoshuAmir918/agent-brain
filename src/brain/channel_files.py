@@ -202,6 +202,17 @@ def calendar(vault: Vault, days: int = 7) -> str:
     return head + "\n".join(lines)
 
 
+def worth_a_look(data: dict, own: set[str]) -> str:
+    """"person" for mail someone wrote, "notice" for a receipt, alert or bot, "" for what nobody needs: a promotion,
+    social or forum mail, spam, or the account's own sent mail."""
+    labels = data.get("labels", [])
+    labels = labels if isinstance(labels, list) else []
+    sender = str(data.get("from", ""))
+    if EXCLUDED_LABELS.intersection(labels) or "SENT" in labels or own & {e.lower() for _, e in getaddresses([sender])}:
+        return ""
+    return "notice" if "CATEGORY_UPDATES" in labels or AUTOMATED.search(sender) else "person"
+
+
 def mail(vault: Vault, since: datetime) -> dict:
     config = vault.config
     since = since.replace(tzinfo=config.zone) if since.tzinfo is None else since.astimezone(config.zone)

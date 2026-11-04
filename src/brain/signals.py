@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from . import loops, session_tools, state, tasks
+from . import channel_files, fm, loops, session_tools, state, tasks
 from .config import Config
 
 
@@ -38,6 +38,11 @@ def _last_failure(home: Path, skill: str) -> str:
     return ""
 
 
+def config_vault(config: Config):
+    from .vault import Vault
+    return Vault(config.vault_path)
+
+
 def _check(config: Config) -> datetime:
     if not config.vault_path.is_dir():
         raise FileNotFoundError(f"vault not found: {config.vault_path}")
@@ -56,6 +61,8 @@ def watch(config: Config) -> str:
         lines.append(f"last failure: {failed}")
     lines.append("channels:")
     channels = home / "channels"
+    own = set(channel_files.accounts(config_vault(config))) | {path.name.lower() for path in channels.iterdir()} \
+        if channels.is_dir() else set()
     rows = []
     for account in sorted(channels.iterdir()) if channels.is_dir() else []:
         for kind in ("mail", "calendar"):
@@ -65,11 +72,20 @@ def watch(config: Config) -> str:
             files = [path for path in directory.rglob("*") if path.is_file()]
             if kind == "mail":
                 # New mail is a new file in a date folder; the sync rewrites old mail (labels, read state), so
-                # mtimes would wake watch for nothing. Names only: the newest two date folders and the newest path.
+                # mtimes would wake watch for nothing. Every message counts, from a person or a bot (a reminder, an
+                # alert, a receipt): a quiet wake is cheaper than a missed one. Only mail nobody needs (promotions,
+                # social, forums, spam, the account's own sent mail) leaves the signal unchanged.
                 names = sorted(path.relative_to(directory).as_posix() for path in files)
                 folders = sorted({name.split("/", 1)[0] for name in names if "/" in name})[-2:]
-                recent = [name for name in names if name.split("/", 1)[0] in folders]
-                name = f"{len(recent)} recent, newest {recent[-1]}" if recent else (names[-1] if names else "")
+                worth = []
+                for rel in (name for name in names if name.split("/", 1)[0] in folders):
+                    try:
+                        data, _ = fm.read(directory / rel)
+                    except (OSError, ValueError):
+                        continue
+                    if channel_files.worth_a_look(data, own):
+                        worth.append(rel)
+                name = f"{len(worth)} worth a look" + (f", newest {worth[-1]}" if worth else "")
             else:
                 newest = max(files, key=lambda path: (path.stat().st_mtime_ns, path.relative_to(directory).as_posix()),
                              default=None)

@@ -87,7 +87,7 @@ def test_watch_changes_for_new_channel_files_and_sorts_rows(monitor):
     result = signals.watch(config)
     assert result != initial
     assert result == ("due:\nchannels:\na-account/calendar: 2026-10-28.md @500\n"
-                      "z-account/mail: 1 recent, newest 2026-10-28/first.md\nunanswered:")
+                      "z-account/mail: 1 worth a look, newest 2026-10-28/first.md\nunanswered:")
     (mail / "second.md").write_text("New mail")
     os.utime(mail / "second.md", (2000, 2000))
     changed = signals.watch(config)
@@ -98,7 +98,7 @@ def test_watch_changes_for_new_channel_files_and_sorts_rows(monitor):
     (mail / "first.md").write_text("Mail, now read")
     assert signals.watch(config) == changed
     (home / "channels/a-account/mail").mkdir()
-    assert "a-account/mail: \n" in signals.watch(config)
+    assert "a-account/mail: 0 worth a look\n" in signals.watch(config)
 
 
 def test_watch_changes_for_unanswered_session_and_reply(monitor):
@@ -351,3 +351,22 @@ def test_a_routine_delivery_is_not_an_unanswered_turn(monitor):
                  ("room", (AT - timedelta(minutes=20)).timestamp(), "are you there?"))
     conn.commit()
     assert session_tools.unanswered(home, AT) == [("room", "demiurge")]
+
+
+def test_watch_wakes_for_people_and_bots_but_not_promotions_or_sent_mail(monitor):
+    config, home, clock = monitor
+    mail = home / "channels/owner@example.com/mail/2026-10-28"
+    mail.mkdir(parents=True)
+    from brain import fm
+    fm.write(mail / "a.md", {"from": "Alex <alex@example.com>", "labels": ["INBOX"]}, "body")
+    first = signals.watch(config)
+    assert "1 worth a look, newest 2026-10-28/a.md" in first
+    fm.write(mail / "b.md", {"from": "Robinhood <noreply@robinhood.com>", "labels": ["CATEGORY_UPDATES", "INBOX"]}, "body")
+    second = signals.watch(config)
+    assert second != first and "2 worth a look, newest 2026-10-28/b.md" in second
+    fm.write(mail / "c.md", {"from": "Robinhood <noreply@robinhood.com>", "labels": ["CATEGORY_UPDATES", "INBOX"]}, "body")
+    assert signals.watch(config) != second   # a second message from the same bot still wakes watch
+    third = signals.watch(config)
+    fm.write(mail / "promo.md", {"from": "Shop <deals@shop.com>", "labels": ["CATEGORY_PROMOTIONS"]}, "body")
+    fm.write(mail / "sent.md", {"from": "Owner <owner@example.com>", "labels": ["SENT"]}, "body")
+    assert signals.watch(config) == third
