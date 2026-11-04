@@ -1,7 +1,7 @@
 ---
 name: {prefix}watch
 description: Follow through on due loops, new channel files and dropped conversations when the monitor sees a change
-version: 3.0.1
+version: 3.1.0
 metadata:
   hermes:
     tags: [routine, day]
@@ -18,7 +18,7 @@ metadata:
    - *Handed to you and not handed off.* A due `promised` loop recording {human_name} asking for work to be done ("look into…", "have something by morning"), not a question and not your own plan, with no handed-off task behind it: write or find the task with their words, `brain handoff T-nnn --report <platform>`, close the loop because it is handed off, and leave the rest to continue. The task now carries it: open no new loop for it, and never a `waiting` loop on your own routines.
    - *Waiting.* A `waiting` loop past 24 hours gets one nudge to whoever it waits on, if appropriate, or stays; keep nudged ids in the state file.
    A loop you cannot close (the tool is gone, the channel is `revoked`) is one line to the person saying so, never silence.
-2. **New channel files.** {human_name}'s live channels in the registry (`{agent_dir}/Channels.md`), opened the way each row says; check later replies before treating anything as open. Read only the mail and calendar files the monitor block shows as changed under `$HERMES_HOME/channels/<account>/mail/` and `calendar/`, written by `demiurge sync-channels`. Acting on it, a draft or a calendar change, goes through the command the row names, never by editing a file. Reconcile only important, actionable facts into the owning task: status, deadline, waiting-on, next step. A date-conditioned commitment becomes a commitment trigger. A durable, non-urgent fact gets a dated line on the task with a `morning:` tag.
+2. **What is new on the channels.** Every live row of the registry (`{agent_dir}/Channels.md`) whose `read` is not none, opened the way its row says, for what changed since the last window only: its newest items, never a search over everything. A row kept as synced files is read as the files the monitor block shows as changed under `$HERMES_HOME/channels/<account>/mail/` and `calendar/`; a row opened by a command, a browser profile, a remote machine or a room is checked the way it says, since this run is already awake. Check later replies before treating anything as open. Acting on it, a draft or a calendar change, goes through the command the row names, never by editing a file. Reconcile only important, actionable facts into the owning task: status, deadline, waiting-on, next step. A date-conditioned commitment becomes a commitment trigger. A durable, non-urgent fact gets a dated line on the task with a `morning:` tag.
 3. **Unanswered conversations.** For each session the signal lists under `unanswered`, read the conversation and check for a later reply. Answer it now under the usual rules, or say in one line why not.
 4. **{human_name}.** Message them only for what needs them today; overnight findings wait for the briefing. Never a message to say you are still watching. Never raise this profile's own connections or tools with them; a gap in what you can see is a Sleep Log matter.
 5. **Record.** Overwrite the state file with the ids handled and nudged. Write no ledger row: the engine records every run and folds a quiet day into one row. Your account names the loops closed (`answered Kevin in #lab; asked Roshan about the share for Kevin`); a quiet pass is `nothing`.
