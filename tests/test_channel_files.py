@@ -4,6 +4,7 @@ from datetime import datetime
 import pytest
 
 from brain import channel_files, channels, compile_context, fm, nightly
+from brain.config import Config
 from brain.vault import Vault
 
 
@@ -24,7 +25,15 @@ def synced(vault, tmp_path, monkeypatch):
     table = channels.HEADER + "\n" + "\n".join(channels.Channel(name, whose, identity, reach, "", "", "", status).render()
                                                for name, whose, identity, reach, status in rows)
     fm.write(vault / "agent/Channels.md", {"kind": "orientation"}, table)
+    sync_job(tmp_path / "hermes", Config.load(vault).now().isoformat())
     return vault, tmp_path / "hermes/channels"
+
+
+def sync_job(home, last_run_at, status="ok", error=None):
+    (home / "cron").mkdir(parents=True, exist_ok=True)
+    (home / "cron/jobs.json").write_text(json.dumps({"jobs": [{"name": "demiurge-sync", "script": "demiurge-sync.sh",
+                                                               "last_run_at": last_run_at, "last_status": status,
+                                                               "last_error": error}]}), encoding="utf-8")
 
 
 def event(title="Lunch", start="2026-11-04 14:00", end="2026-11-04 15:00", id="lunch", location="Cafe, Fresno", attendee="mira@example.com (you): accepted", extra=""):
@@ -106,7 +115,7 @@ def test_calendar_all_day_midnight_boundaries_and_timezone(synced):
 def test_calendar_horizon_and_cap_leave_note_dates_unchanged(synced):
     vault, root = synced
     fm.write(vault / "Trip.md", {"kind": "hub"}, "A trip starts November 6.\n")
-    before = compile_context.upcoming(Vault(vault))
+    before = compile_context.upcoming(Vault(vault)).split("\n\n## Calendar:")[0]
     calendar_file(root, event("Horizon", "2026-11-11 (all day)", "2026-11-12 (all day)", "horizon"), day="2026-11-11")
     calendar_file(root, event("Outside", "2026-11-12 (all day)", "2026-11-13 (all day)", "outside"), day="2026-11-12")
     assert "Horizon" in channel_files.calendar(Vault(vault)) and "Outside" not in channel_files.calendar(Vault(vault))
@@ -128,8 +137,8 @@ def test_location_shortening(value, expected):
 
 def test_missing_sync_adds_nothing(synced, monkeypatch):
     vault, root = synced
-    baseline = compile_context.upcoming(Vault(vault))
-    assert channel_files.calendar(Vault(vault)) == ""
+    baseline = compile_context.upcoming(Vault(vault)).split("\n\n## Calendar:")[0]
+    assert "Nothing on the calendar" in channel_files.calendar(Vault(vault))
     assert channel_files.mail(Vault(vault), datetime(2026, 11, 4))["messages"] == []
     calendar_file(root, event())
     message(root)
@@ -149,7 +158,7 @@ def test_mail_filters_categories_sent_and_cross_account_senders(synced):
     message(root, id="good")
     data = channel_files.mail(Vault(vault), datetime(2026, 11, 4))
     assert [item["path"].split("/")[-1] for item in data["messages"]] == ["good.md"]
-    assert data["filtered"] == {"category": 6, "automated": 0, "sent": 4, "before_since": 0, "invalid": 0}
+    assert data["filtered"] == {"category": 5, "sent": 4, "before_since": 0, "invalid": 0}
     assert "BODY_MUST_NEVER_APPEAR" not in json.dumps(data)
 
 
@@ -182,15 +191,15 @@ def test_mail_cli_text_json_cap_and_no_bodies(synced, capsys):
     nightly.main(argv + ["--json"])
     raw = capsys.readouterr().out
     data = json.loads(raw)
-    assert set(data) == {"messages", "filtered", "omitted"}
+    assert set(data) == {"coverage", "messages", "notices", "filtered", "omitted"}
     assert len(data["messages"]) == 40 and data["omitted"] == 5
     assert data["messages"][0]["date"] == "2026-11-04T14:44:00-08:00"
     assert set(data["messages"][0]) == {"date", "account", "from", "subject", "labels", "path"}
     assert "BODY_MUST_NEVER_APPEAR" not in raw
     nightly.main(argv)
     text = capsys.readouterr().out
-    assert len(text.splitlines()) == 41 and "Lunch changed" in text
-    assert "40 shown · filtered: 0 category, 0 automated, 0 sent, 0 before since, 0 invalid · 5 over cap" in text
+    assert len(text.splitlines()) == 44 and "Lunch changed" in text
+    assert "40 from people · 0 notices from 0 senders · filtered: 0 category, 0 sent, 0 before since, 0 invalid · 5 over cap" in text
     assert "BODY_MUST_NEVER_APPEAR" not in text
 
 
@@ -203,7 +212,7 @@ def test_mail_cli_requires_valid_since(synced, options, capsys):
 
 @pytest.mark.parametrize("sender", ['"claude[bot]" <notifications@github.com>', "GitHub <noreply@github.com>",
                                     "Bank <do-not-reply@bank.com>", "Mail Delivery <mailer-daemon@google.com>"])
-def test_mail_from_no_person_is_filtered_as_automated(sender):
+def test_mail_from_no_person_is_recognized_as_automated(sender):
     assert channel_files.AUTOMATED.search(sender)
 
 
@@ -211,3 +220,54 @@ def test_mail_from_no_person_is_filtered_as_automated(sender):
                                     "Kevin <kevin.notifier.fan@example.com>"])
 def test_mail_from_a_person_is_kept(sender):
     assert not channel_files.AUTOMATED.search(sender)
+
+
+def test_notices_are_kept_and_grouped_by_sender_with_the_newest_shown(synced, capsys):
+    vault, root = synced
+    for n in range(5):
+        message(root, id=f"gh{n}", date=f"2026-11-04T1{n}:00:00-08:00", subject=f"PR {n}",
+                **{"from": '"claude[bot]" <notifications@github.com>'})
+    message(root, id="ally", subject="Reminder: 11/5 is your scheduled payment date",
+            labels=["CATEGORY_UPDATES", "INBOX"], **{"from": "Ally Auto <email@alert.ally.com>"})
+    message(root, id="promo", labels=["CATEGORY_PROMOTIONS", "INBOX"], **{"from": "Shop <no-reply@shop.com>"})
+    message(root, id="person")
+    data = channel_files.mail(Vault(vault), datetime(2026, 11, 4))
+    assert [item["path"].split("/")[-1] for item in data["messages"]] == ["person.md"]
+    groups = {notice["from"]: notice for notice in data["notices"]}
+    assert groups['"claude[bot]" <notifications@github.com>']["count"] == 5
+    assert groups['"claude[bot]" <notifications@github.com>']["subject"] == "PR 4"
+    assert groups["Ally Auto <email@alert.ally.com>"]["count"] == 1
+    assert data["filtered"]["category"] == 1
+    nightly.main(["channels", "mail", "--since", "2026-11-04", "--vault", str(vault)])
+    text = capsys.readouterr().out
+    assert "notifications@github.com> ×5 · PR 4" in text and "1 from people · 6 notices from 2 senders" in text
+    assert "BODY_MUST_NEVER_APPEAR" not in text
+
+
+def test_calendar_says_when_nothing_is_on_it_or_it_cannot_be_seen(synced, tmp_path):
+    vault, root = synced
+    block = channel_files.calendar(Vault(vault))
+    assert "Nothing on the calendar for the next 7 days." in block
+    (tmp_path / "hermes/cron/jobs.json").unlink()
+    assert "I can't see the calendar: the mail and calendar sync is not set up." in channel_files.calendar(Vault(vault))
+    sync_job(tmp_path / "hermes", "2026-11-01T08:00:00-08:00")
+    assert "Note: the mail and calendar sync last ran Sun Nov 1 08:00" in channel_files.calendar(Vault(vault))
+    sync_job(tmp_path / "hermes", Config.load(vault).now().isoformat(), status="error", error="401 token\nexpired")
+    assert "the last mail and calendar sync failed (401 token expired)" in channel_files.calendar(Vault(vault))
+
+
+def test_no_connected_account_is_said_and_a_vault_without_hermes_says_nothing(synced, monkeypatch):
+    vault, root = synced
+    fm.write(vault / "agent/Channels.md", {"kind": "orientation"}, channels.HEADER)
+    assert "I can't see the calendar: no Google account of the owner's is connected." in channel_files.calendar(Vault(vault))
+    assert channel_files.render_mail(channel_files.mail(Vault(vault), datetime(2026, 11, 4))).startswith(
+        "coverage: I can't see the mail: no Google account of the owner's is connected")
+    monkeypatch.delenv("HERMES_HOME")
+    assert channel_files.calendar(Vault(vault)) == "" and channel_files.coverage(Vault(vault)) is None
+
+
+def test_mail_coverage_line_names_accounts_and_last_sync(synced):
+    vault, root = synced
+    message(root)
+    text = channel_files.render_mail(channel_files.mail(Vault(vault), datetime(2026, 11, 4)))
+    assert text.splitlines()[0].startswith("coverage: mira@example.com, missing@example.com, other@example.com; last sync 2026-11-04")

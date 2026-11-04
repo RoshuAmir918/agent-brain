@@ -1,6 +1,7 @@
 """Read the owner's optional Demiurge sync, without fetching channels or changing files."""
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -14,8 +15,11 @@ from .vault import Vault
 
 EMAIL = re.compile(r"[\w.!#$%&'*+=?^{}~-]+@[\w.-]+\.[a-zA-Z]{2,}")
 FOLDER = re.compile(r"(?:^|/)channels/([^/\s`\"'<>()]+)")
-EXCLUDED_LABELS = {"CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_UPDATES", "CATEGORY_FORUMS", "SPAM", "TRASH"}
-# Mail no person wrote: bots, no-reply and notification senders. Gmail files many of them in the primary inbox.
+EXCLUDED_LABELS = {"CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "CATEGORY_FORUMS", "SPAM", "TRASH"}
+NOTICE_LIMIT = 30
+# Mail no person wrote: bots, no-reply and notification senders. Gmail files many of them in the primary inbox. They
+# are kept, because a payment due, a return deadline or a security alert is in them, but grouped by sender, so a flood
+# from one service is one line.
 AUTOMATED = re.compile(r'\[bot\]|(^|[<\s"._+-])(no-?reply|do-?not-?reply|notifications?|notify|mailer-daemon|postmaster|alerts?)@',
                        re.I)
 CALENDAR_LIMIT = 12
@@ -39,6 +43,48 @@ def synced_accounts(vault: Vault) -> list[tuple[str, Path]]:
     if not home:
         return []
     return [(account, Path(home) / "channels" / account) for account in owner_accounts(vault)]
+
+
+SYNC_STALE = timedelta(hours=2)
+
+
+def coverage(vault: Vault) -> dict | None:
+    """What of the owner's Google can be seen, from the registry and the sync job's last run, so a briefing says so
+    instead of going quiet. None outside a Hermes home (a vault without Demiurge has nothing to report)."""
+    home = os.environ.get("HERMES_HOME")
+    if not home:
+        return None
+    accounts = owner_accounts(vault)
+    found = {"accounts": accounts, "last_sync": None, "problem": ""}
+    if not accounts:
+        found["problem"] = "no Google account of the owner's is connected"
+        return found
+    job = None
+    try:
+        raw = json.loads((Path(home) / "cron" / "jobs.json").read_text(encoding="utf-8"))
+        jobs = raw.get("jobs", []) if isinstance(raw, dict) else raw
+        job = next((j for j in jobs if isinstance(j, dict) and (j.get("name") == "demiurge-sync"
+                    or "demiurge-sync" in str(j.get("script") or ""))), None)
+    except (OSError, ValueError, AttributeError):
+        pass
+    if job is None:
+        found["problem"] = "the mail and calendar sync is not set up"
+        return found
+    last = job.get("last_run_at")
+    found["last_sync"] = last
+    try:
+        when = datetime.fromisoformat(str(last))
+        when = when.replace(tzinfo=vault.config.zone) if when.tzinfo is None else when
+    except ValueError:
+        found["problem"] = "the mail and calendar sync has not run yet"
+        return found
+    now = vault.config.now()
+    now = now.replace(tzinfo=vault.config.zone) if now.tzinfo is None else now
+    if job.get("last_status") not in (None, "ok"):
+        found["problem"] = f"the last mail and calendar sync failed ({' '.join(str(job.get('last_error') or job.get('last_status')).split())[:120]})"
+    elif now - when > SYNC_STALE:
+        found["problem"] = f"the mail and calendar sync last ran {when.astimezone(vault.config.zone):%a %b %-d %H:%M}, so this may be out of date"
+    return found
 
 
 def local_datetime(value: str, config: Config) -> datetime:
@@ -136,17 +182,24 @@ def calendar(vault: Vault, days: int = 7) -> str:
         start = event.start.date()
         return (0 if start == today else 1 if start < today else 2, event.start, event.title)
     events = sorted(found.values(), key=order)[:CALENDAR_LIMIT]
-    if not events:
-        return ""
-    return f"## Calendar: today and the next {days} days\n\n" + "\n".join(event.line(today) for event in events)
+    seen = coverage(vault)
+    if seen is None:
+        return "" if not events else f"## Calendar: today and the next {days} days\n\n" + "\n".join(event.line(today) for event in events)
+    head = f"## Calendar: today and the next {days} days\n\n"
+    if not seen["accounts"] or seen["problem"].endswith(("not set up", "not run yet")):
+        return head + f"- I can't see the calendar: {seen['problem']}."
+    lines = [event.line(today) for event in events] or [f"- Nothing on the calendar for the next {days} days."]
+    if seen["problem"]:
+        lines.append(f"- Note: {seen['problem']}.")
+    return head + "\n".join(lines)
 
 
 def mail(vault: Vault, since: datetime) -> dict:
     config = vault.config
     since = since.replace(tzinfo=config.zone) if since.tzinfo is None else since.astimezone(config.zone)
     owners = {account.lower() for account in owner_accounts(vault)}
-    filtered = dict(category=0, automated=0, sent=0, before_since=0, invalid=0)
-    messages = []
+    filtered = dict(category=0, sent=0, before_since=0, invalid=0)
+    messages, notices = [], {}
     for account, folder in synced_accounts(vault):
         directory = folder / "mail"
         if not directory.is_dir():
@@ -178,22 +231,44 @@ def mail(vault: Vault, since: datetime) -> dict:
                     reason = "sent"
                 elif EXCLUDED_LABELS.intersection(labels):
                     reason = "category"
-                elif AUTOMATED.search(sender):
-                    reason = "automated"
                 if reason:
                     filtered[reason] += 1
                     continue
-                messages.append({"date": received.isoformat(), "account": account, "from": sender,
-                                 "subject": str(data.get("subject", "")), "labels": labels, "path": str(path)})
-    messages.sort(key=lambda item: (datetime.fromisoformat(item["date"]), item["path"]), reverse=True)
-    return {"messages": messages[:MAIL_LIMIT], "filtered": filtered, "omitted": max(0, len(messages) - MAIL_LIMIT)}
+                item = {"date": received.isoformat(), "account": account, "from": sender,
+                        "subject": str(data.get("subject", "")), "labels": labels, "path": str(path)}
+                if "CATEGORY_UPDATES" in labels or AUTOMATED.search(sender):
+                    key = (account, min(senders) if senders else sender.lower())
+                    group = notices.setdefault(key, {**item, "count": 0})
+                    group["count"] += 1
+                    if (received, str(path)) > (datetime.fromisoformat(group["date"]), group["path"]):
+                        group.update(item)
+                else:
+                    messages.append(item)
+    newest = lambda item: (datetime.fromisoformat(item["date"]), item["path"])
+    messages.sort(key=newest, reverse=True)
+    grouped = sorted(notices.values(), key=newest, reverse=True)
+    return {"coverage": coverage(vault), "messages": messages[:MAIL_LIMIT], "notices": grouped[:NOTICE_LIMIT], "filtered": filtered,
+            "omitted": max(0, len(messages) - MAIL_LIMIT) + max(0, len(grouped) - NOTICE_LIMIT)}
 
 
 def render_mail(data: dict) -> str:
     def line(value):
         return " ".join(str(value).split())
-    lines = [" · ".join(line(message[key]) if key != "labels" else ",".join(line(label) for label in message[key])
-                        for key in ("date", "account", "from", "subject", "labels", "path")) for message in data["messages"]]
+    row = lambda message: " · ".join(line(message[key]) if key != "labels" else ",".join(line(label) for label in message[key])
+                                     for key in ("date", "account", "from", "subject", "labels", "path"))
+    notices = data.get("notices", [])
+    seen = data.get("coverage")
+    if seen is None:
+        head = "coverage: not a Demiurge setup; no synced mail"
+    elif seen["problem"] and not seen["last_sync"]:
+        head = f"coverage: I can't see the mail: {seen['problem']}"
+    else:
+        head = (f"coverage: {', '.join(seen['accounts'])}; last sync {seen['last_sync']}"
+                + (f"; {seen['problem']}" if seen["problem"] else ""))
+    lines = [head, "people:", *[row(message) for message in data["messages"]],
+             "notices (one line per sender, newest message shown):",
+             *[row({**notice, "from": f"{notice['from']} ×{notice['count']}"}) for notice in notices]]
     counts = ", ".join(f"{count} {reason.replace('_', ' ')}" for reason, count in data["filtered"].items())
-    lines.append(f"{len(data['messages'])} shown · filtered: {counts} · {data['omitted']} over cap")
+    lines.append(f"{len(data['messages'])} from people · {sum(n['count'] for n in notices)} notices from {len(notices)} senders"
+                 f" · filtered: {counts} · {data['omitted']} over cap")
     return "\n".join(lines)
