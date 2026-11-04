@@ -665,3 +665,17 @@ def test_current_items_dated_over_two_weeks_ago_are_named_and_history_is_not(vau
     from brain.vault import Vault
     problems = validate.stale_current(Vault(vault))
     assert len(problems) == 1 and "2026-10-12" in problems[0] and "Reach held" in problems[0]
+
+
+
+def test_current_presenting_a_closed_task_as_live_is_named(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
+    write_tasks(vault, Task("T-010", "Migrate", "- **Status:** done\n", {"state": "completed"}),
+                Task("T-011", "Still going", "- **Status:** going\n", {"state": "in_progress"}))
+    fm.write(vault / "CURRENT.md", {"kind": "orientation"},
+             "# Current\n\nT-010 migration is in progress.\n\nT-011 is moving.\n\nT-010 completed on Nov 2.\n\n"
+             "<!-- T-010 note -->\n\n## History\nT-010 started in October.\n")
+    from brain import validate
+    from brain.vault import Vault
+    problems = validate.closed_task_mentions(Vault(vault))
+    assert len(problems) == 1 and "T-010" in problems[0] and "in progress" in problems[0]

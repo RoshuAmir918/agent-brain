@@ -185,7 +185,7 @@ def hygiene(vault: Vault) -> list[str]:
     seen the next day rather than at the next migration."""
     return (responsibilities(vault) + task_states(vault) + kinds(vault) + access_problems(vault) + owner_profile(vault)
             + channels(vault) + identity_duplicates(vault) + needs_ceiling(vault) + needs_hygiene(vault)
-            + stale_current(vault)
+            + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault))
 
 
@@ -244,6 +244,49 @@ def identity_duplicates(vault: Vault) -> list[str]:
 
 
 STALE_DAYS = 14   # CURRENT is what is true now: an item whose newest date is older is moved out or confirmed
+
+
+CLOSED_WORDS = re.compile(r"\b(complet\w*|closed|done|cancel\w*|dropped|finished|archived|set aside)\b", re.I)
+
+
+def task_states_by_id(vault: Vault) -> dict[str, str]:
+    """Every task's state wherever it is recorded: the register, per-task archives and monthly archives."""
+    states: dict[str, str] = {}
+    pattern = re.compile(r"^#{2,3} (T-\d{3})\b[^\n]*\n<!-- brain: state=(\w+)", re.M)
+    folder = vault.root / vault.config.agent("Tasks Archive")
+    sources = sorted(folder.glob("*.md")) if folder.is_dir() else []
+    register = vault.root / vault.config.agent("Tasks.md")
+    for path in sources + ([register] if register.exists() else []):   # the register, read last, is canonical
+        text = path.read_text(encoding="utf-8")
+        found = dict(pattern.findall(text))
+        if not found and re.fullmatch(r"T-\d{3}", path.stem):
+            head = re.search(r"<!-- brain: state=(\w+)", text)
+            found = {path.stem: head[1]} if head else {}
+        states.update(found)
+    return states
+
+
+def closed_task_mentions(vault: Vault) -> list[str]:
+    """CURRENT and Primed are what is true now: a task they present as live that its own record has closed is named,
+    unless the line itself says it is done."""
+    states = task_states_by_id(vault)
+    closed = {tid for tid, state in states.items() if state in ("completed", "cancelled")}
+    out = []
+    for rel in ("CURRENT.md", vault.config.agent("Primed.md")):
+        note = vault.notes.get(rel)
+        if note is None:
+            continue
+        body = re.sub(r"<!-- brain:active-threads start -->.*?<!-- brain:active-threads end -->", "", note.body, flags=re.S)
+        history = False
+        for line in body.splitlines():
+            if line.startswith("## "):
+                history = any(word in line.casefold() for word in ("history", "superseded", "done for you"))
+                continue
+            if history or CLOSED_WORDS.search(line) or line.lstrip().startswith("<!--"):
+                continue
+            for tid in sorted(set(re.findall(r"\bT-\d{3}\b", line)) & closed):
+                out.append(f"{rel}: presents {tid} as current, but the task is {states[tid]}: {' '.join(line.split())[:90]}")
+    return out
 
 
 def stale_current(vault: Vault) -> list[str]:
