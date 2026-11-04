@@ -4,11 +4,40 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import sqlite3
+from contextlib import closing
+from datetime import datetime
+from pathlib import Path
 
 from .config import Config
 ARGUMENT_KEYS = ("arguments", "args", "input", "parameters")
 EVALUATION_RE = re.compile(r"evaluation fixture|retrieval[- ](check|test)|\bRC-\d{2}\b", re.I)
 ROUTINE_RE = re.compile(r"^cron\b|^cron_", re.I)
+
+
+def unanswered(home: Path, now: datetime) -> list[tuple[str, str]]:
+    """Recent conversations whose last stored message is an unattended user turn. The store is optional."""
+    database = home / "state.db"
+    if not database.is_file():
+        return []
+    floor = int(now.timestamp()) // 60 * 60
+    try:
+        with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.2)) as conn:
+            required = {"sessions": {"id", "source"}, "messages": {"id", "session_id", "role", "timestamp"}}
+            for table, columns in required.items():
+                if not columns <= {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}:
+                    return []
+            # A routine's delivery into a conversation is stored as a user turn; it is not someone waiting.
+            delivery = ("AND COALESCE(m.content, '') NOT LIKE '[Cron delivery%' "
+                        if "content" in {row[1] for row in conn.execute("PRAGMA table_info(messages)")} else "")
+            return conn.execute(
+                "SELECT s.id, s.source FROM sessions s JOIN messages m ON m.session_id = s.id "
+                "WHERE s.source NOT IN ('cron', 'subagent', 'cli') AND m.role = 'user' " + delivery +
+                "AND m.id = (SELECT MAX(last.id) FROM messages last WHERE last.session_id = s.id) "
+                "AND m.timestamp < ? AND m.timestamp > ? ORDER BY s.id, s.source",
+                (floor - 10 * 60, floor - 24 * 60 * 60)).fetchall()
+    except (OSError, sqlite3.Error):
+        return []
 
 
 def session_kind(containers: list[dict], messages: list[dict]) -> str:

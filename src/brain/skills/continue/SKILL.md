@@ -9,10 +9,11 @@ metadata:
 ---
 # Continue
 
-The worker's pass. Every thirty minutes, day and night, {agent_name} picks up whatever {human_name} handed off and keeps going until it is done. A handoff is not a turn that runs and stops; it is a thread, and this routine is what keeps pulling on it while {human_name} sleeps, works or forgets they asked. Most runs find nothing handed off and end at once.
+The worker's pass. Every thirty minutes, day and night, a monitor checks what {human_name} handed off; when it changes, {agent_name} picks it up and keeps going until it is done. A handoff is not a turn that runs and stops; it is a thread, and this routine is what keeps pulling on it while {human_name} sleeps, works or forgets they asked.
 
 ## Procedure
 1. **What is due.** `brain continue --due`. Otherwise take the first task listed (the oldest handoff).
+   This runs only when the due list changed (including its Next lines, or the date for a daily retry).
    Nothing due: stop here, with no message; the engine records the run.
 2. **Do the next chunk.** Start from the task's Next line and keep going, step after step, for about twenty-five minutes or to a natural checkpoint. Work the way an autonomous colleague does with the permissions they have: when something is ambiguous, decide the way {human_name} would most likely want it, write the assumption on the task, and carry on; when one path waits on someone else, park that path and advance the others; when a tool or a route fails, try another; when you need a fact, go and find it. Verify what you did by reading it back; a thing claimed is not a thing done.
 3. **And then some.** A handoff is almost always open-ended: "look into this", "see what you can do with that", "have something for me in the morning". Before you stop, ask what {human_name} would be glad to find done that they did not spell out, inside the thread's subject: the adjacent question they will ask next, a second angle, the better version of what they asked for, the follow-up prepared and held. Do one of those too. Hold it beside the task as `kind: draft`, never push it. The wow is the thing they did not think to ask for; the restraint is that it stays within the thread.

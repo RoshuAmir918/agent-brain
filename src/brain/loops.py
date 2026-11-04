@@ -32,7 +32,7 @@ What I am holding for you: promises, answers owed and waits on others.
 ## Closed
 
 """
-DETAIL = re.compile(r"^[ \t]+-[ \t]+(with|due|closed):[ \t]*(.+?)[ \t]*$")
+DETAIL = re.compile(r"^[ \t]+-[ \t]+(with|due|ready|closed):[ \t]*(.+?)[ \t]*$")
 STAMP = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}"
 
 
@@ -47,6 +47,7 @@ class Item:
     closed: str = ""
     outcome: str = ""
     because: str = ""
+    ready: str = ""
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -94,12 +95,12 @@ def parse_section(body: str, title: str = "Open") -> list[Item]:
         if detail and current is not None:
             if detail[1] == "with":
                 current.with_ = detail[2]
-            elif detail[1] == "due":
+            elif detail[1] in ("due", "ready"):
                 try:
                     _time(detail[2])
                 except ValueError:
                     continue
-                current.due = detail[2]
+                setattr(current, detail[1], detail[2])
             else:
                 closed = re.fullmatch(r"(" + STAMP + r") · (done|dropped) · (.+)", detail[2])
                 if closed:
@@ -117,7 +118,7 @@ def parse_section(body: str, title: str = "Open") -> list[Item]:
 
 def render(item: Item) -> str:
     bullet = f"- {item.since} · {item.kind} · {item.text} · [[{item.source}]]"
-    for label, value in (("with", item.with_), ("due", item.due)):
+    for label, value in (("with", item.with_), ("due", item.due), ("ready", item.ready)):
         if value:
             bullet += f"\n  - {label}: {value}"
     if item.closed:
@@ -127,7 +128,7 @@ def render(item: Item) -> str:
 
 def as_dict(item: Item) -> dict:
     out = {"id": item.id, "kind": item.kind, "text": item.text, "with": item.with_, "due": item.due,
-           "since": item.since, "source": item.source}
+           "since": item.since, "source": item.source, "ready": item.ready}
     if item.closed:
         out.update(closed=item.closed, outcome=item.outcome, because=item.because)
     return out
@@ -174,6 +175,36 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
     return True
 
 
+def _pick(config: Config, which: str) -> Item:
+    candidates = open_loops(config)
+    chosen = [item for item in candidates if item.id == which]
+    needle = _plain(which)
+    if not chosen:
+        chosen = [item for item in candidates if needle and needle == _plain(item.text)]
+    if not chosen:
+        chosen = [item for item in candidates if needle and needle in _plain(item.text)]
+    if len(chosen) != 1:
+        raise ValueError(("no open loop matches " if not chosen else f"{len(chosen)} open loops match ")
+                         + repr(which) + "; use an id from `brain loops --json`")
+    return chosen[0]
+
+
+def ready(config: Config, which: str, at: datetime) -> Item:
+    """The answer is in hand: watch can act now, regardless of the loop's age or deadline."""
+    with vault_lock(config):
+        item = _pick(config, which)
+        if item.ready:
+            return item
+        path = path_for(config)
+        data, body = fm.read(path)
+        body, _ = needs._without(body, needs._section(body, "Open"), lambda loop: loop.id == item.id,
+                                 bullet=_bullet, detail=DETAIL)
+        item.ready = _local(config, at).strftime("%Y-%m-%d %H:%M")
+        body = _insert(body, "Open", render(item))
+        fm.write(path, data, body)
+        return item
+
+
 def close(config: Config, which: str, at: datetime, outcome: str, because: str) -> Item:
     if outcome not in OUTCOMES:
         raise ValueError(f"outcome must be one of {', '.join(OUTCOMES)}")
@@ -181,17 +212,7 @@ def close(config: Config, which: str, at: datetime, outcome: str, because: str) 
     if not because:
         raise ValueError("closing a loop needs a reason")
     with vault_lock(config):
-        candidates = open_loops(config)
-        chosen = [item for item in candidates if item.id == which]
-        needle = _plain(which)
-        if not chosen:
-            chosen = [item for item in candidates if needle and needle == _plain(item.text)]
-        if not chosen:
-            chosen = [item for item in candidates if needle and needle in _plain(item.text)]
-        if len(chosen) != 1:
-            raise ValueError(("no open loop matches " if not chosen else f"{len(chosen)} open loops match ")
-                             + repr(which) + "; use an id from `brain loops --json`")
-        item = chosen[0]
+        item = _pick(config, which)
         path = path_for(config)
         data, body = fm.read(path)
         body, _ = needs._without(body, needs._section(body, "Open"), lambda bullet: bullet.id == item.id,
@@ -219,6 +240,9 @@ def due(config: Config, now: datetime) -> list[Item]:
     now = _local(config, now).astimezone(timezone.utc)
     out = []
     for item in open_loops(config):
+        if item.ready:
+            out.append(item)
+            continue
         opened = _local(config, _time(item.since)).astimezone(timezone.utc)
         age = now - opened
         if item.kind == "waiting" and age < timedelta(hours=WAITING_HOURS):

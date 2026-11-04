@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from brain import fm, journal, ledger, loops, nightly, state, validate
+from brain import fm, journal, ledger, loops, needs, nightly, state, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -235,3 +235,69 @@ def test_hygiene_names_only_open_loops_older_than_fourteen_days(config, monkeypa
     assert len(problems) == 1 and "Old promise" in problems[0]
     assert "decide it: close it, drop it, or set a due date" in problems[0]
     assert problems[0] in validate.hygiene(Vault(config.vault_path))
+
+
+@pytest.mark.parametrize("kind", loops.KINDS)
+def test_ready_round_trips_and_overrides_age_and_future_deadline(config, kind, monkeypatch, capsys):
+    loops.add(config, AT, kind, "Follow through", "Trip", "Kevin", "2026-12-01")
+    [item] = loops.open_loops(config)
+    assert loops.due(config, AT) == []
+    marked = loops.ready(config, item.id, AT)
+    assert marked.ready == "2026-10-28 12:00"
+    assert loops.parse_section("## Open\n" + loops.render(marked)) == [marked]
+    assert loops.open_loops(config) == loops.due(config, AT) == [marked]
+    before = snapshot(config.vault_path)
+    assert loops.ready(config, "FOLLOW  THROUGH", AT + timedelta(hours=1)) == marked
+    assert snapshot(config.vault_path) == before
+    monkeypatch.setattr(Config, "now", lambda self, moment=None: AT)
+    nightly.main(["loops", "--json", "--vault", str(config.vault_path)])
+    result = json.loads(capsys.readouterr().out)
+    assert result["open"][0]["ready"] == result["due"][0]["ready"] == marked.ready
+    closed = loops.close(config, item.id, AT, "done", "Relayed")
+    assert loops.closed_recent(config) == [closed] and closed.ready == marked.ready
+    with pytest.raises(ValueError, match="no open loop"):
+        loops.ready(config, item.id, AT)
+
+
+def test_ready_preserves_noncanonical_details_and_other_sections(config):
+    path = loops.path_for(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(loops.TEMPLATE.replace("## Open\n", "## Open\n\n"
+                    "- 2026-10-28 12:00 · owed · Relay answer · [[Trip]]\n"
+                    "    - due: 2026-12-01\n  - with: Kevin\n"), encoding="utf-8")
+    loops.ready(config, "Relay answer", AT)
+    [item] = loops.open_loops(config)
+    assert (item.ready, item.due, item.with_) == ("2026-10-28 12:00", "2026-12-01", "Kevin")
+    assert "## Closed\n" in path.read_text()
+
+
+@pytest.mark.parametrize("by_id", [True, False])
+def test_record_resolves_asks_and_marks_ready_tolerating_retries(config, by_id):
+    journal.add_ask(config, AT.date(), "Which date?", "Trip")
+    [ask] = needs.items(config, AT.date())
+    loops.add(config, AT, "owed", "Relay the date", "Trip", "Kevin", "2026-12-01")
+    [loop] = loops.open_loops(config)
+    record = {"headline": "Got the date", "outcome": "nothing",
+              "resolved": [ask.id if by_id else ask.text, "gone-ask-id"],
+              "ready": [loop.id if by_id else loop.text, "gone-loop-id"]}
+    journal.append_entry(config, record, "cli", AT)
+    assert needs.items(config, AT.date()) == []
+    assert loops.open_loops(config)[0].ready == "2026-10-28 12:00"
+    log = config.vault_path / config.agent("Answered/2026-10.md")
+    assert "Which date? · because answered in conversation" in log.read_text()
+    before = snapshot(config.vault_path)
+    journal.append_entry(config, record, "cli", AT + timedelta(minutes=1))
+    assert snapshot(config.vault_path) == before
+    loops.close(config, loop.id, AT, "done", "Delivered")
+    before = snapshot(config.vault_path)
+    journal.append_entry(config, record, "cli", AT)
+    assert snapshot(config.vault_path) == before
+
+
+def test_record_does_not_resolve_or_ready_a_partial_text_match(config):
+    journal.add_ask(config, AT.date(), "Which date for Lisbon?", "Trip")
+    loops.add(config, AT, "owed", "Relay the date for Lisbon", "Trip")
+    before = snapshot(config.vault_path)
+    journal.append_entry(config, {"headline": "Quiet", "outcome": "nothing", "resolved": ["Which date"],
+                                 "ready": ["Relay the date"]}, "cli", AT)
+    assert snapshot(config.vault_path) == before

@@ -57,6 +57,8 @@ RECORD_SCHEMA = {
                            "text": {"type": "string", "maxLength": 160},
                            "with": {"type": ["string", "null"]}, "due": {"type": ["string", "null"]}}}},
         "closed": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
+        "resolved": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
+        "ready": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
         "workingTogether": {"type": ["array", "null"], "maxItems": 3, "items": {"type": "string", "maxLength": 200}},
         "noted": {"type": ["array", "null"], "maxItems": 5, "items": {"type": "string", "maxLength": 240}},
         "access": {"type": "array", "maxItems": 5, "items": {
@@ -67,7 +69,7 @@ RECORD_SCHEMA = {
     },
 }
 ROUTINE_SCHEMA = {**RECORD_SCHEMA, "properties": {key: value for key, value in RECORD_SCHEMA["properties"].items()
-                                               if key not in ("access", "workingTogether", "noted", "loops", "closed")}}
+                                               if key not in ("access", "workingTogether", "noted", "loops", "closed", "resolved", "ready")}}
 SYSTEM = ("You are the agent whose session this was, keeping your own records. Answer only with the JSON object "
           "the schema describes.")
 CONVERSATION = (
@@ -81,9 +83,12 @@ CONVERSATION = (
     "- loops: each new thing you promised, an answer or relay you now owe someone, or something you now wait on "
     "from someone other than your owner. One plain line each, under 160 characters, with who it is with and a due "
     "date when one was named (YYYY-MM-DD or YYYY-MM-DD HH:MM). Not things for your owner to decide (that's "
-    "needsYou). Not something done in this conversation.\n"
+    "needsYou). Work your owner hands you to do later (\"look into…\", \"have something by morning\") is a promised "
+    "loop with its due time. Not something done in this conversation.\n"
     "- closed: open loops (listed below) that this conversation finished or that no longer apply; use their exact "
     "text or id.\n"
+    "- resolved: asks listed below that this conversation answered or made moot; use their ids or exact texts.\n"
+    "- ready: owed loops listed below whose answer your owner gave here, so you can pass it on; use their ids or exact texts.\n"
     "- access: list each time someone other than the owner asked for something a vault subject covers, and what you "
     "did; leave empty for the owner and small talk. Use the vault's subject, asked in a few words without sensitive "
     "specifics (at most 120 characters), the outcome, and a rule id from Disclosure.md or null.\n"
@@ -434,7 +439,7 @@ class BrainMemoryProvider(MemoryProvider):
             if self.user_name:
                 record["speaker"] = self.user_name   # who said what is noted, when it is not the owner
             remembered = (record.get("workingTogether") or record.get("noted") or record.get("needsYou")
-                          or record.get("loops") or record.get("closed"))
+                          or record.get("loops") or record.get("closed") or record.get("resolved") or record.get("ready"))
             if (record["outcome"] != "nothing" or record.get("access") or remembered) and not self._write(
                     repo, arguments, json.dumps(record)):
                 return
@@ -464,15 +469,15 @@ class BrainMemoryProvider(MemoryProvider):
         if repo is None:
             return ""
         try:
-            listed = subprocess.run(["brain", "needs-you"], cwd=repo, capture_output=True, text=True, check=True,
-                                    timeout=5).stdout.strip().splitlines()
+            listed = subprocess.run(["brain", "needs-you", "--json"], cwd=repo, capture_output=True, text=True, check=True,
+                                    timeout=5)
+            asks = [f"{item['id']} · {item['text'][:160]}" for item in json.loads(listed.stdout) if item["kind"] == "ask"]
         except Exception:
             return ""
-        asks = [line.split(" · ", 2)[1] for line in listed if line.startswith("ask · ") and line.count(" · ") >= 2]
         if not asks:
             return ""
         return ("\nAlready waiting on your owner; leave needsYou null if the conversation only raised one of these "
-                "again, in any wording:\n" + "\n".join(f"- {ask[:160]}" for ask in asks[:20]))
+                "again, in any wording; list answered ones in resolved:\n" + "\n".join(f"- {ask}" for ask in asks[:20]))
 
     def _record_routine(self) -> None:
         with self._recording:

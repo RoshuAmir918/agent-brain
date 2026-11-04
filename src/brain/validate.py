@@ -186,7 +186,53 @@ def hygiene(vault: Vault) -> list[str]:
     return (responsibilities(vault) + task_states(vault) + kinds(vault) + access_problems(vault) + owner_profile(vault)
             + channels(vault) + identity_duplicates(vault) + needs_ceiling(vault) + needs_hygiene(vault)
             + stale_current(vault) + closed_task_mentions(vault)
-            + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault))
+            + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
+            + watch_signal_hygiene(vault))
+
+
+def watch_signal_hygiene(vault: Vault) -> list[str]:
+    """A gated routine still owes a daily clean monitor check, even when it never wakes the model."""
+    import json
+    import os
+    from datetime import datetime, timedelta
+    from pathlib import Path
+    home = os.environ.get("HERMES_HOME")
+    if not home:
+        return []
+    home = Path(home)
+    try:
+        raw = json.loads((home / "cron/jobs.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    jobs = raw.get("jobs", []) if isinstance(raw, dict) else raw
+    if not isinstance(jobs, list):
+        return []
+    now = vault.config.now()
+    now = now.replace(tzinfo=vault.config.zone) if now.tzinfo is None else now
+    out = []
+    for routine in ("watch", "continue"):
+        def owns(job):
+            if not isinstance(job, dict) or not job.get("monitor_script"):
+                return False
+            skills = job.get("skills", [])
+            if isinstance(skills, str):
+                skills = [skills]
+            return isinstance(skills, list) and any(
+                isinstance(skill, str) and (skill.endswith("watch") if routine == "watch" else
+                                           skill == vault.config.skill_prefix + "continue") for skill in skills)
+        if not any(owns(job) for job in jobs):
+            continue
+        try:
+            record = json.loads((home / "records" / routine / "signal.json").read_text(encoding="utf-8"))
+            checked = datetime.fromisoformat(record["checked"])
+            checked = checked.replace(tzinfo=vault.config.zone) if checked.tzinfo is None else checked
+            if now - checked <= timedelta(hours=24):
+                continue
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        out.append(f"{routine}'s monitor has not run cleanly in a day: check `hermes cron list` and run "
+                   f"`bash $HERMES_HOME/scripts/{routine}-signal.sh`")
+    return out
 
 
 def loops_hygiene(vault: Vault) -> list[str]:

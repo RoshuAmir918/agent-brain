@@ -307,20 +307,20 @@ class FakeLlm:
                                text=result if isinstance(result, str) else json.dumps(result))
 
 
-open_asks = [""]
+open_asks = ["[]"]
 open_loops = ["{\"open\": []}"]
 
 
 @pytest.fixture
 def writes(provider, monkeypatch):
     calls = []
-    open_asks[0] = ""
+    open_asks[0] = "[]"
     open_loops[0] = json.dumps({"open": []})
 
     def run(command, **kwargs):
         if command[1:] == ["loops", "--json"]:
             return SimpleNamespace(stdout=open_loops[0], returncode=0)
-        if command[1:] == ["needs-you"]:
+        if command[1:] == ["needs-you", "--json"]:
             return SimpleNamespace(stdout=open_asks[0], returncode=0)   # a read, not a write
         calls.append((command[1:], json.loads(kwargs["input"]) if kwargs.get("input", "").startswith("{") else kwargs.get("input")))
         return SimpleNamespace(stdout="", returncode=0)
@@ -506,8 +506,8 @@ def test_a_failed_write_leaves_the_turns_too(provider, monkeypatch):
     def run(command, **kwargs):
         if command[1:] == ["loops", "--json"]:
             return SimpleNamespace(stdout='{"open": []}', returncode=0)
-        if command[1:] == ["needs-you"]:
-            return SimpleNamespace(stdout="", returncode=0)
+        if command[1:] == ["needs-you", "--json"]:
+            return SimpleNamespace(stdout="[]", returncode=0)
         calls.append(1)
         raise OSError()
 
@@ -595,14 +595,16 @@ def test_a_compressed_transcript_is_not_journaled_again_at_session_end(provider,
 
 
 def test_the_record_is_told_what_already_waits_on_the_owner(provider, writes):
-    open_asks[0] = ("ask · Approve the Tailscale share? · CURRENT.md\n"
-                    "confirm · Set states on 3 tasks. · agent/Tasks.md\n"
-                    "ask · Adopt? Shorter briefings · Briefing.md#Oct 27\n")
+    open_asks[0] = json.dumps([{"id": "ask1", "kind": "ask", "text": "Approve the Tailscale share?"},
+                               {"id": "confirm1", "kind": "confirm", "text": "Set states on 3 tasks."},
+                               {"id": "ask2", "kind": "ask", "text": "Adopt? Shorter briefings"}])
     provider.llm = FakeLlm(RECORD)
     provider.on_session_end(chat(("fares?", "compared")))
     instructions = provider.llm.calls[0]["instructions"]
     assert "Approve the Tailscale share?" in instructions and "Adopt? Shorter briefings" in instructions
     assert "Set states on 3 tasks." not in instructions   # a confirm is not a question to avoid repeating
+    assert "ask1 · Approve" in instructions and "ask2 · Adopt?" in instructions
+    assert "list answered ones in resolved" in instructions
 
 
 def test_access_schema_is_optional_bounded_and_conversation_only():
@@ -629,7 +631,11 @@ def test_loops_schema_and_prompt_are_conversation_only():
     assert entry["properties"]["text"]["maxLength"] == 160
     assert entry["properties"]["with"] == entry["properties"]["due"] == {"type": ["string", "null"]}
     assert props["closed"]["items"] == {"type": "string"}
-    assert not {"loops", "closed"} & hermes_plugin.ROUTINE_SCHEMA["properties"].keys()
+    for key in ("resolved", "ready"):
+        assert props[key] == {"type": "array", "maxItems": 5, "items": {"type": "string"}}
+        assert f"- {key}:" in hermes_plugin.CONVERSATION
+    assert not {"loops", "closed", "resolved", "ready"} & hermes_plugin.ROUTINE_SCHEMA["properties"].keys()
+    assert "loop with its due time" in hermes_plugin.CONVERSATION
     assert {"next", "thought"} <= props.keys()
     assert "- thought:" not in hermes_plugin.CONVERSATION
     assert "- loops:" in hermes_plugin.CONVERSATION and "- closed:" in hermes_plugin.CONVERSATION
@@ -646,7 +652,8 @@ def test_record_context_lists_twenty_open_loops(provider, writes):
 
 
 @pytest.mark.parametrize("capture", [{"loops": [{"kind": "owed", "text": "Relay the answer"}]},
-                                    {"closed": ["some-loop-id"]}, {"needsYou": "Which date?"}])
+                                    {"closed": ["some-loop-id"]}, {"needsYou": "Which date?"},
+                                    {"resolved": ["ask-id"]}, {"ready": ["loop-id"]}])
 def test_nothing_outcome_still_writes_open_work(provider, writes, capture):
     record = {"headline": "A quiet conversation", "outcome": "nothing", **capture}
     provider.llm = FakeLlm(record)

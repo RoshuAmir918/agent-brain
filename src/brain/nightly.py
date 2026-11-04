@@ -13,6 +13,8 @@ Usage:
   brain needs-you [--vault <path>] [--json]
   brain ideas [--vault <path>] [--all] [--json]
   brain loops [--vault <path>] [--json | --due] [--quiet]
+  brain watch-signal [--vault <path>]
+  brain continue-signal [--vault <path>]
   brain access <who> [--vault <path>] [--json]
   brain state [--vault <path>] [--json]
   brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
@@ -48,6 +50,7 @@ from .vault import DAILY, Vault
 from .config import FORMS, Config
 from .lock import vault_lock
 from . import install
+from . import signals
 
 MARK_START = "<!-- brain:active-threads start -->"
 MARK_END = "<!-- brain:active-threads end -->"
@@ -658,7 +661,8 @@ def cmd_loops(args):
                          ensure_ascii=False, indent=2))
     else:
         for item in due if args.due else loops.open_loops(config):
-            details = (f" · with: {item.with_}" if item.with_ else "") + (f" · due: {item.due}" if item.due else "")
+            details = ((f" · with: {item.with_}" if item.with_ else "") + (f" · due: {item.due}" if item.due else "")
+                       + (f" · ready: {item.ready}" if item.ready else ""))
             print(f"{item.id} · {item.since} · {item.kind} · {item.text} · [[{item.source}]]{details}")
 
 
@@ -832,6 +836,14 @@ def cmd_continue(args):
         nxt = state._field(task.body, "Next", "Next action") or ""
         print(f"{task.tid} · handed off {task.handoff[0]} · {task.title}" + (f" · next: {nxt[:160]}" if nxt else "")
               + (f" · report in {task.handoff[1]}" if task.handoff[1] else ""))
+
+
+def cmd_watch_signal(args):
+    print(signals.watch(args.config))
+
+
+def cmd_continue_signal(args):
+    print(signals.continue_(args.config))
 
 
 def cmd_stale_tasks(args):
@@ -1038,6 +1050,10 @@ def main(argv=None):
     s.set_defaults(fn=cmd_handoff)
     s = sub.add_parser("continue", help="handed-off tasks due now, oldest first; exits 1 when none")
     s.add_argument("--due", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_continue)
+    s = sub.add_parser("watch-signal", help="stable follow-through monitor output, without a model")
+    s.add_argument("--vault"); s.set_defaults(fn=cmd_watch_signal)
+    s = sub.add_parser("continue-signal", help="stable due-handoff monitor output, without a model")
+    s.add_argument("--vault"); s.set_defaults(fn=cmd_continue_signal)
     s = sub.add_parser("stale-tasks", help="open tasks gone quiet long enough for the evening review")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_stale_tasks)
     s = sub.add_parser("state"); s.add_argument("--vault")

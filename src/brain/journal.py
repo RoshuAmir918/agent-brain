@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-from . import access_log, fm, ledger, loops
+from . import access_log, fm, ledger, loops, needs
 from .lock import vault_lock
 from .config import Config
 from .vault import Vault
@@ -83,6 +83,22 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
                 loops.close(config, which, local, "done", "closed in conversation")
             except ValueError:
                 pass   # ambiguous text or a concurrent close leaves the rest of the capture intact
+    for which in record.get("ready") or []:
+        if any(item.id == which or needs._plain(item.text) == needs._plain(which)
+               for item in loops.open_loops(config)):
+            try:
+                loops.ready(config, which, local)
+            except ValueError:
+                pass   # already closed by another session, or ambiguous
+    for which in record.get("resolved") or []:
+        with vault_lock(config):
+            matched = [item for item in needs.items(config, local.date()) if item.kind == "ask"
+                       and (item.id == which or needs._plain(item.text) == needs._plain(which))]
+            if len(matched) == 1:
+                try:
+                    needs.resolve(config, matched[0].id, because="answered in conversation", today=local.date())
+                except ValueError:
+                    pass   # already gone, or an item that resolves where it lives
     if needs_you := _clean(record.get("needsYou")):
         add_ask(config, local.date(), needs_you, touched[0] if touched else None)
     from .session_context import is_owner
