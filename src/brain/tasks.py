@@ -217,6 +217,9 @@ def save_task(config: Config, task: Task, today: date) -> None:
     if full:
         s, e = full
         fm.write(reg, data, body[:s] + task.render() + ("\n" if body[e:] and not body[e:].startswith("\n") else "") + body[e:])
+        if not is_open(task) and archive_path(config, tid).exists():
+            # An older archive copy still marked open would bring the task back once the register stops listing it.
+            write_archive(config, task, task.state.get("tier", "warm"), today, whole=True)
     else:
         write_archive(config, task, task.state.get("tier", "warm"), today, whole=True)
 

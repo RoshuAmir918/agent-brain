@@ -273,3 +273,21 @@ def test_saving_an_archived_task_does_not_repeat_its_old_body(vault):
         T.save_task(config, task, date(2026, 11, 3))
     text = T.archive_path(config, "T-050").read_text(encoding="utf-8")
     assert "third" in text and "first" not in text and "second" not in text and "Earlier archive" not in text
+
+
+def test_closing_a_registered_task_also_closes_its_older_archive_copy(vault):
+    from datetime import date
+    from brain import fm
+    from brain import tasks as T
+    from brain.config import Config
+    config = Config.load(vault)
+    stale = T.Task("T-060", "Setup", "- **Status:** old\n", {"state": "in_progress", "tier": "cold"})
+    T.write_archive(config, stale, "cold", date(2026, 10, 20))
+    reg = vault / "agent/Tasks.md"
+    data, body = fm.read(reg)
+    fm.write(reg, data, body + "\n" + T.Task("T-060", "Setup", "- **Status:** current\n", {"state": "in_progress"}).render())
+    T.complete(config, "T-060", date(2026, 11, 3), "machinery done")
+    data, body = fm.read(reg)
+    fm.write(reg, data, body.split("### T-060")[0])          # the register stops listing it, as a hand move does
+    registered, archived = T.load_tasks(config)
+    assert all(t.tid != "T-060" for t in registered + archived)
