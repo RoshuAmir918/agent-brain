@@ -491,8 +491,15 @@ def cmd_journal_append(args):
 
 
 def cmd_journal_recent(args):
-    for entry in journal.recent(args.config, args.config.today(), args.count):
+    entries = journal.recent(args.config, args.config.today(), args.count)
+    for entry in entries:
         print(entry.line)
+    unread = journal.unread_lines(args.config, args.config.today())
+    if not entries:
+        print(f"0 rows: no journal rows in {args.config.agent('Journal')}/ for this month or last"
+              + (f"; {unread} line(s) there are in an older format the engine does not read" if unread else ""))
+    elif unread:
+        print(f"note: {unread} journal line(s) are in an older format the engine does not read")
 
 
 def cmd_redact(args):

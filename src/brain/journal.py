@@ -211,6 +211,20 @@ def _add_ask(config: Config, day: date, text: str, source: str | None, force: bo
     return True
 
 
+def unread_lines(config: Config, today: date) -> int:
+    """Dated lines in this and last month's journal that are not rows the engine reads (an older bullet format), so a
+    reader can tell "no conversations" from "a journal it cannot read"."""
+    previous = (today.replace(day=1).toordinal() - 1)
+    count = 0
+    for month in dict.fromkeys((date.fromordinal(previous).strftime("%Y-%m"), today.strftime("%Y-%m"))):
+        path = path_for(config, month)
+        if path.exists():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if re.match(r"^\s*-?\s*20\d\d-\d\d-\d\d", line) and ledger.parse_row(line) is None:
+                    count += 1
+    return count
+
+
 def recent(config: Config, today: date, count: int = 30) -> list[Entry]:
     """The last `count` entries, reaching into last month's file when this month's is short."""
     previous = (today.replace(day=1).toordinal() - 1)

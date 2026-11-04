@@ -175,3 +175,13 @@ def test_noted_facts_go_to_the_days_conversation_note_and_others_are_quoted_as_c
     assert "- 14:05 · Flying to Madison at 5 am on October 29 to visit Faisal" in body
     assert "- 14:05 · Kevin said: Maya's birthday is March 3" in body
     assert not (config.vault_path / config.agent("Journal/2026-10.md")).read_text().count("Madison")
+
+
+def test_recent_says_when_there_is_nothing_to_read_or_a_file_it_cannot_read(config, capsys):
+    from brain import nightly
+    path = journal.path_for(config, "2026-10")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("# Journal\n\n- 2026-10-29 01:23 demiurge · an older bullet row\n", encoding="utf-8")
+    nightly.cmd_journal_recent(type("A", (), {"config": config, "count": 30})())
+    out = capsys.readouterr().out
+    assert out.startswith("0 rows:") and "1 line(s)" in out and "older format" in out
