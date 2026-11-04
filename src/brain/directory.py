@@ -72,7 +72,9 @@ def profiles(vault: Vault, kind: str | None = None) -> list[Note]:
     roots = [PurePosixPath(root) for label, root in (("person", vault.config.people_dir),
                                                    ("intellect", vault.config.agents_dir))
              if kind is None or label == kind]
+    # A profile that declares itself a log is a moved or retired stub pointing at the real one: never an identity.
     return [note for rel, note in sorted(vault.notes.items()) if PurePosixPath(rel).name == "Profile.md"
+            and note.data.get("kind") != "log"
             and any(PurePosixPath(rel).is_relative_to(root) for root in roots)]
 
 

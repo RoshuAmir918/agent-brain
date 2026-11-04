@@ -286,3 +286,13 @@ def test_a_profile_pinned_to_a_handle_gains_its_permanent_id_beside_it(config, p
     body = fm.read(note)[1]
     assert "- **Demiurge:** `tars`" in body and "`j573`" in body
     assert directory.reconcile(Vault(config.vault_path), directory.load(config), TODAY) == []
+
+
+def test_a_moved_profile_stub_is_never_an_identity(config, payload):
+    stub = config.vault_path / "people/rpaimehta/Profile.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(stub, {"kind": "log", "tier": "cold"}, "# rpaimehta — moved\nSee [[people/Rohan_Mehta/Profile]].\n")
+    real = profile(config, "people/Rohan_Mehta/Profile.md", "# Rohan Mehta\nHandle: rpaimehta\n")
+    directory.sync(config, payload, TODAY)
+    assert "Demiurge:" not in stub.read_text() and "`k57090`" in real.read_text()
+    assert [note.rel for note in directory.profiles(Vault(config.vault_path))] == ["people/Rohan_Mehta/Profile.md"]
