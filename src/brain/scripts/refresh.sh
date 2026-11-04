@@ -4,6 +4,7 @@ VAULT_REPO="${VAULT_REPO:-$HOME/brain}"
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 cd "$VAULT_REPO"
 git pull --rebase --autostash -q origin main
+brain people sync --run >/dev/null 2>&1 || true
 brain compile-context --write
 brain install-skills
 brain health --write >/dev/null

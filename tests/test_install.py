@@ -38,6 +38,8 @@ def test_install_scripts_copies_executable_package_resources(tmp_path, monkeypat
     nightly.main(["install-scripts"])
     installed = sorted((home / "scripts").glob("*.sh"))
     assert [path.name for path in installed] == ["export-sessions.sh", "refresh.sh"]
+    refresh = (home / "scripts/refresh.sh").read_text()
+    assert refresh.index("brain people sync --run >/dev/null 2>&1 || true") < refresh.index("brain compile-context --write")
     output = capsys.readouterr().out
     for path in installed:
         assert path.read_bytes() == files("brain").joinpath("scripts", path.name).read_bytes()

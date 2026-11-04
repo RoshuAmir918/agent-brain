@@ -184,8 +184,8 @@ def hygiene(vault: Vault) -> list[str]:
     """The checks beyond structure. The nightly reports them without gating on them, so a problem that creeps back is
     seen the next day rather than at the next migration."""
     return (responsibilities(vault) + task_states(vault) + kinds(vault) + access_problems(vault) + owner_profile(vault)
-            + channels(vault) + needs_ceiling(vault) + needs_hygiene(vault) + primed_size(vault) + owner_questions(vault)
-            + ideas_hygiene(vault))
+            + channels(vault) + identity_duplicates(vault) + needs_ceiling(vault) + needs_hygiene(vault)
+            + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault))
 
 
 def ideas_hygiene(vault: Vault) -> list[str]:
@@ -227,6 +227,19 @@ def needs_hygiene(vault: Vault) -> list[str]:
         elif hermes in "/" + item.source + "/" or re.search(r"\bmigrations?\b", item.text, re.I):
             out.append(f"CURRENT.md: Needs you holds a note about the brain itself; it belongs in the Sleep Log: {item.text[:80]}")
     return out
+
+
+def identity_duplicates(vault: Vault) -> list[str]:
+    """One permanent Demiurge id belongs on one profile, across both people and intellects."""
+    from . import directory
+    from .session_context import profile_ids
+    identities = {}
+    for note in directory.profiles(vault):
+        for ident in profile_ids(note.body):
+            if ident.startswith("demiurge:"):
+                identities.setdefault(ident, []).append(note.rel)
+    return [f"{ident}: duplicate identity on {', '.join(paths)}" for ident, paths in sorted(identities.items())
+            if len(paths) > 1]
 
 
 def channels(vault: Vault) -> list[str]:

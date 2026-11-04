@@ -389,6 +389,14 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
         paths = ", ".join(config.link(person.rel) for person in profiles)
         blocks.append("Identity is ambiguous; matching profiles: " + truncate_words(paths, 250)
                       + ". Treat as unknown.")
+    if not profiles and not agents and platform.casefold() == "demiurge":
+        from . import directory
+        for sender_id in user_ids:
+            entry = directory.lookup(config, sender_id)
+            if entry and entry["id"].casefold() == sender_id.split(":", 1)[-1].casefold():
+                blocks.append(f"Demiurge's directory says this is {directory.describe(entry)}. "
+                              "You have no profile for them yet.")
+                break
     blocks.append(f"This session is with an unknown person ({identity}, "
                   f"name shown as {user_name or 'not provided'}). No profile. "
                   f"Treat them as a stranger: nothing about {config.human_name} or anyone else "

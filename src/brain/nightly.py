@@ -683,6 +683,40 @@ def cmd_access(args):
         print(f"Scope: {text}")
 
 
+def cmd_people(args):
+    from . import directory
+    if args.action == "sync":
+        try:
+            if args.run:
+                try:
+                    out = subprocess.run(["demiurge", "intellects", "--json"], capture_output=True,
+                                         text=True, check=True, timeout=20).stdout
+                except FileNotFoundError:
+                    return
+                payload = json.loads(out)
+            else:
+                payload = json.load(sys.stdin)
+            if not isinstance(payload, dict):
+                raise ValueError("needs one JSON object")
+            for line in directory.sync(args.config, payload, args.config.today()):
+                print(line)
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            sys.exit(f"people sync: {error}")
+        return
+    entry = directory.lookup(args.config, args.ident)
+    if entry is None:
+        print("not in the directory")
+        sys.exit(1)
+    profiles = [note.rel for note in directory.profiles(Vault(args.config.vault_path))
+                if f"demiurge:{entry['id']}" in session_context.profile_ids(note.body)]
+    if args.json:
+        print(json.dumps(dict(entry, profiles=profiles), ensure_ascii=False, indent=2))
+        return
+    print(f"{directory.describe(entry)}; id {entry['id']}")
+    for rel in profiles:
+        print(f"Profile: {args.config.link(rel)}")
+
+
 def cmd_channels(args):
     from . import channels as registry
     vault = Vault(args.config.vault_path)
@@ -935,6 +969,12 @@ def main(argv=None):
     s = sub.add_parser("channels", help="the channel registry; `sync` registers completed connect grants (from stdin, or --run for `connect list`)")
     s.add_argument("sync", nargs="?", choices=("sync",)); s.add_argument("--run", action="store_true"); s.add_argument("--profile", default="")
     s.add_argument("--json", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_channels)
+    s = sub.add_parser("people", help="Demiurge's identity directory")
+    actions = s.add_subparsers(dest="action", required=True)
+    p = actions.add_parser("sync", help="sync stdin JSON, or --run for `demiurge intellects --json`")
+    p.add_argument("--run", action="store_true"); p.add_argument("--vault"); p.set_defaults(fn=cmd_people)
+    p = actions.add_parser("who", help="identify a person or intellect and find their vault profile")
+    p.add_argument("ident"); p.add_argument("--json", action="store_true"); p.add_argument("--vault"); p.set_defaults(fn=cmd_people)
     s = sub.add_parser("task", help="change one task for the owner: done, drop, or yours (their own work)")
     s.add_argument("tid"); s.add_argument("action", choices=("done", "drop", "yours")); s.add_argument("--why", default="")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_task)
