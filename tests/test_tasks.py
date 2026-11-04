@@ -257,3 +257,19 @@ def test_task_command_marks_yours_completes_and_drops(vault, capsys):
     with pytest.raises(SystemExit):
         nightly.main(["task", "T-001", "drop", "--vault", str(vault)])
     assert "is not an open task" in capsys.readouterr().err
+
+
+def test_saving_an_archived_task_does_not_repeat_its_old_body(vault):
+    from datetime import date
+    from brain import tasks as T
+    from brain.config import Config
+    config = Config.load(vault)
+    T.write_archive(config, T.Task("T-050", "Archived", "- **Status:** first\n", {"state": "in_progress", "tier": "cold"}),
+                    "cold", date(2026, 11, 1))
+    for status in ("second", "third"):
+        registered, archived = T.load_tasks(config)
+        task = next(t for t in registered + archived if t.tid == "T-050")
+        task.body = task.body.replace(task.body.split("**Status:** ")[1].split("\n")[0], status)
+        T.save_task(config, task, date(2026, 11, 3))
+    text = T.archive_path(config, "T-050").read_text(encoding="utf-8")
+    assert "third" in text and "first" not in text and "second" not in text and "Earlier archive" not in text

@@ -218,7 +218,7 @@ def save_task(config: Config, task: Task, today: date) -> None:
         s, e = full
         fm.write(reg, data, body[:s] + task.render() + ("\n" if body[e:] and not body[e:].startswith("\n") else "") + body[e:])
     else:
-        write_archive(config, task, task.state.get("tier", "warm"), today)
+        write_archive(config, task, task.state.get("tier", "warm"), today, whole=True)
 
 
 def due(tasks: list[Task]) -> list[Task]:
@@ -331,7 +331,10 @@ def bounded_hot_body(t: Task, config: Config) -> str:
     return "\n".join(line for chunk in kept for line in chunk).rstrip() + "\n" + pointer + "\n"
 
 
-def write_archive(config: Config, t: Task, reason: str, today: date) -> None:
+def write_archive(config: Config, t: Task, reason: str, today: date, whole: bool = False) -> None:
+    """`whole` means the body is the task's complete entry, edited in place (save_task): git keeps the earlier text,
+    so it is not repeated as an Earlier archive block. A move from the register may carry only a bounded excerpt,
+    so there the prior full body is kept."""
     p = archive_path(config, t.tid)
     p.parent.mkdir(parents=True, exist_ok=True)
     comment = t._comment()
@@ -367,7 +370,7 @@ def write_archive(config: Config, t: Task, reason: str, today: date) -> None:
             if unchanged:
                 # An unchanged budget excerpt still refers to the full body.
                 body = old_body
-            elif old_body.strip() not in body:
+            elif old_body.strip() not in body and not whole:
                 # Changed excerpt fields remain current; retain the prior full
                 # entry as evidence instead of silently choosing its old state.
                 earlier = separator + old_body.rstrip() + earlier
