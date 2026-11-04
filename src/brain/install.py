@@ -11,6 +11,7 @@ from importlib.metadata import version as installed_version
 from importlib.resources import files
 from pathlib import Path
 
+from . import fm
 from .config import Config
 
 
@@ -82,7 +83,28 @@ def skills(config: Config, force: bool = False) -> Path:
                 text = text.rstrip("\n") + "\n\n" + local
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
+    memory_spec(config)
     return config.skills_path
+
+
+def memory_spec(config: Config) -> Path:
+    """The Memory Spec is the engine's description of how memory works, so it follows the engine: re-rendered with the
+    skills, keeping the vault's frontmatter and its `## Local` section."""
+    target = config.vault_path / config.agent("Memory Spec.md")
+    text = files("brain").joinpath("templates", "memory-spec.md").read_text(encoding="utf-8")
+    for token, value in config.template_values().items():
+        text = text.replace("{" + token + "}", value)
+    data = {"kind": "orientation", "pinned": True, "tier": "hot", "uses": [], "uses_inferred": []}
+    if target.exists():
+        data, current = fm.read(target)
+        local = local_section(current)
+        if local:
+            text = text.rstrip("\n") + "\n\n" + local
+        if current.strip() == text.strip():
+            return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(target, data, text)
+    return target
 
 
 def responsibility(config: Config, name: str, skill: str, records: str) -> list[Path]:

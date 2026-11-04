@@ -122,6 +122,8 @@ The plugin finds the repository from the session's `cwd`, then `VAULT_REPO`, the
 
 ## Today for the owner
 
+`<agent_dir>/Memory Spec.md` is the engine's description of how memory works, so `brain install-skills` re-renders it from `templates/memory-spec.md` with the skills, keeping the vault's frontmatter and its `## Local` section.
+
 Two sections of `.hermes.md` carry the owner's day into every session. **Primed** (`<agent_dir>/Primed.md`, kind `primed`) is judgment: the prime routine overwrites it each morning, after the People review, with where the owner is and with whom, what they said they would do, the people with something happening this week, what is held and waiting for them, the notes likely to come up and at most one nudge. `compile-context` loads at most its first 300 words, cut at a line, and `brain validate` reports a longer one. It follows CURRENT, is never a retrieval candidate and never enters the directory's active block. **Upcoming** is arithmetic: `compile-context` scans every hub, profile, register and person's History for a sentence naming a date in the next seven days (ISO or `November 2`; a bare month and day within the last 180 days is this year, otherwise next), skipping episodes, reflections, dreams, Primed, logs and the Journal, and lists up to twelve as `- Fri Oct 30 · <sentence> · [[note]]`; a date that is today is kept only when the sentence looks ahead (due, until, flight, visit, call). A short sentence leans on the one before it for its subject, and only its own dates count. The fix for a wrong line is the sentence in its note.
 
 Triggers load only the table of triggers still waiting to fire; the `## Fired` and `## Retired` sections are records, read from Triggers.md on demand.

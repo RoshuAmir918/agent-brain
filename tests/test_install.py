@@ -309,3 +309,22 @@ def test_show_skill_renders_one_routine_for_this_vault(vault, capsys):
     with pytest.raises(SystemExit):
         nightly.main(["show-skill", "nope", "--vault", str(vault)])
     assert "no such routine: nope" in capsys.readouterr().err
+
+
+def test_the_memory_spec_follows_the_engine_and_keeps_the_vaults_local_section(tmp_path):
+    from brain import fm, install
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text('[brain]\nagent_dir = "Orphan"\n', encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    target = config.vault_path / config.agent("Memory Spec.md")
+    target.parent.mkdir(parents=True)
+    fm.write(target, {"kind": "orientation", "pinned": True, "tier": "hot", "uses": ["2026-10-01"]},
+             "# Memory spec\nMidday owns correspondence.\n\n## Local\nKeep letters on Sundays.\n")
+    install.memory_spec(config)
+    data, body = fm.read(target)
+    assert "Midday owns correspondence" not in body and "{" not in body.split("## Local")[0].replace("{prefix}", "")
+    assert "`Orphan/Prepared/" in body and body.rstrip().endswith("Keep letters on Sundays.")
+    assert data["uses"] == ["2026-10-01"]
+    before = target.read_text(encoding="utf-8")
+    install.memory_spec(config)
+    assert target.read_text(encoding="utf-8") == before
