@@ -85,10 +85,15 @@ def reconcile(vault: Vault, directory: dict, today: date) -> list[str]:
     """Only explicit handles identify an id-less profile, and only when the match is unambiguous."""
     report = []
     for field, kind in (("people", "person"), ("intellects", "intellect")):
+        listed = {row["handle"].casefold() for row in directory.get(field, []) if row.get("id") and row.get("handle")}
         for note in profiles(vault, kind):
-            if any(ident.startswith("demiurge:") for ident in profile_ids(note.body)):
-                continue
+            ids = [ident.split(":", 1)[1] for ident in profile_ids(note.body) if ident.startswith("demiurge:")]
+            if any(ident.casefold() not in listed for ident in ids):
+                continue   # bound to a permanent id, or to something this directory cannot vouch for: left alone
             handles = {PurePosixPath(note.rel).parent.name.casefold()}
+            # A Demiurge "id" line holding a handle binds to a name that can change: it identifies the profile, and
+            # the permanent id is added beside it.
+            handles.update(ident.casefold() for ident in ids)
             # Only handles that name this profile itself: an @handle anywhere in the body may be someone it mentions.
             own = re.search(r"(?ims)^##[ \t]+Identifiers[ \t]*$(.*?)(?=^##[ \t]|\Z)", note.body)
             handles.update(match[1].casefold() for match in re.finditer(

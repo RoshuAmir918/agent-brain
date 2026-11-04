@@ -277,3 +277,12 @@ def test_a_handle_the_profile_only_mentions_never_gives_it_an_id(tmp_path):
     payload = {"people": [{"id": "k1", "handle": "roshan", "name": "Roshan Amir"}], "intellects": []}
     assert directory.reconcile(vault, payload, date(2026, 11, 3)) == []
     assert "Demiurge" not in fm.read(root / "people/Hope_Dobbelaere/Profile.md")[1]
+
+
+
+def test_a_profile_pinned_to_a_handle_gains_its_permanent_id_beside_it(config, payload):
+    note = profile(config, "agents/Tars/Profile.md", "# Tars\n\n## Identifiers\n- **Demiurge:** `tars`\n")
+    directory.sync(config, payload, TODAY)
+    body = fm.read(note)[1]
+    assert "- **Demiurge:** `tars`" in body and "`j573`" in body
+    assert directory.reconcile(Vault(config.vault_path), directory.load(config), TODAY) == []
