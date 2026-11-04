@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from . import channel_files, fm, loops, session_tools, state, tasks
+from . import channel_files, fm, loops, runtime, session_tools, state, tasks
 from .config import Config
 
 
@@ -30,9 +30,7 @@ def _last_failure(home: Path, skill: str) -> str:
     """When this routine's last run died (a gateway restart, a provider error): a new failure is a change, so the
     next tick retries instead of waiting for the work itself to move."""
     try:
-        raw = json.loads((home / "cron" / "jobs.json").read_text(encoding="utf-8"))
-        jobs = raw.get("jobs", []) if isinstance(raw, dict) else raw
-        for job in jobs:
+        for job in runtime.jobs(home):
             if _daily_job(job):
                 continue  # continue shares its skill with the daily job, which has a separate gate
             skills = job.get("skills") or []

@@ -66,13 +66,9 @@ def coverage(vault: Vault) -> dict | None:
         found["problem"] = "no mail or calendar account is connected"
         return found
     job = None
-    try:
-        raw = json.loads((Path(home) / "cron" / "jobs.json").read_text(encoding="utf-8"))
-        jobs = raw.get("jobs", []) if isinstance(raw, dict) else raw
-        job = next((j for j in jobs if isinstance(j, dict) and (j.get("name") == "demiurge-sync"
-                    or "demiurge-sync" in str(j.get("script") or ""))), None)
-    except (OSError, ValueError, AttributeError):
-        pass
+    from . import runtime
+    job = next((j for j in runtime.jobs(Path(home)) if j.get("name") == "demiurge-sync"
+                or "demiurge-sync" in str(j.get("script") or "")), None)
     if job is None:
         found["problem"] = "the mail and calendar sync is not set up"
         return found

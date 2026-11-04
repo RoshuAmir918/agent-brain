@@ -201,12 +201,9 @@ def watch_signal_hygiene(vault: Vault) -> list[str]:
     if not home:
         return []
     home = Path(home)
-    try:
-        raw = json.loads((home / "cron/jobs.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    jobs = raw.get("jobs", []) if isinstance(raw, dict) else raw
-    if not isinstance(jobs, list):
+    from . import runtime
+    jobs = runtime.jobs(home)
+    if not jobs:
         return []
     now = vault.config.now()
     now = now.replace(tzinfo=vault.config.zone) if now.tzinfo is None else now

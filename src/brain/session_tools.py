@@ -10,13 +10,38 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import Config
+from .runtime import ROUTINE_PLATFORMS
 ARGUMENT_KEYS = ("arguments", "args", "input", "parameters")
 EVALUATION_RE = re.compile(r"evaluation fixture|retrieval[- ](check|test)|\bRC-\d{2}\b", re.I)
 ROUTINE_RE = re.compile(r"^cron\b|^cron_", re.I)
 
 
+def _harness_unanswered(folder: Path, now: datetime) -> list[tuple[str, str]]:
+    """The harness keeps each conversation as `harness/sessions/<day>/<id>.json`, entries timed in ISO."""
+    floor = now.timestamp() // 60 * 60
+    found = []
+    for day in sorted(path for path in folder.iterdir() if path.is_dir())[-2:]:
+        for path in sorted(day.glob("*.json")):
+            try:
+                session = json.loads(path.read_text(encoding="utf-8"))
+                platform = str((session.get("speaker") or {}).get("platform") or "")
+                said = [entry for entry in session.get("entries") or [] if (entry.get("item") or {}).get("type") == "message"]
+                if platform in ROUTINE_PLATFORMS or not said or said[-1]["item"].get("role") != "user":
+                    continue
+                at = datetime.fromisoformat(str(said[-1]["at"]).replace("Z", "+00:00")).timestamp()
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                continue
+            if floor - 24 * 60 * 60 < at < floor - 10 * 60:
+                found.append((str(session.get("id") or path.stem), platform))
+    return sorted(found)
+
+
 def unanswered(home: Path, now: datetime) -> list[tuple[str, str]]:
-    """Recent conversations whose last stored message is an unattended user turn. The store is optional."""
+    """Recent conversations whose last stored message is an unattended user turn, from the harness's session files or
+    Hermes's state.db. The store is optional."""
+    harness = home / "harness" / "sessions"
+    if harness.is_dir():
+        return _harness_unanswered(harness, now)
     database = home / "state.db"
     if not database.is_file():
         return []
