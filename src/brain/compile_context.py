@@ -84,9 +84,19 @@ def build(vault: Vault) -> str:
                 body = automatic_load(body)
             elif rel == config.agent("Primed.md"):
                 body = capped(body, PRIMED_WORDS, config.link(rel))
+            elif rel == config.agent("Triggers.md"):
+                body = active_triggers(body, config.link(rel))
             sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
     sections.append("Warm Index, Conversations and everything else are retrieved on demand with `brain retrieve`.")
     return "\n\n".join(sections) + "\n"
+
+
+def active_triggers(body: str, where: str) -> str:
+    """Only the triggers still waiting to fire; the fired and retired ones are records, read on demand."""
+    match = re.search(r"^## (?:Fired|Retired)\s*$", body, re.M)
+    if match is None:
+        return body
+    return body[:match.start()].rstrip() + f"\n\n(Fired and retired triggers are in {where}.)"
 
 
 def capped(body: str, limit: int, where: str) -> str:

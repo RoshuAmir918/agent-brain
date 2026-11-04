@@ -214,3 +214,13 @@ def test_primed_loads_at_most_its_cap_and_validate_names_the_overrun(context_vau
     assert "(cut at 300 words; the rest is in memory/agent/Primed.md)" in block
     assert len(block.split()) <= 300 + 12
     assert validate.primed_size(Vault(context_vault)) == ["agent/Primed.md: 632 words; at most 300, and the context loads only that many"]
+
+
+def test_context_loads_only_the_triggers_still_waiting_to_fire(context_vault):
+    fm.write(context_vault / "agent/Triggers.md", {"kind": "orientation", "tier": "hot", "pinned": True},
+             "# Triggers\n\n| id | class | when | do | source | status | created |\n| --- | --- | --- | --- | --- | --- | --- |\n"
+             "| TR-001 | commitment | ACTIVE_WHEN | act | src | active | 2026-11-01 |\n\n## Fired\n\n"
+             "| TR-002 | intention | FIRED_WHEN | done | src | fired | 2026-10-01 |\n\n## Retired\n\nRETIRED_ROW\n")
+    text = compile_context.build(Vault(context_vault))
+    assert "ACTIVE_WHEN" in text and "FIRED_WHEN" not in text and "RETIRED_ROW" not in text
+    assert "(Fired and retired triggers are in memory/agent/Triggers.md.)" in text
