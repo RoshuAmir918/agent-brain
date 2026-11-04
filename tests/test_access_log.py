@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from brain import access_log, fm, journal, needs, nightly, state, validate
+from brain import access_log, fm, journal, loops, needs, nightly, state, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -100,10 +100,12 @@ def test_alternate_id_resolves_a_person_and_ambiguity_is_a_stranger(config):
     {"subject": "schedule", "asked": "plans", "outcome": "declined"}, "not an entry", None,
 ])
 def test_invalid_entries_are_dropped_without_failing_the_record(config, entry):
-    journal.append_entry(config, {"headline": "Conversation recorded.", "outcome": "done", "access": [entry]},
+    journal.append_entry(config, {"headline": "Conversation recorded.", "outcome": "done", "access": [entry],
+                                 "loops": [{"kind": "owed", "text": "Relay the answer"}]},
                          "demiurge", AT, user_id="k57kevin")
     assert not (config.vault_path / "People/Access").exists()
-    assert len(journal.recent(config, TODAY)) == 1
+    assert [item.text for item in loops.open_loops(config)] == ["Relay the answer"]
+    assert journal.recent(config, TODAY) == []
 
 
 def test_custom_subject_rules_limits_and_single_line_cleaning(config):
@@ -234,7 +236,7 @@ def test_cli_journal_passes_identity_and_state_exports_the_access_item(config, m
     assert [value for value in snapshot["needsYou"] if value["origin"] == "access"] == [asdict(item)]
     assert not any(hub["source"].startswith("People/") for hub in snapshot["hubs"])
     assert state._source(Vault(config.vault_path), PERSON) is None
-    assert capsys.readouterr().out.strip().endswith("agent/Journal/2026-10.md")
+    assert capsys.readouterr().out.strip().endswith("agent/Loops.md")
 
 
 

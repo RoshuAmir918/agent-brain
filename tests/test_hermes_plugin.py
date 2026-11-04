@@ -308,14 +308,18 @@ class FakeLlm:
 
 
 open_asks = [""]
+open_loops = ["{\"open\": []}"]
 
 
 @pytest.fixture
 def writes(provider, monkeypatch):
     calls = []
     open_asks[0] = ""
+    open_loops[0] = json.dumps({"open": []})
 
     def run(command, **kwargs):
+        if command[1:] == ["loops", "--json"]:
+            return SimpleNamespace(stdout=open_loops[0], returncode=0)
         if command[1:] == ["needs-you"]:
             return SimpleNamespace(stdout=open_asks[0], returncode=0)   # a read, not a write
         calls.append((command[1:], json.loads(kwargs["input"]) if kwargs.get("input", "").startswith("{") else kwargs.get("input")))
@@ -329,7 +333,7 @@ def writes(provider, monkeypatch):
 RECORD = {"headline": "Compared fares.", "outcome": "progress", "needsYou": "Book the 16th?", "next": None}
 
 
-def test_a_quiet_conversation_becomes_one_journal_row_and_only_new_turns_are_recorded_again(provider, writes):
+def test_a_quiet_conversation_captures_open_work_and_only_records_new_turns(provider, writes):
     provider.llm = FakeLlm(RECORD, {**RECORD, "headline": "Booked it."})
     provider.sync_turn("a", "b", messages=chat(("Find fares", "Found two")))
     provider._cancel()
@@ -500,6 +504,8 @@ def test_a_failed_model_call_leaves_the_turns_for_the_next_attempt(provider, wri
 def test_a_failed_write_leaves_the_turns_too(provider, monkeypatch):
     calls = []
     def run(command, **kwargs):
+        if command[1:] == ["loops", "--json"]:
+            return SimpleNamespace(stdout='{"open": []}', returncode=0)
         if command[1:] == ["needs-you"]:
             return SimpleNamespace(stdout="", returncode=0)
         calls.append(1)
@@ -613,6 +619,52 @@ def test_access_schema_is_optional_bounded_and_conversation_only():
         "rule": {"type": ["string", "null"]},
     }
     assert "access" not in hermes_plugin.ROUTINE_SCHEMA["properties"]
+
+
+def test_loops_schema_and_prompt_are_conversation_only():
+    props = hermes_plugin.RECORD_SCHEMA["properties"]
+    assert props["loops"]["maxItems"] == props["closed"]["maxItems"] == 5
+    entry = props["loops"]["items"]
+    assert entry["properties"]["kind"]["enum"] == ["promised", "owed", "waiting"]
+    assert entry["properties"]["text"]["maxLength"] == 160
+    assert entry["properties"]["with"] == entry["properties"]["due"] == {"type": ["string", "null"]}
+    assert props["closed"]["items"] == {"type": "string"}
+    assert not {"loops", "closed"} & hermes_plugin.ROUTINE_SCHEMA["properties"].keys()
+    assert {"next", "thought"} <= props.keys()
+    assert "- thought:" not in hermes_plugin.CONVERSATION
+    assert "- loops:" in hermes_plugin.CONVERSATION and "- closed:" in hermes_plugin.CONVERSATION
+
+
+def test_record_context_lists_twenty_open_loops(provider, writes):
+    open_loops[0] = json.dumps({"open": [{"id": f"id{n}", "kind": "owed", "text": f"Relay {n}"}
+                                       for n in range(21)]})
+    provider.llm = FakeLlm(RECORD)
+    provider.on_session_end(chat(("Answer came", "Relayed it")))
+    instructions = provider.llm.calls[0]["instructions"]
+    assert "id0 · owed · Relay 0" in instructions and "id19 · owed · Relay 19" in instructions
+    assert "id20" not in instructions
+
+
+@pytest.mark.parametrize("capture", [{"loops": [{"kind": "owed", "text": "Relay the answer"}]},
+                                    {"closed": ["some-loop-id"]}, {"needsYou": "Which date?"}])
+def test_nothing_outcome_still_writes_open_work(provider, writes, capture):
+    record = {"headline": "A quiet conversation", "outcome": "nothing", **capture}
+    provider.llm = FakeLlm(record)
+    provider.on_session_end(chat(("A question", "An answer")))
+    assert writes == [(["journal", "append", "--platform", "demiurge"], record)]
+
+
+@pytest.mark.parametrize("result", [None, "not json", '{"open": null}', '{"open": [{}]}'])
+def test_missing_or_broken_open_loop_context_is_harmless(provider, monkeypatch, result):
+    def run(command, **kwargs):
+        assert command == ["brain", "loops", "--json"] and kwargs["timeout"] == 5
+        if result is None:
+            raise subprocess.TimeoutExpired(command, 5)
+        return SimpleNamespace(stdout=result)
+
+    monkeypatch.setattr(hermes_plugin.subprocess, "run", run)
+    assert provider._open_loops(provider.repo) == ""
+    assert provider._open_loops(None) == ""
 
 
 def test_access_is_written_even_when_nothing_was_worth_a_journal_headline(provider, writes):

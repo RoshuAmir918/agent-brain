@@ -28,7 +28,7 @@ PREFETCH = {"prefetch": ("BRAIN_PREFETCH", True), "prefetch_limit": ("BRAIN_PREF
 PEOPLE_FORMS = ("off", "line", "card")
 FORMS = ("names", "snippet", "full")
 
-# After a session, one bounded side call turns the transcript into a structured record: a journal row for a
+# After a session, one bounded side call turns the transcript into a structured record: open loops for a
 # conversation once it has been quiet this long, a ledger row for a routine run when it ends. The model judges;
 # the engine writes. Night stages are skipped by the engine: git is their ledger.
 SETTLE_SECONDS = 90
@@ -51,6 +51,12 @@ RECORD_SCHEMA = {
         "needsYou": {"type": ["string", "null"], "maxLength": 160},
         "next": {"type": ["string", "null"], "maxLength": 120},
         "thought": {"type": ["string", "null"], "maxLength": 280},
+        "loops": {"type": "array", "maxItems": 5, "items": {
+            "type": "object", "required": ["kind", "text", "with", "due"], "additionalProperties": False,
+            "properties": {"kind": {"enum": ["promised", "owed", "waiting"]},
+                           "text": {"type": "string", "maxLength": 160},
+                           "with": {"type": ["string", "null"]}, "due": {"type": ["string", "null"]}}}},
+        "closed": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
         "workingTogether": {"type": ["array", "null"], "maxItems": 3, "items": {"type": "string", "maxLength": 200}},
         "noted": {"type": ["array", "null"], "maxItems": 5, "items": {"type": "string", "maxLength": 240}},
         "access": {"type": "array", "maxItems": 5, "items": {
@@ -61,18 +67,23 @@ RECORD_SCHEMA = {
     },
 }
 ROUTINE_SCHEMA = {**RECORD_SCHEMA, "properties": {key: value for key, value in RECORD_SCHEMA["properties"].items()
-                                               if key not in ("access", "workingTogether", "noted")}}
+                                               if key not in ("access", "workingTogether", "noted", "loops", "closed")}}
 SYSTEM = ("You are the agent whose session this was, keeping your own records. Answer only with the JSON object "
           "the schema describes.")
 CONVERSATION = (
-    "The conversation above has gone quiet. Record it for your journal, which your owner reads.\n"
+    "The conversation above has gone quiet. Record what you are holding for your owner.\n"
     "- headline: what happened, past tense, one line under 90 characters.\n"
     "- outcome: done (finished), progress (moved forward), waiting (on someone), blocked, failed, or nothing "
     "(nothing worth a line: small talk, a test, a question answered in passing).\n"
     "- touched: exact titles of vault notes you worked on, if any.\n"
     "- needsYou: a decision only your owner can make, phrased as a question, or null. Not a status update.\n"
     "- next: your next step, or null.\n"
-    "- thought: one or two first-person sentences about what you are thinking, or null.\n"
+    "- loops: each new thing you promised, an answer or relay you now owe someone, or something you now wait on "
+    "from someone other than your owner. One plain line each, under 160 characters, with who it is with and a due "
+    "date when one was named (YYYY-MM-DD or YYYY-MM-DD HH:MM). Not things for your owner to decide (that's "
+    "needsYou). Not something done in this conversation.\n"
+    "- closed: open loops (listed below) that this conversation finished or that no longer apply; use their exact "
+    "text or id.\n"
     "- access: list each time someone other than the owner asked for something a vault subject covers, and what you "
     "did; leave empty for the owner and small talk. Use the vault's subject, asked in a few words without sensitive "
     "specifics (at most 120 characters), the outcome, and a rule id from Disclosure.md or null.\n"
@@ -401,8 +412,8 @@ class BrainMemoryProvider(MemoryProvider):
             pass
 
     def _record_conversation(self, wait: float | None = None) -> None:
-        """Only what was said since the last row, so a long-lived chat is not journaled twice. The cursor moves only
-        after a row is written or the model says there was nothing; a failed call leaves the turns for next time."""
+        """Only what was said since the last capture. The cursor moves only after a record is written or the model
+        says there was nothing; a failed call leaves the turns for next time."""
         if not self._recording.acquire(timeout=-1 if wait is None else wait):
             return
         try:
@@ -412,7 +423,8 @@ class BrainMemoryProvider(MemoryProvider):
                 fresh, upto = self._messages[self._recorded:], len(self._messages)
             if turns(fresh) < 2:
                 return
-            record = self._ask(CONVERSATION + ("\n" + context if context else "") + self._open_asks(repo), fresh)
+            record = self._ask(CONVERSATION + ("\n" + context if context else "")
+                               + self._open_asks(repo) + self._open_loops(repo), fresh)
             if record is None:
                 return
             arguments = ["journal", "append", "--platform", platform]
@@ -421,7 +433,8 @@ class BrainMemoryProvider(MemoryProvider):
                     arguments.extend([flag, value])
             if self.user_name:
                 record["speaker"] = self.user_name   # who said what is noted, when it is not the owner
-            remembered = record.get("workingTogether") or record.get("noted")
+            remembered = (record.get("workingTogether") or record.get("noted") or record.get("needsYou")
+                          or record.get("loops") or record.get("closed"))
             if (record["outcome"] != "nothing" or record.get("access") or remembered) and not self._write(
                     repo, arguments, json.dumps(record)):
                 return
@@ -430,6 +443,20 @@ class BrainMemoryProvider(MemoryProvider):
                     self._recorded = max(self._recorded, upto)
         finally:
             self._recording.release()
+
+    @staticmethod
+    def _open_loops(repo) -> str:
+        """What is already held, so the record closes loops rather than duplicating them."""
+        if repo is None:
+            return ""
+        try:
+            listed = subprocess.run(["brain", "loops", "--json"], cwd=repo, capture_output=True, text=True,
+                                    check=True, timeout=5)
+            opened = json.loads(listed.stdout)["open"][:20]
+            lines = [f"- {item['id']} · {item['kind']} · {item['text']}" for item in opened]
+        except Exception:
+            return ""
+        return "\nOpen loops; close these when finished, do not add them again:\n" + "\n".join(lines) if lines else ""
 
     @staticmethod
     def _open_asks(repo) -> str:

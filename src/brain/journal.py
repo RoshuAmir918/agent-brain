@@ -1,4 +1,4 @@
-"""The agent's journal: one structured row per conversation, written after it goes quiet, and the owner's catch-ups."""
+"""After-conversation capture and the historical journal's rows and catch-ups."""
 from __future__ import annotations
 
 import re
@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-from . import access_log, fm, ledger
+from . import access_log, fm, ledger, loops
 from .lock import vault_lock
 from .config import Config
 from .vault import Vault
@@ -59,7 +59,7 @@ def parse(text: str) -> list[Entry]:
 
 def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
                  user_id: str = "", user_id_alt: str = "") -> Path:
-    """Writes one row, keeping only touched notes that exist; a `needsYou` becomes an ask in CURRENT; requests from
+    """Records open loops, keeping only touched notes that exist; a `needsYou` becomes an ask in CURRENT; requests from
     anyone but the owner go to the access log."""
     outcome = record.get("outcome")
     headline = _clean(record.get("headline"))
@@ -72,18 +72,18 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     vault = Vault(config.vault_path)
     touched = [title for title in dict.fromkeys(_clean(title) for title in record.get("touched") or [])
                if title and (target := vault.resolve(title)) and _public(vault, target)]
-    lines = [ledger.render_row(ledger.Row(local.strftime("%Y-%m-%d %H:%M"), _clean(platform) or "hermes", outcome,
-                                          headline, _clean(record.get("next"))))]
+    for loop in record.get("loops") or []:
+        loops.add(config, local, loop["kind"], loop["text"], touched[0] if touched else "Conversations",
+                  loop.get("with") or "", loop.get("due") or "")
+    for which in record.get("closed") or []:
+        # A retried record or another session may already have closed this loop.
+        if any(item.id == which or loops._plain(item.text) == loops._plain(which)
+               for item in loops.open_loops(config)):
+            try:
+                loops.close(config, which, local, "done", "closed in conversation")
+            except ValueError:
+                pass   # ambiguous text or a concurrent close leaves the rest of the capture intact
     if needs_you := _clean(record.get("needsYou")):
-        lines.append(f"  - needs you: {needs_you}")
-    if touched:
-        lines.append("  - touched: " + ", ".join(f"[[{title}]]" for title in touched))
-    if thought := _clean(record.get("thought")):
-        lines.append(f"  - thought: {thought}")
-    path = path_for(config, local.strftime("%Y-%m"))
-    if outcome != "nothing":   # a quiet conversation keeps no row, only the requests it answered
-        _append(config, path, "\n".join(lines) + "\n")
-    if needs_you:
         add_ask(config, local.date(), needs_you, touched[0] if touched else None)
     from .session_context import is_owner
     owner = is_owner(config, platform, tuple(value for value in (user_id, user_id_alt) if value))
@@ -91,7 +91,7 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
         working_together(config, local.date(), record.get("workingTogether"))
     noted(config, local, record.get("noted"), None if owner else (_clean(record.get("speaker")) or user_id or "someone"))
     access_log.append(config, record.get("access"), platform, at, user_id=user_id, user_id_alt=user_id_alt)
-    return path
+    return loops.path_for(config)
 
 
 WORKING_TOGETHER_WORDS = 250   # the section loads in every session with the owner; past this it is merged at night

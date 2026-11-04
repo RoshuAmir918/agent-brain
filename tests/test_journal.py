@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import fm, journal, ledger, needs, nightly, state
+from brain import fm, journal, ledger, loops, needs, nightly, state
 from brain.config import Config
 
 TODAY = date(2026, 10, 28)
@@ -23,15 +23,23 @@ def record(**overrides):
             **overrides}
 
 
-def test_entry_round_trips_with_details_and_keeps_only_touched_notes_that_exist(config):
+def old_entry(config, at, headline="Compared March fares to Lisbon."):
+    # Old diary files remain readable after conversation capture stops writing rows.
+    path = journal.path_for(config, at.strftime("%Y-%m"))
+    journal._append(config, path, ledger.render_row(ledger.Row(at.strftime("%Y-%m-%d %H:%M"), "demiurge",
+                                                             "progress", headline, "Check garden rooms."))
+                    + "\n  - touched: [[Lisbon trip]]\n")
+    return path
+
+
+def test_entry_captures_loops_instead_of_a_diary_row(config):
     path = journal.append_entry(config, record(touched=["Lisbon trip", "Nowhere"], thought="Unsure | worth it.",
-                                               needsYou="Book the 16th?"), "demiurge", AT)
-    assert path == config.vault_path / "agent/Journal/2026-10.md"
-    assert fm.read(path)[0] == {"kind": "log", "tier": "cold"}
-    [entry] = journal.parse(path.read_text(encoding="utf-8"))
-    assert (entry.when, entry.platform, entry.outcome, entry.headline, entry.next) == (
-        "2026-10-28 14:05", "demiurge", "progress", "Compared March fares to Lisbon.", "Check garden rooms.")
-    assert entry.touched == ["Lisbon trip"] and entry.thought == "Unsure / worth it." and entry.needs_you == "Book the 16th?"
+                                               needsYou="Book the 16th?", loops=[
+                                                   {"kind": "promised", "text": "Check garden rooms."}]), "demiurge", AT)
+    assert path == config.vault_path / "agent/Loops.md"
+    [item] = loops.open_loops(config)
+    assert (item.kind, item.text, item.source) == ("promised", "Check garden rooms.", "Lisbon trip")
+    assert not journal.path_for(config, "2026-10").exists()
 
 
 def test_needs_you_becomes_an_ask_in_current_with_the_first_touched_note(config):
@@ -60,16 +68,16 @@ def test_append_rejects_bad_records_without_writing(config, bad):
 
 
 def test_synthesis_sections_are_not_entries_and_recent_reaches_last_month(config):
-    journal.append_entry(config, record(headline="September work."), "slack", datetime(2026, 9, 30, 9, 0))
+    old_entry(config, datetime(2026, 9, 30, 9, 0), "September work.")
     journal.append_synthesis(config, "A paragraph about the month.", datetime(2026, 9, 30, 10, 0))
-    journal.append_entry(config, record(), "demiurge", AT)
+    old_entry(config, AT)
     assert [entry.headline for entry in journal.recent(config, TODAY)] == ["September work.",
                                                                            "Compared March fares to Lisbon."]
     assert "## Synthesis 2026-09-30 10:00" in (config.vault_path / "agent/Journal/2026-09.md").read_text()
 
 
 def test_journal_is_not_a_routine_ledger_and_appears_in_state(config):
-    journal.append_entry(config, record(touched=["Lisbon trip"]), "demiurge", AT)
+    old_entry(config, AT)
     assert all("Journal" not in path.parts for path in ledger.discover(config))
     snapshot = state.build(config, TODAY)
     assert snapshot["routines"] == [] and snapshot["ledger"] == []
@@ -81,13 +89,15 @@ def test_journal_is_not_a_routine_ledger_and_appears_in_state(config):
 
 
 def test_cli_journal_append_json_and_synthesis(config, monkeypatch, capsys):
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(record())))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(record(loops=[{"kind": "owed", "text": "Send fares."}]))))
     nightly.main(["journal", "append", "--vault", str(config.vault_path), "--platform", "slack", "--at", "2026-10-28 14:05"])
     monkeypatch.setattr("sys.stdin", io.StringIO("Caught up."))
     nightly.main(["journal", "append", "--vault", str(config.vault_path), "--synthesis", "--at", "2026-10-28 15:00"])
     nightly.main(["journal", "recent", "--vault", str(config.vault_path)])
     out = capsys.readouterr().out
-    assert out.splitlines()[-1] == "2026-10-28 14:05 | slack | progress | Compared March fares to Lisbon. | Check garden rooms."
+    assert out.splitlines()[0].endswith("agent/Loops.md")
+    assert out.splitlines()[-1].startswith("0 rows:")
+    assert loops.open_loops(config)[0].text == "Send fares."
     monkeypatch.setattr("sys.stdin", io.StringIO("[]"))
     with pytest.raises(SystemExit, match="journal append"):
         nightly.main(["journal", "append", "--vault", str(config.vault_path)])
@@ -109,21 +119,20 @@ def test_ledger_append_by_skill_finds_the_routine_and_skips_night_stages(config,
     assert not (config.vault_path / "agent/Sleep1").exists()
 
 
-def test_two_sessions_ending_together_both_keep_their_row(config):
+def test_two_sessions_ending_together_both_keep_their_loops(config):
     import threading
     barrier = threading.Barrier(8)
 
     def write(n):
         barrier.wait(5)
-        journal.append_entry(config, record(headline=f"Row {n}."), "demiurge", AT)
+        journal.append_entry(config, record(loops=[{"kind": "promised", "text": f"Loop {n}."}]), "demiurge", AT)
 
     workers = [threading.Thread(target=write, args=(n,)) for n in range(8)]
     for worker in workers:
         worker.start()
     for worker in workers:
         worker.join(5)
-    rows = journal.parse((config.vault_path / "agent/Journal/2026-10.md").read_text(encoding="utf-8"))
-    assert sorted(entry.headline for entry in rows) == sorted(f"Row {n}." for n in range(8))
+    assert sorted(item.text for item in loops.open_loops(config)) == sorted(f"Loop {n}." for n in range(8))
 
 
 def test_a_private_note_is_never_named_as_touched_nor_as_an_asks_source(config):
@@ -131,9 +140,9 @@ def test_a_private_note_is_never_named_as_touched_nor_as_an_asks_source(config):
         (config.vault_path / rel).parent.mkdir(parents=True, exist_ok=True)
         fm.write(config.vault_path / rel, {}, "# Private\n")
     journal.append_entry(config, record(touched=["people/Pat/Profile", "human/Profile", "Lisbon trip"],
-                                        needsYou="Who is Pat · really?"), "demiurge", AT)
-    [entry] = journal.parse((config.vault_path / "agent/Journal/2026-10.md").read_text(encoding="utf-8"))
-    assert entry.touched == ["Lisbon trip"]
+                                        needsYou="Who is Pat · really?", loops=[{"kind": "owed", "text": "Send reply."}]), "demiurge", AT)
+    [item] = loops.open_loops(config)
+    assert item.source == "Lisbon trip"
     [ask] = [item for item in needs.items(config, TODAY) if item.origin == "current"]
     assert (ask.text, ask.source) == ("Who is Pat - really?", "Lisbon trip")
 
@@ -174,7 +183,7 @@ def test_noted_facts_go_to_the_days_conversation_note_and_others_are_quoted_as_c
     assert data["kind"] == "conversation"
     assert "- 14:05 · Flying to Madison at 5 am on October 29 to visit Faisal" in body
     assert "- 14:05 · Kevin said: Maya's birthday is March 3" in body
-    assert not (config.vault_path / config.agent("Journal/2026-10.md")).read_text().count("Madison")
+    assert not (config.vault_path / config.agent("Journal/2026-10.md")).exists()
 
 
 def test_recent_says_when_there_is_nothing_to_read_or_a_file_it_cannot_read(config, capsys):

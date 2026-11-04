@@ -12,6 +12,7 @@ Usage:
   brain retrieve [--vault <path>] <query> [--limit 12] [--json [--form names|snippet|full]]
   brain needs-you [--vault <path>] [--json]
   brain ideas [--vault <path>] [--all] [--json]
+  brain loops [--vault <path>] [--json | --due] [--quiet]
   brain access <who> [--vault <path>] [--json]
   brain state [--vault <path>] [--json]
   brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
@@ -40,7 +41,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, needs, retrieve, session_context, state, triggers, validate
+from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, loops, needs, retrieve, session_context, state, triggers, validate
 from . import tasks as tasks_mod
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, quiet, task_activation, write_archive
 from .vault import DAILY, Vault
@@ -624,6 +625,43 @@ def cmd_needs_you(args):
             print(f"{item.kind} · {item.text} · {item.source}")
 
 
+def cmd_loops(args):
+    config, now = args.config, args.config.now()
+    try:
+        if args.add is not None:
+            if not args.kind or not args.source:
+                raise ValueError("--add needs --kind K and --source NOTE")
+            if args.due is True:
+                raise ValueError("--add --due needs a date")
+            added = loops.add(config, now, args.kind, args.add, args.source, args.with_ or "", args.due or "")
+            print(f"{'added' if added else 'already open'} loop: {args.add}")
+            return
+        if args.kind or args.source is not None or args.with_ is not None or isinstance(args.due, str):
+            raise ValueError("--kind, --source, --with and --due DATE go with --add")
+        if args.close is not None:
+            if not args.outcome or not args.because:
+                raise ValueError("--close needs --outcome done|dropped and --because TEXT")
+            item = loops.close(config, args.close, now, args.outcome, args.because)
+            print(f"closed ({item.outcome}): {item.text}")
+            return
+        if args.outcome or args.because is not None:
+            raise ValueError("--outcome and --because go with --close")
+    except ValueError as error:
+        raise SystemExit(f"brain loops: {error}")
+    due = loops.due(config, now)
+    if args.quiet:
+        raise SystemExit(0 if due else 1)
+    if args.json:
+        print(json.dumps({"open": [loops.as_dict(item) for item in loops.open_loops(config)],
+                          "due": [loops.as_dict(item) for item in due],
+                          "closed_recent": [loops.as_dict(item) for item in loops.closed_recent(config)]},
+                         ensure_ascii=False, indent=2))
+    else:
+        for item in due if args.due else loops.open_loops(config):
+            details = (f" · with: {item.with_}" if item.with_ else "") + (f" · due: {item.due}" if item.due else "")
+            print(f"{item.id} · {item.since} · {item.kind} · {item.text} · [[{item.source}]]{details}")
+
+
 def cmd_ideas(args):
     config, today = args.config, args.config.today()
     if (args.source is not None or args.why is not None or args.needs is not None) and args.add is None:
@@ -809,7 +847,7 @@ def cmd_state(args):
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
         print(" · ".join(f"{len(data[key])} {key}" for key in
-                         ("tasks", "hubs", "routines", "triggers", "ledger", "journal", "needsYou", "outputs")))
+                         ("tasks", "hubs", "routines", "triggers", "ledger", "journal", "needsYou", "outputs", "loops", "loopsClosed")))
 
 
 def cmd_simulate(a):
@@ -965,6 +1003,16 @@ def main(argv=None):
     s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
     s.add_argument("--why", metavar="TEXT", help="with --ask: why it needs the owner and what a yes or a no means, in plain words")
     s.set_defaults(fn=cmd_needs_you)
+    s = sub.add_parser("loops", help="promises, answers owed and waits on others")
+    s.add_argument("--vault")
+    mode = s.add_mutually_exclusive_group()
+    mode.add_argument("--json", action="store_true"); mode.add_argument("--add", metavar="TEXT")
+    mode.add_argument("--close", metavar="ID_OR_TEXT")
+    s.add_argument("--due", nargs="?", const=True, metavar="DATE", help="only due loops, or a due date with --add")
+    s.add_argument("--quiet", action="store_true", help="print nothing; exit 1 when nothing is due, 0 otherwise")
+    s.add_argument("--kind", choices=loops.KINDS); s.add_argument("--source", metavar="NOTE")
+    s.add_argument("--with", dest="with_", metavar="WHO"); s.add_argument("--outcome", choices=loops.OUTCOMES)
+    s.add_argument("--because", metavar="TEXT"); s.set_defaults(fn=cmd_loops)
     s = sub.add_parser("ideas", help="proposals for new ways to help, shown one at a time")
     s.add_argument("--vault"); s.add_argument("--all", action="store_true")
     mode = s.add_mutually_exclusive_group()

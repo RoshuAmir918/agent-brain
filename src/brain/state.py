@@ -7,7 +7,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import access, fm, health, ideas, journal, ledger, needs, tasks, triggers
+from . import access, fm, health, ideas, journal, ledger, loops, needs, tasks, triggers
 from .config import Config
 from .session_context import legacy, profile_ids
 from .vault import Vault
@@ -243,6 +243,11 @@ def _journal(vault: Vault, today: date) -> list[dict]:
     return [item[3] for item in out]
 
 
+def _loops(vault: Vault, items: list[loops.Item]) -> list[dict]:
+    return [{**loops.as_dict(item), "source": source} for item in items
+            if (source := _source(vault, item.source)) is not None]
+
+
 def build(config: Config, today: date) -> dict:
     vault = Vault(config.vault_path)
     if vault.config != config:
@@ -281,6 +286,9 @@ def build(config: Config, today: date) -> dict:
         version += "+dirty"
     return {"schema": 1, "engine": engine, "version": version, "tasks": task_entries, "hubs": hubs,
             "routines": _routines(config, hubs, rows), "triggers": trigger_entries, "ledger": recent,
-            "journal": _journal(vault, today), "needsYou": owner_items, "outputs": _outputs(vault),
+            "journal": _journal(vault, today),  # kept for one more release while the owner's app switches to loops
+            "needsYou": owner_items, "outputs": _outputs(vault),
+            "loops": _loops(vault, loops.open_loops(config)),
+            "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
             "idea": owner_idea, "ideasOpen": ideas_open, "channels": _channels(vault),
             "shareable": _shareable(vault, hubs, recent)}

@@ -186,7 +186,17 @@ def hygiene(vault: Vault) -> list[str]:
     return (responsibilities(vault) + task_states(vault) + kinds(vault) + access_problems(vault) + owner_profile(vault)
             + channels(vault) + identity_duplicates(vault) + needs_ceiling(vault) + needs_hygiene(vault)
             + stale_current(vault) + closed_task_mentions(vault)
-            + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault))
+            + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault))
+
+
+def loops_hygiene(vault: Vault) -> list[str]:
+    from datetime import date, timedelta
+    from . import loops
+    rel = vault.config.agent("Loops.md")
+    note = vault.notes.get(rel)
+    floor = vault.config.today() - timedelta(days=14)
+    return [f"{rel} · {item.text}: open more than 14 days; decide it: close it, drop it, or set a due date"
+            for item in loops.parse_section(note.body) if date.fromisoformat(item.since[:10]) < floor] if note else []
 
 
 def ideas_hygiene(vault: Vault) -> list[str]:

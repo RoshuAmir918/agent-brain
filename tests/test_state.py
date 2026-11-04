@@ -14,7 +14,7 @@ from conftest import git, snapshot
 
 
 TODAY = date(2026, 10, 28)
-KEYS = ["schema", "engine", "version", "tasks", "hubs", "routines", "triggers", "ledger", "journal", "needsYou", "outputs"]
+KEYS = ["schema", "engine", "version", "tasks", "hubs", "routines", "triggers", "ledger", "journal", "needsYou", "outputs", "loops", "loopsClosed"]
 
 
 def note(root, source, body="", **data):
