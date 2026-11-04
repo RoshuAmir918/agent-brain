@@ -85,7 +85,73 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
         _append(config, path, "\n".join(lines) + "\n")
     if needs_you:
         add_ask(config, local.date(), needs_you, touched[0] if touched else None)
+    from .session_context import is_owner
+    owner = is_owner(config, platform, tuple(value for value in (user_id, user_id_alt) if value))
+    if owner:
+        working_together(config, local.date(), record.get("workingTogether"))
+    noted(config, local, record.get("noted"), None if owner else (_clean(record.get("speaker")) or user_id or "someone"))
     access_log.append(config, record.get("access"), platform, at, user_id=user_id, user_id_alt=user_id_alt)
+    return path
+
+
+WORKING_TOGETHER_WORDS = 250   # the section loads in every session with the owner; past this it is merged at night
+HEADING = re.compile(r"^##[ \t]+Working together\b[^\n]*$", re.M)
+
+
+def _plain_words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9']+", text.lower()))
+
+
+def working_together(config: Config, day: date, lines) -> list[str]:
+    """The owner's corrections and directions about how to work with them, written to the profile's Working together
+    section in the session they were given, so every later session obeys them. A line whose words another line already
+    holds is a duplicate and is skipped; the night merges what remains."""
+    new = [text for text in dict.fromkeys(_clean(line) for line in (lines or []) if isinstance(line, str)) if text]
+    path = config.vault_path / config.human_profile
+    if not new or not path.exists():
+        return []
+    with vault_lock(config):
+        data, body = fm.read(path)
+        heading = HEADING.search(body)
+        if heading is None:
+            body = body.rstrip("\n") + "\n\n## Working together\n"
+            heading = HEADING.search(body)
+        following = re.search(r"^##?[ \t]+", body[heading.end():], re.M)
+        end = heading.end() + following.start() if following else len(body)
+        section = body[heading.end():end]
+        held = [_plain_words(line) for line in section.splitlines() if line.strip()]
+        added = []
+        for text in new:
+            words = _plain_words(text)
+            if words and any(words <= other for other in held):
+                continue
+            added.append(f"- {day.isoformat()}: {text}")
+            held.append(words)
+        if added:
+            section = section.rstrip("\n") + "\n" + "\n".join(added) + "\n"
+            body = body[:heading.end()] + section + ("\n" + body[end:].lstrip("\n") if body[end:].strip() else "")
+            fm.write(path, data, body)
+    return added
+
+
+def noted(config: Config, at: datetime, lines, speaker: str | None) -> Path | None:
+    """New facts and plans stated in a conversation, kept that day in a dated conversation note the night files into
+    hubs and profiles. Someone other than the owner is quoted as a claim, never as the owner's word."""
+    new = [text for text in dict.fromkeys(_clean(line) for line in (lines or []) if isinstance(line, str)) if text]
+    if not new:
+        return None
+    path = config.vault_path / "Conversations" / f"{at.date().isoformat()} Noted.md"
+    with vault_lock(config):
+        if path.exists():
+            data, body = fm.read(path)
+        else:
+            data = {"kind": "conversation", "created": at.date().isoformat()}
+            body = (f"# Noted {at.date().isoformat()}\n\nWhat was said in conversations today that is worth remembering, "
+                    "written as it was said. The night files each into its note.\n")
+        prefix = "" if speaker is None else f"{speaker} said: "
+        body = body.rstrip("\n") + "\n" + "".join(f"\n- {at.strftime('%H:%M')} · {prefix}{text}" for text in new) + "\n"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fm.write(path, data, body)
     return path
 
 

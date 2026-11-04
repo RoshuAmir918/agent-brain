@@ -24,7 +24,7 @@ The night's main job. Yesterday becomes long-term memory: new facts are written 
 4. **Sort each candidate against its owning note** (hub, profile, task, Triggers, CURRENT), reading that note first:
    - already stated: nothing; the note earned a use;
    - {human_name}'s own correction, or primary evidence: supersede in place with dated provenance, keeping the old text under a "superseded by" line;
-   - a correction about how to work with {human_name} (style, format, scope, tone, how much to quote them): a dated line in `Working together` of `{human_profile}`, merged with a duplicate, the section kept under 150 words;
+   - a correction about how to work with {human_name} (style, format, scope, tone, how much to quote them): a dated line in `Working together` of `{human_profile}`, merged with a duplicate, the section kept under 250 words; the day's `Conversations/<date> Noted.md` lines, written after each conversation, are candidates like any other: file each into its owning note, then set the Noted note's `consolidated:` to today;
    - unverified conflict with a third-party claim: keep both, dated, side by side;
    - new fact with an owning note: add it there, in prose, with date and source;
    - new topic with no owning note: create `{vault}/<Topic>.md` with the standard frontmatter, `kind: hub`, and today as its first use; link it from the nearest hub;

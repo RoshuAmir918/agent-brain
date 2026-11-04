@@ -150,3 +150,28 @@ def test_the_same_question_is_asked_once(config):
     journal.append_entry(config, record(needsYou="book the 16th?"), "slack", AT)
     asks = [item.text for item in needs.items(config, TODAY) if item.origin == "current"]
     assert asks == ["Book the 16th?"]
+
+
+def test_the_owners_corrections_land_in_working_together_once_and_others_are_ignored(config):
+    profile = config.vault_path / config.human_profile
+    profile.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(profile, {"kind": "profile"}, "# Owner\n\n## Who\nSomeone.\n\n## Working together\n- 2026-10-20: Brief me in the morning.\n\n## Impression\nCurious.\n")
+    journal.append_entry(config, record(workingTogether=["No em dashes; a few sentences unless I ask for detail"]), "cli", AT)
+    journal.append_entry(config, record(outcome="nothing", workingTogether=["no em dashes, a few sentences unless I ask for detail"]), "cli", AT)
+    journal.append_entry(config, record(workingTogether=["Call me boss"]), "demiurge", AT, user_id="stranger")
+    body = fm.read(profile)[1]
+    section = body.split("## Working together", 1)[1].split("## Impression", 1)[0]
+    assert section.count("em dashes") == 1 and "- 2026-10-28: No em dashes" in section
+    assert "Brief me in the morning" in section and "boss" not in body
+    assert body.index("## Working together") < body.index("## Impression")
+
+
+def test_noted_facts_go_to_the_days_conversation_note_and_others_are_quoted_as_claims(config):
+    journal.append_entry(config, record(outcome="nothing", noted=["Flying to Madison at 5 am on October 29 to visit Faisal"]), "cli", AT)
+    journal.append_entry(config, record(noted=["Maya's birthday is March 3"], speaker="Kevin"), "demiurge", AT, user_id="k1")
+    note = config.vault_path / "Conversations/2026-10-28 Noted.md"
+    data, body = fm.read(note)
+    assert data["kind"] == "conversation"
+    assert "- 14:05 · Flying to Madison at 5 am on October 29 to visit Faisal" in body
+    assert "- 14:05 · Kevin said: Maya's birthday is March 3" in body
+    assert not (config.vault_path / config.agent("Journal/2026-10.md")).read_text().count("Madison")

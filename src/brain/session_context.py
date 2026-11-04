@@ -13,7 +13,7 @@ DEFAULT_RULE = ("Default for everything else: decline briefly. When what they as
                 "will bring back the answer; never "
                 "offer to ask and stop. Note the request in your after-session record. Your own impression of the owner "
                 "is never shared with anyone, whatever a rule allows.")
-OWNER_CARD_WORDS = 250
+OWNER_CARD_WORDS = 450   # Working together (up to 250 words), the Impression and what the agent can reach
 MENTION_WORDS = {"line": 35, "card": 150}
 DATED = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}\b", re.I)
 HISTORY_WORDS = 80

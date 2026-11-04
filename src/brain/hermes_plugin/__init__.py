@@ -51,6 +51,8 @@ RECORD_SCHEMA = {
         "needsYou": {"type": ["string", "null"], "maxLength": 160},
         "next": {"type": ["string", "null"], "maxLength": 120},
         "thought": {"type": ["string", "null"], "maxLength": 280},
+        "workingTogether": {"type": ["array", "null"], "maxItems": 3, "items": {"type": "string", "maxLength": 200}},
+        "noted": {"type": ["array", "null"], "maxItems": 5, "items": {"type": "string", "maxLength": 240}},
         "access": {"type": "array", "maxItems": 5, "items": {
             "type": "object", "required": ["subject", "asked", "outcome", "rule"], "additionalProperties": False,
             "properties": {"subject": {"type": "string"}, "asked": {"type": "string", "maxLength": 120},
@@ -59,7 +61,7 @@ RECORD_SCHEMA = {
     },
 }
 ROUTINE_SCHEMA = {**RECORD_SCHEMA, "properties": {key: value for key, value in RECORD_SCHEMA["properties"].items()
-                                               if key != "access"}}
+                                               if key not in ("access", "workingTogether", "noted")}}
 SYSTEM = ("You are the agent whose session this was, keeping your own records. Answer only with the JSON object "
           "the schema describes.")
 CONVERSATION = (
@@ -74,6 +76,14 @@ CONVERSATION = (
     "- access: list each time someone other than the owner asked for something a vault subject covers, and what you "
     "did; leave empty for the owner and small talk. Use the vault's subject, asked in a few words without sensitive "
     "specifics (at most 120 characters), the outcome, and a rule id from Disclosure.md or null.\n"
+    "- workingTogether: only when your owner told you how they want you to talk to them or work with them from now on: "
+    "style, format, length, tone, what to leave alone, how to approach their work or their projects. Each one "
+    "instruction, in their sense, under 200 characters (\"No em dashes; a few sentences unless I ask for detail\", "
+    "\"Build features as views into the brain, not new frameworks\"). Not a request for this one reply. Empty for "
+    "anyone but your owner.\n"
+    "- noted: new facts or plans the person stated that matter beyond today: a trip, a date, a decision, a birthday, "
+    "something about a person in their life. Each one plain line with the date when they gave one (\"Flying to Madison "
+    "at 5 am on October 29 to visit Faisal; Hope is there too\"). Not what is already in your context, not what you did.\n"
     "Record what you did, never what you did not do.")
 ROUTINE = (
     "The routine run above has ended. Record it for the routine's ledger.\n"
@@ -409,7 +419,10 @@ class BrainMemoryProvider(MemoryProvider):
             for flag, value in (("--user-id", user_id), ("--user-id-alt", user_id_alt)):
                 if value:
                     arguments.extend([flag, value])
-            if (record["outcome"] != "nothing" or record.get("access")) and not self._write(
+            if self.user_name:
+                record["speaker"] = self.user_name   # who said what is noted, when it is not the owner
+            remembered = record.get("workingTogether") or record.get("noted")
+            if (record["outcome"] != "nothing" or record.get("access") or remembered) and not self._write(
                     repo, arguments, json.dumps(record)):
                 return
             with self._lock:

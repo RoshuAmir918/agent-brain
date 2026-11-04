@@ -715,3 +715,10 @@ def test_invalid_prefetch_settings_log_an_error_and_recall_nothing(provider, pre
     assert env in caplog.text and "invalid prefetch setting" in caplog.text
     with pytest.raises(ValueError, match=env):
         hermes_plugin.prefetch_settings(provider.repo)
+
+
+def test_conversations_capture_corrections_and_facts_and_routines_do_not():
+    props = hermes_plugin.RECORD_SCHEMA["properties"]
+    assert {"workingTogether", "noted"} <= set(props)
+    assert not {"workingTogether", "noted", "access"} & set(hermes_plugin.ROUTINE_SCHEMA["properties"])
+    assert "workingTogether" in hermes_plugin.CONVERSATION and "noted" in hermes_plugin.CONVERSATION
