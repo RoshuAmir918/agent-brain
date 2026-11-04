@@ -164,3 +164,10 @@ def test_timezone_defaults_to_pacific_and_rejects_unknown_zones(tmp_path):
     (tmp_path / "brain.toml").write_text('[brain]\ntimezone = "Mars/Olympus"\n', encoding="utf-8")
     with pytest.raises(ValueError, match="timezone"):
         Config.load(tmp_path / "memory")
+
+
+def test_vault_at_the_repo_root_means_the_configured_vault(tmp_path):
+    (tmp_path / "brain.toml").write_text('[brain]\nvault = "memory"\n')
+    (tmp_path / "memory").mkdir()
+    assert Config.load(tmp_path).vault_path == (tmp_path / "memory").resolve()
+    assert Config.load(tmp_path / "memory").vault_path == (tmp_path / "memory").resolve()

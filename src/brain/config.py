@@ -126,6 +126,8 @@ class Config:
         allowed = {item.name for item in fields(cls) if item.name not in ("repo", "_vault_path")}
         if not isinstance(values, dict) or set(values) - allowed:
             raise ValueError("brain.toml [brain] must contain only supported config keys")
+        if explicit == repo and "vault" in values:
+            explicit = None     # --vault at the repo root means the vault its brain.toml names
         config = cls(repo=repo, _vault_path=explicit, **values)
         paths = {}
         for name in allowed:
