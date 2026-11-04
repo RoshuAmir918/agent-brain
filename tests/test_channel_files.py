@@ -66,7 +66,9 @@ def test_owner_accounts_use_identity_then_reach_and_only_live_owner_rows(synced)
     assert "mira@example.com" in text and "other@example.com" in text
     assert all(account not in text for account in ("echo@example.com", "friend@example.com", "pending@example.com", "revoked@example.com", "wrong@example.com"))
     data = channel_files.mail(Vault(vault), datetime(2026, 11, 4))
-    assert {item["account"] for item in data["messages"]} == {"mira@example.com", "other@example.com"}
+    # mail covers every live account in the registry, the agent's own and shared ones too; the calendar is the owner's
+    assert {(item["account"], item["whose"]) for item in data["messages"]} == {
+        ("mira@example.com", "owner"), ("other@example.com", "owner"), ("echo@example.com", "own"), ("friend@example.com", "shared")}
 
 
 def test_calendar_parses_orders_and_deduplicates_stays_across_days_and_accounts(synced):
@@ -194,7 +196,7 @@ def test_mail_cli_text_json_cap_and_no_bodies(synced, capsys):
     assert set(data) == {"coverage", "messages", "notices", "filtered", "omitted"}
     assert len(data["messages"]) == 40 and data["omitted"] == 5
     assert data["messages"][0]["date"] == "2026-11-04T14:44:00-08:00"
-    assert set(data["messages"][0]) == {"date", "account", "from", "subject", "labels", "path"}
+    assert set(data["messages"][0]) == {"date", "account", "whose", "from", "subject", "labels", "path"}
     assert "BODY_MUST_NEVER_APPEAR" not in raw
     nightly.main(argv)
     text = capsys.readouterr().out
@@ -261,7 +263,7 @@ def test_no_connected_account_is_said_and_a_vault_without_hermes_says_nothing(sy
     fm.write(vault / "agent/Channels.md", {"kind": "orientation"}, channels.HEADER)
     assert "I can't see the calendar: no Google account of the owner's is connected." in channel_files.calendar(Vault(vault))
     assert channel_files.render_mail(channel_files.mail(Vault(vault), datetime(2026, 11, 4))).startswith(
-        "coverage: I can't see the mail: no Google account of the owner's is connected")
+        "coverage: I can't see the mail: no mail or calendar account is connected")
     monkeypatch.delenv("HERMES_HOME")
     assert channel_files.calendar(Vault(vault)) == "" and channel_files.coverage(Vault(vault)) is None
 
@@ -270,4 +272,5 @@ def test_mail_coverage_line_names_accounts_and_last_sync(synced):
     vault, root = synced
     message(root)
     text = channel_files.render_mail(channel_files.mail(Vault(vault), datetime(2026, 11, 4)))
-    assert text.splitlines()[0].startswith("coverage: mira@example.com, missing@example.com, other@example.com; last sync 2026-11-04")
+    assert text.splitlines()[0].startswith("coverage: echo@example.com (own), friend@example.com (shared), mira@example.com (owner), missing@example.com (owner), other@example.com (owner); last sync 2026-11-04")
+    assert " · mira@example.com (owner) · " in text

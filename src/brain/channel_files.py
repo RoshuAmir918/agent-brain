@@ -26,23 +26,29 @@ CALENDAR_LIMIT = 12
 MAIL_LIMIT = 40
 
 
-def owner_accounts(vault: Vault) -> list[str]:
-    accounts = set()
-    for row in channels.live(channels.load(vault), "owner"):
+def accounts(vault: Vault) -> dict[str, str]:
+    """Every live registry row that names an account, its own, its owner's or shared, with whose it is."""
+    found: dict[str, str] = {}
+    for row in channels.live(channels.load(vault)):
         identity, reach = EMAIL.search(row.identity), FOLDER.search(row.reach)
         account = identity[0].lower() if identity else reach[1] if reach else ""
         if EMAIL.fullmatch(account):
             account = account.lower()
         if account and account not in (".", "..") and "\\" not in account:
-            accounts.add(account)
-    return sorted(accounts)
+            found.setdefault(account, row.whose)
+    return dict(sorted(found.items()))
 
 
-def synced_accounts(vault: Vault) -> list[tuple[str, Path]]:
+def owner_accounts(vault: Vault) -> list[str]:
+    return [account for account, whose in accounts(vault).items() if whose == "owner"]
+
+
+def synced_accounts(vault: Vault, owner_only: bool = True) -> list[tuple[str, Path]]:
     home = os.environ.get("HERMES_HOME")
     if not home:
         return []
-    return [(account, Path(home) / "channels" / account) for account in owner_accounts(vault)]
+    chosen = owner_accounts(vault) if owner_only else list(accounts(vault))
+    return [(account, Path(home) / "channels" / account) for account in chosen]
 
 
 SYNC_STALE = timedelta(hours=2)
@@ -54,10 +60,10 @@ def coverage(vault: Vault) -> dict | None:
     home = os.environ.get("HERMES_HOME")
     if not home:
         return None
-    accounts = owner_accounts(vault)
-    found = {"accounts": accounts, "last_sync": None, "problem": ""}
-    if not accounts:
-        found["problem"] = "no Google account of the owner's is connected"
+    named = accounts(vault)
+    found = {"accounts": [f"{account} ({whose})" for account, whose in named.items()], "last_sync": None, "problem": ""}
+    if not named:
+        found["problem"] = "no mail or calendar account is connected"
         return found
     job = None
     try:
@@ -186,7 +192,9 @@ def calendar(vault: Vault, days: int = 7) -> str:
     if seen is None:
         return "" if not events else f"## Calendar: today and the next {days} days\n\n" + "\n".join(event.line(today) for event in events)
     head = f"## Calendar: today and the next {days} days\n\n"
-    if not seen["accounts"] or seen["problem"].endswith(("not set up", "not run yet")):
+    if not owner_accounts(vault):
+        return head + "- I can't see the calendar: no Google account of the owner's is connected."
+    if seen["problem"].endswith(("not set up", "not run yet")):
         return head + f"- I can't see the calendar: {seen['problem']}."
     lines = [event.line(today) for event in events] or [f"- Nothing on the calendar for the next {days} days."]
     if seen["problem"]:
@@ -197,10 +205,11 @@ def calendar(vault: Vault, days: int = 7) -> str:
 def mail(vault: Vault, since: datetime) -> dict:
     config = vault.config
     since = since.replace(tzinfo=config.zone) if since.tzinfo is None else since.astimezone(config.zone)
-    owners = {account.lower() for account in owner_accounts(vault)}
+    named = accounts(vault)
+    owners = set(named)
     filtered = dict(category=0, sent=0, before_since=0, invalid=0)
     messages, notices = [], {}
-    for account, folder in synced_accounts(vault):
+    for account, folder in synced_accounts(vault, owner_only=False):
         directory = folder / "mail"
         if not directory.is_dir():
             continue
@@ -234,7 +243,7 @@ def mail(vault: Vault, since: datetime) -> dict:
                 if reason:
                     filtered[reason] += 1
                     continue
-                item = {"date": received.isoformat(), "account": account, "from": sender,
+                item = {"date": received.isoformat(), "account": account, "whose": named.get(account, ""), "from": sender,
                         "subject": str(data.get("subject", "")), "labels": labels, "path": str(path)}
                 if "CATEGORY_UPDATES" in labels or AUTOMATED.search(sender):
                     key = (account, min(senders) if senders else sender.lower())
@@ -255,7 +264,8 @@ def render_mail(data: dict) -> str:
     def line(value):
         return " ".join(str(value).split())
     row = lambda message: " · ".join(line(message[key]) if key != "labels" else ",".join(line(label) for label in message[key])
-                                     for key in ("date", "account", "from", "subject", "labels", "path"))
+                                     for key in ("date", "account", "from", "subject", "labels", "path")).replace(
+        f" · {line(message['account'])} · ", f" · {line(message['account'])} ({message.get('whose') or 'unknown'}) · ", 1)
     notices = data.get("notices", [])
     seen = data.get("coverage")
     if seen is None:
