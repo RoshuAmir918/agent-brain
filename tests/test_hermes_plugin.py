@@ -26,14 +26,16 @@ def provider(provider_repo):
     return instance
 
 
-def test_plugin_imports_standalone_without_hermes_or_brain_imports(monkeypatch):
+def test_plugin_imports_without_hermes_using_only_the_shared_record_and_runtime(monkeypatch):
     original_import = builtins.__import__
 
     def guarded_import(name, *args, **kwargs):
         if name == "agent.memory_provider":
             raise ImportError("Hermes is not installed")
-        if name == "brain" or name.startswith("brain."):
-            pytest.fail("The standalone plugin must not import brain")
+        if name == "brain":
+            assert args[2] == ("runtime",)
+        elif name.startswith("brain."):
+            assert name == "brain.record"
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", guarded_import)
@@ -42,6 +44,7 @@ def test_plugin_imports_standalone_without_hermes_or_brain_imports(monkeypatch):
     spec.loader.exec_module(module)
     assert module.MemoryProvider is object
     assert module.BrainMemoryProvider().name == "brain"
+    assert module.RECORD_SCHEMA is hermes_plugin.RECORD_SCHEMA
 
 
 def test_initialize_calls_session_context_once_and_caches_output(provider_repo, monkeypatch):

@@ -187,21 +187,27 @@ def hygiene(vault: Vault) -> list[str]:
             + channels(vault) + identity_duplicates(vault) + needs_ceiling(vault) + needs_hygiene(vault)
             + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
-            + watch_signal_hygiene(vault))
+            + watch_signal_hygiene(vault) + schedule_hygiene(vault))
+
+
+def schedule_hygiene(vault: Vault) -> list[str]:
+    from . import runtime, schedule
+    config = vault.config
+    out = schedule.problems(config)
+    if not schedule.path(config).exists() and runtime.jobs(runtime.home()):
+        out.append(f"{schedule.path(config)}: runtime jobs have no declared schedule; run `brain schedule import`")
+    return out
 
 
 def watch_signal_hygiene(vault: Vault) -> list[str]:
     """A gated routine still owes a daily clean monitor check, even when it never wakes the model."""
     import json
-    import os
     from datetime import datetime, timedelta
-    from pathlib import Path
+    from . import runtime
     from .signals import _daily_job
-    home = os.environ.get("HERMES_HOME")
+    home = runtime.configured()
     if not home:
         return []
-    home = Path(home)
-    from . import runtime
     jobs = runtime.jobs(home)
     if not jobs:
         return []

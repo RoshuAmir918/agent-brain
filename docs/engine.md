@@ -1,5 +1,7 @@
 # Agent Brain engine
 
+The [runtime contract](runtime.md) defines what the engine and its runtime exchange. `brain schedule` declares routines in `schedule.toml`: list or check them, import existing runtime jobs, and set, remove, pause or resume a routine. `brain paths schedule` prints the configured file path. Release 0.29.0 only declares the schedule; the runtime adopts it in its own release.
+
 Agent Brain is an installable Python package for the arithmetic half of remembering. Vaults contain notes, not a vendored engine. The judgment half lives in the vault's Memory Spec and routine skills.
 
 Git is the ledger. Each nightly stage is one commit, so `git log --grep` says whether a stage ran, the first missing commit is where a resume continues, and `git revert` undoes a stage. A local commit can remain unpushed; a clean working tree only proves there are no local changes.

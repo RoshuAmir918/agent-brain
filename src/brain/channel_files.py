@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 
-from . import channels, fm
+from . import channels, fm, runtime
 from .config import Config
 from .vault import Vault
 
@@ -44,7 +43,7 @@ def owner_accounts(vault: Vault) -> list[str]:
 
 
 def synced_accounts(vault: Vault, owner_only: bool = True) -> list[tuple[str, Path]]:
-    home = os.environ.get("HERMES_HOME")
+    home = runtime.configured()
     if not home:
         return []
     chosen = owner_accounts(vault) if owner_only else list(accounts(vault))
@@ -57,7 +56,7 @@ SYNC_STALE = timedelta(hours=2)
 def coverage(vault: Vault) -> dict | None:
     """What of the owner's Google can be seen, from the registry and the sync job's last run, so a briefing says so
     instead of going quiet. None outside a Hermes home (a vault without Demiurge has nothing to report)."""
-    home = os.environ.get("HERMES_HOME")
+    home = runtime.configured()
     if not home:
         return None
     named = accounts(vault)
@@ -66,7 +65,6 @@ def coverage(vault: Vault) -> dict | None:
         found["problem"] = "no mail or calendar account is connected"
         return found
     job = None
-    from . import runtime
     job = next((j for j in runtime.jobs(Path(home)) if j.get("name") == "demiurge-sync"
                 or "demiurge-sync" in str(j.get("script") or "")), None)
     if job is None:

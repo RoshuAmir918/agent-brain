@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -11,7 +10,7 @@ from .config import Config
 
 
 def _home() -> Path:
-    return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+    return runtime.home()
 
 
 def _heartbeat(home: Path, routine: str, now: datetime, **counts: int) -> None:

@@ -11,21 +11,21 @@ from importlib.metadata import version as installed_version
 from importlib.resources import files
 from pathlib import Path
 
-from . import fm
+from . import fm, runtime
 from .config import Config
 
 
 def scripts_path() -> Path:
-    return Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser().resolve() / "scripts"
+    return runtime.home().resolve() / "scripts"
 
 
 def provider_path() -> Path:
-    return Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser().resolve() / "plugins" / "brain"
+    return runtime.home().resolve() / "plugins" / "brain"
 
 
 def records_path() -> Path:
     """Run payloads for this profile, outside the vault: one Hermes home per agent, so one records tree per agent."""
-    return Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser().resolve() / "records"
+    return runtime.home().resolve() / "records"
 
 
 def sessions_records_path() -> Path:
@@ -215,9 +215,22 @@ MIGRATION_RUN = ("An engine migration is pending in this vault. Perform all of i
                  "describes, and finish with `brain migrate-done`.")
 
 
+MIGRATION_ROUTINE = "brain-migration-"
+
+
 def start_migration(config: Config) -> bool:
-    """A new migration starts now, not at the agent's next session: one run of the agent, two minutes out, in this
-    profile (HERMES_HOME). Nothing happens where Hermes is not installed."""
+    """A new migration starts now, not at the agent's next session: one run of the agent, two minutes out. A vault that
+    declares its schedule gets a one-shot routine named for this version (a one-shot that already ran stays done, so a
+    shared name would never run twice), which `migrate-done` removes; otherwise the runtime's `hermes cron create`."""
+    from . import schedule
+    if schedule.path(config).exists():
+        from datetime import datetime, timedelta
+        at = (datetime.now(config.zone) + timedelta(minutes=2)).replace(microsecond=0).isoformat()
+        name = MIGRATION_ROUTINE + installed_version("agent-brain").replace(".", "-")
+        routines = schedule.load(config)
+        routines[name] = schedule.Routine(at=at, prompt=MIGRATION_RUN, workdir=str(config.repo))
+        schedule.save(config, routines)
+        return True
     hermes = shutil.which("hermes")
     if hermes is None:
         return False
@@ -260,4 +273,8 @@ def migrate_done(config: Config, deferred: list[str] | None = None) -> str:
     pending = config.vault_path / config.hermes_dir / "pending-migration.md"
     if pending.exists():
         pending.unlink()
+    from . import schedule
+    routines = schedule.load(config) if schedule.path(config).exists() else {}
+    if any(name.startswith(MIGRATION_ROUTINE) for name in routines):
+        schedule.save(config, {name: routine for name, routine in routines.items() if not name.startswith(MIGRATION_ROUTINE)})
     return current

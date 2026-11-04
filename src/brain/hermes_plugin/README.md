@@ -1,8 +1,9 @@
 # Brain memory provider
 
-This standalone Hermes plugin shells out to `brain` on PATH; Hermes does not
-need the brain package in its own Python environment. It uses only the Python
-standard library. Commands time out after five seconds; failures inject nothing.
+This Hermes plugin shells out to `brain` on PATH for vault access and imports
+the shared record specification and workspace helpers from the brain package.
+That package must be available in Hermes's Python environment. Commands time
+out after five seconds; failures inject nothing.
 
 From your vault repository:
 

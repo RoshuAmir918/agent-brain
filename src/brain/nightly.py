@@ -38,7 +38,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import date, datetime
 from pathlib import Path
 
@@ -51,6 +51,7 @@ from .config import FORMS, Config
 from .lock import vault_lock
 from . import install
 from . import signals
+from . import record, runtime, schedule
 
 MARK_START = "<!-- brain:active-threads start -->"
 MARK_END = "<!-- brain:active-threads end -->"
@@ -979,16 +980,103 @@ def cmd_timezone(args):
     print(args.config.timezone)
 
 
+def cmd_record_spec(args):
+    print(json.dumps({"system": record.SYSTEM, "conversation": record.CONVERSATION, "schema": record.RECORD_SCHEMA,
+                      "transcriptCap": record.TRANSCRIPT_CAP, "routine": record.ROUTINE,
+                      "routineSchema": record.ROUTINE_SCHEMA, "nightStages": sorted(record.NIGHT_STAGES)}))
+
+
+def cmd_schedule(args):
+    config, action = args.config, args.schedule_cmd
+    if action == "check":
+        errors = schedule.problems(config)
+        for error in errors:
+            print(error)
+        print(f"{len(errors)} problems")
+        sys.exit(1 if errors else 0)
+    try:
+        if action == "list":
+            routines = schedule.load(config)
+            if args.json:
+                print(json.dumps({name: asdict(routines[name]) for name in sorted(routines)}))
+            else:
+                for name, routine in sorted(routines.items()):
+                    timing = next(f"{key} {getattr(routine, key)}" for key in schedule.TIMING if getattr(routine, key) is not None)
+                    print(f"{name}: {timing}" + (" (paused)" if not routine.enabled else ""))
+            return
+        with vault_lock(config):
+            if action == "import":
+                if schedule.path(config).exists() and not args.force:
+                    raise ValueError(f"{schedule.path(config)} exists; use --force to replace it")
+                routines = schedule.from_jobs(config, runtime.jobs(runtime.home()))
+                changed = f"imported {len(routines)} routine(s) ({', '.join(sorted(routines))}) into {schedule.path(config)}"
+            else:
+                routines = schedule.load(config)
+                name = args.name
+                if action == "set":
+                    changes = {key: getattr(args, key) for key in schedule.Routine.__dataclass_fields__
+                               if getattr(args, key, None) is not None}
+                    if "skills" in changes:
+                        changes["skills"] = [skill.strip() for skill in changes["skills"].split(",") if skill.strip()]
+                    if any(key in changes for key in schedule.TIMING):
+                        changes = {**dict.fromkeys(schedule.TIMING), **changes}
+                    existed = name in routines
+                    routines[name] = replace(routines.get(name, schedule.Routine()), **changes)
+                    changed = f"{'updated' if existed else 'created'} routine {name} in {schedule.path(config)}"
+                else:
+                    if name not in routines:
+                        raise ValueError(f"no such routine: {name}")
+                    if action == "remove":
+                        del routines[name]
+                    else:
+                        routines[name] = replace(routines[name], enabled=action == "resume")
+                    verb = {"remove": "removed", "pause": "paused", "resume": "resumed"}[action]
+                    changed = f"{verb} routine {name} in {schedule.path(config)}"
+            schedule._save(config, routines)
+            errors = schedule.problems(config)
+            if errors:
+                raise ValueError("; ".join(errors))
+        print(changed)
+    except (OSError, ValueError) as error:
+        sys.exit(f"schedule {action}: {error}")
+
+
 def cmd_paths(args):
     paths = {"soul": args.config.soul_path, "skills": args.config.skills_path, "scripts": install.scripts_path(),
              "provider": install.provider_path(), "records": install.records_path(),
-             "vault": args.config.vault_path, "repo": args.config.repo, "python": Path(sys.executable)}
+             "vault": args.config.vault_path, "repo": args.config.repo, "python": Path(sys.executable),
+             "schedule": schedule.path(args.config)}
     print(paths[args.path].resolve())
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="brain")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("record-spec"); s.add_argument("--vault")
+    s.add_argument("--json", action="store_true", required=True); s.set_defaults(fn=cmd_record_spec)
+    s = sub.add_parser("schedule")
+    actions = s.add_subparsers(dest="schedule_cmd", required=True)
+    for action in ("list", "set", "remove", "pause", "resume", "check", "import"):
+        s = actions.add_parser(action); s.add_argument("--vault"); s.set_defaults(fn=cmd_schedule)
+        if action in ("set", "remove", "pause", "resume"):
+            s.add_argument("name")
+        if action == "list":
+            s.add_argument("--json", action="store_true")
+        if action == "import":
+            s.add_argument("--force", action="store_true")
+        if action == "set":
+            timing = s.add_mutually_exclusive_group()
+            for key in schedule.TIMING:
+                timing.add_argument("--" + key)
+            for key in ("skills", "prompt", "deliver", "monitor", "script", "workdir"):
+                s.add_argument("--" + key)
+            agent = s.add_mutually_exclusive_group()
+            agent.add_argument("--agent", action="store_true", default=None)
+            agent.add_argument("--no-agent", dest="agent", action="store_false")
+            enabled = s.add_mutually_exclusive_group()
+            enabled.add_argument("--enabled", action="store_true", default=None)
+            enabled.add_argument("--disabled", dest="enabled", action="store_false")
+            s.add_argument("--owner", action="store_true", default=None)
     s = sub.add_parser("nightly"); s.add_argument("--vault"); s.add_argument("--date")
     s.add_argument("--write", action="store_true"); s.add_argument("--commit", action="store_true"); s.add_argument("--push", action="store_true")
     s.add_argument("--sessions-dir")
@@ -1123,7 +1211,7 @@ def main(argv=None):
     s = sub.add_parser("install-scripts"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_scripts)
     s = sub.add_parser("install-provider"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_provider)
     s = sub.add_parser("paths"); s.add_argument("--vault")
-    s.add_argument("path", choices=("soul", "skills", "scripts", "provider", "records", "vault", "repo", "python")); s.set_defaults(fn=cmd_paths)
+    s.add_argument("path", choices=("soul", "skills", "scripts", "provider", "records", "vault", "repo", "python", "schedule")); s.set_defaults(fn=cmd_paths)
     a = ap.parse_args(argv)
     if a.cmd == "channels" and a.action == "mail" and not a.since:
         ap.error("channels mail requires --since")

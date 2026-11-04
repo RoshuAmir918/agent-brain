@@ -4,9 +4,21 @@ files win when both exist: after a switch, Hermes's stop changing."""
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 ROUTINE_PLATFORMS = ("cron", "subagent", "cli")
+
+
+def configured() -> Path | None:
+    """The explicitly configured workspace, if this process belongs to an agent."""
+    value = os.environ.get("AGENT_HOME") or os.environ.get("HERMES_HOME")
+    return Path(value).expanduser() if value else None
+
+
+def home() -> Path:
+    """The agent workspace: AGENT_HOME, then HERMES_HOME, then ~/.hermes."""
+    return configured() or Path.home() / ".hermes"
 
 
 def jobs(home: Path) -> list[dict]:
@@ -25,6 +37,9 @@ def jobs(home: Path) -> list[dict]:
             status = job.get("lastStatus")
             found.append({"id": job.get("id"), "name": job.get("name"), "skills": job.get("skills") or [],
                           "script": job.get("script"), "prompt": job.get("prompt"),
+                          "schedule": job.get("schedule"), "deliver": job.get("deliver", "local"),
+                          "no_agent": job.get("noAgent", False), "workdir": job.get("workdir"),
+                          "enabled": job.get("enabled", True),
                           "monitor_script": job.get("monitorScript"), "last_run_at": job.get("lastRunAt"),
                           # a monitor that saw no change skipped the run cleanly; that is not a failure
                           "last_status": "ok" if status == "skipped" else status, "last_error": job.get("lastError"),
