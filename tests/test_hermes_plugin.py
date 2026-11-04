@@ -414,6 +414,15 @@ def test_a_cron_run_without_a_known_job_writes_nothing(provider, writes, monkeyp
     assert writes == [] and provider.llm.calls == []
 
 
+def test_a_headless_run_named_as_a_routine_is_a_routine(provider, monkeypatch):
+    monkeypatch.setenv("BRAIN_ROUTINE_JOB", "eval")
+    provider.initialize("20261104_010203_abcd")
+    assert provider._cron_job == "eval"
+    monkeypatch.delenv("BRAIN_ROUTINE_JOB")
+    provider.initialize("20261104_010203_abcd")
+    assert provider._cron_job is None
+
+
 def test_register_hands_the_host_llm_to_the_provider():
     registered = []
     hermes_plugin.register(SimpleNamespace(llm="host-llm", register_memory_provider=registered.append))

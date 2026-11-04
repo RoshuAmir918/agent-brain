@@ -84,7 +84,8 @@ CONVERSATION = (
     "from someone other than your owner. One plain line each, under 160 characters, with who it is with and a due "
     "date when one was named (YYYY-MM-DD or YYYY-MM-DD HH:MM). Not things for your owner to decide (that's "
     "needsYou). Work your owner hands you to do later (\"look into…\", \"have something by morning\") is a promised "
-    "loop with its due time. Not something done in this conversation.\n"
+    "loop with its due time. Not work you handed to your own routines (its task carries it). Not something done in "
+    "this conversation.\n"
     "- closed: open loops (listed below) that this conversation finished or that no longer apply; use their exact "
     "text or id.\n"
     "- resolved: asks listed below that this conversation answered or made moot; use their ids or exact texts.\n"
@@ -250,7 +251,8 @@ class BrainMemoryProvider(MemoryProvider):
         self._people_seen = set()   # once per person per session, never per process
         self._new_session(reset=True)
         match = CRON_SESSION.match(session_id or "")
-        self._cron_job, self._routine_done = (match[1] if match else None), False
+        # Hermes marks a cron run only by its session id; BRAIN_ROUTINE_JOB lets a headless run (an eval) be one too.
+        self._cron_job, self._routine_done = (match[1] if match else os.environ.get("BRAIN_ROUTINE_JOB") or None), False
         try:
             arguments = ["session-context"]
             for field in ("platform", "user_id", "user_id_alt", "user_name", "chat_id"):
