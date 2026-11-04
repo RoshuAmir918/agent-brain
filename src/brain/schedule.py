@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import tempfile
 import tomllib
 from dataclasses import asdict, dataclass, field, replace
@@ -188,7 +189,7 @@ def save(config: Config, routines: dict[str, Routine]) -> None:
 
 def from_jobs(config: Config, jobs: list[dict]) -> dict[str, Routine]:
     """Import either runtime's schedule and execution fields, never its run state."""
-    found = {}
+    found, seen = {}, {}
     for job in jobs:
         name = job.get("name") or job.get("id")
         timing = job.get("schedule") or {}
@@ -199,10 +200,17 @@ def from_jobs(config: Config, jobs: list[dict]) -> dict[str, Routine]:
         kind = timing.get("kind")
         once = kind == "once" or bool(timing.get("run_at"))
         enabled = job.get("enabled", True) and job.get("state") not in ("paused", "completed")
-        if once and (name == "brain-migration" or not enabled and job.get("last_run_at")):
+        # A migration's run is the engine's, not a routine: Hermes and the harness kept every one, some as two-minute
+        # intervals after their single run, all under the same name.
+        if name.startswith("brain-migration") or once and not enabled and job.get("last_run_at"):
             continue
+        rank = (bool(enabled), str(job.get("last_run_at") or ""))
         if name in found:
-            raise ValueError(f"duplicate routine: {name}")
+            # A runtime may hold two jobs under one name; the enabled, most recently run one is the routine.
+            print(f"schedule import: two runtime jobs named {name}; keeping the {'enabled' if rank[0] else 'latest'} one",
+                  file=sys.stderr)
+            if rank <= seen[name]:
+                continue
         if once:
             when = {"at": timing.get("at") or timing.get("run_at")}
         elif kind == "cron":
@@ -220,4 +228,5 @@ def from_jobs(config: Config, jobs: list[dict]) -> dict[str, Routine]:
                               deliver=job.get("deliver", "local"), monitor=job.get("monitor_script"),
                               script=job.get("script"), agent=not job.get("no_agent", False),
                               workdir=_workdir(config, workdir), enabled=enabled)
+        seen[name] = rank
     return found

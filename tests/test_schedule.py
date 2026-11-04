@@ -263,12 +263,11 @@ def test_import_keeps_paused_unrun_once_and_repeating_migration(config):
     jobs(config, [{"name": "waiting", "schedule": {"kind": "once", "at": "2026-11-05T12:00:00Z"}, "enabled": False},
                   {"name": "brain-migration", "schedule": {"kind": "interval", "minutes": 15}}])
     cli(config, "import")
-    assert set(schedule.load(config)) == {"waiting", "brain-migration"}
+    assert set(schedule.load(config)) == {"waiting"}   # every brain-migration job is the engine's, never a routine
     assert not schedule.load(config)["waiting"].enabled
 
 
 @pytest.mark.parametrize("values", [
-    [{"name": "same", "schedule": {"kind": "interval", "minutes": 5}}] * 2,
     [{"name": "unknown", "schedule": {"kind": "bad"}}],
     [{"name": "invalid", "schedule": {"kind": "cron", "expr": "bad"}}],
     [{"name": "invalid", "schedule": {"kind": "interval", "minutes": 0}}],
@@ -378,3 +377,19 @@ def test_a_migration_with_a_schedule_is_a_one_shot_named_for_its_version_and_don
     assert run.at and run.prompt == install.MIGRATION_RUN and "watch" in routines
     install.migrate_done(config)
     assert set(schedule.load(config)) == {"watch"}
+
+
+def test_import_skips_every_migration_run_and_keeps_the_live_one_of_two_jobs_with_a_name(config):
+    from brain import runtime
+    home = runtime.home()
+    (home / "harness").mkdir(parents=True, exist_ok=True)
+    jobs = [{"id": f"m{n}", "name": "brain-migration", "schedule": {"kind": "interval", "minutes": 2}, "enabled": False,
+             "lastRunAt": f"2026-11-0{n}T00:00:00Z", "prompt": "An engine migration is pending."} for n in range(1, 4)]
+    jobs += [{"id": "w1", "name": "watch", "schedule": {"kind": "cron", "expr": "0 * * * *"}, "skills": ["brain-watch"],
+              "enabled": False, "lastRunAt": "2026-11-01T00:00:00Z"},
+             {"id": "w2", "name": "watch", "schedule": {"kind": "cron", "expr": "*/15 * * * *"}, "skills": ["brain-watch"],
+              "enabled": True, "lastRunAt": "2026-11-04T00:00:00Z"}]
+    (home / "harness/jobs.json").write_text(json.dumps(jobs), encoding="utf-8")
+    cli(config, "import")
+    routines = schedule.load(config)
+    assert set(routines) == {"watch"} and routines["watch"].cron == "*/15 * * * *"
