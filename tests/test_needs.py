@@ -562,36 +562,42 @@ def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(va
                   "--why", "Two places have tables at 7; I'll book the one you pick, or neither."])
     nightly.main(["needs-you", "--vault", str(vault), "--ask", "Keep the refundable fare?"])
     write_tasks(vault, Task("T-030", "Connect Roshan's Google accounts",
-                            "- **Status:** the Gmail link is ready\n- **Blocker:** Which of your two Gmails should I read first?\n",
+                            "- **Status:** the Gmail link is ready\n- **Blocker:** T-030 step 3 needs an account pick\n"
+                            "- **Ask:** Which of your two Gmails should I read first?\n"
+                            "- **Why:** I'll start your morning summary from that one.\n",
                             {"state": "waiting_for_owner"}),
                 Task("T-031", "Untitled wait", "- **Status:** no blocker written\n", {"state": "waiting_for_owner"}))
     fm.write(vault / "Correspondence.md", {}, "# Correspondence\n\n## Improvements\n\n"
              "### October 27 — Recheck changed correspondence, not every old letter\n"
              "- **Gap:** Each morning I reread every thread, even ones that have not changed.\n"
              "- **Change:** Only reread threads with a new message since yesterday.\n"
+             "- **Ask:** Want me to only reread the mail threads that changed?\n"
+             "- **Why:** " + "Mornings come faster. " * 20 + "\n"
              "- **Status:** proposed\n\n")
     found = {item.text: item for item in needs.items(Config.load(vault), TODAY)}
     dinner = found["Book the Saturday dinner for Mira's visit?"]
     assert dinner.detail == "Two places have tables at 7; I'll book the one you pick, or neither."
     assert found["Keep the refundable fare?"].detail == ""
     google = found["Which of your two Gmails should I read first?"]
-    assert google.context == "Connect Roshan's Google accounts" and google.detail == "the Gmail link is ready"
-    assert found["Untitled wait"].context == ""                      # no Blocker: the title stands in
-    idea = found["Adopt? Recheck changed correspondence, not every old letter"]
+    assert google.context == "Connect Roshan's Google accounts"
+    assert google.detail == "I'll start your morning summary from that one."   # working notes never shown
+    untitled = found["Untitled wait"]                                 # no Ask: the title alone
+    assert untitled.context == "" and untitled.detail == ""
+    idea = found["Want me to only reread the mail threads that changed?"]
     assert idea.context == "Correspondence"
-    assert idea.detail == ("Why: Each morning I reread every thread, even ones that have not changed. "
-                           "The change: Only reread threads with a new message since yesterday.")
+    assert len(idea.detail.split()) == needs.WHY_WORDS and idea.detail.endswith("…")
     from brain import validate
     from brain.vault import Vault
     assert validate.owner_questions(Vault(vault)) == [
-        "T-031: waiting on the owner with no Blocker line saying what it needs from them (or it is the owner's own work: state yours)"]
+        "T-031: no Ask line, the proposition the owner sees (and a Why line, what they get)",
+        "Correspondence.md · October 27 — Recheck changed correspondence, not every old letter: Why line is 60 words; at most 40"]
 
 
-def test_a_task_items_id_holds_when_its_blocker_is_reworded_and_removing_an_ask_takes_its_why(vault, monkeypatch):
+def test_a_task_items_id_holds_when_its_ask_is_reworded_and_removing_an_ask_takes_its_why(vault, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
-    write_tasks(vault, Task("T-040", "Hands share", "- **Blocker:** Accept Kevin's share?\n", {"state": "waiting_for_owner"}))
+    write_tasks(vault, Task("T-040", "Hands share", "- **Ask:** Accept Kevin's share?\n", {"state": "waiting_for_owner"}))
     first, = needs.items(Config.load(vault), TODAY)
-    write_tasks(vault, Task("T-040", "Hands share", "- **Blocker:** Accept Kevin's share for Hands, after I check it is his Mac?\n",
+    write_tasks(vault, Task("T-040", "Hands share", "- **Ask:** Accept Kevin's share for Hands, once I check it's his Mac?\n",
                             {"state": "waiting_for_owner"}))
     second, = needs.items(Config.load(vault), TODAY)
     assert first.id == second.id and first.text != second.text

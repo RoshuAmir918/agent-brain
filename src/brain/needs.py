@@ -17,6 +17,8 @@ KINDS = ("ask", "confirm")
 OPEN_ASKS = 5        # asks shown at once; past it, the evening decides the lowest-ranked down to it
 STALE_DAYS = 14      # an ask unanswered this long is the evening's to decide or retire
 RETIRE_DAYS = 28     # an ask unanswered this long leaves the list; silence is an answer
+ASK_WORDS = 16       # an owner-facing Ask line: a proposition, read cold on a phone
+WHY_WORDS = 40       # its Why line: what the owner gets, one or two plain sentences
 LISTED_PROPOSALS = 2 # proposed improvements shown to the owner at once: the newest, from the last RETIRE_DAYS days
 DATED_HEADING_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2}|(?:January|February|March|April|May|June|July|August|"
@@ -86,7 +88,7 @@ def parse_section(body: str) -> list[Item]:
     for line in body[span[0]:span[1]].splitlines():
         why = WHY.match(line)
         if why and out:
-            out[-1].detail = (out[-1].detail + " " + why[1]).strip()
+            out[-1].detail = _cut((out[-1].detail + " " + why[1]).strip(), WHY_WORDS)
         elif (item := _bullet(line)) is not None:
             out.append(item)
     return out
@@ -123,6 +125,19 @@ def improvement_status(entry: str) -> str | None:
         return word.lower() if word else None
     inline = STATUS_INLINE.search(entry)
     return inline[1].lower() if inline else None
+
+
+def _cut(text: str, words: int) -> str:
+    parts = text.split()
+    return text if len(parts) <= words else " ".join(parts[:words]).rstrip(",;:") + "…"
+
+
+def _owner_lines(body: str) -> tuple[str | None, str]:
+    """The owner-facing Ask and Why lines of a task or proposal, cut to their caps. Working notes (Blocker, Status,
+    Gap, Change) are the agent's own records and are never shown to the owner."""
+    ask = _task_field(body, "Ask")
+    why = _task_field(body, "Why") or ""
+    return (_cut(ask, ASK_WORDS) if ask else None), _cut(why, WHY_WORDS)
 
 
 def _task_field(body: str, *names: str) -> str | None:
@@ -173,12 +188,9 @@ def _improvements(body: str, source: str, today: date | None = None) -> list[Ite
             title, since = dated[2], _heading_date(dated[1], today)
         entry = section[heading.end():end]
         hub = source.rsplit("/", 1)[-1].removesuffix(".md")
-        parts = [f"{name}: {value}" for name, value in (("Why", _task_field(entry, "Gap", "Weakness")),
-                                                         ("The change", _task_field(entry, "Change", "Move", "Recommendation")),
-                                                         ("Expected", _task_field(entry, "Expected benefit", "Benefit")))
-                 if value]
-        out.append(Item("ask", "Adopt? " + title, "improvement", since, source + "#" + anchor,
-                        detail=" ".join(parts)[:500], context=hub))
+        ask, why = _owner_lines(entry)
+        out.append(Item("ask", ask or "Adopt? " + title, "improvement", since, source + "#" + anchor,
+                        detail=why, context=hub, label="Adopt? " + title))
     return out
 
 
@@ -230,10 +242,9 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
                 continue
             source = (register + "#" + task.tid if task.tid in registered else
                       archive_path(config, task.tid).relative_to(config.vault_path).as_posix())
-            blocker = _task_field(task.body, "Blocker", "Blockers", "Needs")
-            detail = _task_field(task.body, "Status") or ""
-            out.append(Item("ask", blocker or task.title, "task", task.last_evidence_date() or None, source,
-                            detail=detail[:400], context=task.title if blocker else "", label=task.title))
+            ask, why = _owner_lines(task.body)
+            out.append(Item("ask", ask or task.title, "task", task.last_evidence_date() or None, source,
+                            detail=why, context=task.title if ask else "", label=task.title))
     proposals = [item for rel, note in vault.notes.items() if vault.kind_for(rel) == "hub"
                  for item in _improvements(note.body, rel, today)]
     # A proposal stays in its hub as long as it stands; the owner is shown the newest few, none past four weeks, and an

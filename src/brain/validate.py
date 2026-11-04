@@ -148,16 +148,41 @@ def primed_size(vault: Vault) -> list[str]:
 
 
 def owner_questions(vault: Vault) -> list[str]:
-    """A task waiting on the owner says what it needs from them: its Blocker line is the question the owner sees."""
+    """What the owner sees is written for them: a task waiting on them, and a proposed improvement, carry an Ask line
+    (a proposition) and a Why line (what they get), within their word caps."""
+    from . import needs
     from .tasks import load_tasks
-    if not (vault.config.vault_path / vault.config.agent("Tasks.md")).exists():
-        return []
-    registered, archived = load_tasks(vault.config)
     out = []
-    for task in registered + archived:
-        if task.task_state == "waiting_for_owner" and not re.search(r"^[ \t]*-[ \t]+\*\*(?:Blocker|Blockers|Needs):\*\*[ \t]*\S", task.body, re.M):
-            out.append(f"{task.tid}: waiting on the owner with no Blocker line saying what it needs from them "
-                       "(or it is the owner's own work: state yours)")
+
+    def check(where: str, body: str) -> None:
+        ask = needs._task_field(body, "Ask")
+        why = needs._task_field(body, "Why") or ""
+        if not ask:
+            out.append(f"{where}: no Ask line, the proposition the owner sees (and a Why line, what they get)")
+            return
+        if len(ask.split()) > needs.ASK_WORDS:
+            out.append(f"{where}: Ask line is {len(ask.split())} words; at most {needs.ASK_WORDS}")
+        if len(why.split()) > needs.WHY_WORDS:
+            out.append(f"{where}: Why line is {len(why.split())} words; at most {needs.WHY_WORDS}")
+
+    if (vault.config.vault_path / vault.config.agent("Tasks.md")).exists():
+        registered, archived = load_tasks(vault.config)
+        for task in registered + archived:
+            if task.task_state == "waiting_for_owner":
+                check(task.tid, task.body)
+    for rel, note in sorted(vault.notes.items()):
+        if vault.kind_for(rel) != "hub":
+            continue
+        span = needs._section(note.body, "Improvements")
+        if span is None:
+            continue
+        section = note.body[span[0]:span[1]]
+        headings = list(re.finditer(r"^### ([^\r\n]+)", section, re.M))
+        for index, heading in enumerate(headings):
+            stop = headings[index + 1].start() if index + 1 < len(headings) else len(section)
+            entry = section[heading.end():stop]
+            if needs.improvement_status(entry) == "proposed":
+                check(f"{rel} · {heading[1].strip()}", entry)
     return out
 
 
