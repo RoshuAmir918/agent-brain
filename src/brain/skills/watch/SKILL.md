@@ -1,7 +1,7 @@
 ---
 name: {prefix}watch
 description: Follow through on due loops, new channel files and dropped conversations when the monitor sees a change
-version: 3.0.0
+version: 3.0.1
 metadata:
   hermes:
     tags: [routine, day]
@@ -15,7 +15,7 @@ metadata:
 1. **Due loops.** `brain loops --due` lists promises, answers or relays owed, and waits due for attention. Close what you can in this pass:
    - *Promised and not done.* If the next step is yours, do it now: ask {human_name} (`demiurge_tell_owner`, with `text` when someone is waiting), send, check or relay, then tell whoever was waiting and `brain loops --close <id> --outcome done --because "<what finished it>"`. A loop that no longer applies is closed with `--outcome dropped --because "<why>"`.
    - *Ready to relay.* An `owed` loop with a `ready` detail means {human_name} gave the answer: relay it now, in their words, then close it.
-   - *Handed to you and not handed off.* A due `promised` loop recording {human_name} asking for work to be done ("look into…", "have something by morning"), not a question and not your own plan, with no handed-off task behind it: write or find the task with their words, `brain handoff T-nnn --report <platform>`, close the loop because it is handed off, and leave the rest to continue.
+   - *Handed to you and not handed off.* A due `promised` loop recording {human_name} asking for work to be done ("look into…", "have something by morning"), not a question and not your own plan, with no handed-off task behind it: write or find the task with their words, `brain handoff T-nnn --report <platform>`, close the loop because it is handed off, and leave the rest to continue. The task now carries it: open no new loop for it, and never a `waiting` loop on your own routines.
    - *Waiting.* A `waiting` loop past 24 hours gets one nudge to whoever it waits on, if appropriate, or stays; keep nudged ids in the state file.
    A loop you cannot close (the tool is gone, the channel is `revoked`) is one line to the person saying so, never silence.
 2. **New channel files.** {human_name}'s live channels in the registry (`{agent_dir}/Channels.md`), opened the way each row says; check later replies before treating anything as open. Read only the mail and calendar files the monitor block shows as changed under `$HERMES_HOME/channels/<account>/mail/` and `calendar/`, written by `demiurge sync-channels`. Acting on it, a draft or a calendar change, goes through the command the row names, never by editing a file. Reconcile only important, actionable facts into the owning task: status, deadline, waiting-on, next step. A date-conditioned commitment becomes a commitment trigger. A durable, non-urgent fact gets a dated line on the task with a `morning:` tag.

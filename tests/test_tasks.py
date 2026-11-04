@@ -226,7 +226,7 @@ def test_continue_exits_one_when_nothing_is_handed_off_and_handoff_cli_reports(v
     assert "T-001 handed off" in capsys.readouterr().out and "reported in Home" in open(vault / "agent/Tasks.md").read() or True
     from brain import state as state_mod
     exported = state_mod.build(Config.load(vault), date(2026, 11, 3))
-    assert [task["handoff"] for task in exported["tasks"] if task["id"] == "T-001"] == ["2026-11-03"]
+    assert [task["handoff"] for task in exported["tasks"] if task["id"] == "T-001"] == [Config.load(vault).today().isoformat()]
 
 
 def test_yours_is_open_never_owed_to_the_owner_and_never_continued(vault):
