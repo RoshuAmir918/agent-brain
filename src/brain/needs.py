@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from datetime import date
 from pathlib import PurePosixPath
 
@@ -25,15 +25,20 @@ DATED_HEADING_RE = re.compile(
 
 @dataclass
 class Item:
+    """One thing on the owner's list. `text` is the question they answer; `detail` is why it needs them and what a yes
+    or a no means, in two or three plain sentences; `context` names what it is about (a task, a responsibility)."""
     id: str = field(init=False)
     kind: str
     text: str
     origin: str
     since: str | None
     source: str
+    detail: str = ""
+    context: str = ""
+    label: InitVar[str | None] = None   # what the id is keyed on, when the text is built from changing fields
 
-    def __post_init__(self) -> None:
-        key = json.dumps([self.origin, self.source, self.text], ensure_ascii=False)
+    def __post_init__(self, label: str | None) -> None:
+        key = json.dumps([self.origin, self.source, label if label is not None else self.text], ensure_ascii=False)
         self.id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
 
 
@@ -70,12 +75,38 @@ def _bullet(line: str) -> Item | None:
     return Item(kind, text, "current", since, source)
 
 
+WHY = re.compile(r"^[ \t]+-[ \t]+why:[ \t]*(.+?)[ \t]*$")   # an indented line under a bullet: why it needs the owner
+
+
 def parse_section(body: str) -> list[Item]:
     span = _section(body, "Needs you")
     if span is None:
         return []
-    return [item for line in body[span[0]:span[1]].splitlines()
-            if (item := _bullet(line)) is not None]
+    out = []
+    for line in body[span[0]:span[1]].splitlines():
+        why = WHY.match(line)
+        if why and out:
+            out[-1].detail = (out[-1].detail + " " + why[1]).strip()
+        elif (item := _bullet(line)) is not None:
+            out.append(item)
+    return out
+
+
+def _without(body: str, span: tuple[int, int], drop) -> tuple[str, list[Item]]:
+    """The section's lines without the bullets `drop(item)` selects, and the why lines under them."""
+    kept, removed, dropping = [], [], False
+    for line in body[span[0]:span[1]].splitlines(keepends=True):
+        if WHY.match(line.rstrip("\r\n")):
+            if not dropping:
+                kept.append(line)
+            continue
+        item = _bullet(line)
+        dropping = bool(item and drop(item))
+        if dropping:
+            removed.append(item)
+        else:
+            kept.append(line)
+    return body[:span[0]] + "".join(kept) + body[span[1]:], removed
 
 
 STATUS_FIELD = re.compile(r"^[ \t]*-[ \t]+\*\*Status:\*\*[ \t]*([^\r\n]*)", re.M | re.I)
@@ -92,6 +123,13 @@ def improvement_status(entry: str) -> str | None:
         return word.lower() if word else None
     inline = STATUS_INLINE.search(entry)
     return inline[1].lower() if inline else None
+
+
+def _task_field(body: str, *names: str) -> str | None:
+    match = re.search(r"^[ \t]*(?:-[ \t]+)?\*\*(?:" + "|".join(re.escape(name) for name in names)
+                      + r"):\*\*[ \t]*([^\r\n]*)", body, re.M | re.I)
+    value = match[1].replace("**", "").strip() if match else ""
+    return value or None
 
 
 def _heading_date(text: str, today: date | None) -> str | None:
@@ -133,7 +171,14 @@ def _improvements(body: str, source: str, today: date | None = None) -> list[Ite
         title, since = anchor, None
         if dated:
             title, since = dated[2], _heading_date(dated[1], today)
-        out.append(Item("ask", "Adopt? " + title, "improvement", since, source + "#" + anchor))
+        entry = section[heading.end():end]
+        hub = source.rsplit("/", 1)[-1].removesuffix(".md")
+        parts = [f"{name}: {value}" for name, value in (("Why", _task_field(entry, "Gap", "Weakness")),
+                                                         ("The change", _task_field(entry, "Change", "Move", "Recommendation")),
+                                                         ("Expected", _task_field(entry, "Expected benefit", "Benefit")))
+                 if value]
+        out.append(Item("ask", "Adopt? " + title, "improvement", since, source + "#" + anchor,
+                        detail=" ".join(parts)[:500], context=hub))
     return out
 
 
@@ -185,7 +230,10 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
                 continue
             source = (register + "#" + task.tid if task.tid in registered else
                       archive_path(config, task.tid).relative_to(config.vault_path).as_posix())
-            out.append(Item("ask", task.title, "task", task.last_evidence_date() or None, source))
+            blocker = _task_field(task.body, "Blocker", "Blockers", "Needs")
+            detail = _task_field(task.body, "Status") or ""
+            out.append(Item("ask", blocker or task.title, "task", task.last_evidence_date() or None, source,
+                            detail=detail[:400], context=task.title if blocker else "", label=task.title))
     proposals = [item for rel, note in vault.notes.items() if vault.kind_for(rel) == "hub"
                  for item in _improvements(note.body, rel, today)]
     # A proposal stays in its hub as long as it stands; the owner is shown the newest few, none past four weeks, and an
@@ -242,16 +290,11 @@ def retire_asks(config: Config, today: date, days: int = RETIRE_DAYS) -> list[st
     span = _section(body, "Needs you")
     if span is None:
         return []
-    kept, removed = [], []
-    for line in body[span[0]:span[1]].splitlines(keepends=True):
-        item = _bullet(line)
-        if item and item.kind == "ask" and (today - date.fromisoformat(item.since)).days >= days:
-            removed.append(item.text)
-        else:
-            kept.append(line)
+    new, removed = _without(body, span, lambda item: item.kind == "ask"
+                            and (today - date.fromisoformat(item.since)).days >= days)
     if removed:
-        path.write_bytes((body[:span[0]] + "".join(kept) + body[span[1]:]).encode("utf-8"))
-    return removed
+        path.write_bytes(new.encode("utf-8"))
+    return [item.text for item in removed]
 
 
 ANSWERED_HEADER = "---\nkind: log\ntier: cold\n---\n# Answered\n\nAsks and confirms resolved by evidence, one line each: date, kind, what it was, the evidence.\n\n"
@@ -285,14 +328,14 @@ def _remove_bullet(config: Config, item: Item) -> None:
     path = config.vault_path / "CURRENT.md"
     body = path.read_bytes().decode("utf-8")
     span = _section(body, "Needs you")
-    kept, removed = [], False
-    for line in body[span[0]:span[1]].splitlines(keepends=True):
-        bullet = _bullet(line)
-        if not removed and bullet and bullet.id == item.id:
-            removed = True
-            continue
-        kept.append(line)
-    path.write_bytes((body[:span[0]] + "".join(kept) + body[span[1]:]).encode("utf-8"))
+    taken = []
+    def first(bullet: Item) -> bool:
+        if not taken and bullet.id == item.id:
+            taken.append(bullet)
+            return True
+        return False
+    new, _ = _without(body, span, first)
+    path.write_bytes(new.encode("utf-8"))
 
 
 def _answered(config: Config, today: date, line: str) -> None:
@@ -391,13 +434,8 @@ def expire_confirms(config: Config, today: date) -> list[str]:
     span = _section(body, "Needs you")
     if span is None:
         return []
-    kept, removed = [], []
-    for line in body[span[0]:span[1]].splitlines(keepends=True):
-        item = _bullet(line)
-        if item and item.kind == "confirm" and (today - date.fromisoformat(item.since)).days >= 7:
-            removed.append(item.text)
-        else:
-            kept.append(line)
+    new, removed = _without(body, span, lambda item: item.kind == "confirm"
+                            and (today - date.fromisoformat(item.since)).days >= 7)
     if removed:
-        path.write_bytes((body[:span[0]] + "".join(kept) + body[span[1]:]).encode("utf-8"))
-    return removed
+        path.write_bytes(new.encode("utf-8"))
+    return [item.text for item in removed]

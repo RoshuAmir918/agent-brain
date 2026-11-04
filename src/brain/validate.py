@@ -147,6 +147,20 @@ def primed_size(vault: Vault) -> list[str]:
     return [f"{rel}: {words} words; at most {PRIMED_WORDS}, and the context loads only that many"] if words > PRIMED_WORDS else []
 
 
+def owner_questions(vault: Vault) -> list[str]:
+    """A task waiting on the owner says what it needs from them: its Blocker line is the question the owner sees."""
+    from .tasks import load_tasks
+    if not (vault.config.vault_path / vault.config.agent("Tasks.md")).exists():
+        return []
+    registered, archived = load_tasks(vault.config)
+    out = []
+    for task in registered + archived:
+        if task.task_state == "waiting_for_owner" and not re.search(r"^[ \t]*-[ \t]+\*\*(?:Blocker|Blockers|Needs):\*\*[ \t]*\S", task.body, re.M):
+            out.append(f"{task.tid}: waiting on the owner with no Blocker line saying what it needs from them "
+                       "(or it is the owner's own work: state yours)")
+    return out
+
+
 def needs_ceiling(vault: Vault) -> list[str]:
     from . import needs
     note = vault.notes.get("CURRENT.md")

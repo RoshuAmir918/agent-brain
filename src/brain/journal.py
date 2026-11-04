@@ -112,15 +112,15 @@ def _append(config: Config, path: Path, text: str) -> None:
             stream.write(("" if ends_clean else "\n") + text)
 
 
-def add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False) -> bool:
+def add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False, why: str = "") -> bool:
     """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing. Always
     adds: a question is never lost to a full list. Past the ceiling, the evening decides the lowest-ranked ones down
     to it. `force` is kept for callers written before the ceiling stopped refusing."""
     with vault_lock(config):
-        return _add_ask(config, day, text, source, force)
+        return _add_ask(config, day, text, source, force, why)
 
 
-def _add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False) -> bool:
+def _add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False, why: str = "") -> bool:
     path = config.vault_path / "CURRENT.md"
     data, body = fm.read(path) if path.exists() else ({}, "")
     text = " ".join(text.replace("·", "-").split())   # the separator, inside the text, would break the bullet
@@ -129,6 +129,9 @@ def _add_ask(config: Config, day: date, text: str, source: str | None, force: bo
     if any(item.text.casefold() == text.casefold() for item in asks):
         return True   # already asked; the first one stands until it is resolved
     bullet = f"- {day.isoformat()} · ask · {text}" + (f" · [[{source}]]" if source else "")
+    why = " ".join(why.split())
+    if why:
+        bullet += f"\n  - why: {why}"
     heading = re.search(r"^## Needs you[ \t]*$", body, re.M)
     if heading is None:
         body = body.rstrip("\n") + ("\n\n" if body.strip() else "") + "## Needs you\n\n" + bullet + "\n"

@@ -373,7 +373,7 @@ def test_cli_text_and_json(vault, capsys):
     nightly.main(["needs-you", "--json", "--vault", str(vault)])
     result = json.loads(capsys.readouterr().out)
     assert result == [asdict(item) for item in needs.items(Config.load(vault), TODAY)]
-    assert set(result[0]) == {"id", "kind", "text", "origin", "since", "source"}
+    assert set(result[0]) == {"id", "kind", "text", "origin", "since", "source", "detail", "context"}
     assert snapshot(vault.parent) == before
 
 
@@ -553,3 +553,52 @@ def test_dismiss_drops_a_proposal_and_stop_asking_is_logged_for_the_people_revie
     assert "· dismissed stop-asking · ask · Adopt? Weekly digest · id:" in (vault / "agent/Answered/2026-10.md").read_text()
     with pytest.raises(ValueError):
         needs.dismiss(Config.load(vault), "anything", TODAY, "maybe")
+
+
+
+def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
+    nightly.main(["needs-you", "--vault", str(vault), "--ask", "Book the Saturday dinner for Mira's visit?",
+                  "--why", "Two places have tables at 7; I'll book the one you pick, or neither."])
+    nightly.main(["needs-you", "--vault", str(vault), "--ask", "Keep the refundable fare?"])
+    write_tasks(vault, Task("T-030", "Connect Roshan's Google accounts",
+                            "- **Status:** the Gmail link is ready\n- **Blocker:** Which of your two Gmails should I read first?\n",
+                            {"state": "waiting_for_owner"}),
+                Task("T-031", "Untitled wait", "- **Status:** no blocker written\n", {"state": "waiting_for_owner"}))
+    fm.write(vault / "Correspondence.md", {}, "# Correspondence\n\n## Improvements\n\n"
+             "### October 27 — Recheck changed correspondence, not every old letter\n"
+             "- **Gap:** Each morning I reread every thread, even ones that have not changed.\n"
+             "- **Change:** Only reread threads with a new message since yesterday.\n"
+             "- **Status:** proposed\n\n")
+    found = {item.text: item for item in needs.items(Config.load(vault), TODAY)}
+    dinner = found["Book the Saturday dinner for Mira's visit?"]
+    assert dinner.detail == "Two places have tables at 7; I'll book the one you pick, or neither."
+    assert found["Keep the refundable fare?"].detail == ""
+    google = found["Which of your two Gmails should I read first?"]
+    assert google.context == "Connect Roshan's Google accounts" and google.detail == "the Gmail link is ready"
+    assert found["Untitled wait"].context == ""                      # no Blocker: the title stands in
+    idea = found["Adopt? Recheck changed correspondence, not every old letter"]
+    assert idea.context == "Correspondence"
+    assert idea.detail == ("Why: Each morning I reread every thread, even ones that have not changed. "
+                           "The change: Only reread threads with a new message since yesterday.")
+    from brain import validate
+    from brain.vault import Vault
+    assert validate.owner_questions(Vault(vault)) == [
+        "T-031: waiting on the owner with no Blocker line saying what it needs from them (or it is the owner's own work: state yours)"]
+
+
+def test_a_task_items_id_holds_when_its_blocker_is_reworded_and_removing_an_ask_takes_its_why(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
+    write_tasks(vault, Task("T-040", "Hands share", "- **Blocker:** Accept Kevin's share?\n", {"state": "waiting_for_owner"}))
+    first, = needs.items(Config.load(vault), TODAY)
+    write_tasks(vault, Task("T-040", "Hands share", "- **Blocker:** Accept Kevin's share for Hands, after I check it is his Mac?\n",
+                            {"state": "waiting_for_owner"}))
+    second, = needs.items(Config.load(vault), TODAY)
+    assert first.id == second.id and first.text != second.text
+    write_current(vault, "- 2026-10-27 · ask · First?\n  - why: the first reason\n- 2026-10-27 · ask · Second?\n  - why: the second reason\n")
+    needs.resolve(Config.load(vault), "First?", "answered", TODAY)
+    body = fm.read(vault / "CURRENT.md")[1]
+    assert "First?" not in body and "the first reason" not in body
+    assert "Second?" in body and "the second reason" in body
+    second_ask, = [item for item in needs.items(Config.load(vault), TODAY) if item.origin == "current"]
+    assert second_ask.detail == "the second reason"

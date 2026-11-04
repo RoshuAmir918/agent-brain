@@ -492,7 +492,8 @@ def cmd_validate(a):
     vault = Vault(a.config.vault_path)
     problems = (validate.run(vault, set(vault.notes)) + validate.responsibilities(vault) + validate.task_states(vault)
                 + validate.kinds(vault) + validate.access_problems(vault) + validate.owner_profile(vault)
-                + validate.channels(vault) + validate.needs_ceiling(vault) + validate.primed_size(vault))
+                + validate.channels(vault) + validate.needs_ceiling(vault) + validate.primed_size(vault)
+                + validate.owner_questions(vault))
     for p in problems:
         print(p)
     print(f"{len(problems)} problems")
@@ -562,7 +563,7 @@ def cmd_needs_you(args):
     if args.source and not args.ask:
         raise SystemExit("brain needs-you: --source goes with --ask")
     if args.ask:
-        journal.add_ask(args.config, args.config.today(), args.ask, args.source)
+        journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "")
         count = len(needs.open_asks((args.config.vault_path / "CURRENT.md").read_bytes().decode("utf-8")))
         if count > needs.OPEN_ASKS:
             print(f"Needs you now holds {count} asks; tonight's evening decides the lowest-ranked down to {needs.OPEN_ASKS}.",
@@ -870,6 +871,7 @@ def main(argv=None):
     s.add_argument("--reason", choices=("no", "done", "stop-asking"), default="no",
                    help="with --dismiss: what the owner chose (no, done: they did it, stop-asking: no questions like it)")
     s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
+    s.add_argument("--why", metavar="TEXT", help="with --ask: why it needs the owner and what a yes or a no means, in plain words")
     s.set_defaults(fn=cmd_needs_you)
     s = sub.add_parser("channels", help="the channel registry; `sync` registers completed connect grants (from stdin, or --run for `connect list`)")
     s.add_argument("sync", nargs="?", choices=("sync",)); s.add_argument("--run", action="store_true"); s.add_argument("--profile", default="")
