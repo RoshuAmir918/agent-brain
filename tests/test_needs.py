@@ -651,3 +651,17 @@ def test_health_counts_the_needs_you_problems_validate_names(vault, monkeypatch)
     clean = health.report(Config.load(vault))["vault"]["validation_problems"]
     write_current(vault, "- 2026-10-27 · confirm · Migration draft: the goals stay empty · [[CURRENT]]\n")
     assert health.report(Config.load(vault))["vault"]["validation_problems"] == clean + 1
+
+
+def test_current_items_dated_over_two_weeks_ago_are_named_and_history_is_not(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
+    fm.write(vault / "CURRENT.md", {"kind": "orientation"},
+             "# Current\n\n## Needs you\n- 2026-10-01 · ask · Old ask? · [[CURRENT]]\n\n"
+             "## Active\n<!-- brain:active-threads start -->\n- Thread from 2026-10-01\n<!-- brain:active-threads end -->\n\n"
+             "October 12: Reach held for promotion.\n\nOctober 30: Demiurge is chat-first.\n\n"
+             "- Flight to Madison on 2026-10-29, back 2026-11-01.\n\n"
+             "## History\nOctober 1: the vault was created.\n")
+    from brain import validate
+    from brain.vault import Vault
+    problems = validate.stale_current(Vault(vault))
+    assert len(problems) == 1 and "2026-10-12" in problems[0] and "Reach held" in problems[0]

@@ -185,6 +185,7 @@ def hygiene(vault: Vault) -> list[str]:
     seen the next day rather than at the next migration."""
     return (responsibilities(vault) + task_states(vault) + kinds(vault) + access_problems(vault) + owner_profile(vault)
             + channels(vault) + identity_duplicates(vault) + needs_ceiling(vault) + needs_hygiene(vault)
+            + stale_current(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault))
 
 
@@ -240,6 +241,41 @@ def identity_duplicates(vault: Vault) -> list[str]:
                 identities.setdefault(ident, []).append(note.rel)
     return [f"{ident}: duplicate identity on {', '.join(paths)}" for ident, paths in sorted(identities.items())
             if len(paths) > 1]
+
+
+STALE_DAYS = 14   # CURRENT is what is true now: an item whose newest date is older is moved out or confirmed
+
+
+def stale_current(vault: Vault) -> list[str]:
+    """Items in CURRENT whose newest date is more than two weeks old: what happened belongs in a History, a standing
+    direction in its owning note, and anything still true is rewritten for now with today's date. Needs you, history
+    sections and the generated active-threads block are not checked."""
+    from datetime import timedelta
+    from .compile_context import DATE, mentioned
+    note = vault.notes.get("CURRENT.md")
+    if note is None:
+        return []
+    today = vault.config.today()
+    body = re.sub(r"<!-- brain:active-threads start -->.*?<!-- brain:active-threads end -->", "", note.body, flags=re.S)
+    out, skip = [], False
+    for block in re.split(r"\n(?=## )|\n\s*\n|\n(?=- )", body):
+        text = block.strip()
+        if not text:
+            continue
+        if text.startswith("## "):
+            title = text.splitlines()[0][3:].casefold()
+            skip = any(word in title for word in ("needs you", "history", "superseded"))
+            text = "\n".join(text.splitlines()[1:]).strip()
+            if not text:
+                continue
+        if skip or text.startswith("#"):
+            continue
+        dates = [when for m in DATE.finditer(text) if (when := mentioned(m, today))]
+        if dates and max(dates) < today - timedelta(days=STALE_DAYS):
+            out.append(f"CURRENT.md: newest date here is {max(dates).isoformat()}, over two weeks ago; move it to its note "
+                       f"(History for what happened) or, if it still holds, rewrite it for now with today's date: "
+                       f"{' '.join(text.split())[:90]}")
+    return out
 
 
 def channels(vault: Vault) -> list[str]:
