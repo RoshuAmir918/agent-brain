@@ -238,3 +238,13 @@ def test_directory_has_no_active_block_when_no_note_is_hot(context_vault):
             fm.write(path, {**data, "tier": "warm", "pinned": False}, body)
     text = compile_context.directory(Vault(context_vault))
     assert "Most active" not in text and "- Hubs and topics:" in text
+
+
+def test_leftover_retired_views_are_neither_notes_nor_problems(context_vault):
+    from brain import validate
+    (context_vault / "Hot Set.md").write_text("# Hot set\n\n## Automatic load\n", encoding="utf-8")
+    (context_vault / "Warm Index.md").write_text("# Warm index\n", encoding="utf-8")
+    vault = Vault(context_vault)
+    assert "Hot Set.md" not in vault.notes and "Warm Index.md" not in vault.notes
+    assert not [p for p in validate.run(vault, set(vault.notes)) if "Hot Set" in p or "Warm Index" in p]
+    assert "Hot Set" not in compile_context.directory(vault)
