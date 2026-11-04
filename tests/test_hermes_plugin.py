@@ -611,8 +611,9 @@ def test_the_record_is_told_what_already_waits_on_the_owner(provider, writes):
     provider.on_session_end(chat(("fares?", "compared")))
     instructions = provider.llm.calls[0]["instructions"]
     assert "Approve the Tailscale share?" in instructions and "Adopt? Shorter briefings" in instructions
-    assert "Set states on 3 tasks." not in instructions   # a confirm is not a question to avoid repeating
-    assert "ask1 · Approve" in instructions and "ask2 · Adopt?" in instructions
+    # a confirm is listed too: the owner confirming or correcting it in conversation resolves it
+    assert "confirm1 · confirm · Set states on 3 tasks." in instructions
+    assert "ask1 · ask · Approve" in instructions and "ask2 · ask · Adopt?" in instructions
     assert "list answered ones in resolved" in instructions
 
 

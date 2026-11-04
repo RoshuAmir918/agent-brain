@@ -88,7 +88,8 @@ CONVERSATION = (
     "this conversation.\n"
     "- closed: open loops (listed below) that this conversation finished or that no longer apply; use their exact "
     "text or id.\n"
-    "- resolved: asks listed below that this conversation answered or made moot; use their ids or exact texts.\n"
+    "- resolved: asks listed below that this conversation answered or made moot, and confirms your owner confirmed or "
+    "corrected (a correction is also recorded where it belongs); use their ids or exact texts.\n"
     "- ready: owed loops listed below whose answer your owner gave here, so you can pass it on; use their ids or exact texts.\n"
     "- access: list each time someone other than the owner asked for something a vault subject covers, and what you "
     "did; leave empty for the owner and small talk. Use the vault's subject, asked in a few words without sensitive "
@@ -473,7 +474,8 @@ class BrainMemoryProvider(MemoryProvider):
         try:
             listed = subprocess.run(["brain", "needs-you", "--json"], cwd=repo, capture_output=True, text=True, check=True,
                                     timeout=5)
-            asks = [f"{item['id']} · {item['text'][:160]}" for item in json.loads(listed.stdout) if item["kind"] == "ask"]
+            asks = [f"{item['id']} · {item['kind']} · {item['text'][:160]}" for item in json.loads(listed.stdout)
+                    if item["kind"] in ("ask", "confirm")]
         except Exception:
             return ""
         if not asks:

@@ -92,7 +92,7 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
                 pass   # already closed by another session, or ambiguous
     for which in record.get("resolved") or []:
         with vault_lock(config):
-            matched = [item for item in needs.items(config, local.date()) if item.kind == "ask"
+            matched = [item for item in needs.items(config, local.date()) if item.kind in ("ask", "confirm")
                        and (item.id == which or needs._plain(item.text) == needs._plain(which))]
             if len(matched) == 1:
                 try:

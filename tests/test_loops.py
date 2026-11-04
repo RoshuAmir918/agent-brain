@@ -294,6 +294,15 @@ def test_record_resolves_asks_and_marks_ready_tolerating_retries(config, by_id):
     assert snapshot(config.vault_path) == before
 
 
+def test_record_resolves_a_confirm_the_owner_confirmed(config):
+    journal.add_ask(config, AT.date(), "Which date?", "Trip")
+    path = config.vault_path / "CURRENT.md"
+    path.write_text(path.read_text().replace("## Needs you\n", "## Needs you\n- 2026-10-28 · confirm · Booked the fare. · [[Trip]]\n", 1))
+    confirm = next(item for item in needs.items(config, AT.date()) if item.kind == "confirm")
+    journal.append_entry(config, {"headline": "Confirmed", "outcome": "nothing", "resolved": [confirm.id]}, "cli", AT)
+    assert [item.kind for item in needs.items(config, AT.date())] == ["ask"]
+
+
 def test_record_does_not_resolve_or_ready_a_partial_text_match(config):
     journal.add_ask(config, AT.date(), "Which date for Lisbon?", "Trip")
     loops.add(config, AT, "owed", "Relay the date for Lisbon", "Trip")
