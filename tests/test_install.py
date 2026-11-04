@@ -37,7 +37,7 @@ def test_install_scripts_copies_executable_package_resources(tmp_path, monkeypat
     monkeypatch.setenv("HERMES_HOME", str(home))
     nightly.main(["install-scripts"])
     installed = sorted((home / "scripts").glob("*.sh"))
-    assert [path.name for path in installed] == ["continue-signal.sh", "export-sessions.sh", "refresh.sh", "watch-signal.sh"]
+    assert [path.name for path in installed] == ["continue-daily-signal.sh", "continue-signal.sh", "export-sessions.sh", "refresh.sh", "watch-signal.sh"]
     refresh = (home / "scripts/refresh.sh").read_text()
     assert refresh.index("brain people sync --run >/dev/null 2>&1 || true") < refresh.index("brain compile-context --write")
     output = capsys.readouterr().out
@@ -183,7 +183,7 @@ def test_update_uses_own_interpreter_and_reinstalls_scripts_and_provider(tmp_pat
     installed = install.update(Config.load(tmp_path / "memory"))
     assert calls[0][:4] == [sys.executable, "-m", "pip", "install"]
     assert calls[0][-1] == "git+https://github.com/RoshuAmir918/agent-brain"
-    assert {path.name for path in installed} == {"refresh.sh", "export-sessions.sh", "watch-signal.sh", "continue-signal.sh",
+    assert {path.name for path in installed} == {"refresh.sh", "export-sessions.sh", "watch-signal.sh", "continue-signal.sh", "continue-daily-signal.sh",
                                                 "__init__.py", "plugin.yaml", "README.md"}
     for path in installed:
         resource_dir = "scripts" if path.suffix == ".sh" else "hermes_plugin"

@@ -22,6 +22,10 @@ def _heartbeat(home: Path, routine: str, now: datetime, **counts: int) -> None:
     staged.replace(path)
 
 
+def _daily_job(job: dict) -> bool:
+    return job.get("name") == "continue-daily" or str(job.get("prompt") or "").strip() == "Run continue daily."
+
+
 def _last_failure(home: Path, skill: str) -> str:
     """When this routine's last run died (a gateway restart, a provider error): a new failure is a change, so the
     next tick retries instead of waiting for the work itself to move."""
@@ -29,6 +33,8 @@ def _last_failure(home: Path, skill: str) -> str:
         raw = json.loads((home / "cron" / "jobs.json").read_text(encoding="utf-8"))
         jobs = raw.get("jobs", []) if isinstance(raw, dict) else raw
         for job in jobs:
+            if _daily_job(job):
+                continue  # continue shares its skill with the daily job, which has a separate gate
             skills = job.get("skills") or []
             if skill in ([skills] if isinstance(skills, str) else skills):
                 failure = job.get("last_failure") or {}
@@ -99,15 +105,18 @@ def watch(config: Config) -> str:
     return "\n".join(lines)
 
 
-def continue_(config: Config) -> str:
+def continue_(config: Config, daily: bool = False) -> str:
     now, home = _check(config), _home()
     registered, archived = tasks.load_tasks(config)
-    due = tasks.due(registered + archived)
+    due = tasks.due(registered + archived, pace="daily" if daily else "regular")
     lines = [f"date: {now.date().isoformat()}" if due else "date: none"]
     for task in sorted(due, key=lambda task: task.tid):
+        if daily:
+            lines.append(task.tid)
+            continue
         nxt = state._field(task.body, "Next", "Next action") or ""
         lines.append(f"{task.tid} · {task.task_state or 'open'} · {nxt}")
-    if due and (failed := _last_failure(home, config.skill_prefix + "continue")):
+    if due and not daily and (failed := _last_failure(home, config.skill_prefix + "continue")):
         lines.append(f"last failure: {failed}")
-    _heartbeat(home, "continue", now, due=len(due))
+    _heartbeat(home, "continue-daily" if daily else "continue", now, due=len(due))
     return "\n".join(lines)

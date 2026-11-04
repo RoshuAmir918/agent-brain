@@ -20,6 +20,7 @@ The engine's monitor scripts are installed with `brain install-scripts`; keep th
 | --- | --- | --- |
 | watch | `*/15 <owner's existing hour field> * * *` (for example `*/15 6-22 * * *`) | `--monitor-script watch-signal.sh` |
 | continue | `*/30 * * * *` | `--monitor-script continue-signal.sh` |
+| continue-daily (same `{prefix}continue` skill, prompt "Run continue daily.") | `0 12 * * *` | `--monitor-script continue-daily-signal.sh` |
 
 ## Responsibilities
 Standing work with judgment in it, held for {human_name} under a permission they gave, is a responsibility with three linked homes: a hub at the vault root (objective, permission, strategy, findings, weaknesses, improvements), an own skill under `{hermes_dir}/skills/` for method, and a folder under `$HERMES_HOME/records/` for state. `brain responsibility "<Name>" --skill <name>` builds all three. It serves one of {human_name}'s goals or a duty they gave you, and the hub says which. A task becomes a responsibility when it recurs or has no end and {human_name} says so; the improve routine proposes, never adopts. When {human_name} adopts an improvement in a session, set its status and date in the hub, edit the own skill in the same session and no further than what they said, and commit both together. A proposal is not an improvement until the records show the work got better.

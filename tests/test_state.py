@@ -92,7 +92,7 @@ def test_tasks_use_engine_state_and_register_precedence(work):
     assert [task["id"] for task in result] == ["T-004", "T-001", "T-006", "T-002", "T-007",
                                                 "T-003", "T-005", "T-008", "T-009"]
     assert result[0] == {"id": "T-004", "title": "Working café", "state": "in_progress", "open": True,
-                         "detail": "Moving [[Evidence|proof]]", "next": "Ship [[Draft]]", "handoff": None, "blockers": "None",
+                         "detail": "Moving [[Evidence|proof]]", "next": "Ship [[Draft]]", "handoff": None, "pace": "regular", "blockers": "None",
                          "hub": "Work/Watch", "tier": "hot", "archived": False, "source": "agent/Tasks.md#T-004"}
     assert [(task["state"], task["open"]) for task in result] == [
         ("in_progress", True), ("completed", False), ("cancelled", False), (None, True),
@@ -172,7 +172,7 @@ def test_needs_you_passthrough(work):
 
 
 def test_outputs_dates_kinds_and_ties(work):
-    assert state.build(work, TODAY)["outputs"] == [
+    expected = [
         {"title": "2026-01-01 Override", "kind": "reflection", "created": "2026-10-28T14:30:00",
          "source": "Drafts/2026-01-01 Override.md"},
         {"title": "Café launch", "kind": "draft", "created": "2026-10-28", "source": "Drafts/Café launch.md"},
@@ -181,6 +181,9 @@ def test_outputs_dates_kinds_and_ties(work):
          "source": "agent/Reflections/2026-10-27 Notes.md"},
         {"title": "Undated", "kind": "draft", "created": None, "source": "Drafts/Undated.md"},
     ]
+    for output in expected:
+        output.update(id=hashlib.sha256(output["source"].encode("utf-8")).hexdigest()[:12], task=None)
+    assert state.build(work, TODAY)["outputs"] == expected
 
 
 @pytest.mark.parametrize("folder,data", [

@@ -836,8 +836,22 @@ def cmd_handoff(args):
 
 
 def cmd_continue(args):
+    if args.chunk or args.pace:
+        from . import continuation
+        try:
+            if args.chunk:
+                print(continuation.chunk(args.config, args.chunk))
+            else:
+                tid, pace = args.pace
+                with vault_lock(args.config):
+                    tasks_mod.set_pace(args.config, tid, pace, args.config.today())
+                print(f"{tid} pace: {pace}")
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            sys.exit(2)
+        return
     registered, archived = load_tasks(args.config)
-    ready = tasks_mod.due(registered + archived)
+    ready = tasks_mod.due(registered + archived, pace="daily" if args.daily else "regular")
     if not ready:
         print("nothing handed off is due")
         sys.exit(1)
@@ -852,7 +866,7 @@ def cmd_watch_signal(args):
 
 
 def cmd_continue_signal(args):
-    print(signals.continue_(args.config))
+    print(signals.continue_(args.config, daily=args.daily))
 
 
 def cmd_stale_tasks(args):
@@ -1059,11 +1073,15 @@ def main(argv=None):
     s.add_argument("tid"); s.add_argument("--report", default="", help="where to report, e.g. 'Home' or the room"); s.add_argument("--vault")
     s.set_defaults(fn=cmd_handoff)
     s = sub.add_parser("continue", help="handed-off tasks due now, oldest first; exits 1 when none")
-    s.add_argument("--due", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_continue)
+    mode = s.add_mutually_exclusive_group()
+    mode.add_argument("--due", action="store_true")
+    mode.add_argument("--chunk", metavar="TASK")
+    mode.add_argument("--pace", nargs=2, metavar=("TASK", "regular|daily"))
+    s.add_argument("--daily", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_continue)
     s = sub.add_parser("watch-signal", help="stable follow-through monitor output, without a model")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_watch_signal)
     s = sub.add_parser("continue-signal", help="stable due-handoff monitor output, without a model")
-    s.add_argument("--vault"); s.set_defaults(fn=cmd_continue_signal)
+    s.add_argument("--daily", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_continue_signal)
     s = sub.add_parser("stale-tasks", help="open tasks gone quiet long enough for the evening review")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_stale_tasks)
     s = sub.add_parser("state"); s.add_argument("--vault")

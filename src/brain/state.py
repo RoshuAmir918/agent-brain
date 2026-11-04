@@ -57,7 +57,7 @@ def _tasks(vault: Vault) -> list[dict]:
     return [{"id": task.tid, "title": task.title, "state": task.task_state, "open": tasks.is_open(task),
              "detail": _field(task.body, "Status"), "next": _field(task.body, "Next", "Next action"),
              "blockers": _field(task.body, "Blockers"), "hub": _public_link(vault, task.hub),
-             "handoff": task.handoff[0] if task.handoff else None,
+             "handoff": task.handoff[0] if task.handoff else None, "pace": tasks.pace(task),
              "tier": task.state.get("tier"), "archived": archived, "source": source}
             for task, archived, source in entries if _public(vault, source)]
 
@@ -217,7 +217,9 @@ def _outputs(vault: Vault) -> list[dict]:
         leading = re.match(r"^\d{4}-\d{2}-\d{2}", note.stem)
         created = note.data.get("created") if "created" in note.data else leading[0] if leading else None
         created = created.isoformat() if isinstance(created, date) else str(created) if created is not None else None
-        out.append({"title": note.stem, "kind": kind, "created": created, "source": source})
+        out.append({"id": hashlib.sha256(source.encode("utf-8")).hexdigest()[:12],
+                    "title": note.stem, "kind": kind, "created": created, "source": source,
+                    "task": note.data.get("task")})
     out.sort(key=lambda output: output["created"] or "", reverse=True)
     return out
 

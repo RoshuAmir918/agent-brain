@@ -137,13 +137,43 @@ def parse_register(text: str) -> tuple[list[tuple[str, int, int]], list[Task]]:
 
 
 HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
+PACE_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[^\n]*\n?", re.M)
 RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
+
+
+def pace(task: Task) -> str:
+    """No Pace line means the regular thirty-minute pass."""
+    return _pace(task.body)
+
+
+def _pace(body: str) -> str:
+    return "daily" if re.search(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[ \t]*daily[ \t]*$", body, re.M) else "regular"
+
+
+def set_pace(config: Config, tid: str, pace: str, today: date) -> Task:
+    """Change the pace where the full entry lives, just like a handoff."""
+    if pace not in ("regular", "daily"):
+        raise ValueError("pace must be regular or daily")
+    registered, archived = load_tasks(config)
+    task = next((t for t in registered + archived if t.tid == tid), None)
+    if task is None:
+        path = archive_path(config, tid)
+        task = read_archived_task(config, path) if path.exists() else None
+    if task is None or not task.handoff:
+        raise ValueError(f"{tid} is not a handed-off task")
+    task.body = PACE_LINE.sub("", task.body)
+    if pace == "daily":
+        match = HANDOFF_LINE.search(task.body)
+        at = match.end()
+        task.body = task.body[:at].rstrip("\n") + "\n- **Pace:** daily\n" + task.body[at:]
+    save_task(config, task, today)
+    return task
 
 
 def with_handoff(body: str, today: date, report_to: str) -> str:
     """The task's entry with one Handed off line, placed after its first field line."""
     line = f"- **Handed off:** {today.isoformat()}" + (f" · report in {report_to}" if report_to else "")
-    body = HANDOFF_LINE.sub("", body)
+    body = PACE_LINE.sub("", HANDOFF_LINE.sub("", body))
     lines = body.splitlines()
     at = next((i + 1 for i, text in enumerate(lines) if text.lstrip().startswith("- **")), 0)
     lines.insert(at, line)
@@ -224,9 +254,10 @@ def save_task(config: Config, task: Task, today: date) -> None:
         write_archive(config, task, task.state.get("tier", "warm"), today, whole=True)
 
 
-def due(tasks: list[Task]) -> list[Task]:
+def due(tasks: list[Task], pace: str = "regular") -> list[Task]:
     """Handed-off tasks the continue routine should work now, oldest handoff first: open, and not resting on the owner."""
-    return sorted((t for t in tasks if is_open(t) and t.handoff and t.task_state not in RESTING),
+    return sorted((t for t in tasks if is_open(t) and t.handoff and t.task_state not in RESTING
+                   and _pace(t.body) == pace),
                   key=lambda t: (t.handoff[0], t.tid))
 
 

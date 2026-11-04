@@ -196,6 +196,7 @@ def watch_signal_hygiene(vault: Vault) -> list[str]:
     import os
     from datetime import datetime, timedelta
     from pathlib import Path
+    from .signals import _daily_job
     home = os.environ.get("HERMES_HOME")
     if not home:
         return []
@@ -210,13 +211,15 @@ def watch_signal_hygiene(vault: Vault) -> list[str]:
     now = vault.config.now()
     now = now.replace(tzinfo=vault.config.zone) if now.tzinfo is None else now
     out = []
-    for routine in ("watch", "continue"):
+    for routine in ("watch", "continue", "continue-daily"):
         def owns(job):
             if not isinstance(job, dict) or not job.get("monitor_script"):
                 return False
             skills = job.get("skills", [])
             if isinstance(skills, str):
                 skills = [skills]
+            if routine != "watch" and _daily_job(job) != (routine == "continue-daily"):
+                return False
             return isinstance(skills, list) and any(
                 isinstance(skill, str) and (skill.endswith("watch") if routine == "watch" else
                                            skill == vault.config.skill_prefix + "continue") for skill in skills)

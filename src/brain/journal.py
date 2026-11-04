@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-from . import access_log, fm, ledger, loops, needs
+from . import access_log, fm, ledger, loops, needs, tasks
 from .lock import vault_lock
 from .config import Config
 from .vault import Vault
@@ -105,9 +105,34 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     owner = is_owner(config, platform, tuple(value for value in (user_id, user_id_alt) if value))
     if owner:
         working_together(config, local.date(), record.get("workingTogether"))
+        promote_touched(config, vault, record.get("touched") or [], local.date())
     noted(config, local, record.get("noted"), None if owner else (_clean(record.get("speaker")) or user_id or "someone"))
     access_log.append(config, record.get("access"), platform, at, user_id=user_id, user_id_alt=user_id_alt)
     return loops.path_for(config)
+
+
+def promote_touched(config: Config, vault: Vault, touched: list[str], today: date) -> None:
+    """Only the owner's touch of a task's own entry promotes it; a whole-register link is ambiguous."""
+    targets = set()
+    for title in touched:
+        target, _, anchor = _clean(title).partition("#")
+        source = vault.resolve(target)
+        if source:
+            targets.add((source, anchor))
+    if not targets:
+        return
+    with vault_lock(config):
+        registered, archived = tasks.load_tasks(config)
+        for task in registered + archived:
+            if not task.handoff or tasks.pace(task) != "daily":
+                continue
+            own_archive = config.agent(f"Tasks Archive/{task.tid}.md")
+            if any((source == own_archive and (not anchor or anchor == task.tid or
+                                              anchor.startswith(task.tid + " — "))) or
+                   (source == config.agent("Tasks.md") and (anchor == task.tid or
+                                                            anchor.startswith(task.tid + " — ")))
+                   for source, anchor in targets):
+                tasks.set_pace(config, task.tid, "regular", today)
 
 
 WORKING_TOGETHER_WORDS = 250   # the section loads in every session with the owner; past this it is merged at night

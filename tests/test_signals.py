@@ -274,7 +274,7 @@ def test_hygiene_handles_invalid_heartbeat_and_profile_continue_prefix(monitor):
     assert len(validate.watch_signal_hygiene(Vault(config.vault_path))) == 2
 
 
-@pytest.mark.parametrize("routine", ["watch", "continue"])
+@pytest.mark.parametrize("routine", ["watch", "continue", "continue-daily"])
 @pytest.mark.parametrize("override", [False, True])
 def test_installed_signal_wrappers_use_job_cwd_or_vault_override(monitor, monkeypatch, routine, override):
     config, home, clock = monitor
