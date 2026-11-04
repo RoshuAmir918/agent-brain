@@ -627,3 +627,16 @@ def test_a_current_bullet_repeating_a_waiting_task_is_shown_once_and_validate_na
     assert len(problems) == 3
     assert sum("repeats T-003" in p for p in problems) == 2
     assert any("about the brain itself" in p and "Migration draft" in p for p in problems)
+
+
+def test_a_hidden_duplicate_bullet_can_still_be_resolved(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
+    write_tasks(vault, Task("T-003", "Apartment token", "- **Ask:** Can you replace the apartment site's token?\n",
+                            {"state": "waiting_for_owner"}))
+    write_current(vault, "- 2026-10-27 · ask · Can you replace the apartment site's token? · [[agent/Tasks Archive/T-003]]\n")
+    needs.resolve(Config.load(vault), "Can you replace the apartment site's token?", "repeats T-003", TODAY)
+    assert "apartment" not in fm.read(vault / "CURRENT.md")[1]
+    from brain import validate
+    from brain.vault import Vault
+    assert validate.needs_hygiene(Vault(vault)) == []
+    assert [i.origin for i in needs.items(Config.load(vault), TODAY)] == ["task"]

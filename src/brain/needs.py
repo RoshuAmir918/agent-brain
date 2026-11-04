@@ -338,12 +338,19 @@ def dismissed_ids(config: Config) -> set[str]:
     return {m[1] for path in folder.glob("*.md") for m in DISMISSED.finditer(path.read_text(encoding="utf-8"))}
 
 
-def _pick(config: Config, which: str, today: date) -> Item:
+def _pick(config: Config, which: str, today: date, prefer_current: bool = False) -> Item:
+    """One open item by id, or by text matching exactly one. A CURRENT bullet hidden because it repeats a waiting task
+    is still reachable here, so the duplicate `brain validate` names can be removed."""
     candidates = items(config, today)
+    current = Vault(config.vault_path).notes.get("CURRENT.md")
+    shown = {item.id for item in candidates}
+    candidates += [item for item in (parse_section(current.body) if current else []) if item.id not in shown]
     chosen = [item for item in candidates if item.id == which]
     if not chosen:
         needle = " ".join(which.split()).casefold()
         chosen = [item for item in candidates if needle and needle in item.text.casefold()]
+    if len(chosen) > 1 and prefer_current and len(narrowed := [item for item in chosen if item.origin == "current"]) == 1:
+        chosen = narrowed
     if len(chosen) != 1:
         raise ValueError(("no open item matches " if not chosen else f"{len(chosen)} open items match ") + repr(which)
                          + "; use an id from `brain needs-you --json`")
@@ -439,7 +446,7 @@ def resolve(config: Config, which: str, because: str, today: date) -> Item:
     because = " ".join(because.replace("|", "/").split())
     if not because:
         raise ValueError("say what answered it: --because \"<the evidence>\"")
-    item = _pick(config, which, today)
+    item = _pick(config, which, today, prefer_current=True)
     if item.origin != "current":
         where = {"task": "change the task's state", "improvement": "set the proposal's status in its hub",
                  "access": "write or decline the grant (setup)"}[item.origin]
