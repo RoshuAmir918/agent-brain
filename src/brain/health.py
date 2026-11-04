@@ -74,7 +74,7 @@ def report(config: Config, today: date | None = None) -> dict:
         "engine": {"installed": installed, "recorded": install.recorded_version(config),
                    "pending_migration_since": pending_since, "deferred_steps": len(install.deferred_steps(config))},
         "export": {"expected": yesterday, "digest": yesterday if digest.exists() else None, "coverage": coverage},
-        "vault": {"validation_problems": len(validate.run(vault, set(vault.notes))), "notes": tiers,
+        "vault": {"validation_problems": len(validate.checks(vault)), "notes": tiers,
                   "open_tasks": open_tasks},
         "git": {"dirty": None if status is None else len(status.splitlines()), "behind": counts[0], "ahead": counts[1]},
     }

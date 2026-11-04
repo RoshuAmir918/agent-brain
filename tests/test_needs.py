@@ -640,3 +640,11 @@ def test_a_hidden_duplicate_bullet_can_still_be_resolved(vault, monkeypatch):
     from brain.vault import Vault
     assert validate.needs_hygiene(Vault(vault)) == []
     assert [i.origin for i in needs.items(Config.load(vault), TODAY)] == ["task"]
+
+
+def test_health_counts_the_needs_you_problems_validate_names(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
+    from brain import health
+    clean = health.report(Config.load(vault))["vault"]["validation_problems"]
+    write_current(vault, "- 2026-10-27 · confirm · Migration draft: the goals stay empty · [[CURRENT]]\n")
+    assert health.report(Config.load(vault))["vault"]["validation_problems"] == clean + 1

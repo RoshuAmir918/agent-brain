@@ -363,6 +363,9 @@ def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
         for ln in report:
             print(ln)
         sys.exit(1)
+    hygiene = validate.hygiene(vault)
+    if hygiene:
+        report.append(f"checks: {len(hygiene)} problem(s) beyond structure; `brain validate` names them, and the evening fixes the Needs you ones")
     sleep_log(config, today, report, "write")
     return report
 
@@ -498,10 +501,7 @@ def cmd_redact(args):
 
 def cmd_validate(a):
     vault = Vault(a.config.vault_path)
-    problems = (validate.run(vault, set(vault.notes)) + validate.responsibilities(vault) + validate.task_states(vault)
-                + validate.kinds(vault) + validate.access_problems(vault) + validate.owner_profile(vault)
-                + validate.channels(vault) + validate.needs_ceiling(vault) + validate.needs_hygiene(vault) + validate.primed_size(vault)
-                + validate.owner_questions(vault))
+    problems = validate.checks(vault)
     for p in problems:
         print(p)
     print(f"{len(problems)} problems")

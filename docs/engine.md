@@ -170,6 +170,8 @@ The fields are ISO date, kind, text and an optional source wikilink, separated b
 
 `brain health` prints an operational report built only from commits, engine state files and counts: the last run of each night stage with ok, stale or never (a stage is ok when its commit covers yesterday or later), installed against recorded engine version and any pending migration, yesterday's digest coverage line, validation problems, note counts by tier, open tasks, and the working tree against origin. `--json` gives the same as data; `--write` saves the committed copy to `<hermes_dir>/health.md` (without the working-tree line, so hourly refreshes only commit real change). The refresh script writes it every hour. An agent asked "how are you" by a maintainer answers from this report; nothing in it is a note's contents.
 
+The validation count in `brain health` is everything `brain validate` names: structure and the hygiene checks (Needs you duplicates and machinery, Ask and Why lines, the Primed cap, the channel registry). The nightly gates its commit on structure only, and adds a `checks:` line to its report when hygiene problems remain; the evening routine runs `brain validate` and fixes the Needs you ones.
+
 ## Work snapshot
 
 `brain state --json [--vault PATH]` prints a read-only snapshot of the brain's work: schema and engine versions, the vault's short Git HEAD (with `+dirty` for uncommitted changes, or null outside Git), tasks, hubs, routines, triggers, the last 30 days of ledger rows including today, needs-you items and drafts/reflections. Without `--json`, it prints one line of counts. It writes nothing and has no dependency on its consumers, including Demiurge.

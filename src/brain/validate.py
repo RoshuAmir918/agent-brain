@@ -195,6 +195,18 @@ def needs_ceiling(vault: Vault) -> list[str]:
     return [f"CURRENT.md: {len(asks)} open asks in Needs you; the evening decides the lowest-ranked down to {needs.OPEN_ASKS} (`brain needs-you --overflow`)"]
 
 
+def hygiene(vault: Vault) -> list[str]:
+    """The checks beyond structure. The nightly reports them without gating on them, so a problem that creeps back is
+    seen the next day rather than at the next migration."""
+    return (responsibilities(vault) + task_states(vault) + kinds(vault) + access_problems(vault) + owner_profile(vault)
+            + channels(vault) + needs_ceiling(vault) + needs_hygiene(vault) + primed_size(vault) + owner_questions(vault))
+
+
+def checks(vault: Vault) -> list[str]:
+    """Everything `brain validate` names, which `brain health` counts: structure, then hygiene."""
+    return run(vault, set(vault.notes)) + hygiene(vault)
+
+
 def needs_hygiene(vault: Vault) -> list[str]:
     """Needs you holds the owner's own decisions, once: a bullet repeating a task already waiting on them, or one about
     the brain itself (a migration, a skill, the Hermes setup), is named so the agent removes it."""
