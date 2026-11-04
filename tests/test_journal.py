@@ -180,10 +180,18 @@ def test_noted_facts_go_to_the_days_conversation_note_and_others_are_quoted_as_c
     journal.append_entry(config, record(noted=["Maya's birthday is March 3"], speaker="Kevin"), "demiurge", AT, user_id="k1")
     note = config.vault_path / "Conversations/2026-10-28 Noted.md"
     data, body = fm.read(note)
-    assert data["kind"] == "conversation"
+    assert data["kind"] == "conversation" and data["tier"] == "warm"
     assert "- 14:05 · Flying to Madison at 5 am on October 29 to visit Faisal" in body
     assert "- 14:05 · Kevin said: Maya's birthday is March 3" in body
     assert not (config.vault_path / config.agent("Journal/2026-10.md")).exists()
+
+
+def test_a_noted_file_without_a_tier_gains_one_on_its_next_line(config):
+    note = config.vault_path / "Conversations/2026-10-28 Noted.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(note, {"kind": "conversation", "created": "2026-10-28"}, "# Noted 2026-10-28\n")
+    journal.append_entry(config, record(outcome="nothing", noted=["Back on Friday"]), "cli", AT)
+    assert fm.read(note)[0]["tier"] == "warm"
 
 
 def test_recent_says_when_there_is_nothing_to_read_or_a_file_it_cannot_read(config, capsys):

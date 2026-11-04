@@ -185,8 +185,9 @@ def noted(config: Config, at: datetime, lines, speaker: str | None) -> Path | No
     with vault_lock(config):
         if path.exists():
             data, body = fm.read(path)
+            data.setdefault("tier", "warm")   # files written before 0.28.2 lacked it, which validate names
         else:
-            data = {"kind": "conversation", "created": at.date().isoformat()}
+            data = {"kind": "conversation", "tier": "warm", "created": at.date().isoformat()}
             body = (f"# Noted {at.date().isoformat()}\n\nWhat was said in conversations today that is worth remembering, "
                     "written as it was said. The night files each into its note.\n")
         prefix = "" if speaker is None else f"{speaker} said: "
