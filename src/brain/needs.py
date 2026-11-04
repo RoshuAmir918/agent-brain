@@ -1,4 +1,4 @@
-"""The owner's computed queue: current asks, waiting tasks and proposals."""
+"""The owner's computed queue: current asks, waiting tasks and access requests."""
 from __future__ import annotations
 
 import hashlib
@@ -19,7 +19,6 @@ STALE_DAYS = 14      # an ask unanswered this long is the evening's to decide or
 RETIRE_DAYS = 28     # an ask unanswered this long leaves the list; silence is an answer
 ASK_WORDS = 16       # an owner-facing Ask line: a proposition, read cold on a phone
 WHY_WORDS = 40       # its Why line: what the owner gets, one or two plain sentences
-LISTED_PROPOSALS = 2 # proposed improvements shown to the owner at once: the newest, from the last RETIRE_DAYS days
 DATED_HEADING_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2}|(?:January|February|March|April|May|June|July|August|"
     r"September|October|November|December) \d{1,2}(?:, \d{4})?) — (.+)$")
@@ -28,7 +27,8 @@ DATED_HEADING_RE = re.compile(
 @dataclass
 class Item:
     """One thing on the owner's list. `text` is the question they answer; `detail` is why it needs them and what a yes
-    or a no means, in two or three plain sentences; `context` names what it is about (a task, a responsibility)."""
+    or a no means, in two or three plain sentences; `context` names what it is about (a task, a responsibility).
+    An idea's optional `needs` names what accepting it requires."""
     id: str = field(init=False)
     kind: str
     text: str
@@ -37,6 +37,7 @@ class Item:
     source: str
     detail: str = ""
     context: str = ""
+    needs: str = ""
     label: InitVar[str | None] = None   # what the id is keyed on, when the text is built from changing fields
 
     def __post_init__(self, label: str | None) -> None:
@@ -94,15 +95,15 @@ def parse_section(body: str) -> list[Item]:
     return out
 
 
-def _without(body: str, span: tuple[int, int], drop) -> tuple[str, list[Item]]:
-    """The section's lines without the bullets `drop(item)` selects, and the why lines under them."""
+def _without(body: str, span: tuple[int, int], drop, *, bullet=_bullet, detail=WHY) -> tuple[str, list[Item]]:
+    """The section's lines without the bullets `drop(item)` selects and their indented detail lines."""
     kept, removed, dropping = [], [], False
     for line in body[span[0]:span[1]].splitlines(keepends=True):
-        if WHY.match(line.rstrip("\r\n")):
+        if detail.match(line.rstrip("\r\n")):
             if not dropping:
                 kept.append(line)
             continue
-        item = _bullet(line)
+        item = bullet(line)
         dropping = bool(item and drop(item))
         if dropping:
             removed.append(item)
@@ -247,14 +248,6 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
             waiting.append((task.tid, Item("ask", ask or task.title, "task", task.last_evidence_date() or None, source,
                                            detail=why, context=task.title if ask else "", label=task.title)))
     out = [item for item in out if duplicates(item, waiting) is None] + [item for _, item in waiting]
-    proposals = [item for rel, note in vault.notes.items() if vault.kind_for(rel) == "hub"
-                 for item in _improvements(note.body, rel, today)]
-    # A proposal stays in its hub as long as it stands; the owner is shown the newest few, none past four weeks, and an
-    # undated one only when nothing newer fills the room.
-    recent = [item for item in proposals
-              if item.since is None or (today - date.fromisoformat(item.since)).days < RETIRE_DAYS]
-    shown = {id(item) for item in sorted(recent, key=lambda item: item.since or "", reverse=True)[:LISTED_PROPOSALS]}
-    out.extend(item for item in recent if id(item) in shown)
     out.extend(_access_items(vault, config, today))
     gone = dismissed_ids(config)
     return sorted((item for item in out if item.id not in gone), key=lambda item: rank(item, config, today))

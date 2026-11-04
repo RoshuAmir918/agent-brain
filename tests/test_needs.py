@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from brain import fm, needs, nightly, triggers
+from brain import fm, ideas, needs, nightly, triggers
 from brain.config import Config
 from brain.tasks import Task, load_tasks, write_archive
 from brain.vault import Vault
@@ -144,12 +144,13 @@ def test_warm_waiting_task_uses_recovered_body(vault):
 def test_improvement_status_and_heading_dates(vault, status, included, day, since):
     heading = day + " — Active supervision rather than status collection"
     fm.write(vault / "Supervision.md", {}, "# Supervision\n\n## Improvements\n\n" + improvement(heading, status))
-    result = needs.items(Config.load(vault), TODAY)
+    assert needs.items(Config.load(vault), TODAY) == []
+    result = ideas.items(Config.load(vault), TODAY)
     if not included:
         assert result == []
         return
     item, = result
-    assert item.kind == "ask" and item.origin == "improvement"
+    assert item.kind == "idea" and item.origin == "improvement"
     assert item.text == "Adopt? Active supervision rather than status collection"
     assert item.since == since
     assert item.source == "Supervision.md#" + heading
@@ -172,9 +173,10 @@ def test_improvement_scope_and_undated_headings(vault):
     log = vault / "agent/Improvements/2026-10.md"
     log.parent.mkdir(parents=True)
     fm.write(log, {}, body)
-    result = needs.items(Config.load(vault), TODAY)
-    # Three undated proposals, two shown: the owner sees the newest few, never the whole backlog.
-    assert [item.text for item in result] == ["Adopt? Undated proposal", "Adopt? Better — owner decisions"]
+    assert needs.items(Config.load(vault), TODAY) == []
+    result = ideas.items(Config.load(vault), TODAY)
+    # All three proposals are open ideas; shown() chooses only one.
+    assert [item.text for item in result] == ["Adopt? Undated proposal", "Adopt? Better — owner decisions", "Adopt? Bad date still readable"]
     assert all(item.since is None for item in result)
 
 
@@ -202,7 +204,7 @@ def test_order_is_ranked_asks_then_confirms_with_ties_in_written_order(vault):
     # confirms last.
     assert [item.text for item in needs.items(Config.load(vault), TODAY)] == [
         "Register first", "Register second", "Archive T-003", "Archive T-005",
-        "Current first.", "Current second.", "Adopt? A topic newest", "Adopt? Z topic newest",
+        "Current first.", "Current second.",
         "Confirm first.", "Confirm second."]
 
 
@@ -368,12 +370,11 @@ def test_cli_text_and_json(vault, capsys):
     nightly.main(["needs-you", "--vault", str(vault)])
     assert capsys.readouterr().out.splitlines() == [   # ranked: what blocks work, then newest first, confirms last
         "ask · Waiting task · agent/Tasks.md#T-002", "ask · Owner decision. · Trip",
-        "ask · Adopt? Better practice · Topic.md#October 26 — Better practice",
         "confirm · Went ahead. · CURRENT.md"]
     nightly.main(["needs-you", "--json", "--vault", str(vault)])
     result = json.loads(capsys.readouterr().out)
     assert result == [asdict(item) for item in needs.items(Config.load(vault), TODAY)]
-    assert set(result[0]) == {"id", "kind", "text", "origin", "since", "source", "detail", "context"}
+    assert set(result[0]) == {"id", "kind", "text", "origin", "since", "source", "detail", "context", "needs"}
     assert snapshot(vault.parent) == before
 
 
@@ -470,13 +471,13 @@ def test_stale_lists_asks_two_weeks_old_oldest_first(vault, capsys, monkeypatch)
 
 
 
-def test_proposals_shown_are_the_two_newest_and_none_past_four_weeks(vault):
+def test_all_proposals_are_ideas_ranked_newest_first(vault):
     fm.write(vault / "Hub.md", {}, "# Hub\n\n## Improvements\n\n"
              + improvement("September 20 — Too old to show", "proposed")
              + improvement("October 20 — Third newest", "proposed")
              + improvement("October 27 — Newest", "proposed")
              + improvement("October 25 — Second newest", "proposed"))
-    assert [item.text for item in needs.items(Config.load(vault), TODAY)] == ["Adopt? Newest", "Adopt? Second newest"]
+    assert [item.text for item in ideas.items(Config.load(vault), TODAY)] == ["Adopt? Newest", "Adopt? Second newest", "Adopt? Third newest", "Adopt? Too old to show"]
 
 
 
@@ -543,16 +544,17 @@ def test_dismiss_done_completes_a_waiting_task(vault, capsys, monkeypatch):
     assert needs.items(Config.load(vault), date(2026, 11, 3)) == []
 
 
-def test_dismiss_drops_a_proposal_and_stop_asking_is_logged_for_the_people_review(vault, monkeypatch):
+def test_ideas_declines_a_proposal_and_stop_asking_is_logged_for_the_people_review(vault, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
     fm.write(vault / "Hub.md", {}, "# Hub\n\n## Improvements\n\n" + improvement("October 27 — Weekly digest", "proposed"))
-    item, = needs.items(Config.load(vault), TODAY)
-    needs.dismiss(Config.load(vault), item.id, TODAY, "stop-asking")
-    assert "`dropped`, dismissed by the owner 2026-10-28" in (vault / "Hub.md").read_text()
+    item, = ideas.items(Config.load(vault), TODAY)
+    ideas.respond(Config.load(vault), item.id, TODAY, "stop-asking")
+    assert "`declined`, 2026-10-28" in (vault / "Hub.md").read_text()
+    assert ideas.items(Config.load(vault), TODAY) == []
     assert needs.items(Config.load(vault), TODAY) == []
-    assert "· dismissed stop-asking · ask · Adopt? Weekly digest · id:" in (vault / "agent/Answered/2026-10.md").read_text()
+    assert "· dismissed stop-asking · idea · Adopt? Weekly digest · id:" in (vault / "agent/Answered/2026-10.md").read_text()
     with pytest.raises(ValueError):
-        needs.dismiss(Config.load(vault), "anything", TODAY, "maybe")
+        ideas.respond(Config.load(vault), "anything", TODAY, "maybe")
 
 
 
@@ -583,7 +585,8 @@ def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(va
     assert google.detail == "I'll start your morning summary from that one."   # working notes never shown
     untitled = found["Untitled wait"]                                 # no Ask: the title alone
     assert untitled.context == "" and untitled.detail == ""
-    idea = found["Want me to only reread the mail threads that changed?"]
+    idea, = ideas.items(Config.load(vault), TODAY)
+    assert idea.text not in found
     assert idea.context == "Correspondence"
     assert len(idea.detail.split()) == needs.WHY_WORDS and idea.detail.endswith("…")
     from brain import validate

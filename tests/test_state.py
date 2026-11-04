@@ -167,7 +167,7 @@ def test_ledger_window_order_collapsed_rows_and_raw_ids(work):
 def test_needs_you_passthrough(work):
     expected = [asdict(item) for item in needs.items(work, TODAY)]
     assert state.build(work, TODAY)["needsYou"] == expected
-    assert sorted(item["origin"] for item in expected) == ["current", "current", "improvement", "task", "task"]
+    assert sorted(item["origin"] for item in expected) == ["current", "current", "task", "task"]
     assert expected[-1]["kind"] == "confirm"
 
 
@@ -252,7 +252,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     nightly.main(["state", "--json", "--vault", str(work.vault_path)])
     output = capsys.readouterr().out
     parsed = json.loads(output)
-    assert list(parsed) == KEYS + ["channels", "shareable"]
+    assert list(parsed) == KEYS + ["idea", "ideasOpen", "channels", "shareable"]
     assert output == json.dumps(parsed, ensure_ascii=False, indent=2) + "\n"
     nightly.main(["state", "--vault", str(work.vault_path)])
     summary = capsys.readouterr().out
@@ -260,7 +260,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     assert summary == " · ".join(f"{len(parsed[key])} {key}" for key in KEYS[3:]) + "\n"
     process = subprocess.run([sys.executable, "-m", "brain", "state", "--json", "--vault", str(work.vault_path)],
                              text=True, capture_output=True, check=True)
-    assert list(json.loads(process.stdout)) == KEYS + ["channels", "shareable"]
+    assert list(json.loads(process.stdout)) == KEYS + ["idea", "ideasOpen", "channels", "shareable"]
     assert process.stderr == ""
 
 
@@ -273,8 +273,9 @@ def test_empty_vault_and_missing_installed_metadata(tmp_path, monkeypatch):
 
     monkeypatch.setattr(health, "installed_version", missing)
     result = state.build(Config.load(root), TODAY)
-    assert list(result) == KEYS + ["channels", "shareable"]
+    assert list(result) == KEYS + ["idea", "ideasOpen", "channels", "shareable"]
     assert result["engine"] == "unknown"
+    assert result["idea"] is None and result["ideasOpen"] == 0
     assert all(result[key] == [] for key in KEYS[3:])
     assert result["shareable"] == {kind: {"tell": {}, "hubs": [], "receipts": []} for kind in ("known", "anyone")}
 

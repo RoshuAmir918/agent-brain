@@ -184,7 +184,24 @@ def hygiene(vault: Vault) -> list[str]:
     """The checks beyond structure. The nightly reports them without gating on them, so a problem that creeps back is
     seen the next day rather than at the next migration."""
     return (responsibilities(vault) + task_states(vault) + kinds(vault) + access_problems(vault) + owner_profile(vault)
-            + channels(vault) + needs_ceiling(vault) + needs_hygiene(vault) + primed_size(vault) + owner_questions(vault))
+            + channels(vault) + needs_ceiling(vault) + needs_hygiene(vault) + primed_size(vault) + owner_questions(vault)
+            + ideas_hygiene(vault))
+
+
+def ideas_hygiene(vault: Vault) -> list[str]:
+    from . import ideas, needs
+    rel = vault.config.agent("Ideas.md")
+    note = vault.notes.get(rel)
+    out = []
+    for item in ideas.parse_section(note.body, cut=False) if note else []:
+        where = f"{rel} · {item.text}"
+        if not item.detail:
+            out.append(f"{where}: no why line, what the owner gets")
+        if len(item.text.split()) > needs.ASK_WORDS:
+            out.append(f"{where}: idea is {len(item.text.split())} words; at most {needs.ASK_WORDS}")
+        if len(item.detail.split()) > needs.WHY_WORDS:
+            out.append(f"{where}: why line is {len(item.detail.split())} words; at most {needs.WHY_WORDS}")
+    return out
 
 
 def checks(vault: Vault) -> list[str]:

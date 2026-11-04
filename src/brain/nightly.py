@@ -11,6 +11,7 @@ Usage:
   brain compile-context [--vault <path>] [--out <path>] [--write]
   brain retrieve [--vault <path>] <query> [--limit 12] [--json [--form names|snippet|full]]
   brain needs-you [--vault <path>] [--json]
+  brain ideas [--vault <path>] [--all] [--json]
   brain access <who> [--vault <path>] [--json]
   brain state [--vault <path>] [--json]
   brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
@@ -39,7 +40,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, digest, fm, health, journal, ledger, needs, retrieve, session_context, state, triggers, validate
+from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, needs, retrieve, session_context, state, triggers, validate
 from . import tasks as tasks_mod
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, quiet, task_activation, write_archive
 from .vault import DAILY, Vault
@@ -616,6 +617,45 @@ def cmd_needs_you(args):
             print(f"{item.kind} · {item.text} · {item.source}")
 
 
+def cmd_ideas(args):
+    config, today = args.config, args.config.today()
+    if (args.source is not None or args.why is not None or args.needs is not None) and args.add is None:
+        raise SystemExit("brain ideas: --source, --why and --needs go with --add")
+    if args.answer and args.respond is None:
+        raise SystemExit("brain ideas: --answer goes with --respond")
+    try:
+        if args.add is not None:
+            if not args.source:
+                raise ValueError("--add needs --source NOTE")
+            if not ideas.add(config, today, args.add, args.source, args.why or "", args.needs or ""):
+                raise ValueError(ideas.add_refusal(config, today, args.add) or "idea could not be added")
+            print(f"added idea: {args.add}")
+            return
+        if args.respond is not None:
+            if not args.answer:
+                raise ValueError("--respond needs --answer yes|not-now|no|stop-asking")
+            item = ideas.respond(config, args.respond, today, args.answer)
+            print(f"{args.answer}: {item.text}")
+            return
+    except ValueError as error:
+        raise SystemExit(f"brain ideas: {error}")
+    opened = ideas._open(config, today)
+    snoozed = ideas._snoozed(config, today)
+    item = ideas.shown(config, today)
+    until = ideas.cooldown_until(config, today)
+    result = {"shown": asdict(item) if item else None, "open": len(opened),
+              "snoozed": sum(idea.id in snoozed for idea in opened), "newOwner": ideas.new_owner(config, today),
+              "cooldownUntil": until.isoformat() if until else None}
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+    for idea in opened if args.all else ([item] if item else []):
+        print(f"{idea.id} · {idea.text} · {idea.source}")
+    print(f"{result['open']} open, {result['snoozed']} snoozed; "
+          + ("new owner" if result["newOwner"] else "established owner")
+          + (f"; next idea can show {until.isoformat()}" if until else ""))
+
+
 def cmd_access(args):
     config = args.config
     vault = Vault(config.vault_path)
@@ -884,6 +924,14 @@ def main(argv=None):
     s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
     s.add_argument("--why", metavar="TEXT", help="with --ask: why it needs the owner and what a yes or a no means, in plain words")
     s.set_defaults(fn=cmd_needs_you)
+    s = sub.add_parser("ideas", help="proposals for new ways to help, shown one at a time")
+    s.add_argument("--vault"); s.add_argument("--all", action="store_true")
+    mode = s.add_mutually_exclusive_group()
+    mode.add_argument("--json", action="store_true"); mode.add_argument("--add", metavar="TEXT")
+    mode.add_argument("--respond", metavar="ID_OR_TEXT")
+    s.add_argument("--source", metavar="NOTE"); s.add_argument("--why", metavar="TEXT")
+    s.add_argument("--needs", metavar="TEXT"); s.add_argument("--answer", choices=ideas.ANSWERS)
+    s.set_defaults(fn=cmd_ideas)
     s = sub.add_parser("channels", help="the channel registry; `sync` registers completed connect grants (from stdin, or --run for `connect list`)")
     s.add_argument("sync", nargs="?", choices=("sync",)); s.add_argument("--run", action="store_true"); s.add_argument("--profile", default="")
     s.add_argument("--json", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_channels)

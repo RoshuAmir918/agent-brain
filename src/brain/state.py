@@ -7,7 +7,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import access, fm, health, journal, ledger, needs, tasks, triggers
+from . import access, fm, health, ideas, journal, ledger, needs, tasks, triggers
 from .config import Config
 from .session_context import legacy, profile_ids
 from .vault import Vault
@@ -268,6 +268,10 @@ def build(config: Config, today: date) -> dict:
             source = "CURRENT.md"
         if source is not None:
             owner_items.append({**asdict(item), "source": source})
+    idea = ideas.shown(config, today)
+    source = _source(vault, idea.source) if idea else None
+    owner_idea = {**asdict(idea), "source": source} if source is not None else None
+    ideas_open = sum(_source(vault, item.source) is not None for item in ideas._open(vault, today))
     try:
         engine = health.installed_version("agent-brain")
     except health.PackageNotFoundError:
@@ -278,5 +282,5 @@ def build(config: Config, today: date) -> dict:
     return {"schema": 1, "engine": engine, "version": version, "tasks": task_entries, "hubs": hubs,
             "routines": _routines(config, hubs, rows), "triggers": trigger_entries, "ledger": recent,
             "journal": _journal(vault, today), "needsYou": owner_items, "outputs": _outputs(vault),
-            "channels": _channels(vault),
+            "idea": owner_idea, "ideasOpen": ideas_open, "channels": _channels(vault),
             "shareable": _shareable(vault, hubs, recent)}
