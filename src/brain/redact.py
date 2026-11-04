@@ -16,19 +16,32 @@ PATTERNS = [
     ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{22,}")),
     ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
 ]
-# NAME=value or NAME: value where the name says it is a secret; the name stays so the transcript still reads.
-ASSIGNMENT = re.compile(r"\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD))(\s*[=:]\s*[\"']?)([^\s\"'`]{12,})")
+# NAME=value or NAME: value where the name says it is a secret and the value looks like one (twenty or more key
+# characters, letters and digits both); the name stays so the transcript still reads.
+ASSIGNMENT = re.compile(r"\b([A-Z][A-Z0-9_]*(?:API_KEY|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY|_TOKEN|SECRET|PASSWORD))"
+                        r"(\s*[=:]\s*[\"']?)([A-Za-z0-9_\-+/.=]{20,})")
+# Documentation placeholders keep their shape: `sk-xxxx`, `xoxb-your-token`, `<key>`.
+PLACEHOLDER = re.compile(r"(?i)your|xxxx|example|placeholder|dummy|redacted|changeme|<|\.\.\.")
+
+
+def _secret(value: str) -> bool:
+    return not PLACEHOLDER.search(value) and bool(re.search(r"\d", value)) and bool(re.search(r"[A-Za-z]", value))
 
 
 def redact(text: str) -> tuple[str, int]:
     count = 0
     for kind, pattern in PATTERNS:
-        text, n = pattern.subn(f"[REDACTED:{kind}]", text)
-        count += n
+        def replace(match: re.Match, kind=kind) -> str:
+            nonlocal count
+            if kind != "private-key" and not _secret(match[0]):
+                return match[0]
+            count += 1
+            return f"[REDACTED:{kind}]"
+        text = pattern.sub(replace, text)
 
     def keep_name(match: re.Match) -> str:
         nonlocal count
-        if match[3].startswith("[REDACTED") or match[3].startswith(("$", "op://", "<")):
+        if not _secret(match[3]):
             return match[0]
         count += 1
         return f"{match[1]}{match[2]}[REDACTED:secret]"
