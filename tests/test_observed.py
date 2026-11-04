@@ -17,16 +17,14 @@ PROFILE = "memory/people/Alice_Example/Profile.md"
 
 
 @pytest.fixture
-def observed_sessions(vault, tmp_path):
+def observed_sessions(vault, tmp_path, monkeypatch):
+    monkeypatch.setenv("BRAIN_HOT_WORDS", "0")
     for relative in ("Harbor Context.md", "people/Alice_Example/Profile.md",
                      "Automatic Note.md", "On Demand Note.md", "Result Only.md"):
         path = vault / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         fm.write(path, {"tier": "hot", "pinned": relative == "Automatic Note.md",
                         "uses": [], "uses_inferred": []}, "# Fixture\n")
-    (vault / "Hot Set.md").write_text(
-        "# Hot set\n\n## Automatic load\n\n- [[memory/Automatic Note|Automatic]]\n"
-        "\n## On demand (effective warm)\n\n- [[memory/On Demand Note|Overflow]]\n")
     directory = tmp_path / "exports"
     directory.mkdir()
     shutil.copyfile(Path(__file__).parent / "fixtures/all.jsonl", directory / "all.jsonl")
@@ -111,13 +109,23 @@ def test_observed_never_attributes_excluded_paths(vault, observed_sessions, rela
     assert attribute.sessions(Vault(vault), observed_sessions) == []
 
 
-def test_hot_set_overflow_is_still_on_demand(vault, observed_sessions):
+def test_directory_active_overflow_is_still_on_demand(vault, observed_sessions):
     record = {"id": "overflow", "messages": [{"role": "assistant", "tool_name": "search_files",
               "arguments": {"nested": {"path": "memory/On Demand Note.md"}},
               "timestamp": "2026-10-20T12:00:00Z"}]}
     (observed_sessions / "all.jsonl").write_text(json.dumps(record) + "\n")
     rows = attribute.sessions(Vault(vault), observed_sessions)
     assert [(row.target, row.source) for row in rows] == [("On Demand Note.md", "observed")]
+
+
+@pytest.mark.parametrize("sections", ["directory", "hot", ""])
+def test_observed_reads_follow_enabled_directory_selection(vault, observed_sessions, monkeypatch, sections):
+    monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", sections)
+    record = {"id": "active", "messages": [{"role": "assistant", "tool_name": "read_file",
+              "arguments": {"path": "memory/Automatic Note.md"}, "timestamp": "2026-10-20T12:00:00Z"}]}
+    (observed_sessions / "all.jsonl").write_text(json.dumps(record) + "\n")
+    rows = attribute.sessions(Vault(vault), observed_sessions)
+    assert [(row.target, row.source) for row in rows] == ([] if sections else [("Automatic Note.md", "observed")])
 
 
 @pytest.mark.parametrize("call,reads,retrievals", [

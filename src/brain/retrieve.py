@@ -35,7 +35,7 @@ def tokens(text: str) -> set[str]:
 
 
 def eligible(vault: Vault, rel: str) -> bool:
-    return (rel not in ("Hot Set.md", "Warm Index.md") and not rel.startswith("Conversations/")
+    return (not rel.startswith("Conversations/")
             and vault.kind_for(rel) not in EXCLUDED
             and vault.notes[rel].data.get("kind") not in EXCLUDED)
 

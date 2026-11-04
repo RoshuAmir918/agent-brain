@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from brain.config import Config
-from brain import fm, nightly, validate
+from brain import compile_context, fm, nightly, validate
 from brain.tasks import Task, archived_open_tasks, bounded_hot_body, load_tasks, parse_register, read_archive_body, write_archive
 from brain.vault import Vault
 from conftest import make_vault, nightly_argv, snapshot
@@ -270,7 +270,7 @@ def test_unindented_next_action_continuation_is_preserved_or_requires_judgment(t
 
 
 @pytest.mark.parametrize("status", ["completed", "cancelled"])
-def test_closed_archived_task_never_restores_or_requires_open_index(tmp_path, status):
+def test_closed_archived_task_never_restores_or_appears_in_directory(tmp_path, status):
     root = fixture(tmp_path / "memory")
     task = Task("T-099", "Diagnostic closed", "- **Evidence:** diagnostic closure\n",
                 {"status": status, "uses": "2026-10-05", "tier": "hot"})
@@ -282,7 +282,7 @@ def test_closed_archived_task_never_restores_or_requires_open_index(tmp_path, st
     register = fm.read(root / "agent/Tasks.md")[1]
     assert "### T-099" not in register
     assert "T-099" not in (root / "CURRENT.md").read_text()
-    assert "Tasks Archive/T-099|" not in (root / "Warm Index.md").read_text()
+    assert "T-099" not in compile_context.directory(Vault(root))
     assert archive.read_bytes() == original
     assert validate.run(Vault(root), set()) == []
 
@@ -305,8 +305,8 @@ def test_previous_day_primed_expires_without_losing_uses_or_global_pin_rule(tmp_
     assert data["uses"] == uses
     assert actual_body == body
     assert fm.read(today)[0]["tier"] == "hot"
-    hot = (root / "Hot Set.md").read_text()
-    assert "Primed/2026-10-05" not in hot
+    directory = compile_context.directory(Vault(root))
+    assert "Primed/2026-10-05" not in directory
     assert validate.run(Vault(root), set()) == []
 
 
@@ -365,12 +365,12 @@ def test_archive_body_with_its_own_heading_is_not_duplicated_on_restore(tmp_path
     assert body.startswith("- **Status:** open")
 
 
-def test_single_primed_file_never_expires_and_stays_out_of_hot_set(tmp_path):
+def test_single_primed_file_never_expires_and_stays_out_of_active_directory(tmp_path):
     root = fixture(tmp_path / "memory")
     path = root / "agent/Primed.md"
     fm.write(path, {"kind": "primed", "tier": "hot", "pinned": False, "uses": ["2026-10-06"], "uses_inferred": []},
              "# DIAGNOSTIC today\n")
     nightly.main(nightly_argv(root, "2026-10-06", "--write"))
     assert fm.read(path)[0]["tier"] == "hot"
-    assert "Primed" not in (root / "Hot Set.md").read_text()
+    assert "Primed" not in compile_context.directory(Vault(root))
     assert validate.run(Vault(root), set()) == []

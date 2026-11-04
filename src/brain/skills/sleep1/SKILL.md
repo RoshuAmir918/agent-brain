@@ -15,7 +15,7 @@ The night's main job. Yesterday becomes long-term memory: new facts are written 
 - `Conversations/Digests/<yesterday>.md`: every turn between {human_name} and {agent_name} yesterday, built by the export job. Read it whole; if its `coverage:` line reports omitted turns, regenerate with `brain digest --date <yesterday> --max-words 150000 --write` and read that instead. If it is missing, run `brain digest --date <yesterday> --write` from the repository root; if the export itself is missing, record the gap and continue with what exists.
 - yesterday's rows of the explore ledger (`{agent_dir}/Explore/<month>.md`, or an older vault's `Explorations/`), and the notes they filed into.
 - {agent_name}'s own channels (`own` rows of the registry table in `{agent_dir}/Channels.md`, status `live`), yesterday only. {human_name}'s channels (`owner` and `shared` rows, status `live`) as perception, yesterday only, read in place the way each row's reach column says: copy nothing.
-- The hot set and any note the digest touches.
+- The directory's most active notes and any note the digest touches.
 
 ## Procedure
 1. **Resume check.** `cd $VAULT_REPO && git pull --rebase --autostash`. `git log --since=yesterday --grep='sleep1('` already has a commit for this date means resume: do only what is missing. Uncommitted rows in the vault's ledgers, Journal and Answered log are records the engine wrote since the last commit: they go into tonight's commit as they are. Never stash, revert or set aside working changes in the vault; a change you cannot account for is named in the Sleep Log and committed with the rest.

@@ -6,8 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
-from . import compile_context, session_tools
-from . import session_tools
+from . import index, session_tools
 from .vault import Vault, WIKILINK_RE, TASK_ID_RE, TRIGGER_ID_RE
 
 ROW_RE = re.compile(r"^20\d{2}-\d{2}-\d{2}")
@@ -143,9 +142,9 @@ def session_rows(vault: Vault, path: Path) -> list[Use]:
 
 
 def automatic_notes(vault: Vault) -> set[str]:
-    hot = vault.notes.get("Hot Set.md")
-    section = compile_context.automatic_load(hot.body) if hot else ""
-    return vault.config.orientation | {"Hot Set.md", "Warm Index.md"} | set(vault.links_in(section))
+    selected, _, _ = index.hot_selection(vault, vault.config.context.hot_words)
+    active = {n.rel for n in selected} if "directory" in vault.config.context.sections else set()
+    return vault.config.orientation | active
 
 
 def json_session_rows(vault: Vault, path: Path) -> list[Use]:

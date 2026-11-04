@@ -4,13 +4,16 @@ import pytest
 from unittest.mock import patch
 
 from brain.config import Config
-from brain import attribute, fm, validate
+from brain import attribute, compile_context, fm, retrieve, validate
 from brain.vault import Vault
 
 
 def make_vault(tmp_path):
     root = tmp_path / "memory"
     root.mkdir()
+    (root / "agent").mkdir()
+    (root / "agent/Tasks.md").write_text("# Tasks\n")
+    (root / "agent/Triggers.md").write_text("# Triggers\n")
     (root / "Live.md").write_text("---\ntier: warm\n---\n# Live\n")
     (root / "Design Mk. 1.md").write_text("---\ntier: warm\n---\n# Design\n")
     return Vault(root)
@@ -169,81 +172,71 @@ def test_relative_cli_vault_matches_absolute_without_human_reads(tmp_path, monke
         assert Vault(Path("..")).resolve("Human Note") == "../sources/Human Note.md"
 
 
-def test_hot_budget_caps_first_unpinned_and_fits_later_candidates(tmp_path):
-    from brain.index import build_hot_set
-    from datetime import date
+def test_directory_budget_caps_first_unpinned_and_fits_later_candidates(tmp_path, monkeypatch):
+    monkeypatch.setenv("BRAIN_HOT_WORDS", "10")
     vault = make_vault(tmp_path)
-    for note in vault.notes.values():
-        note.data.update(tier="cold")
     for name, count, activation in [("Oversized", 11, 3), ("Fits", 6, 2), ("Overflow", 5, 1)]:
-        path = vault.root / (name + ".md")
-        path.write_text("---\ntier: hot\npinned: false\nactivation: " + str(activation) + "\n---\n" + "word " * count)
+        fm.write(vault.root / (name + ".md"), {"tier": "hot", "pinned": False, "activation": activation},
+                 "word " * count)
     vault.load()
     oversized = vault.notes["Oversized.md"].body
-    result = build_hot_set(vault, date(2026, 10, 5), 10)
-    assert "- (over budget, load on demand) [[memory/Oversized" in result
-    assert "- [[memory/Fits" in result
-    assert "- (over budget, load on demand) [[memory/Overflow" in result
+    result = compile_context.directory(vault)
+    assert "- [[memory/Oversized" not in result
+    assert "- [[memory/Fits|Fits]] — word word word word word word" in result
+    assert "- [[memory/Overflow" not in result
+    assert "Oversized" in result.split("- Hubs and topics: ")[1]
     assert vault.notes["Oversized.md"].body == oversized
     assert all(n.data["tier"] == "hot" for n in vault.notes.values() if n.stem in ("Oversized", "Fits", "Overflow"))
 
 
-def test_pinned_hot_note_is_not_dropped_for_budget(tmp_path):
-    from brain.index import build_hot_set
-    from datetime import date
+def test_pinned_directory_note_is_not_dropped_for_budget(tmp_path, monkeypatch):
+    monkeypatch.setenv("BRAIN_HOT_WORDS", "10")
     vault = make_vault(tmp_path)
-    for note in vault.notes.values():
-        note.data["tier"] = "cold"
     pinned = vault.notes["Live.md"]
     pinned.data.update(tier="hot", pinned=True, activation=3)
     pinned.body = "word " * 11
-    result = build_hot_set(vault, date(2026, 10, 5), 10)
+    result = compile_context.directory(vault)
     assert "- [[memory/Live" in result
-    assert "over budget" not in result
 
 
-def test_hot_exact_boundary_pinned_priority_and_overflow_reachable(tmp_path):
-    from brain.index import build_hot_set, build_warm_index, hot_selection
-    from datetime import date
+def test_directory_exact_boundary_pinned_priority_and_overflow_reachable(tmp_path):
+    from brain.index import hot_selection
     vault = make_vault(tmp_path)
-    for n in vault.notes.values():
-        n.data["tier"] = "cold"
     pinned = vault.notes["Live.md"]
     ordinary = vault.notes["Design Mk. 1.md"]
-    pinned.data.update(tier="hot", pinned=True, activation=-10)
-    ordinary.data.update(tier="hot", pinned=False, activation=10)
+    pinned.data.update(tier="hot", pinned=True, activation=-10, index_line="Pinned context.")
+    ordinary.data.update(tier="hot", pinned=False, activation=10, index_line="Design context.")
     pinned.body = "word " * 1000
     ordinary.body = "word " * 5000
     selected, overflow, total = hot_selection(vault, 6000)
     assert selected == [pinned, ordinary] and not overflow and total == 6000
+    result = compile_context.directory(vault)
+    assert result.index("- [[memory/Live|Live]] — Pinned context.") < result.index(
+        "- [[memory/Design Mk. 1|Design Mk. 1]] — Design context.") < result.index("- Hubs and topics:")
     ordinary.body += "word "
     selected, overflow, total = hot_selection(vault, 6000)
     assert selected == [pinned] and overflow == [ordinary] and total == 1000
-    warm = build_warm_index(vault, date(2026, 10, 5), [], 6000)
-    assert "memory/Design Mk. 1" in warm
-    hot = build_hot_set(vault, date(2026, 10, 5), 6000)
-    assert "## Automatic load" in hot and "## On demand (effective warm)" in hot
+    result = compile_context.directory(vault)
+    assert "- [[memory/Design Mk. 1" not in result
+    assert "Design Mk. 1" in result.split("- Hubs and topics: ")[1]
+    assert any(c.path == "memory/Design Mk. 1.md" for c in retrieve.search(vault, "design"))
     pinned.body = "word " * 6001
-    hot = build_hot_set(vault, date(2026, 10, 5), 6000)
-    assert "Pinned load exceeds the budget: 6001 words selected, 1 words over" in hot
+    result = compile_context.directory(vault)
+    assert "- [[memory/Live" in result and "- [[memory/Design Mk. 1" not in result
     assert hot_selection(vault, 6000)[0] == [pinned]
     assert ordinary.data["tier"] == "hot"
 
 
-def test_nondefault_budget_consistent_in_hot_and_warm_views(tmp_path):
-    from brain.index import build_hot_set, build_warm_index
-    from datetime import date
+def test_nondefault_directory_budget_keeps_overflow_retrievable(tmp_path, monkeypatch):
+    monkeypatch.setenv("BRAIN_HOT_WORDS", "10")
     vault = make_vault(tmp_path)
-    for n in vault.notes.values():
-        n.data["tier"] = "cold"
-    note = vault.notes["Live.md"]
-    note.data.update(tier="hot", pinned=False, activation=2)
-    note.body = "word " * 11
-    day = date(2026, 10, 5)
-    assert "over budget, load on demand) [[memory/Live" in build_hot_set(vault, day, 10)
-    assert "[[memory/Live" in build_warm_index(vault, day, [], 10)
-    assert "over budget, load on demand) [[memory/Live" not in build_hot_set(vault, day, 11)
-    assert "[[memory/Live" not in build_warm_index(vault, day, [], 11)
+    fm.write(vault.root / "Live.md", {"tier": "hot", "pinned": False, "activation": 2}, "word " * 11)
+    vault.load()
+    assert "- [[memory/Live" not in compile_context.directory(vault)
+    assert "Live" in compile_context.directory(vault).split("- Hubs and topics: ")[1]
+    assert any(c.path == "memory/Live.md" for c in retrieve.search(vault, "live"))
+    monkeypatch.setenv("BRAIN_HOT_WORDS", "11")
+    assert "- [[memory/Live" in compile_context.directory(Vault(vault.root))
 
 
 def test_validation_checks_links_only_in_changed_bodies(tmp_path):
@@ -268,15 +261,15 @@ def test_validation_requires_pinned_hot_and_superseded_header(tmp_path):
     assert validate.run(vault, {"Live.md"}) == []
 
 
-def test_open_archived_task_requires_warm_index_entry(vault):
+def test_open_archived_task_is_named_in_directory_without_generated_index(vault):
     from datetime import date
     from brain.tasks import Task, write_archive
 
     task = Task("T-099", "Archived open", "- **Status:** waiting\n", {"status": "open"})
     write_archive(Config.load(vault), task, "cold", date(2026, 10, 5))
-    assert validate.run(Vault(vault), set()) == ["T-099: open task archived but not listed in Warm Index"]
-    (vault / "Warm Index.md").write_text("# Warm index\n[[memory/agent/Tasks Archive/T-099|T-099]]\n")
-    assert validate.run(Vault(vault), {"Warm Index.md"}) == []
+    loaded = Vault(vault)
+    assert validate.run(loaded, set()) == []
+    assert "T-099 Archived open" in compile_context.directory(loaded).split("- Open tasks: ")[1]
 
 
 def test_receipt_folders_and_declared_logs_are_never_notes(tmp_path):

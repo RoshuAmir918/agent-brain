@@ -125,7 +125,6 @@ def test_validate_task_states(vault, location, state):
         fm.write(path, data, body + task.render())
     elif location == "archive":
         write_archive(config, task, "cold", date(2026, 10, 5))
-        (vault / "Warm Index.md").write_text("[[agent/Tasks Archive/T-023|T-023]]\n")
     else:
         path = vault / config.agent("Tasks Archive/2026-10.md")
         path.parent.mkdir()

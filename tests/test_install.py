@@ -98,7 +98,6 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
         path.write_text(text)
         path.chmod(0o755)
     monkeypatch.setenv("PATH", str(commands) + os.pathsep + os.environ["PATH"])
-    fm.write(vault / "Hot Set.md", {}, "# Hot set\n## Automatic load\n")
     (vault / "agent/SOUL.md").write_text("Fixture identity\n")
     nightly.main(["install-scripts"])
     subprocess.run(["bash", str(home / "scripts/export-sessions.sh")], cwd=tmp_path,

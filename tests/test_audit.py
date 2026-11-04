@@ -13,9 +13,7 @@ DAY = date(2026, 10, 26)
 def audited(tmp_path, monkeypatch):
     (tmp_path / "brain.toml").write_text('[brain]\nlog_dirs = ["Results"]\n', encoding="utf-8")
     vault = tmp_path / "memory"; (vault / "agent").mkdir(parents=True)
-    fm.write(vault / "Hot Set.md", {}, "# Hot set\n## Automatic load\none two three\n")
-    fm.write(vault / "Warm Index.md", {}, "# Warm\n- a\n- b\n")
-    fm.write(vault / "Harbor.md", {"kind": "hub", "tier": "warm"}, "# Harbor\nfour five six seven\n")
+    fm.write(vault / "Harbor.md", {"kind": "hub", "tier": "hot", "activation": 3}, "# Harbor\nfour five six seven\n")
     (vault / "agent/Explorations").mkdir()
     fm.write(vault / "agent/Explorations/2026-10.md", {"kind": "log"}, "# Explorations\n\n- 10-20 | inbound | nothing new | nothing found\n- 10-21 | mail | filed one note | filed\n")
     (vault / "agent/Results").mkdir()
@@ -46,7 +44,9 @@ def test_audit_counts_folders_ledgers_episodes_and_routines_without_contents(aud
     assert results == {"folder": "Results", "files": 2, "dated_files": 2, "words": 4}
     assert data["ledgers"] == [{"ledger": "agent/Explorations/2026-10.md", "rows": 2, "mean_words_per_row": 10.0}]
     assert data["episodes"]["count"] == 1 and data["episodes"]["over_1500_words"] == 1
-    assert data["context"]["hot_set_words"] == 9 and data["context"]["warm_index_entries"] == 2
+    assert data["context"]["active_notes"] == 1
+    assert data["context"]["active_note_words"] == 6
+    assert data["context"]["compiled_context_words"] == 0
     [job] = data["routines"]
     assert job["job"] == "explore" and job["runs"] == 2 and job["mean_tool_calls"] == 32.0 and job["mean_minutes"] == 7.5
     assert job["end_reasons"] == {"cron_complete": 2}
@@ -61,4 +61,10 @@ def test_audit_cli_json_and_window(audited, capsys):
     assert data["routines"] == [] and data["days"] == 3
     nightly.main(["audit", "--vault", str(audited.vault_path), "--date", "2026-10-26"])
     assert capsys.readouterr().out.startswith("# Audit: Agent, 2026-10-26, last 14 days\n")
+
+
+def test_audit_counts_no_active_notes_when_directory_is_disabled(audited, monkeypatch):
+    monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start")
+    assert audit.report(audited, DAY)["context"] == {"active_notes": 0, "active_note_words": 0,
+                                                   "compiled_context_words": 0}
 

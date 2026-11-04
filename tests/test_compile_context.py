@@ -21,9 +21,10 @@ def context_vault(vault):
     unstated = Task("T-004", "No status comment", "UNSTATED_BODY\n")
     fm.write(path, data, body + "\n" + warm.render_line(Config.load(vault)) + "\n" + closed.render()
              + "\n" + unstated.render() + "\n## Other\nREGISTER_TAIL\n")
-    fm.write(vault / "Hot Set.md", {}, "# Hot set\nHOT_PREAMBLE\n\n## Automatic load\n\n"
-             "- [[memory/START|Start]] — AUTOMATIC_ENTRY\n\n"
-             "## On demand (effective warm)\n\nOVERFLOW_ENTRY\n")
+    fm.write(vault / "Active.md", {"tier": "hot", "activation": 3, "index_line": "AUTOMATIC_ENTRY"},
+             "# Active\nActive note body.\n")
+    fm.write(vault / "Overflow.md", {"tier": "hot", "activation": 2, "index_line": "OVERFLOW_ENTRY"},
+             "word " * 6001)
     return vault
 
 
@@ -36,14 +37,18 @@ def test_context_contains_source_bodies_and_only_open_register_sections(context_
     assert "ARCHIVED_FULL_BODY" not in text
     assert all(excluded not in text for excluded in
                ("### T-003", "### T-004", "CLOSED_BODY", "UNSTATED_BODY", "REGISTER_TAIL"))
-    assert "## Automatic load\n\n- [[memory/START|Start]] — AUTOMATIC_ENTRY" in text
-    assert "OVERFLOW_ENTRY" not in text and "HOT_PREAMBLE" not in text
+    directory = text.split("## Directory: what the vault knows\n\n", 1)[1]
+    assert directory.startswith("Most active, with what each holds:\n\n")
+    assert "- [[memory/Active|Active]] — AUTOMATIC_ENTRY" in directory
+    assert directory.index("AUTOMATIC_ENTRY") < directory.index("- Hubs and topics:")
+    assert "OVERFLOW_ENTRY" not in text and "## Automatic load" not in text
+    assert "Hot Set" not in text and "Warm Index" not in text
     positions = [text.index(f"## memory/{source}") for source in Config(Path('.')).context_sources
                  if (context_vault / source).is_file()]
     assert positions == sorted(positions)
     assert text.splitlines()[0] == "Generated nightly by `brain`."
     assert text.splitlines()[2].startswith("Edit the source notes instead:")
-    assert text.endswith("Warm Index, Conversations and everything else are retrieved on demand with `brain retrieve`.\n")
+    assert text.endswith("Conversations and everything else are retrieved on demand with `brain retrieve`.\n")
 
 
 def test_context_preview_does_not_write_even_with_out(context_vault, capsys):
@@ -108,7 +113,7 @@ def test_context_directory_lists_hubs_people_and_open_tasks(context_vault):
     body = text.split("## Directory: what the vault knows", 1)[1]
     assert "- Hubs and topics: " in body
     assert "- Open tasks: " in body
-    assert "Hot Set" not in body.split("- Hubs and topics: ", 1)[1].split("\n", 1)[0]
+    assert "Active, Overflow" in body.split("- Hubs and topics: ", 1)[1].split("\n", 1)[0]
 
 
 def test_context_includes_goals_when_present_and_skips_them_until_then(context_vault):
@@ -224,3 +229,12 @@ def test_context_loads_only_the_triggers_still_waiting_to_fire(context_vault):
     text = compile_context.build(Vault(context_vault))
     assert "ACTIVE_WHEN" in text and "FIRED_WHEN" not in text and "RETIRED_ROW" not in text
     assert "(Fired and retired triggers are in memory/agent/Triggers.md.)" in text
+
+
+def test_directory_has_no_active_block_when_no_note_is_hot(context_vault):
+    for path in context_vault.rglob("*.md"):
+        data, body = fm.read(path)
+        if data.get("tier") == "hot":
+            fm.write(path, {**data, "tier": "warm", "pinned": False}, body)
+    text = compile_context.directory(Vault(context_vault))
+    assert "Most active" not in text and "- Hubs and topics:" in text

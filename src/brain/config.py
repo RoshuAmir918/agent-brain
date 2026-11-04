@@ -10,7 +10,7 @@ from functools import cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-SECTIONS = ("before", "start", "current", "primed", "goals", "triggers", "upcoming", "tasks", "hot", "directory")   # the parts of .hermes.md, in order
+SECTIONS = ("before", "start", "current", "primed", "goals", "triggers", "upcoming", "tasks", "directory")   # the parts of .hermes.md, in order
 PEOPLE_FORMS = ("off", "line", "card")   # the people pointer prefetch adds for a person named in a message
 FORMS = ("names", "snippet", "full")
 
@@ -58,10 +58,11 @@ class Context:
                 value = [part.strip() for part in value.split(",") if part.strip()] if raw is not None else value
                 if not isinstance(value, list) or not all(isinstance(part, str) for part in value):
                     raise ValueError(f"{where} must be a list of section names")
+                value = ["directory" if part == "hot" else part for part in value]
                 unknown = [part for part in value if part not in SECTIONS]
                 if unknown:
                     raise ValueError(f"{where} has unknown sections {', '.join(unknown)}; known: {', '.join(SECTIONS)}")
-                value = tuple(value)
+                value = tuple(dict.fromkeys(value))
             elif name == "prefetch":
                 if raw is not None and raw not in ("0", "1") or raw is None and not isinstance(value, bool):
                     raise ValueError(f"{where} must be 0 or 1 (true or false in brain.toml)")
@@ -196,18 +197,18 @@ class Config:
 
     @property
     def orientation(self) -> set[str]:
-        return {"START.md", "CURRENT.md", "Hot Set.md", "Warm Index.md", self.human_goals,
+        return {"START.md", "CURRENT.md", self.human_goals,
                 f"{self.hermes_dir}/README.md", *(self.agent(name) for name in
                 ("SOUL.md", "Triggers.md", "Tasks.md", "Channels.md", "Memory Spec.md", "Retrieval Checks.md"))}
 
     @property
     def context_sources(self) -> tuple[str, ...]:
         return ("START.md", "CURRENT.md", self.agent("Primed.md"), self.human_goals, self.agent("Triggers.md"),
-                self.agent("Tasks.md"), "Hot Set.md")
+                self.agent("Tasks.md"))
 
     @property
     def generated_views(self) -> set[str]:
-        return {"CURRENT.md", "Hot Set.md", "Warm Index.md", self.agent("Tasks.md"), self.agent("Triggers.md")}
+        return {"CURRENT.md", self.agent("Tasks.md"), self.agent("Triggers.md")}
 
     @property
     def log_paths(self) -> tuple[str, ...]:

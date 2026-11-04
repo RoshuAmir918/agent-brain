@@ -88,11 +88,12 @@ def test_nightly_archives_cold_tasks_and_restores_logged_uses(tmp_path):
     v = Vault(root)
     assert v.notes["Harbor Context.md"].data["tier"] == "hot"
     assert v.notes["START.md"].data["pinned"] is True
-    assert (root / "Hot Set.md").exists() and (root / "Warm Index.md").exists()
+    assert not (root / "Hot Set.md").exists() and not (root / "Warm Index.md").exists()
+    assert "- [[memory/Harbor Context|Harbor Context]]" in (root.parent / ".hermes.md").read_text()
     reg = fm.read(root / "agent" / "Tasks.md")[1]
     assert "### T-002" not in reg
     assert (root / "agent" / "Tasks Archive" / "T-002.md").exists()
-    assert "T-002" in (root / "Warm Index.md").read_text()
+    assert "T-002 Quiet thing" in (root.parent / ".hermes.md").read_text().split("- Open tasks: ")[1]
     cur = (root / "CURRENT.md").read_text()
     assert "T-001 — Ship thing" in cur
     # a use log line reheats T-002 the next night

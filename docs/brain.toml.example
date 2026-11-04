@@ -16,8 +16,9 @@ timezone = "America/Los_Angeles"   # the owner's zone: the export's "yesterday",
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables the nightly auto-update
 
 [context]   # each key also has a BRAIN_* environment override; see docs/engine.md
-hot_words = 6000
-sections = ["start", "current", "goals", "triggers", "tasks", "hot", "directory"]
+hot_words = 6000   # BRAIN_HOT_WORDS: budget in note-body words for the directory's most active notes
+# Legacy section name "hot" is accepted as an alias for "directory".
+sections = ["start", "current", "goals", "triggers", "tasks", "directory"]
 prefetch = true
 prefetch_limit = 6
 prefetch_chars = 1500

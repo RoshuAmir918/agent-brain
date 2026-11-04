@@ -19,7 +19,8 @@ def clean_env(monkeypatch):
 
 @pytest.fixture
 def vault(vault):
-    fm.write(vault / "Hot Set.md", {}, "# Hot set\n\n## Automatic load\n\n- HOT_ENTRY\n")
+    fm.write(vault / "Active.md", {"tier": "hot", "activation": 3, "uses": ["2026-10-04"],
+                                "index_line": "HOT_ENTRY"}, "# Active\nSome recent work with an index line.\n")
     return vault
 
 
@@ -73,12 +74,14 @@ def test_needs_you_and_stale_tasks_follow_brain_today(vault, monkeypatch, capsys
 
 
 def test_nightly_follows_brain_today_and_date_wins(vault, monkeypatch, capsys):
+    fm.write(vault / "Active.md", {"tier": "warm", "uses": ["2026-03-01"]}, "# Active\n")
     monkeypatch.setenv("BRAIN_TODAY", "2026-03-04")
     run(capsys, "nightly", "--vault", str(vault), "--write")
     assert "## 2026-03-04 nightly script" in (vault / "agent/Sleep Log/2026-03.md").read_text()
-    assert "Generated 2026-03-04" in (vault / "Hot Set.md").read_text()
+    assert fm.read(vault / "Active.md")[0]["tier"] == "hot"
     run(capsys, "nightly", "--vault", str(vault), "--write", "--date", "2026-05-02")
     assert "## 2026-05-02 nightly script" in (vault / "agent/Sleep Log/2026-05.md").read_text()
+    assert fm.read(vault / "Active.md")[0]["tier"] == "cold"
 
 
 def test_at_wins_over_brain_today(vault, monkeypatch, capsys):
@@ -112,16 +115,30 @@ def test_sections_choose_the_parts_of_hermes_md(vault, monkeypatch):
     assert "## memory/START.md\n\n# Start\nSTART_BODY" in text and "# Triggers" in text
     assert all(part not in text for part in ("# Current", "HOT_ENTRY", "## Directory", "# Tasks"))
     assert full.index("## memory/START.md") < full.index("## memory/agent/Triggers.md")
-    assert text.endswith("Warm Index, Conversations and everything else are retrieved on demand with `brain retrieve`.\n")
+    assert text.endswith("Conversations and everything else are retrieved on demand with `brain retrieve`.\n")
 
 
-def test_hot_words_sets_the_hot_set_budget_and_context_warning(vault, monkeypatch, capsys):
+@pytest.mark.parametrize("sections", [["hot"], ["hot", "directory"], ["directory", "hot"]])
+def test_legacy_hot_section_enables_directory_once(vault, sections):
+    toml(vault, "sections = " + json.dumps(sections) + "\n")
+    config = Config.load(vault)
+    assert config.context.sections == ("directory",)
+    text = compile_context.build(Vault(vault))
+    assert text.count("## Directory: what the vault knows") == 1
+    assert "- [[memory/Active|Active]] — HOT_ENTRY" in text
+    assert "Hot Set" not in text and "Warm Index" not in text
+    assert not {"Hot Set.md", "Warm Index.md"} & (set(config.context_sources) | config.generated_views | config.orientation)
+
+
+def test_hot_words_sets_the_directory_active_budget_and_context_warning(vault, monkeypatch, capsys):
     toml(vault, "hot_words = 20\n")
     run(capsys, "nightly", "--vault", str(vault), "--write", "--date", "2026-10-05")
-    assert "Budget 20 words" in (vault / "Hot Set.md").read_text()
+    assert "- [[memory/Active|Active]] — HOT_ENTRY" in (vault.parent / ".hermes.md").read_text()
     monkeypatch.setenv("BRAIN_HOT_WORDS", "3")
     run(capsys, "nightly", "--vault", str(vault), "--write", "--date", "2026-10-05")
-    assert "Budget 3 words" in (vault / "Hot Set.md").read_text()
+    text = (vault.parent / ".hermes.md").read_text()
+    assert "- [[memory/Active|Active]]" not in text
+    assert "Active" in text.split("- Hubs and topics: ")[1].splitlines()[0]
     nightly.main(["compile-context", "--vault", str(vault)])
     assert "WARNING: over 3 words" in capsys.readouterr().err
 

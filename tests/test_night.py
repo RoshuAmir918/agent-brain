@@ -9,7 +9,8 @@ import sys
 import pytest
 
 from brain.config import Config
-from brain import attribute, fm, nightly, triggers
+from brain import attribute, compile_context, fm, nightly, triggers
+from brain.vault import Vault
 from brain.tasks import Task, load_tasks, parse_register, read_archive_body
 from conftest import git, nightly_argv, snapshot
 
@@ -57,6 +58,26 @@ def cli(root, *extra):
         cwd=root.parent, env=env, capture_output=True, text=True)
 
 
+@pytest.mark.parametrize("stale", [("Hot Set.md",), ("Warm Index.md",), ("Hot Set.md", "Warm Index.md")])
+def test_nightly_removes_retired_views_and_reports_only_existing_files(vault, capsys, stale):
+    for name in stale:
+        (vault / name).write_text("STALE_GENERATED_VIEW\n")
+    before = snapshot(vault.parent)
+    nightly.main(nightly_argv(vault, DAY))
+    preview = capsys.readouterr().out
+    assert snapshot(vault.parent) == before
+    for name in stale:
+        assert f"index: removed generated {name}" in preview
+    nightly.main(nightly_argv(vault, DAY, "--write"))
+    report = capsys.readouterr().out
+    for name in ("Hot Set.md", "Warm Index.md"):
+        assert not (vault / name).exists()
+        assert (f"index: removed generated {name}" in report) == (name in stale)
+    assert "STALE_GENERATED_VIEW" not in (vault.parent / ".hermes.md").read_text()
+    nightly.main(nightly_argv(vault, DAY, "--write"))
+    assert "index: removed generated" not in capsys.readouterr().out
+
+
 def test_full_night_commits_only_agent_notes_and_pushes_one_commit(night_vault):
     root, remote = night_vault
     before = git(remote, "rev-parse", "main")
@@ -78,10 +99,12 @@ def test_full_night_commits_only_agent_notes_and_pushes_one_commit(night_vault):
     paths = git(remote, "diff-tree", "--no-commit-id", "--name-only", "-r", tip).splitlines()
     assert paths and all(p.startswith("memory/") or p == ".hermes.md" for p in paths)
     assert not any(p.startswith("memory/.brain/") for p in paths)
-    assert {".hermes.md", "memory/Hot Set.md", "memory/Warm Index.md",
-            "memory/CURRENT.md", "memory/agent/Sleep Log/2026-10.md"} <= set(paths)
-    assert "memory/Hot Hub|" in (root / "Hot Set.md").read_text()
-    assert "memory/Warm Hub|" in (root / "Warm Index.md").read_text()
+    assert {".hermes.md", "memory/CURRENT.md", "memory/agent/Sleep Log/2026-10.md"} <= set(paths)
+    assert "memory/Hot Hub|" in (root.parent / ".hermes.md").read_text()
+    assert "Warm Hub" in compile_context.directory(Vault(root)).split("- Hubs and topics: ")[1]
+    for name in ("Hot Set.md", "Warm Index.md"):
+        assert not (root / name).exists()
+        assert f"index: removed generated {name}" in result.stdout
     current = (root / "CURRENT.md").read_text()
     assert "STALE_THREAD" not in current and "T-001 — Ship thing" in current
     assert "T-002" not in current
@@ -171,8 +194,8 @@ def test_task_identity_survives_hot_warm_hot_cold_hot(repo):
                 assert len(views[0].body.strip().splitlines()) == 1
                 assert views[0].body.startswith("- **Warm:**")
             else:
-                index = (root / "Warm Index.md").read_text().split("## Cold open tasks\n", 1)[1]
-                assert "Tasks Archive/T-001|T-001]]" in index
+                directory = compile_context.directory(Vault(root))
+                assert "T-001 Sample" in directory.split("- Open tasks: ")[1]
                 assert "T-001" not in (root / "CURRENT.md").read_text()
 
     check("2026-10-05", "hot")

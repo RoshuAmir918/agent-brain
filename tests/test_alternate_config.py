@@ -80,11 +80,10 @@ def test_alternate_layout_whole_night_and_preview(alternate, monkeypatch, capsys
     assert snapshot(config.repo) == before
     sessions = install.sessions_records_path()
     nightly.main(["nightly", "--date", "2026-10-20", "--sessions-dir", str(sessions), "--write"])
-    hot = (root / "Hot Set.md").read_text()
-    warm = (root / "Warm Index.md").read_text()
-    assert f"[[{config.link('Hot Hub')}|" in hot
-    assert f"[[{config.link('Warm Hub')}|" in hot
-    assert f"[[{config.link(config.agent('Tasks Archive/T-003'))}|" in warm
+    directory = compile_context.directory(Vault(root))
+    assert f"[[{config.link('Hot Hub')}|" in directory
+    assert f"[[{config.link('Warm Hub')}|" in directory
+    assert "T-003 Cold" in directory.split("- Open tasks: ")[1]
     register = (root / config.agent("Tasks.md")).read_text()
     assert f"[[{config.link(config.agent('Tasks Archive/T-002'))}|" in register
     assert f"[[{config.link(config.agent('Tasks'))}#T-001" in (root / "CURRENT.md").read_text()
@@ -96,7 +95,7 @@ def test_alternate_layout_whole_night_and_preview(alternate, monkeypatch, capsys
     assert "- People with profiles: Alice Example" in context
     assert "- Agents registered: Helper" in context
     assert context == compile_context.build(Vault(root))
-    assert not (root / "agent").exists() and "[[memory/" not in hot + warm + register + context
+    assert not (root / "agent").exists() and "[[memory/" not in directory + register + context
     assert (root / config.agent("Sleep Log/2026-10.md")).exists()
     assert (root / config.agent("Dreams/2026-10-19.md")).read_bytes() == b"---\ninvalid: [\n---\nFICTION\r\n"
     assert fm.read(root / config.agent("Primed/2026-10-19.md"))[0]["tier"] == "cold"
@@ -153,7 +152,6 @@ def test_nightly_run_loads_config_only_once(alternate):
 
 
 def test_context_and_digest_reuse_loaded_config(alternate):
-    fm.write(alternate.vault_path / "Hot Set.md", {}, "## Automatic load\n")
     vault = Vault(alternate.vault_path)
     with patch.object(Config, "load", side_effect=AssertionError("config must be passed explicitly")):
         context = compile_context.build(vault)

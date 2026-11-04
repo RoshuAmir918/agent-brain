@@ -5,7 +5,7 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import fm
+from . import fm, index
 from .config import SECTIONS, Config
 from .tasks import is_open, load_tasks, parse_register
 from .vault import Vault
@@ -47,18 +47,9 @@ def open_register(vault: Vault, body: str) -> str:
     return "\n\n".join(sections)
 
 
-def automatic_load(body: str) -> str:
-    heading = re.search(r"^## Automatic load[ \t]*\r?$", body, re.M | re.I)
-    if not heading:
-        return ""
-    following = re.search(r"^#{1,2} ", body[heading.end():], re.M)
-    end = heading.end() + following.start() if following else len(body)
-    return body[heading.start():end].rstrip()
-
-
 def build(vault: Vault) -> str:
     config = vault.config
-    named = dict(zip(("start", "current", "primed", "goals", "triggers", "tasks", "hot"), config.context_sources))
+    named = dict(zip(("start", "current", "primed", "goals", "triggers", "tasks"), config.context_sources))
     optional = (config.agent("Primed.md"), config.human_goals)   # Primed is written by the night, Goals with the owner: a vault may not have them yet
     sources = [rel for name, rel in named.items() if name in config.context.sections
                and (rel not in optional or (vault.root / rel).is_file())]
@@ -80,14 +71,12 @@ def build(vault: Vault) -> str:
             _, body = fm.read(vault.root / rel)
             if rel == config.agent("Tasks.md"):
                 body = open_register(vault, body)
-            elif rel == "Hot Set.md":
-                body = automatic_load(body)
             elif rel == config.agent("Primed.md"):
                 body = capped(body, PRIMED_WORDS, config.link(rel))
             elif rel == config.agent("Triggers.md"):
                 body = active_triggers(body, config.link(rel))
             sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
-    sections.append("Warm Index, Conversations and everything else are retrieved on demand with `brain retrieve`.")
+    sections.append("Conversations and everything else are retrieved on demand with `brain retrieve`.")
     return "\n\n".join(sections) + "\n"
 
 
@@ -153,7 +142,7 @@ def mentioned(m: re.Match, today: date) -> date | None:
 
 
 def directory(vault: Vault) -> str:
-    """Names only: what the vault knows, so the agent can decide to look."""
+    """Most active notes with index lines, then names of everything the vault knows."""
     hubs, people, agents, reflections = [], [], [], []
     for rel, note in sorted(vault.notes.items()):
         kind = vault.kind_for(rel)
@@ -171,9 +160,13 @@ def directory(vault: Vault) -> str:
     tasks = [f"{t.tid} {t.title}" for t in registered + archived if t.state and is_open(t)]
     _, trig = fm.read(vault.root / vault.config.agent("Triggers.md"))
     triggers = sorted(set(re.findall(r"\bTR-\d{3}\b", trig)))
-    lines = ["## Directory: what the vault knows", "",
-             "Names only. The notes matching each message are already recalled under it; run `brain retrieve` only when a request "
-             "touches one of these and nothing recalled or loaded answers it.", ""]
+    selected, _, _ = index.hot_selection(vault, vault.config.context.hot_words)
+    lines = ["## Directory: what the vault knows", ""]
+    if selected:
+        lines += ["Most active, with what each holds:", ""]
+        lines += [f"- [[{vault.config.link(n.rel[:-3])}|{n.stem}]] — {index.index_line(n)}" for n in selected] + [""]
+    lines += ["Names only. The notes matching each message are already recalled under it; run `brain retrieve` only when a request "
+              "touches one of these and nothing recalled or loaded answers it.", ""]
     lines.append("- Hubs and topics: " + ", ".join(hubs))
     lines.append("- People with profiles: " + (", ".join(people) or "none"))
     lines.append("- Agents registered: " + (", ".join(agents) or "none"))

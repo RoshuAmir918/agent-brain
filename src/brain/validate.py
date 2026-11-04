@@ -6,7 +6,7 @@ from importlib.resources import files
 
 from . import access, fm
 from .vault import Vault
-from .tasks import TASK_STATES, is_open, parse_register, read_archived_task
+from .tasks import TASK_STATES, parse_register
 
 
 def run(vault: Vault, changed: set[str], body_changed: set[str] | None = None) -> list[str]:
@@ -33,21 +33,6 @@ def run(vault: Vault, changed: set[str], body_changed: set[str] | None = None) -
     for rel, n in vault.notes.items():
         if n.data.get("superseded_by") and "superseded by" not in n.body[:400].lower():
             problems.append(f"{rel}: superseded_by set but no 'superseded by' line at top")
-    # 4. no open task left the register without an archive file and an index line
-    reg = vault.root / vault.config.agent("Tasks.md")
-    arch_dir = vault.root / vault.config.agent("Tasks Archive")
-    idx = vault.root / "Warm Index.md"
-    if reg.exists() and arch_dir.exists():
-        _, tasks = parse_register(fm.read(reg)[1])
-        in_register = {t.tid for t in tasks}
-        index_text = idx.read_text(encoding="utf-8") if idx.exists() else ""
-        for p in arch_dir.glob("T-*.md"):
-            tid = p.stem
-            task = read_archived_task(vault.config, p)
-            if tid in in_register or task is None or not is_open(task):
-                continue
-            if f"Tasks Archive/{tid}|" not in index_text:
-                problems.append(f"{tid}: open task archived but not listed in Warm Index")
     return problems
 
 

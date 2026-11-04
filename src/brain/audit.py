@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
 
-from . import digest, install, session_tools
+from . import digest, index, install, session_tools
 from .config import Config
 from .health import STAGE_RE, git
 from .vault import Vault
@@ -71,11 +71,11 @@ def episodes(vault: Vault, today: date, days: int) -> dict:
 
 
 def context(vault: Vault, config: Config) -> dict:
-    hot = vault.notes.get("Hot Set.md")
-    warm = vault.notes.get("Warm Index.md")
+    selected, _, total = index.hot_selection(vault, config.context.hot_words)
+    enabled = "directory" in config.context.sections
     compiled = config.repo / ".hermes.md"
-    return {"hot_set_words": words(hot.body) if hot else 0,
-            "warm_index_entries": sum(1 for line in warm.body.splitlines() if line.startswith("- ")) if warm else 0,
+    return {"active_note_words": total if enabled else 0,
+            "active_notes": len(selected) if enabled else 0,
             "compiled_context_words": words(compiled.read_text(encoding="utf-8", errors="replace")) if compiled.exists() else 0}
 
 
@@ -166,7 +166,7 @@ def render(data: dict) -> str:
     lines.append(f"Episodes: {ep['count']} in window, mean {ep['mean_words']} words, {ep['over_1500_words']} over {LONG_EPISODE}, "
                  f"{ep['logs_under_conversations']} logs filed under Conversations")
     cx = data["context"]
-    lines.append(f"Context: hot set {cx['hot_set_words']} words, warm index {cx['warm_index_entries']} entries, compiled context {cx['compiled_context_words']} words")
+    lines.append(f"Context: directory {cx['active_notes']} most active notes ({cx['active_note_words']} body words), compiled context {cx['compiled_context_words']} words")
     sk = data["skills"]
     lines.append(f"Skills: {sk['day_routines']} day routines, changed from default: {', '.join(sk['changed_from_default']) or 'none'}; "
                  f"own: {', '.join(sk['own_routines']) or 'none'}")

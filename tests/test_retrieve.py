@@ -19,8 +19,6 @@ def retrieval_vault(vault):
         "agent/Use Log/2026-10.md": "# Harbor\nQuiet description.\n",
         "agent/Primed/2026-10-05.md": "# Harbor\nQuiet description.\n",
         "agent/Dreams/2026-10-05.md": "# Harbor\nQuiet description.\n",
-        "Hot Set.md": "# Harbor\nQuiet description.\n",
-        "Warm Index.md": "# Harbor\nQuiet description.\n",
     }
     for rel, body in notes.items():
         path = vault / rel
@@ -47,7 +45,7 @@ def test_one_hop_raises_a_linked_note_but_does_not_spread_twice(retrieval_vault)
 
 
 def test_excluded_notes_do_not_score_or_receive_link_spread(retrieval_vault):
-    retrieval_vault.notes["Harbor Context.md"].body += "[[Hot Set]] [[Custom Log]] [[Conversations/Session]]"
+    retrieval_vault.notes["Harbor Context.md"].body += "[[agent/Primed/2026-10-05]] [[Custom Log]] [[Conversations/Session]]"
     paths = {candidate.path for candidate in retrieve.search(retrieval_vault, "harbor", 100)}
     assert paths == {"memory/Harbor Context.md", "memory/Body.md", "memory/Linked.md"}
 

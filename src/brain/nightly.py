@@ -39,7 +39,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, digest, fm, health, index, journal, ledger, needs, retrieve, session_context, state, triggers, validate
+from . import access, attribute, audit, compile_context, digest, fm, health, journal, ledger, needs, retrieve, session_context, state, triggers, validate
 from . import tasks as tasks_mod
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, quiet, task_activation, write_archive
 from .vault import DAILY, Vault
@@ -61,8 +61,8 @@ def mechanical(vault: Vault, rel: str) -> bool:
 def ensure_frontmatter(vault: Vault, today: date, report: list[str]) -> set[str]:
     changed = set()
     for rel, n in vault.notes.items():
-        if not mechanical(vault, rel) or rel in ("Hot Set.md", "Warm Index.md"):
-            continue  # generated views carry no frontmatter
+        if not mechanical(vault, rel):
+            continue
         kind = vault.kind_for(rel)
         d = dict(n.data)
         before = dict(d)
@@ -317,6 +317,11 @@ def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
     report: list[str] = []
     vault = Vault(root)
     config = vault.config
+    for name in ("Hot Set.md", "Warm Index.md"):
+        path = root / name
+        if path.exists():
+            path.unlink()
+            report.append(f"index: removed generated {name}")
     rollover(config, today, report)
     vault.load()
     changed = ensure_frontmatter(vault, today, report)
@@ -334,7 +339,7 @@ def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
                 fm.write(vault.root / rel, vault.notes[rel].data, fm.read(vault.root / rel)[1])
             else:
                 vault.notes[rel].save()
-    open_tasks, cold_open = process_tasks(config, today, tasks, archived, report)
+    open_tasks, _ = process_tasks(config, today, tasks, archived, report)
     if vault.config.agent("Triggers.md") in changed:
         vault.notes[vault.config.agent("Triggers.md")].save()
     with vault_lock(config):   # the after-session writer adds asks to CURRENT at any hour
@@ -352,8 +357,6 @@ def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
         changed.add(rel)
         report.append(f"ledger: collapsed nothing rows in {rel}")
     vault.load()
-    (root / "Hot Set.md").write_text(index.build_hot_set(vault, today, config.context.hot_words), encoding="utf-8")
-    (root / "Warm Index.md").write_text(index.build_warm_index(vault, today, cold_open, config.context.hot_words), encoding="utf-8")
     report.append(compile_context.write(vault))
     vault.load()
     problems = validate.run(vault, changed | vault.config.generated_views)

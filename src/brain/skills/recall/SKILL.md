@@ -9,7 +9,7 @@ metadata:
 ---
 # {agent_name} brain
 
-The vault at `$VAULT_REPO` is long-term memory. `.hermes.md` already gave you START, CURRENT, Primed, Triggers, open tasks and the hot set. Everything else is one retrieval away. When {human_name} asks to change a routine, take on standing work, or grant or narrow what someone may learn, load `{prefix}setup` first. A maintainer's session and a pending migration carry their own instructions in the session context.
+The vault at `$VAULT_REPO` is long-term memory. `.hermes.md` already gave you START, CURRENT, Primed, Triggers, open tasks and the directory's most active notes. Everything else is one retrieval away. When {human_name} asks to change a routine, take on standing work, or grant or narrow what someone may learn, load `{prefix}setup` first. A maintainer's session and a pending migration carry their own instructions in the session context.
 
 Agent-maintained notes are in `{vault}/`; {human_name}'s profile is `{human_profile}` within it. Deployment and routine instructions live in `{hermes_dir}/README.md` within the vault.
 
