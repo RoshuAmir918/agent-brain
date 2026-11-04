@@ -79,7 +79,7 @@ def test_reinitialization_drops_old_identity_and_context(provider, monkeypatch):
     assert provider.user_id == "NOPE" and provider.user_id_alt == ""
 
 
-def test_repository_discovery_prefers_cwd_then_environment_then_home(provider_repo, tmp_path, monkeypatch):
+def test_repository_discovery_prefers_cwd_then_the_profile_then_environment_then_home(provider_repo, tmp_path, monkeypatch):
     cwd_repo = tmp_path / "cwd-repo"
     cwd_repo.mkdir()
     (cwd_repo / "brain.toml").write_text("[brain]\n")
@@ -90,6 +90,16 @@ def test_repository_discovery_prefers_cwd_then_environment_then_home(provider_re
     (home_repo / "brain.toml").write_text("[brain]\n")
     assert hermes_plugin.find_repo(str(nested)) == cwd_repo
     assert hermes_plugin.find_repo(str(tmp_path / "not-a-repo")) == provider_repo
+    profile_repo = tmp_path / "tars"
+    profile_repo.mkdir()
+    (profile_repo / "brain.toml").write_text("[brain]\n")
+    profile = tmp_path / "profiles/tars"
+    profile.mkdir(parents=True)
+    (profile / "config.yaml").write_text(f"terminal:\n  cwd: {profile_repo}\n")
+    assert hermes_plugin.find_repo("", str(profile)) == profile_repo       # the profile's vault beats VAULT_REPO
+    monkeypatch.setenv("HERMES_HOME", str(profile))
+    assert hermes_plugin.find_repo() == profile_repo                        # also when only the process knows its home
+    monkeypatch.delenv("HERMES_HOME")
     monkeypatch.delenv("VAULT_REPO")
     assert hermes_plugin.find_repo() == home_repo
     (home_repo / "brain.toml").unlink()

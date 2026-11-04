@@ -126,8 +126,11 @@ def configured_cwd(hermes_home: str) -> str:
 
 
 def find_repo(cwd: str = "", hermes_home: str = "") -> Path | None:
-    for candidate in (cwd, os.environ.get("VAULT_REPO"), configured_cwd(hermes_home) if hermes_home else "",
-                      Path.home() / "brain"):
+    """The session's vault. The profile's own terminal.cwd comes before VAULT_REPO: one host process can serve several
+    profiles while carrying the default profile's environment, and a process-wide variable would send every profile's
+    sessions to one owner's vault."""
+    home = hermes_home or os.environ.get("HERMES_HOME", "")
+    for candidate in (cwd, configured_cwd(home) if home else "", os.environ.get("VAULT_REPO"), Path.home() / "brain"):
         if not candidate:
             continue
         path = Path(candidate).expanduser().resolve()
@@ -232,7 +235,7 @@ class BrainMemoryProvider(MemoryProvider):
                     arguments.extend(["--" + field.replace("_", "-"), value])
             self.repo = find_repo(kwargs.get("cwd") or "", kwargs.get("hermes_home") or "")
             if self.repo is None:
-                logger.warning("brain provider: no vault found (session cwd, VAULT_REPO, the profile's terminal.cwd, "
+                logger.warning("brain provider: no vault found (session cwd, the profile's terminal.cwd, VAULT_REPO, "
                                "~/brain); this session runs without the brain")
             self._context = self._run(*arguments) or ""
         except Exception:
