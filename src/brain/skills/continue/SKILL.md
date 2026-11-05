@@ -1,7 +1,7 @@
 ---
 name: {prefix}continue
 description: Work a handed-off thread until it is done
-version: 1.8.0
+version: 1.9.0
 metadata:
   runtime:
     tags: [routine, day, night, work]
@@ -12,7 +12,7 @@ metadata:
 
 The worker's pass. Every thirty minutes, day and night, a monitor checks what {human_name} handed off; when it changes, {agent_name} picks it up and keeps going until it is done. A handoff is not a turn that runs and stops; it is a thread, and this routine is what keeps pulling on it while {human_name} sleeps, works or forgets they asked.
 
-When the prompt says "Run continue daily.", take `brain continue --due --daily` and work each daily task for one chunk, in the order listed, at most three tasks per run. Call `brain continue --chunk T-nnn` for each; a task sent back to regular continues normally from then on. Otherwise this is the regular-pace pass below.
+When the prompt says "Run continue daily.", take `brain continue --due --daily` and work each daily task for one chunk, in the order listed, at most three tasks per run. Call `brain continue --chunk T-nnn` for each; a task sent back to regular continues normally from then on. When the prompt says "Run continue for T-nnn.", you are that task's worker: one chunk of that task alone, from step 2 (there is no step 1; `brain continue --due --json` has its Next, checkpoint and work if you need them). Your steps show live in the task's own thread, and your final reply is the chunk's one-line result, shown quietly there: one line on what moved ("Assault and False Imprisonment added; 18 notes left"), never a report. Messages to {human_name} are milestones only, where the task says to report: the first piece they can see (the work's first save, the first result), blocked on them, done, moved to daily, or out of today's budget. Another worker may be on another task at the same time, so every task write goes through `brain task`, as always. Otherwise this is the regular-pace pass below.
 
 Where the task says to report: its Handed off line's `report in demiurge:<id>` is the owner's thread the work came from, so on Demiurge every message about the task, done, blocked or moved to daily, goes there with `demiurge_tell_owner` and `conversation: <id>`; `report in Home` or no thread means Home.
 

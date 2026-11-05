@@ -872,6 +872,12 @@ def cmd_handoff(args):
         print(error, file=sys.stderr)
         sys.exit(1)
     where = task.handoff[1] if task.handoff else ""
+    if os.environ.get("DEMIURGE_WORKERS", "").strip() == "1":
+        # The runtime starts a background worker for the task within a minute; this turn should answer and end.
+        print(f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: a background worker starts on it within "
+              "a minute and reports back here. Tell them so in one line and end your reply; do not start the work in "
+              "this turn.")
+        return
     print(f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: worked by the continue routine until done or "
           f"blocked{', reported in ' + where if where else ''}.")
 

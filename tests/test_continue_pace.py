@@ -439,3 +439,11 @@ def test_due_puts_the_task_worked_least_recently_first(work, capsys):
     assert [t.tid for t in tasks.due([one, two], worked=worked)] == ["T-099", "T-001"]   # never worked goes first
     worked["T-099"] = (clock[0] + timedelta(minutes=30)).isoformat()
     assert [t.tid for t in tasks.due([one, two], worked=worked)] == ["T-001", "T-099"]
+
+
+def test_handoff_with_workers_tells_the_turn_not_to_start(vault, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    monkeypatch.setenv("DEMIURGE_WORKERS", "1")
+    nightly.main(["handoff", "T-001", "--vault", str(vault)])
+    out = capsys.readouterr().out
+    assert "a background worker starts on it" in out and "do not start the work in this turn" in out

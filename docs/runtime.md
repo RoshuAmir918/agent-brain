@@ -115,6 +115,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.36.1: the continue skill takes `Run continue for T-nnn.` as a worker's prompt (one chunk of one task, a one-line result, milestones only); with `DEMIURGE_WORKERS=1` in a turn's environment, `brain handoff` tells the turn a worker will start and not to begin the work itself.
 - 0.36.0: all task-writing commands hold the vault lock; `brain task T-nnn set` edits open task fields and `brain task new` creates entries with the shared idea allocator. Per-task continue checkpoints live in `records/continue/tasks/<id>.json`. `brain continue --due --json` exposes ordered scheduling state, checkpoints and chunk counts, returning `[]` with exit 0 when none. Regular tasks wait after 16 chunks per local day, configurable with `[continue] daily_chunks` or `BRAIN_DAILY_CHUNKS`; daily pace is unaffected. Existing continue routines and legacy state files remain compatible; no migration is required.
 
 - 0.29.0: this page; `schedule.toml` and `brain schedule`; `brain record-spec`; `AGENT_HOME`.
