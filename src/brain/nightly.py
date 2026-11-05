@@ -521,7 +521,12 @@ def cmd_validate(a):
     problems = validate.checks(vault)
     for p in problems:
         print(p)
+    warnings = validate.work_warnings(vault) + validate.deliverable_warnings(vault)
+    for warning in warnings:
+        print(f"warning: {warning}")
     print(f"{len(problems)} problems")
+    if warnings:
+        print(f"{len(warnings)} warnings")
     sys.exit(1 if problems else 0)
 
 
@@ -836,7 +841,7 @@ def cmd_task(args):
 
 def cmd_handoff(args):
     try:
-        task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), args.report or "")
+        task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), args.report or "", work=args.work)
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -868,6 +873,7 @@ def cmd_continue(args):
     for task in ready:
         nxt = state._field(task.body, "Next", "Next action") or ""
         print(f"{task.tid} · handed off {task.handoff[0]} · {task.title}" + (f" · next: {nxt[:160]}" if nxt else "")
+              + (f" · work: {task.work}" if task.work else "")
               + (f" · report in {task.handoff[1]}" if task.handoff[1] else ""))
 
 
@@ -1166,6 +1172,7 @@ def main(argv=None):
     s.add_argument("--vault"); s.set_defaults(fn=cmd_task)
     s = sub.add_parser("handoff", help="mark a task the owner handed off: the continue routine works it until done or blocked")
     s.add_argument("tid"); s.add_argument("--report", default="", help="where to report, e.g. 'Home' or the room"); s.add_argument("--vault")
+    s.add_argument("--work", help="Library work slug, e.g. 'trip-plan'")
     s.set_defaults(fn=cmd_handoff)
     s = sub.add_parser("continue", help="handed-off tasks due now, oldest first; exits 1 when none")
     mode = s.add_mutually_exclusive_group()

@@ -93,7 +93,7 @@ def test_tasks_use_engine_state_and_register_precedence(work):
                                                 "T-003", "T-005", "T-008", "T-009"]
     assert result[0] == {"id": "T-004", "title": "Working café", "state": "in_progress", "open": True,
                          "detail": "Moving [[Evidence|proof]]", "next": "Ship [[Draft]]", "handoff": None, "pace": "regular", "blockers": "None",
-                         "hub": "Work/Watch", "tier": "hot", "archived": False, "source": "agent/Tasks.md#T-004"}
+                         "hub": "Work/Watch", "work": None, "delivers": None, "tier": "hot", "archived": False, "source": "agent/Tasks.md#T-004"}
     assert [(task["state"], task["open"]) for task in result] == [
         ("in_progress", True), ("completed", False), ("cancelled", False), (None, True),
         ("waiting_for_owner", True), ("completed", False), ("waiting_for_owner", True), ("cancelled", False), (None, True)]
@@ -110,7 +110,7 @@ def test_hubs_sections_and_progress(work):
     hubs = state.build(work, TODAY)["hubs"]
     assert [hub["source"] for hub in hubs] == sorted(hub["source"] for hub in hubs)
     watch = next(hub for hub in hubs if hub["title"] == "Watch")
-    assert watch == {"title": "Watch", "source": "Work/Watch.md",
+    assert watch == {"title": "Watch", "source": "Work/Watch.md", "work": None, "delivers": None,
                      "responsibility": {"skill": "brain-watch", "records": "receipts"},
                      "openQuestions": ["Which [[Inbox]]?", "Who owns delivery?"],
                      "improvements": [

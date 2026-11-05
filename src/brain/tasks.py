@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from . import activation as act, fm
+from . import activation as act, fm, works
 from .config import Config
 
 TASK_HEAD_RE = re.compile(r"^### (T-\d{3}) — (.+?)\s*$", re.M)
@@ -47,6 +47,17 @@ class Task:
         if not match:
             return None
         return match[1].split("|", 1)[0].split("#", 1)[0].strip() or None
+
+    @property
+    def delivers(self) -> str | None:
+        """What the owner will see when it is done, for a task whose result is an action or an answer."""
+        match = re.search(r"^[ \t]*-[ \t]+\*\*Delivers:\*\*[ \t]*(\S.*?)[ \t]*$", self.body, re.M)
+        return match[1] if match else None
+
+    @property
+    def work(self) -> str | None:
+        match = re.search(r"^[ \t]*-[ \t]+\*\*Work:\*\*[ \t]*([a-z0-9-]+)[ \t]*$", self.body, re.M)
+        return match[1] if match else None
 
     @property
     def handoff(self) -> tuple[str, str] | None:
@@ -138,6 +149,7 @@ def parse_register(text: str) -> tuple[list[tuple[str, int, int]], list[Task]]:
 
 HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
 PACE_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[^\n]*\n?", re.M)
+WORK_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Work:\*\*[^\n]*\n?", re.M)
 RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
 
 
@@ -180,14 +192,18 @@ def with_handoff(body: str, today: date, report_to: str) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def hand_off(config: Config, tid: str, today: date, report_to: str = "") -> Task:
+def hand_off(config: Config, tid: str, today: date, report_to: str = "", work: str | None = None) -> Task:
     """Mark a task handed off by the owner and in progress, in the register entry or the archive body, whichever holds
     the full entry; returns the task as written."""
+    if work is not None and not works.SLUG.fullmatch(work):
+        raise ValueError("work slug must match [a-z0-9-]+")
     registered, archived = load_tasks(config)
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
         raise ValueError(f"{tid} is not an open task")
     task.body = with_handoff(task.body, today, report_to)
+    if work is not None:
+        task.body = WORK_LINE.sub("", task.body).rstrip("\n") + f"\n- **Work:** {work}\n"
     if task.task_state in (None, "ready", *RESTING):
         task.state["state"] = "in_progress"
         task.state.pop("status", None)

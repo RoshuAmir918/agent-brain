@@ -9,8 +9,10 @@ What agent-brain needs from whatever runs the agent, and what it gives back. The
 | The vault (notes, skills, SOUL, the schedule) | the engine and the agent | the runtime, read-only, except the files the agent writes through its tools |
 | `<vault folder>/<runtime_dir>/schedule.toml` (beside `engine-version`), the declared routines | the engine (`brain schedule`), the agent through that command | the runtime |
 | `<vault repo>/.context.md`, the compiled session context | the engine (`brain compile-context --write`) | the runtime |
-| `$AGENT_HOME/records/`, routine and engine state | the engine and the agent | the engine |
+| `$AGENT_HOME/records/`, routine and engine state (except `works/state.json` below) | the engine and the agent | the engine |
 | `$AGENT_HOME/harness/`, run state: jobs, runs, sessions | the runtime | the engine, read-only |
+| `$AGENT_HOME/works/LIBRARY.md`, available works and notices | the runtime | the engine, read-only |
+| `$AGENT_HOME/records/works/state.json`, work sync state | the runtime | the engine, read-only |
 
 `<runtime_dir>` is `brain.toml`'s `runtime_dir`, default `Runtime`. This folder holds the schedule, skills and engine state; `.context.md` lives at the vault repository root.
 
@@ -19,7 +21,7 @@ What agent-brain needs from whatever runs the agent, and what it gives back. The
 Every process the runtime starts for an agent (its shell, a routine's script, a brain call) gets:
 
 - `VAULT_REPO`: the vault's git repository, also the working directory.
-- `AGENT_HOME`: the agent's workspace root, where `records/` and `harness/` live. The engine reads only `AGENT_HOME`. Without it, runtime-dependent paths report `AGENT_HOME is not set`; `brain version`, vault paths and `brain validate` still work. `brain update` installs the package and prints `scripts not reinstalled: AGENT_HOME is not set`.
+- `AGENT_HOME`: the agent's workspace root, where `records/`, `harness/` and `works/` live. The engine reads only `AGENT_HOME`. Without it, runtime-dependent paths report `AGENT_HOME is not set`; `brain version`, vault paths and `brain validate` still work. `brain update` installs the package and prints `scripts not reinstalled: AGENT_HOME is not set`.
 - A `PATH` holding `brain` and `demiurge`.
 
 No credential is ever in this environment beyond what `agents/<id>.json`'s `env` names for that agent.
@@ -76,6 +78,10 @@ Monitors: the runtime runs the monitor with the routine's environment and workin
 
 ## 4. What the runtime records, and the engine reads
 
+`$AGENT_HOME/works/LIBRARY.md`: a `# Library` heading, then one line per work, `- Title | slug | form | status | editable|read-only | ISO updated`, followed by plain-sentence notices about refusals, conflicts or errors. Each work is a git repository with a working copy at `$AGENT_HOME/works/<slug>/`. The runtime refreshes the listing on every run. The engine's `library` context section strips the title, includes up to forty work lines and keeps every notice; it is silently absent without `AGENT_HOME`, the file, or any works or notices.
+
+`$AGENT_HOME/records/works/state.json`: a map from work slug to `{lastPull?, lastPush?, lastCommit?: {hash, when}, refusal?, conflict?, error?}`, with ISO timestamps. `_library` is reserved, not a work. The runtime writes it; the engine reads successful pushes as progress for a task naming that work. A local commit without a push does not count, and missing or unreadable state is no progress.
+
 `$AGENT_HOME/harness/jobs.json`: a JSON array of jobs (a reader also accepts `{"jobs": [...]}`), each job `{id, name, schedule, skills, prompt, script?, noAgent?, monitorScript?, monitorHash?, deliver, workdir?, enabled, nextRunAt?, lastRunAt?, lastStatus?: "ok" | "failed" | "skipped", lastError?, failureStreak?}`. The engine reads it through `brain.runtime.jobs()` and nowhere else.
 
 `$AGENT_HOME/harness/runs.jsonl`: one line per run, `{id, jobId, status, startedAt, finishedAt?, outcome?: "delivered" | "silent" | "skipped" | "local", error?, sessionId?}`.
@@ -103,7 +109,7 @@ The runtime gives the agent these tools besides its six workspace tools: `demiur
 
 ### A routine's context
 
-A routine's skill may declare, in its frontmatter's `metadata.runtime`, the compiled-context sections its run needs: `context: [start, current, tasks]`, from `before`, `start`, `current`, `primed`, `goals`, `triggers`, `upcoming`, `tasks`, `directory`. The runtime then loads `brain compile-context --sections <those>` for that run instead of the whole `.context.md`; an empty list means no compiled context. A skill without the declaration gets the whole context. The engine owns these declarations, since it owns the routines; a vault's own skills may declare them too.
+A routine's skill may declare, in its frontmatter's `metadata.runtime`, the compiled-context sections its run needs: `context: [start, current, tasks, library]`, from `before`, `start`, `current`, `primed`, `goals`, `triggers`, `upcoming`, `tasks`, `library`, `directory`. The runtime then loads `brain compile-context --sections <those>` for that run instead of the whole `.context.md`; an empty list means no compiled context. A skill without the declaration gets the whole context. The engine owns these declarations, since it owns the routines; a vault's own skills may declare them too. Requested sections remain within the vault's `[context].sections` allowlist; an explicit list must include `library` to load it.
 
 ## 6. Changes
 
@@ -113,3 +119,4 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 - 0.31.0: only `AGENT_HOME` and `runtime_dir` are supported; removed the folder migration command and compatibility aliases. Maintainer commands work without a runtime; updates skip script reinstalls when `AGENT_HOME` is unset.
 - 0.32.0: a routine's skill declares its context sections; `brain compile-context --sections`.
+- 0.33.0: the runtime writes `works/LIBRARY.md` and `records/works/state.json`; the engine reads the `library` context section and counts a task's saved work as progress.

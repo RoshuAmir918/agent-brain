@@ -56,7 +56,8 @@ def _tasks(vault: Vault) -> list[dict]:
     entries.extend(sorted(archived, key=lambda entry: entry[0].tid))
     return [{"id": task.tid, "title": task.title, "state": task.task_state, "open": tasks.is_open(task),
              "detail": _field(task.body, "Status"), "next": _field(task.body, "Next", "Next action"),
-             "blockers": _field(task.body, "Blockers"), "hub": _public_link(vault, task.hub),
+             "blockers": _field(task.body, "Blockers"), "hub": _public_link(vault, task.hub), "work": task.work,
+             "delivers": task.delivers,
              "handoff": task.handoff[0] if task.handoff else None, "pace": tasks.pace(task),
              "tier": task.state.get("tier"), "archived": archived, "source": source}
             for task, archived, source in entries if _public(vault, source)]
@@ -103,8 +104,8 @@ def _hubs(vault: Vault, task_entries: list[dict]) -> list[dict]:
         linked = [task for task in task_entries if task["hub"] and task["hub"].casefold() in targets]
         progress = {"done": sum(task["state"] == "completed" for task in linked),
                     "total": sum(task["state"] != "cancelled" for task in linked)} if linked else None
-        out.append({"title": note.stem, "source": source, "responsibility": responsibility,
-                    "openQuestions": questions, "improvements": _improvements(note.body, source), "progress": progress})
+        out.append({"title": note.stem, "source": source, "responsibility": responsibility, "work": note.data.get("work"),
+                    "delivers": note.data.get("delivers"), "openQuestions": questions, "improvements": _improvements(note.body, source), "progress": progress})
     return out
 
 

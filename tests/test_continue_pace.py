@@ -86,6 +86,100 @@ def test_baseline_and_three_quiet_chunks_demote_then_stay_daily(work, capsys):
     assert run(config, capsys, "--chunk", "T-001") == "T-001 no progress: 4 quiet chunks; pace daily"
 
 
+def work_state(config, home, saved):
+    tasks.hand_off(config, "T-001", AT.date(), work="trip-plan")
+    path = home / "records/works/state.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(saved))
+    return path
+
+
+@pytest.mark.parametrize("saved,progress", [
+    ({"lastPush": "2026-11-04T12:15:00Z"}, True),
+    ({"lastPush": "2026-11-04T07:15:00-05:00"}, True),
+    ({"lastPush": "2026-11-04T12:15:00Z",
+      "lastCommit": {"hash": "new", "when": "2026-11-04T12:15:00Z"}}, True),
+    ({"lastPush": "2026-11-04T12:15:00Z",
+      "lastCommit": {"hash": "new", "when": "2026-11-04T12:10:00Z"}}, True),
+    ({"lastPush": "2026-11-04T12:00:00Z"}, False),
+    ({"lastPush": "2026-11-04T11:59:00Z"}, False),
+    ({"lastCommit": {"hash": "local", "when": "2026-11-04T12:15:00Z"}}, False),
+    ({"lastPush": "2026-11-04T11:59:00Z",
+      "lastCommit": {"hash": "local", "when": "2026-11-04T12:15:00Z"}}, False),
+    ({"lastPush": "2026-11-04T11:59:00Z", "refusal": "read-only",
+      "lastCommit": {"hash": "refused", "when": "2026-11-04T12:15:00Z"}}, False),
+    ({"lastPull": "2026-11-04T12:15:00Z"}, False),
+])
+def test_work_saved_progress_requires_push_since_previous_chunk(work, capsys, saved, progress):
+    config, home, clock = work
+    path = work_state(config, home, {})
+    assert "baseline stored" in run(config, capsys, "--chunk", "T-001")
+    path.write_text(json.dumps({"trip-plan": saved}))
+    clock[0] += timedelta(minutes=30)
+    result = run(config, capsys, "--chunk", "T-001")
+    assert result == ("T-001 progress: work saved; quiet reset to 0" if progress else
+                      "T-001 no progress: 1 quiet chunks; pace regular")
+    assert fingerprint(config, home)["quiet"] == (0 if progress else 1)
+    clock[0] += timedelta(minutes=30)
+    assert "no progress" in run(config, capsys, "--chunk", "T-001")
+
+
+def test_work_saved_promotes_daily_to_regular(work, capsys):
+    config, home, clock = work
+    path = work_state(config, home, {})
+    demote(config, capsys)
+    clock[0] += timedelta(minutes=30)
+    path.write_text(json.dumps({"trip-plan": {"lastPush": clock[0].isoformat()}}))
+    assert run(config, capsys, "--chunk", "T-001") == "T-001 back to regular: work saved"
+    assert tasks.pace(task(config)) == "regular"
+    assert fingerprint(config, home)["quiet"] == 0
+
+
+@pytest.mark.parametrize("raw", [None, b"invalid json", b"\xff", b"[]", b"null",
+                                b'{"trip-plan": null}', b'{"trip-plan": []}',
+                                b'{"trip-plan": {"lastPush": "bad-date"}}',
+                                b'{"trip-plan": {"lastPush": 12}}'])
+def test_missing_or_unreadable_work_state_is_no_progress(work, capsys, raw):
+    config, home, clock = work
+    path = work_state(config, home, {})
+    if raw is None:
+        path.unlink()
+    else:
+        path.write_bytes(raw)
+    run(config, capsys, "--chunk", "T-001")
+    clock[0] += timedelta(minutes=30)
+    assert run(config, capsys, "--chunk", "T-001") == "T-001 no progress: 1 quiet chunks; pace regular"
+
+
+def test_work_state_io_error_is_no_progress(work, capsys, monkeypatch):
+    config, home, clock = work
+    path = work_state(config, home, {"trip-plan": {"lastPush": "2026-11-04T12:15:00Z"}})
+    read_text = Path.read_text
+
+    def unreadable(self, *args, **kwargs):
+        if self == path:
+            raise PermissionError("not readable")
+        return read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+    run(config, capsys, "--chunk", "T-001")
+    clock[0] += timedelta(minutes=30)
+    assert "no progress" in run(config, capsys, "--chunk", "T-001")
+
+
+@pytest.mark.parametrize("named_work", [True, False])
+def test_saves_to_other_works_or_reserved_library_key_are_not_progress(work, capsys, named_work):
+    config, home, clock = work
+    work_state(config, home, {slug: {"lastPush": "2026-11-04T12:15:00Z"} for slug in ("other-work", "_library")})
+    if not named_work:
+        current = task(config)
+        current.body = current.body.replace("- **Work:** trip-plan\n", "")
+        tasks.save_task(config, current, AT.date())
+    run(config, capsys, "--chunk", "T-001")
+    clock[0] += timedelta(minutes=30)
+    assert "no progress" in run(config, capsys, "--chunk", "T-001")
+
+
 def test_a_new_plan_or_a_rewritten_verified_line_is_not_progress(work, capsys):
     config, home, clock = work
     demote(config, capsys)
@@ -275,3 +369,35 @@ def test_chunk_without_runtime_skips_progress_recording(work, monkeypatch, capsy
     monkeypatch.delenv("AGENT_HOME")
     assert run(config, capsys, "--chunk", "T-001") == "T-001 progress not recorded: AGENT_HOME is not set"
     assert not (home / "records/continue/progress.json").exists()
+
+
+def test_work_saved_needs_more_than_whitespace(work, capsys):
+    import subprocess
+    config, home, clock = work
+    copy = home / "works/trip-plan"
+    copy.mkdir(parents=True)
+    git = lambda *a: subprocess.run(["git", "-C", str(copy), *a], check=True, capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+
+    def commit(text):
+        (copy / "index.md").write_text(text)
+        git("add", "-A")
+        git("commit", "-qm", "save")
+        return git("rev-parse", "HEAD")
+
+    path = work_state(config, home, {})
+    first = commit("# Trip\n\nDay one: Lisbon.\n")
+    path.write_text(json.dumps({"trip-plan": {"lastPush": clock[0].isoformat(), "lastCommit": {"hash": first, "when": clock[0].isoformat()}}}))
+    assert "baseline stored" in run(config, capsys, "--chunk", "T-001")
+    clock[0] += timedelta(minutes=30)
+    spaced = commit("# Trip\n\nDay one:   Lisbon.  \n")
+    path.write_text(json.dumps({"trip-plan": {"lastPush": clock[0].isoformat(), "lastCommit": {"hash": spaced, "when": clock[0].isoformat()}}}))
+    clock[0] += timedelta(minutes=1)
+    assert run(config, capsys, "--chunk", "T-001") == "T-001 no progress: 1 quiet chunks; pace regular"
+    clock[0] += timedelta(minutes=30)
+    moved = commit("# Trip\n\nDay one: Lisbon.\nDay two: Sintra.\n")
+    path.write_text(json.dumps({"trip-plan": {"lastPush": clock[0].isoformat(), "lastCommit": {"hash": moved, "when": clock[0].isoformat()}}}))
+    clock[0] += timedelta(minutes=1)
+    assert run(config, capsys, "--chunk", "T-001") == "T-001 progress: work saved; quiet reset to 0"

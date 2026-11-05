@@ -346,7 +346,8 @@ def test_access_checks_are_on_demand_not_a_nightly_gate(access_vault, capsys):
     with pytest.raises(SystemExit) as error:
         nightly.main(["validate", "--vault", str(access_vault.root)])
     assert error.value.code == 1
-    assert capsys.readouterr().out == "people/Disclosure.md: D-001: unknown subject 'secret'\n1 problems\n"
+    out = capsys.readouterr().out
+    assert out.startswith("people/Disclosure.md: D-001: unknown subject 'secret'\n") and "\n1 problems\n" in out
 
 
 def test_configured_people_directory_is_used_for_all_access_operations(access_vault):

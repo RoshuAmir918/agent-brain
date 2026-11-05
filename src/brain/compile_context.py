@@ -5,13 +5,14 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import channel_files, fm, index
+from . import channel_files, fm, index, works
 from .config import SECTIONS, Config
 from .tasks import is_open, load_tasks, parse_register
 from .vault import Vault
 
 WORD_LIMIT = 6000
 PRIMED_WORDS = 300   # Primed loads in every session; the prime routine writes the most important first
+LIBRARY_WORKS = 40   # bound the listing, never the runtime's refusal, conflict or error notices
 BEFORE = ("## Before answering\n\n"
           "What you need is usually already in front of you: this file (CURRENT's dated items and Needs you, the open "
           "tasks' Verified, Next and Blocker lines, Primed, the upcoming dates, Goals) and, under the owner's message, the "
@@ -69,6 +70,9 @@ def build(vault: Vault, only: tuple[str, ...] | None = None) -> str:
             sections.append(upcoming(vault))
         elif name == "directory":
             sections.append(directory(vault))
+        elif name == "library":
+            if block := library():
+                sections.append(block)
         elif named[name] in sources:
             rel = named[name]
             _, body = fm.read(vault.root / rel)
@@ -81,6 +85,22 @@ def build(vault: Vault, only: tuple[str, ...] | None = None) -> str:
             sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
     sections.append("Conversations and everything else are retrieved on demand with `brain retrieve`.")
     return "\n\n".join(sections) + "\n"
+
+
+def library() -> str:
+    body = works.library()
+    if not body:
+        return ""
+    kept, count = [], 0
+    for line in body.splitlines():
+        if works.ENTRY.match(line):
+            count += 1
+            if count > LIBRARY_WORKS:
+                continue
+        kept.append(line)
+    if count > LIBRARY_WORKS:
+        kept += ["", f"(cut at {LIBRARY_WORKS} works; the rest is in $AGENT_HOME/works/LIBRARY.md)"]
+    return "## Library\n\n" + "\n".join(kept).strip()
 
 
 def active_triggers(body: str, where: str) -> str:

@@ -10,7 +10,7 @@ from functools import cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-SECTIONS = ("before", "start", "current", "primed", "goals", "triggers", "upcoming", "tasks", "directory")   # the parts of .context.md, in order
+SECTIONS = ("before", "start", "current", "primed", "goals", "triggers", "upcoming", "tasks", "library", "directory")   # the parts of .context.md, in order
 PEOPLE_FORMS = ("off", "line", "card")   # the people pointer prefetch adds for a person named in a message
 FORMS = ("names", "snippet", "full")
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from importlib.resources import files
 
-from . import access, fm
+from . import access, fm, works
 from .vault import Vault
 from .tasks import TASK_STATES, parse_register
 
@@ -50,6 +50,49 @@ def task_states(vault: Vault) -> list[str]:
             if "state" in task.state and task.task_state not in TASK_STATES:
                 problems.append(f"{task.tid}: unknown task state '{task.state['state']}'")
     return problems
+
+
+def work_warnings(vault: Vault) -> list[str]:
+    """Unknown work references are advisory, and only checked when the runtime supplies a Library."""
+    from .tasks import load_tasks
+    body = works.library()
+    if body is None:
+        return []
+    known = works.slugs(body)
+    if (vault.root / vault.config.agent("Tasks.md")).is_file():
+        registered, archived = load_tasks(vault.config)
+        entries = registered + archived
+    else:
+        entries = []
+    seen = {task.tid for task in entries}
+    for path in sorted((vault.root / vault.config.agent("Tasks Archive")).glob("*.md")):
+        text = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
+        for task in parse_register(text)[1]:
+            if task.tid not in seen:
+                seen.add(task.tid)
+                entries.append(task)
+    out = [f"{task.tid}: work '{task.work}' is not listed in $AGENT_HOME/works/LIBRARY.md"
+           for task in entries if task.work and task.work not in known]
+    for rel, note in sorted(vault.notes.items()):
+        work = note.data.get("work")
+        if vault.kind_for(rel) == "hub" and work is not None and (not isinstance(work, str) or work not in known):
+            out.append(f"{rel}: work '{work}' is not listed in $AGENT_HOME/works/LIBRARY.md")
+    return out
+
+
+def deliverable_warnings(vault: Vault) -> list[str]:
+    """Everything open has a done the owner can see: a work, or a Delivers line naming the action or answer."""
+    from .tasks import load_tasks
+    out = []
+    if (vault.root / vault.config.agent("Tasks.md")).is_file():
+        for task in load_tasks(vault.config)[0]:
+            if task.task_state in ("completed", "cancelled", "set_aside", "yours") or task.work or task.delivers:
+                continue
+            out.append(f"{task.tid}: no deliverable; add `- **Work:** <slug>` or `- **Delivers:** <what {vault.config.human_name} will see>`")
+    for rel, note in sorted(vault.notes.items()):
+        if vault.kind_for(rel) == "hub" and note.data.get("skill") and not (note.data.get("work") or note.data.get("delivers")):
+            out.append(f"{rel}: responsibility with no deliverable; add `work:` or `delivers:` to its frontmatter")
+    return out
 
 
 def access_problems(vault: Vault) -> list[str]:
