@@ -30,7 +30,7 @@ A vault is a git repo with a `brain.toml` naming its folders and the two display
 | `brain update` / `migrate-check` / `migrate-done` | nightly self-upgrade and the agent's part of a migration |
 | `brain validate`, `simulate`, `paths` | checks, the decay table, resolved paths |
 
-`docs/engine.md` has every command, the config keys, what the nightly pass does in order, and session archive formats. The [runtime contract](docs/runtime.md) defines `AGENT_HOME`, `Runtime/schedule.toml`, `.context.md` and harness sessions. `brain runtime-folder --move` migrates existing vault paths (`--dry-run` previews); `brain export-sessions` archives harness conversations and routine runs. The memory model itself is documented in the template's `memory/agent/Memory Spec.md`.
+`docs/engine.md` has every command, the config keys, what the nightly pass does in order, and session archive formats. The [runtime contract](docs/runtime.md) defines `AGENT_HOME`, `Runtime/schedule.toml`, `.context.md` and harness sessions. `brain export-sessions` archives harness conversations and routine runs. The memory model itself is documented in the template's `memory/agent/Memory Spec.md`.
 
 ## Layout
 

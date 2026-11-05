@@ -273,6 +273,5 @@ def test_fresh_owner_handoff_starts_a_new_regular_quiet_sequence(work, capsys):
 def test_chunk_without_runtime_skips_progress_recording(work, monkeypatch, capsys):
     config, home, clock = work
     monkeypatch.delenv("AGENT_HOME")
-    monkeypatch.delenv("HERMES_HOME", raising=False)
     assert run(config, capsys, "--chunk", "T-001") == "T-001 progress not recorded: AGENT_HOME is not set"
     assert not (home / "records/continue/progress.json").exists()

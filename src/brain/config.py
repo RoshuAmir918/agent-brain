@@ -124,11 +124,8 @@ class Config:
                     text=True, stderr=subprocess.DEVNULL).strip())
             except (OSError, subprocess.CalledProcessError):
                 repo = explicit.parent if explicit else start
-        if isinstance(values, dict):
-            values = dict(values)
-            legacy = values.pop("hermes_dir", None)   # 0.30 compatibility for existing vaults
-            if "runtime_dir" not in values and legacy is not None:
-                values["runtime_dir"] = legacy
+        if isinstance(values, dict) and "hermes_dir" in values:
+            raise ValueError("brain.toml: brain.hermes_dir is no longer supported; set runtime_dir instead")
         allowed = {item.name for item in fields(cls) if item.name not in ("repo", "_vault_path")}
         if not isinstance(values, dict) or set(values) - allowed:
             raise ValueError("brain.toml [brain] must contain only supported config keys")
@@ -245,4 +242,4 @@ class Config:
     def template_values(self) -> dict[str, str]:
         return {name: getattr(self, name) for name in
                 ("vault", "agent_dir", "people_dir", "agents_dir", "human_profile",
-                 "sources_dir", "runtime_dir", "human_name", "agent_name")} | {"hermes_dir": self.runtime_dir, "prefix": self.skill_prefix, "human_goals": self.human_goals}
+                 "sources_dir", "runtime_dir", "human_name", "agent_name")} | {"prefix": self.skill_prefix, "human_goals": self.human_goals}

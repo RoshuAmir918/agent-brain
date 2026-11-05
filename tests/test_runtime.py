@@ -55,18 +55,13 @@ def test_unanswered_reads_harness_sessions(tmp_path):
     assert session_tools.unanswered(tmp_path, NOW) == [("waiting", "demiurge")]
 
 
-def test_home_and_configured_environment_precedence(tmp_path, monkeypatch):
+def test_home_and_configured_use_agent_home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("AGENT_HOME", raising=False)
-    monkeypatch.delenv("HERMES_HOME", raising=False)
     assert runtime.configured() is None
     with pytest.raises(RuntimeError, match="^AGENT_HOME is not set$"):
         runtime.home()
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "legacy-home"))
-    assert runtime.home() == runtime.configured() == tmp_path / "legacy-home"
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
-    assert runtime.home() == runtime.configured() == tmp_path / "agent"
-    monkeypatch.delenv("HERMES_HOME")
     assert runtime.home() == runtime.configured() == tmp_path / "agent"
 
 
@@ -76,7 +71,6 @@ def test_signal_and_install_paths_use_agent_home_only(vault, tmp_path, monkeypat
 
     home = tmp_path / "agent-home"
     monkeypatch.setenv("AGENT_HOME", str(home))
-    monkeypatch.delenv("HERMES_HOME", raising=False)
     assert signals._home() == home
     signals.watch(Config.load(vault))
     assert (home / "records/watch/signal.json").is_file()

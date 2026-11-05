@@ -229,7 +229,7 @@ Run only one nightly process per vault. The engine assumes it is the only writer
 
 ## Commands
 
-`brain runtime-folder --move` moves the configured folder to `Runtime`, updates `brain.toml`, rewrites tracked text path references and renames the compiled context to `.context.md`. It leaves a relative compatibility symlink until 0.31 (skipped for case-only names on a case-insensitive filesystem). `--dry-run` prints the moves and reference counts without writing.
+`brain version` prints the installed package version. Without `AGENT_HOME`, `brain paths scripts` and `brain paths records` exit with `AGENT_HOME is not set`; the other paths and `brain validate` remain available.
 
 `brain export-sessions [--date YYYY-MM-DD]` reads harness sessions, archives conversations as `<vault>/Conversations/Sessions/<id>.md` and routines as `$AGENT_HOME/records/sessions/<id>.md`, and copies unchanged source JSON to `records/sessions/jsonl/<id>.json`. Only changed content is rewritten. A date selects sessions started or active that day; omitting it exports all sessions. `brain paths records` prints the records root.
 
@@ -237,7 +237,7 @@ Run only one nightly process per vault. The engine assumes it is the only writer
 
 `brain migrate-check` and `brain migrate-done` carry the agent's part of an upgrade: the package ships a Markdown prompt per version that needs one (see `src/brain/migrations/README.md`), `migrate-check` writes the applicable ones to `<runtime_dir>/pending-migration.md` after each nightly update and, when that file is new or changed, declares a one-shot `brain-migration-<version>` routine two minutes out in the schedule so it starts at once, the recall skill makes the agent perform them, and `migrate-done` records the version. `<runtime_dir>/engine-version` is the recorded version, committed with the vault. `brain migrate-done --defer "<step>"` (repeatable) closes a migration while carrying a step the agent may not do unattended, such as an edit to a protected file, for a maintainer in `<runtime_dir>/deferred-steps.md`: a maintainer's sessions are told how many wait, `brain health` counts them, and the owner's Needs you never carries machinery; a step that waits on a future event belongs in Triggers. `brain health` dates a pending migration from the commit that added the current file.
 
-`brain update` upgrades the package from `update_source` using the interpreter that owns `brain`, then reinstalls the scripts atomically per file. The export script runs it first every night, so a vault stays current without anyone touching the machine; a failed update is reported and the archive continues on the installed version. `brain paths python` prints that interpreter.
+`brain update` upgrades the package from `update_source` using the interpreter that owns `brain`, then reinstalls the scripts atomically per file. Without `AGENT_HOME`, the package still updates and it prints `scripts not reinstalled: AGENT_HOME is not set`. The export script runs it first every night, so a vault stays current without anyone touching the machine; a failed update is reported and the archive continues on the installed version. `brain paths python` prints that interpreter.
 
 
 

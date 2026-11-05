@@ -168,6 +168,40 @@ def test_update_is_disabled_by_empty_source(tmp_path):
     assert install.update(Config.load(tmp_path / "memory")) == []
 
 
+def test_update_without_runtime_installs_package_and_skips_scripts(vault, monkeypatch, capsys):
+    import sys
+    from brain import install
+
+    monkeypatch.delenv("AGENT_HOME", raising=False)
+    calls = []
+    monkeypatch.setattr(install.subprocess, "run", lambda cmd, check: calls.append((cmd, check)))
+    def unexpected():
+        pytest.fail("scripts must not be installed without a runtime")
+    monkeypatch.setattr(install, "scripts", unexpected)
+    before = snapshot(vault.parent)
+    nightly.main(["update", "--vault", str(vault)])
+    assert calls == [([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
+                      Config.load(vault).update_source], True)]
+    assert capsys.readouterr().out == "scripts not reinstalled: AGENT_HOME is not set\n"
+    assert snapshot(vault.parent) == before
+
+
+@pytest.mark.parametrize("runtime_dir", ["Runtime", "Runs"])
+def test_runtime_directory_renders_in_local_sections(vault, runtime_dir):
+    from brain import install
+
+    (vault.parent / "brain.toml").write_text(f'[brain]\nruntime_dir = "{runtime_dir}"\n')
+    config = Config.load(vault)
+    target = config.skills_path / "brain-watch/SKILL.md"
+    target.parent.mkdir(parents=True)
+    target.write_text('old\n\n## Local\nRead {runtime_dir}/schedule.toml.\n')
+    spec = vault / config.agent("Memory Spec.md")
+    spec.write_text('# Spec\n\n## Local\nRead {runtime_dir}/README.md.\n')
+    install.skills(config)
+    assert f'Read {runtime_dir}/schedule.toml.' in target.read_text()
+    assert f'Read {runtime_dir}/README.md.' in spec.read_text()
+
+
 def test_migrate_check_records_version_when_nothing_applies(tmp_path, monkeypatch):
     from brain import install
     from brain.config import Config

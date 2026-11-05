@@ -19,7 +19,7 @@ What agent-brain needs from whatever runs the agent, and what it gives back. The
 Every process the runtime starts for an agent (its shell, a routine's script, a brain call) gets:
 
 - `VAULT_REPO`: the vault's git repository, also the working directory.
-- `AGENT_HOME`: the agent's workspace root, where `records/` and `harness/` live. The engine accepts `HERMES_HOME` only as a deprecated fallback through 0.30; 0.31 drops it. Without either variable, runtime-dependent commands fail with `AGENT_HOME is not set`; a vault can still be read and validated without a runtime.
+- `AGENT_HOME`: the agent's workspace root, where `records/` and `harness/` live. The engine reads only `AGENT_HOME`. Without it, runtime-dependent paths report `AGENT_HOME is not set`; `brain version`, vault paths and `brain validate` still work. `brain update` installs the package and prints `scripts not reinstalled: AGENT_HOME is not set`.
 - A `PATH` holding `brain` and `demiurge`.
 
 No credential is ever in this environment beyond what `agents/<id>.json`'s `env` names for that agent.
@@ -105,4 +105,6 @@ The runtime gives the agent these tools besides its six workspace tools: `demiur
 
 - 0.29.0: this page; `schedule.toml` and `brain schedule`; `brain record-spec`; `AGENT_HOME`.
 
-- 0.30.0: `Runtime/` and `runtime_dir`; `.context.md`; `brain runtime-folder --move`; native harness `brain export-sessions` and JSON shards; removed the old runtime plugin, cron and session-store adapters.
+- 0.30.0: `Runtime/` and `runtime_dir`; `.context.md`; native harness `brain export-sessions` and JSON shards; removed the old runtime plugin, cron and session-store adapters.
+
+- 0.31.0: only `AGENT_HOME` and `runtime_dir` are supported; removed the folder migration command and compatibility aliases. Maintainer commands work without a runtime; updates skip script reinstalls when `AGENT_HOME` is unset.

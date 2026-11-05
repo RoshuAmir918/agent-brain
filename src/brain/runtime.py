@@ -10,7 +10,7 @@ ROUTINE_PLATFORMS = ("cron", "subagent", "cli")
 
 def configured() -> Path | None:
     """The explicitly configured workspace, if this process belongs to an agent."""
-    value = os.environ.get("AGENT_HOME") or os.environ.get("HERMES_HOME")   # deprecated; 0.31 drops this fallback
+    value = os.environ.get("AGENT_HOME")
     return Path(value).expanduser() if value else None
 
 

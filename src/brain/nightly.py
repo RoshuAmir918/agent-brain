@@ -22,7 +22,7 @@ Usage:
   brain install-skills [--vault <path>]
   brain install-scripts
   brain export-sessions [--date YYYY-MM-DD]
-  brain runtime-folder --move [--dry-run]
+  brain version
   brain paths <soul|skills|scripts|vault|repo> [--vault <path>]
 
 Without --write the pass runs on a temporary copy of the agent tree and prints
@@ -52,7 +52,7 @@ from .config import FORMS, Config
 from .lock import vault_lock
 from . import install
 from . import signals
-from . import record, runtime, schedule, sessions, runtime_folder
+from . import record, runtime, schedule, sessions
 
 MARK_START = "<!-- brain:active-threads start -->"
 MARK_END = "<!-- brain:active-threads end -->"
@@ -936,19 +936,22 @@ def cmd_export_sessions(args):
     print(f"exported: {written} files written, {unchanged} unchanged")
 
 
-def cmd_runtime_folder(args):
-    for line in runtime_folder.move(args.config, dry_run=args.dry_run):
-        print(line)
-
-
 def cmd_install_skills(args):
     print(install.skills(args.config, force=args.force))
 
 
 def cmd_update(args):
     installed = install.update(args.config)
-    print("update disabled (brain.update_source is empty)" if not installed else
-          "updated; reinstalled " + ", ".join(path.name for path in installed))
+    if not args.config.update_source:
+        print("update disabled (brain.update_source is empty)")
+    elif runtime.configured() is None:
+        print("scripts not reinstalled: AGENT_HOME is not set")
+    else:
+        print("updated; reinstalled " + ", ".join(path.name for path in installed))
+
+
+def cmd_version(args):
+    print(install.installed_version("agent-brain"))
 
 
 def cmd_migrate_check(args):
@@ -1032,6 +1035,8 @@ def cmd_schedule(args):
 
 
 def cmd_paths(args):
+    if args.path in ("scripts", "records") and runtime.configured() is None:
+        sys.exit("AGENT_HOME is not set")
     paths = {"soul": lambda: args.config.soul_path, "skills": lambda: args.config.skills_path,
              "scripts": install.scripts_path, "records": install.records_path,
              "vault": lambda: args.config.vault_path, "repo": lambda: args.config.repo,
@@ -1044,9 +1049,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("export-sessions"); s.add_argument("--vault")
     s.add_argument("--date", type=date.fromisoformat); s.set_defaults(fn=cmd_export_sessions)
-    s = sub.add_parser("runtime-folder"); s.add_argument("--vault")
-    s.add_argument("--move", action="store_true", required=True); s.add_argument("--dry-run", action="store_true")
-    s.set_defaults(fn=cmd_runtime_folder)
+    s = sub.add_parser("version"); s.add_argument("--vault"); s.set_defaults(fn=cmd_version)
     s = sub.add_parser("record-spec"); s.add_argument("--vault")
     s.add_argument("--json", action="store_true", required=True); s.set_defaults(fn=cmd_record_spec)
     s = sub.add_parser("schedule")

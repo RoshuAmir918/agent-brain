@@ -51,6 +51,26 @@ def test_invalid_config_fails_before_writing(tmp_path, setting):
         Config.load(cwd=tmp_path)
 
 
+@pytest.mark.parametrize("setting", [
+    'hermes_dir = "old"',
+    '"hermes_dir" = "old"\nruntime_dir = "Runtime"',
+])
+def test_removed_config_key_names_its_replacement(tmp_path, setting):
+    (tmp_path / "brain.toml").write_text("[brain]\n" + setting + "\n")
+    with pytest.raises(ValueError, match=r"brain\.hermes_dir.*set runtime_dir"):
+        Config.load(cwd=tmp_path)
+    with pytest.raises(SystemExit) as error:
+        nightly.main(["validate", "--vault", str(tmp_path)])
+    assert error.value.code == 2
+
+
+def test_template_values_have_only_current_keys(tmp_path):
+    assert set(Config(tmp_path).template_values()) == {
+        "vault", "agent_dir", "people_dir", "agents_dir", "human_profile",
+        "sources_dir", "runtime_dir", "human_name", "agent_name", "prefix", "human_goals",
+    }
+
+
 @pytest.mark.parametrize("name", ["soul", "skills", "scripts", "vault", "repo"])
 def test_paths_from_cwd_and_explicit_vault(vault, monkeypatch, capsys, name, tmp_path):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))

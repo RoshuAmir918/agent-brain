@@ -142,11 +142,11 @@ def scripts() -> list[Path]:
 
 
 def update(config: Config) -> list[Path]:
-    """Upgrade with the owning interpreter, then reinstall scripts."""
+    """Upgrade with the owning interpreter, then reinstall scripts when a runtime is configured."""
     if not config.update_source:
         return []
     subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", config.update_source], check=True)
-    return scripts()
+    return scripts() if runtime.configured() is not None else []
 
 
 def version_tuple(text: str) -> tuple[int, ...]:

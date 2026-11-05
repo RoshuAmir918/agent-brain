@@ -114,7 +114,6 @@ def test_legacy_jsonl_is_ignored_and_old_markdown_remains_readable(vault, tmp_pa
     (directory / '2026-10-20.md').write_text('## user\nQuestion\n## assistant\nAnswer\nSources: T-001\n')
     (directory / 'all.jsonl').write_text('invalid legacy data\n')
     monkeypatch.delenv('AGENT_HOME', raising=False)
-    monkeypatch.delenv('HERMES_HOME', raising=False)
     config = Config.load(vault)
     text, _ = digest.build(config, date(2026, 10, 20))
     assert 'Question' in text and 'Answer' in text
@@ -134,7 +133,6 @@ def test_no_schedule_migration_is_reported_without_starting_a_process(vault, mon
 
 def test_install_paths_require_an_explicit_runtime(vault, monkeypatch, capsys):
     monkeypatch.delenv('AGENT_HOME', raising=False)
-    monkeypatch.delenv('HERMES_HOME', raising=False)
     with pytest.raises(RuntimeError, match='AGENT_HOME is not set'):
         install.scripts_path()
     nightly.main(['paths', 'vault', '--vault', str(vault)])
