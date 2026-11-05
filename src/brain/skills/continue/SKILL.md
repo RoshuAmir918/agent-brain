@@ -6,6 +6,7 @@ metadata:
   runtime:
     tags: [routine, day, night, work]
     category: brain
+    context: [start, current, tasks]
 ---
 # Continue
 

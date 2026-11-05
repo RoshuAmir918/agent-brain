@@ -6,6 +6,7 @@ metadata:
   runtime:
     tags: [routine, day]
     category: brain
+    context: [start, current, tasks, triggers, upcoming]
 ---
 # Watch
 

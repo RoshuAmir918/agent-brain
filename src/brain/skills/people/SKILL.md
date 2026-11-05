@@ -6,6 +6,7 @@ metadata:
   runtime:
     tags: [memory, people]
     category: brain
+    context: [current, upcoming, directory]
 ---
 # People review
 

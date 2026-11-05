@@ -6,6 +6,7 @@ metadata:
   runtime:
     tags: [routine, day, research]
     category: brain
+    context: [start, goals, tasks]
 ---
 # Improve
 

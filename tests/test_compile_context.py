@@ -248,3 +248,22 @@ def test_leftover_retired_views_are_neither_notes_nor_problems(context_vault):
     assert "Hot Set.md" not in vault.notes and "Warm Index.md" not in vault.notes
     assert not [p for p in validate.run(vault, set(vault.notes)) if "Hot Set" in p or "Warm Index" in p]
     assert "Hot Set" not in compile_context.directory(vault)
+
+
+def test_a_run_can_ask_for_only_some_sections_within_what_the_vault_allows(context_vault, capsys, monkeypatch):
+    full = compile_context.build(Vault(context_vault))
+    narrow = compile_context.build(Vault(context_vault), ("current", "triggers"))
+    assert "# Current" in narrow and "# Triggers" in narrow
+    assert all(absent not in narrow for absent in ("START_BODY", "### T-001", "Directory: what the vault knows", "Before answering"))
+    assert len(narrow) < len(full)
+    nightly.main(["compile-context", "--vault", str(context_vault), "--sections", "current, triggers"])
+    assert capsys.readouterr().out == narrow
+    monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start,current")
+    within = compile_context.build(Vault(context_vault), ("current", "triggers"))
+    assert "# Current" in within and "# Triggers" not in within
+
+
+def test_sections_are_checked_and_never_written(context_vault):
+    for bad in (["--sections", "current,nonsense"], ["--sections", ","], ["--sections", "current", "--write"]):
+        with pytest.raises(SystemExit):
+            nightly.main(["compile-context", "--vault", str(context_vault), *bad])

@@ -101,6 +101,10 @@ From the owner's app: `brain needs-you --dismiss <id> no|stop-asking`, `brain ta
 
 The runtime gives the agent these tools besides its six workspace tools: `demiurge_tell_owner`, `demiurge_message`, `demiurge_today`.
 
+### A routine's context
+
+A routine's skill may declare, in its frontmatter's `metadata.runtime`, the compiled-context sections its run needs: `context: [start, current, tasks]`, from `before`, `start`, `current`, `primed`, `goals`, `triggers`, `upcoming`, `tasks`, `directory`. The runtime then loads `brain compile-context --sections <those>` for that run instead of the whole `.context.md`; an empty list means no compiled context. A skill without the declaration gets the whole context. The engine owns these declarations, since it owns the routines; a vault's own skills may declare them too.
+
 ## 6. Changes
 
 - 0.29.0: this page; `schedule.toml` and `brain schedule`; `brain record-spec`; `AGENT_HOME`.
@@ -108,3 +112,4 @@ The runtime gives the agent these tools besides its six workspace tools: `demiur
 - 0.30.0: `Runtime/` and `runtime_dir`; `.context.md`; native harness `brain export-sessions` and JSON shards; removed the old runtime plugin, cron and session-store adapters.
 
 - 0.31.0: only `AGENT_HOME` and `runtime_dir` are supported; removed the folder migration command and compatibility aliases. Maintainer commands work without a runtime; updates skip script reinstalls when `AGENT_HOME` is unset.
+- 0.32.0: a routine's skill declares its context sections; `brain compile-context --sections`.

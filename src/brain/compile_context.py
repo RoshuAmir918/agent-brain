@@ -47,18 +47,21 @@ def open_register(vault: Vault, body: str) -> str:
     return "\n\n".join(sections)
 
 
-def build(vault: Vault) -> str:
+def build(vault: Vault, only: tuple[str, ...] | None = None) -> str:
+    """The compiled context. `only` narrows it to the sections one run asks for (a routine's declaration), always within
+    the sections the vault itself allows."""
     config = vault.config
+    allowed = tuple(name for name in config.context.sections if only is None or name in only)
     named = dict(zip(("start", "current", "primed", "goals", "triggers", "tasks"), config.context_sources))
     optional = (config.agent("Primed.md"), config.human_goals)   # Primed is written by the night, Goals with the owner: a vault may not have them yet
-    sources = [rel for name, rel in named.items() if name in config.context.sections
+    sources = [rel for name, rel in named.items() if name in allowed
                and (rel not in optional or (vault.root / rel).is_file())]
     header = ("Generated nightly by `brain`.\n"
               "Edits to this file are overwritten.\n"
               "Edit the source notes instead: " + ", ".join(config.link(rel) for rel in sources) + ".")
     sections = [header]
     for name in SECTIONS:
-        if name not in config.context.sections:
+        if name not in allowed:
             continue
         if name == "before":
             sections.append(BEFORE)

@@ -6,6 +6,7 @@ metadata:
   runtime:
     tags: [memory, night]
     category: brain
+    context: [directory]
 ---
 # REM
 

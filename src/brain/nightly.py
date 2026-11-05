@@ -8,7 +8,7 @@ Usage:
   brain digest [--vault <path>] --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]
   (sessions default to $AGENT_HOME/records/sessions, the profile's own export)
   brain audit [--vault <path>] [--date YYYY-MM-DD] [--days 14] [--sessions-dir <dir>] [--json]
-  brain compile-context [--vault <path>] [--out <path>] [--write]
+  brain compile-context [--vault <path>] [--out <path>] [--write] [--sections start,current,...]
   brain retrieve [--vault <path>] <query> [--limit 12] [--json [--form names|snippet|full]]
   brain needs-you [--vault <path>] [--json]
   brain ideas [--vault <path>] [--all] [--json]
@@ -48,7 +48,7 @@ from . import access, attribute, audit, compile_context, digest, fm, health, ide
 from . import tasks as tasks_mod
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, quiet, task_activation, write_archive
 from .vault import DAILY, Vault
-from .config import FORMS, Config
+from .config import FORMS, SECTIONS, Config
 from .lock import vault_lock
 from . import install
 from . import signals
@@ -549,10 +549,18 @@ def cmd_attribute(a):
 
 def cmd_compile_context(a):
     vault = Vault(a.config.vault_path)
+    only = None
+    if a.sections is not None:
+        only = tuple(name.strip() for name in a.sections.split(",") if name.strip())
+        unknown = sorted(set(only) - set(SECTIONS))
+        if unknown or not only:
+            raise SystemExit(f"--sections takes a comma-separated list of {', '.join(SECTIONS)}; got {a.sections!r}")
+        if a.write:
+            raise SystemExit("--sections prints a run's context; .context.md is always the whole of it")
     if a.write:
         result = compile_context.write(vault, Path(a.out) if a.out else None)
     else:
-        text = compile_context.build(vault)
+        text = compile_context.build(vault, only)
         print(text, end="")
         result = compile_context.summary(text, a.config.context.hot_words)
     print(result, file=sys.stderr)
@@ -1100,7 +1108,8 @@ def main(argv=None):
     s.add_argument("--ts"); s.add_argument("--reason"); s.add_argument("--write", action="store_true")
     s.set_defaults(fn=cmd_attribute)
     s = sub.add_parser("compile-context"); s.add_argument("--vault"); s.add_argument("--out")
-    s.add_argument("--write", action="store_true"); s.set_defaults(fn=cmd_compile_context)
+    s.add_argument("--write", action="store_true"); s.add_argument("--sections")
+    s.set_defaults(fn=cmd_compile_context)
     s = sub.add_parser("digest"); s.add_argument("--vault")
     s.add_argument("--date", type=date.fromisoformat, required=True); s.add_argument("--sessions-dir")
     s.add_argument("--max-words", type=int, default=digest.WORD_LIMIT)
