@@ -423,3 +423,19 @@ def test_handoff_reports_in_the_conversation_it_came_from(vault, tmp_path, monke
     monkeypatch.delenv("DEMIURGE_CONVERSATION")
     nightly.main(["handoff", "T-001", "--report", "Home", "--vault", str(vault)])
     assert tasks.load_tasks(Config.load(vault))[0][0].handoff[1] == "Home"
+
+
+
+def test_due_puts_the_task_worked_least_recently_first(work, capsys):
+    from brain import continuation
+    config, home, clock = work
+    one = task(config)
+    two = tasks.Task(tid="T-099", title="Torts notes", state={"state": "in_progress"},
+                     body="- **Handed off:** 2026-11-05 · report in Home\n")
+    assert [t.tid for t in tasks.due([two, one])] == ["T-001", "T-099"]   # oldest handoff without history
+    run(config, capsys, "--chunk", "T-001")
+    worked = continuation.last_worked(config)
+    assert set(worked) == {"T-001"}
+    assert [t.tid for t in tasks.due([one, two], worked=worked)] == ["T-099", "T-001"]   # never worked goes first
+    worked["T-099"] = (clock[0] + timedelta(minutes=30)).isoformat()
+    assert [t.tid for t in tasks.due([one, two], worked=worked)] == ["T-001", "T-099"]

@@ -1,7 +1,7 @@
 ---
 name: {prefix}continue
 description: Work a handed-off thread until it is done
-version: 1.6.0
+version: 1.7.0
 metadata:
   runtime:
     tags: [routine, day, night, work]
@@ -12,12 +12,12 @@ metadata:
 
 The worker's pass. Every thirty minutes, day and night, a monitor checks what {human_name} handed off; when it changes, {agent_name} picks it up and keeps going until it is done. A handoff is not a turn that runs and stops; it is a thread, and this routine is what keeps pulling on it while {human_name} sleeps, works or forgets they asked.
 
-When the prompt says "Run continue daily.", take `brain continue --due --daily` and work each daily task for one chunk, oldest first, at most three tasks per run. Call `brain continue --chunk T-nnn` for each; a task sent back to regular continues normally from then on. Otherwise this is the regular-pace pass below.
+When the prompt says "Run continue daily.", take `brain continue --due --daily` and work each daily task for one chunk, in the order listed, at most three tasks per run. Call `brain continue --chunk T-nnn` for each; a task sent back to regular continues normally from then on. Otherwise this is the regular-pace pass below.
 
 Where the task says to report: its Handed off line's `report in demiurge:<id>` is the owner's thread the work came from, so on Demiurge every message about the task, done, blocked or moved to daily, goes there with `demiurge_tell_owner` and `conversation: <id>`; `report in Home` or no thread means Home.
 
 ## Procedure
-1. **What is due.** `brain continue --due`. Otherwise take the first task listed (the oldest handoff).
+1. **What is due.** `brain continue --due`. Otherwise take the first task listed: the one worked least recently, so every handoff gets its turn.
    This runs only when the due list changed (including its Next lines, or the date for a daily retry).
    Nothing due: stop here, with no message; the engine records the run.
 2. **Do the next chunk.** When the task has a `- **Work:**` line, the deliverable is built in `$AGENT_HOME/works/<slug>/`, and what you save there reaches {human_name}'s Library when the run ends; check `## Library` first for a change of yours that was not saved, and fix that before anything else. A task with a made thing as its result and no work yet gets one now (the recall skill has the commands). Start from the task's Next line and keep going, step after step, for about twenty-five minutes or to a natural checkpoint. Work the way an autonomous colleague does with the permissions they have: when something is ambiguous, decide the way {human_name} would most likely want it, write the assumption on the task, and carry on; when one path waits on someone else, park that path and advance the others; when a tool or a route fails, try another; when you need a fact, go and find it. Verify what you did by reading it back; a thing claimed is not a thing done.

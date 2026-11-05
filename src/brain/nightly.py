@@ -870,7 +870,9 @@ def cmd_continue(args):
             sys.exit(2)
         return
     registered, archived = load_tasks(args.config)
-    ready = tasks_mod.due(registered + archived, pace="daily" if args.daily else "regular")
+    from . import continuation
+    ready = tasks_mod.due(registered + archived, pace="daily" if args.daily else "regular",
+                          worked=continuation.last_worked(args.config))
     if not ready:
         print("nothing handed off is due")
         sys.exit(1)

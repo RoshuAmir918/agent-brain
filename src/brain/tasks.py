@@ -275,11 +275,14 @@ def save_task(config: Config, task: Task, today: date) -> None:
             fm.write(reg, data, body[:s] + task.render_line(config) + ("\n" if body[e:] and not body[e:].startswith("\n") else "") + body[e:])
 
 
-def due(tasks: list[Task], pace: str = "regular") -> list[Task]:
-    """Handed-off tasks the continue routine should work now, oldest handoff first: open, and not resting on the owner."""
+def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None = None) -> list[Task]:
+    """Handed-off tasks the continue routine should work now: open and not resting on the owner. With `worked` (each
+    task's last chunk), the one worked least recently comes first and a task never worked before all of them, so one
+    long task cannot hold the slot; otherwise, oldest handoff first."""
+    worked = worked or {}
     return sorted((t for t in tasks if is_open(t) and t.handoff and t.task_state not in RESTING
                    and _pace(t.body) == pace),
-                  key=lambda t: (t.handoff[0], t.tid))
+                  key=lambda t: (worked.get(t.tid, ""), t.handoff[0], t.tid))
 
 
 def task_activation(t: Task, today: date) -> float:

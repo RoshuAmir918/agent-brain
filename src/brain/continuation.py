@@ -50,6 +50,18 @@ def _work_saved(work: str | None, pushed: tuple[str, str] | None, previous: dict
     return same.returncode != 0
 
 
+def last_worked(config: Config) -> dict[str, str]:
+    """When each of this vault's handed-off tasks last had a chunk counted, from the progress record."""
+    if runtime.configured() is None:
+        return {}
+    try:
+        records = json.loads((signals._home() / "records" / "continue" / "progress.json").read_text(encoding="utf-8"))
+        return {tid: row["at"] for tid, row in records.get(str(config.vault_path.resolve()), {}).items()
+                if isinstance(row, dict) and isinstance(row.get("at"), str)}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
 def chunk(config: Config, tid: str) -> str:
     """Record a baseline or one chunk; saved work and resting or closed transitions count."""
     with vault_lock(config):
