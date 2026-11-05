@@ -89,7 +89,7 @@ def test_journal_is_not_a_routine_ledger_and_appears_in_state(config):
 
 
 def test_cli_journal_append_json_and_synthesis(config, monkeypatch, capsys):
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(record(loops=[{"kind": "owed", "text": "Send fares."}]))))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(record(loops=[{"kind": "owed", "text": "Send fares.", "with": "Pat"}]))))
     nightly.main(["journal", "append", "--vault", str(config.vault_path), "--platform", "slack", "--at", "2026-10-28 14:05"])
     monkeypatch.setattr("sys.stdin", io.StringIO("Caught up."))
     nightly.main(["journal", "append", "--vault", str(config.vault_path), "--synthesis", "--at", "2026-10-28 15:00"])
@@ -140,7 +140,7 @@ def test_a_private_note_is_never_named_as_touched_nor_as_an_asks_source(config):
         (config.vault_path / rel).parent.mkdir(parents=True, exist_ok=True)
         fm.write(config.vault_path / rel, {}, "# Private\n")
     journal.append_entry(config, record(touched=["people/Pat/Profile", "human/Profile", "Lisbon trip"],
-                                        needsYou="Who is Pat · really?", loops=[{"kind": "owed", "text": "Send reply."}]), "demiurge", AT)
+                                        needsYou="Who is Pat · really?", loops=[{"kind": "owed", "text": "Send reply.", "with": "Pat"}]), "demiurge", AT)
     [item] = loops.open_loops(config)
     assert item.source == "Lisbon trip"
     [ask] = [item for item in needs.items(config, TODAY) if item.origin == "current"]

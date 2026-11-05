@@ -20,7 +20,10 @@ RECORD_SCHEMA = {
             "properties": {"kind": {"enum": ["promised", "owed", "waiting"]},
                            "text": {"type": "string", "maxLength": 160},
                            "with": {"type": ["string", "null"]}, "due": {"type": ["string", "null"]}}}},
-        "closed": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
+        "closed": {"type": "array", "maxItems": 5, "items": {
+            "type": "object", "required": ["loop", "outcome", "why"], "additionalProperties": False,
+            "properties": {"loop": {"type": "string"}, "outcome": {"enum": ["done", "dropped"]},
+                           "why": {"type": "string", "maxLength": 120}}}},
         "resolved": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
         "ready": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
         "workingTogether": {"type": ["array", "null"], "maxItems": 3, "items": {"type": "string", "maxLength": 200}},
@@ -44,14 +47,18 @@ CONVERSATION = (
     "- touched: exact titles of vault notes you worked on, if any.\n"
     "- needsYou: a decision only your owner can make, phrased as a question, or null. Not a status update.\n"
     "- next: your next step, or null.\n"
-    "- loops: each new thing you promised, an answer or relay you now owe someone, or something you now wait on "
-    "from someone other than your owner. One plain line each, under 160 characters, with who it is with and a due "
-    "date when one was named (YYYY-MM-DD or YYYY-MM-DD HH:MM). Not things for your owner to decide (that's "
-    "needsYou). Work your owner hands you to do later (\"look into…\", \"have something by morning\") is a promised "
-    "loop with its due time. Not work you handed to your own routines (its task carries it). Not something done in "
-    "this conversation.\n"
-    "- closed: open loops (listed below) that this conversation finished or that no longer apply; use their exact "
-    "text or id.\n"
+    "- loops: each new thing you promised someone, an answer or relay you now owe someone, or something you now wait "
+    "on from someone. One plain line each, under 160 characters. `with` is the person or intellect by name, someone "
+    "who asked you or whom you asked; your owner only for a promise to them (what you wait on from your owner is needsYou, not a loop) and never "
+    "a role, a team or a system. `due` is any date or deadline that was named, always, including an expiry or a "
+    "\"proceeds unless declined by\" date (YYYY-MM-DD or YYYY-MM-DD HH:MM); it is what wakes you in time. One loop "
+    "per thing: two waits on the same person about the same matter are one loop. Not work a task carries: the open "
+    "tasks listed below already hold their follow-up, including a handoff's report. Not something done or answered "
+    "in this conversation.\n"
+    "- closed: open loops listed below that this conversation finished or that no longer apply, each with `loop` "
+    "(its id or exact text), `outcome` (done only when this conversation shows it happened; dropped when it was "
+    "cancelled, made moot, or the person changed their mind) and `why` (under 120 characters, what happened, in plain "
+    "words).\n"
     "- resolved: asks listed below that this conversation answered or made moot, and confirms your owner confirmed or "
     "corrected (a correction is also recorded where it belongs); use their ids or exact texts.\n"
     "- ready: owed loops listed below whose answer your owner gave here, so you can pass it on; use their ids or exact texts.\n"

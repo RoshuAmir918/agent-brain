@@ -213,26 +213,24 @@ def test_resting_or_closed_transition_is_progress_even_in_archive(work, capsys, 
     assert "no progress" in run(config, capsys, "--chunk", "T-001")
 
 
-@pytest.mark.parametrize("created,progress", [("2026-11-04T12:01:00+00:00", True),
-                                              ("2026-11-04", True), ("2026-11-03", False),
-                                              ("2026-11-04T11:59:00+00:00", False),
-                                              ("2026-11-04T12:00:00+00:00", False),
-                                              ("not-a-date", False), (None, False)])
-def test_new_output_counts_only_for_the_task_and_since_previous_chunk(work, capsys, created, progress):
+@pytest.mark.parametrize("kind", ["draft", "reflection"])
+@pytest.mark.parametrize("created", ["2026-11-04T12:01:00+00:00", "2026-11-04", "2026-11-03",
+                                     "2026-11-04T11:59:00+00:00", "not-a-date", None])
+def test_new_vault_output_does_not_promote_daily_task(work, capsys, kind, created):
     config, home, clock = work
     demote(config, capsys)
-    fm.write(config.vault_path / "Unrelated.md", {"kind": "draft", "created": AT.date(), "task": "T-002"}, "Draft")
-    assert "no progress" in run(config, capsys, "--chunk", "T-001")
-    data = {"kind": "draft", "task": "T-001"}
+    clock[0] += timedelta(minutes=30)
+    data = {"kind": kind, "task": "T-001"}
     if created is not None:
         data["created"] = created
-    fm.write(config.vault_path / "Comparison.md", data, "Delivered draft")
-    result = run(config, capsys, "--chunk", "T-001")
-    assert result == ("T-001 back to regular: new output" if progress else
-                      "T-001 no progress: 5 quiet chunks; pace daily")
-    output = next(output for output in state.build(config, AT.date())["outputs"] if output["task"] == "T-001")
-    assert output["id"] in fingerprint(config, home)["outputs"]
-    assert "no progress" in run(config, capsys, "--chunk", "T-001")
+    path = config.vault_path / "Prepared/Comparison.md"
+    path.parent.mkdir()
+    fm.write(path, data, "Draft held in the vault")
+    # It remains a state output, but is invisible to the owner and cannot restore the task's pace.
+    assert any(output["task"] == "T-001" for output in state.build(config, AT.date())["outputs"])
+    assert run(config, capsys, "--chunk", "T-001") == "T-001 no progress: 4 quiet chunks; pace daily"
+    assert fingerprint(config, home)["quiet"] == 4
+    assert tasks.pace(task(config)) == "daily"
 
 
 def test_existing_output_and_deleting_verified_are_not_progress(work, capsys):
@@ -248,15 +246,28 @@ def test_existing_output_and_deleting_verified_are_not_progress(work, capsys):
     assert fingerprint(config, home)["quiet"] == 1
 
 
-def test_an_output_resets_the_regular_quiet_count_before_demotion(work, capsys):
+def test_a_new_draft_does_not_prevent_regular_task_demotion(work, capsys):
     config, home, clock = work
     for _ in range(3):
         run(config, capsys, "--chunk", "T-001")
     clock[0] += timedelta(minutes=30)
     fm.write(config.vault_path / "Comparison.md", {"kind": "draft", "task": "T-001", "created": clock[0].isoformat()}, "Draft")
-    assert run(config, capsys, "--chunk", "T-001") == "T-001 progress: new output; quiet reset to 0"
-    assert fingerprint(config, home)["quiet"] == 0
-    assert tasks.pace(task(config)) == "regular"
+    assert run(config, capsys, "--chunk", "T-001") == "T-001 moved to daily: 3 chunks without progress"
+    assert fingerprint(config, home)["quiet"] == 3
+    assert tasks.pace(task(config)) == "daily"
+
+
+def test_existing_progress_fingerprint_keeps_its_quiet_count(work, capsys):
+    config, home, clock = work
+    for _ in range(3):
+        run(config, capsys, "--chunk", "T-001")
+    path = home / "records/continue/progress.json"
+    records = json.loads(path.read_text())
+    previous = records[str(config.vault_path.resolve())]["T-001"]
+    previous.update(outputs=["old-draft"], verified="old-self-check")
+    path.write_text(json.dumps(records))
+    assert run(config, capsys, "--chunk", "T-001") == "T-001 moved to daily: 3 chunks without progress"
+    assert fingerprint(config, home)["quiet"] == 3
 
 
 @pytest.mark.parametrize("tid", ["T-001", "T-999"])
@@ -401,3 +412,14 @@ def test_work_saved_needs_more_than_whitespace(work, capsys):
     path.write_text(json.dumps({"trip-plan": {"lastPush": clock[0].isoformat(), "lastCommit": {"hash": moved, "when": clock[0].isoformat()}}}))
     clock[0] += timedelta(minutes=1)
     assert run(config, capsys, "--chunk", "T-001") == "T-001 progress: work saved; quiet reset to 0"
+
+
+def test_handoff_reports_in_the_conversation_it_came_from(vault, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    monkeypatch.setenv("DEMIURGE_CONVERSATION", "jn7ledger")
+    nightly.main(["handoff", "T-001", "--report", "the Ledger thread", "--vault", str(vault)])
+    assert "reported in demiurge:jn7ledger" in capsys.readouterr().out
+    assert tasks.load_tasks(Config.load(vault))[0][0].handoff[1] == "demiurge:jn7ledger"
+    monkeypatch.delenv("DEMIURGE_CONVERSATION")
+    nightly.main(["handoff", "T-001", "--report", "Home", "--vault", str(vault)])
+    assert tasks.load_tasks(Config.load(vault))[0][0].handoff[1] == "Home"

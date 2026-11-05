@@ -59,6 +59,71 @@ def _clean(text: str) -> str:
     return " ".join(text.replace("·", "-").split())
 
 
+def _name(text: str) -> str:
+    return " ".join(text.replace("_", " ").replace("-", " ").casefold().split())
+
+
+def _profile_names(path: Path, data: dict, body: str) -> tuple[set[str], set[str]]:
+    """Folder and title names, plus exact aliases; aliases do not supply guessed first names."""
+    names = {path.parent.name}
+    title = re.search(r"^#[ \t]+(.+?)[ \t]*#*[ \t]*$", body, re.M)
+    if title:
+        names.add(title[1])
+    if isinstance(data.get("title"), str):
+        names.add(data["title"])
+    names = {_name(name) for name in names if _name(name)}
+    first = {name.split()[0] for name in names}
+    aliases = data.get("aliases", [])
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    if isinstance(aliases, list):
+        names.update(_name(alias) for alias in aliases if isinstance(alias, str) and _name(alias))
+    return names, first
+
+
+def _counterpart(config: Config, kind: str, who: str) -> None:
+    from . import directory
+    from .session_context import is_owner, profile_ids
+
+    if not who:
+        if kind in ("owed", "waiting"):
+            raise ValueError(f"{kind} loops need a counterpart (with)")
+        return
+    owner_path = config.vault_path / config.human_profile
+    data, body = fm.read(owner_path) if owner_path.is_file() else ({}, "")
+    owner_names, owner_first = _profile_names(owner_path, data, body)
+    human = _name(config.human_name)
+    owner_names.update(owner_first | {human, human.split()[0]})
+    known = set()
+    first_names: dict[str, set[Path]] = {}
+    for root in (config.people_dir, config.agents_dir):
+        for path in (config.vault_path / root).rglob("Profile.md"):
+            data, body = fm.read(path)
+            if data.get("kind") == "log":
+                continue   # a moved or retired stub is not an identity
+            names, first = _profile_names(path, data, body)
+            if path == owner_path or any(is_owner(config, platform, (ident,))
+                                         for platform, ident in (value.split(":", 1) for value in profile_ids(body))):
+                owner_names.update(names | first)
+                continue
+            known.update(names)
+            for name in first:
+                first_names.setdefault(name, set()).add(path)
+    if _name(who) in owner_names:
+        # A promise to the owner is a loop; waiting on them is an ask.
+        if kind == "waiting":
+            raise ValueError(f"{who} is your owner: put it in Needs you as an ask, not a loop")
+        return
+    if not (config.vault_path / config.people_dir).is_dir():
+        return   # bare vaults have no directory to validate against
+    known.update(name for name, profiles in first_names.items() if len(profiles) == 1)
+    # Demiurge keeps names of intellects without vault profiles in its runtime directory cache.
+    listed = directory.load(config) or {}
+    known.update(_name(row["name"]) for row in listed.get("intellects", []) if row.get("name"))
+    if _name(who) not in known:
+        raise ValueError(f"{who} is not a person or intellect you know; name who you asked or who asked you")
+
+
 def _time(value: str) -> datetime:
     if not re.fullmatch(STAMP + r"|\d{4}-\d{2}-\d{2}", value):
         raise ValueError("date must be YYYY-MM-DD or YYYY-MM-DD HH:MM")
@@ -163,12 +228,14 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
     due = " ".join(due.split())
     if due:
         _time(due)
+    with_ = _clean(with_)
+    _counterpart(config, kind, with_)
     with vault_lock(config):
         path = path_for(config)
         data, body = fm.read(path) if path.exists() else fm.split(TEMPLATE)
         if any(_plain(item.text) == _plain(text) for item in parse_section(body)):
             return False
-        item = Item(kind, text, _local(config, at).strftime("%Y-%m-%d %H:%M"), source, _clean(with_), due)
+        item = Item(kind, text, _local(config, at).strftime("%Y-%m-%d %H:%M"), source, with_, due)
         body = _insert(body, "Open", render(item))
         path.parent.mkdir(parents=True, exist_ok=True)
         fm.write(path, data, body)

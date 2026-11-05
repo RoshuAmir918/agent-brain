@@ -1,30 +1,15 @@
-"""Engine-judged progress between continue chunks, shared by both speeds: a new output or saved work for the task,
-or the task closing or coming to rest on the owner. Plans, checkpoints and self-verification are not progress."""
+"""Engine-judged progress between continue chunks, shared by both speeds: saved work for the task,
+or the task closing or coming to rest on the owner. Vault drafts, plans and self-verification are not progress."""
 from __future__ import annotations
 
 import fcntl
-import hashlib
 import json
 import subprocess
-from datetime import date, datetime
+from datetime import datetime
 
-from . import runtime, signals, state, tasks
+from . import runtime, signals, tasks
 from .config import Config
 from .lock import vault_lock
-
-
-def _created_since(created: str | None, since: str, config: Config) -> bool:
-    if not created:
-        return False
-    try:
-        # A date-only output has day precision; a new id on that same day counts.
-        if len(created) == 10:
-            return date.fromisoformat(created) >= datetime.fromisoformat(since).date()
-        at, previous = datetime.fromisoformat(created), datetime.fromisoformat(since)
-        at = at.replace(tzinfo=config.zone) if at.tzinfo is None else at
-        return at > previous
-    except ValueError:
-        return False
 
 
 def _work_commit(work: str | None) -> tuple[str, str] | None:
@@ -66,7 +51,7 @@ def _work_saved(work: str | None, pushed: tuple[str, str] | None, previous: dict
 
 
 def chunk(config: Config, tid: str) -> str:
-    """Record a baseline or one chunk; new outputs, saved work and resting or closed transitions count."""
+    """Record a baseline or one chunk; saved work and resting or closed transitions count."""
     with vault_lock(config):
         registered, archived = tasks.load_tasks(config)
         task = next((task for task in registered + archived if task.tid == tid), None)
@@ -91,21 +76,15 @@ def chunk(config: Config, tid: str) -> str:
             previous = records.get(key, {}).get(tid)
             now = config.now()
             now = now.replace(tzinfo=config.zone) if now.tzinfo is None else now
-            verified = state._field(task.body, "Verified") or ""
-            outputs = [output for output in state.build(config, now.date())["outputs"] if output.get("task") == tid]
             pushed = _work_commit(task.work)
-            current = {"verified": hashlib.sha256(verified.encode("utf-8")).hexdigest(),
-                       "outputs": sorted(output["id"] for output in outputs), "state": task.task_state,
-                       "quiet": 0, "at": now.isoformat()}
+            current = {"state": task.task_state, "quiet": 0, "at": now.isoformat()}
             if previous is None:
                 message = f"{tid} baseline stored: 0 quiet chunks"
             else:
                 # Only what the owner can see counts. A Verified line rewritten each chunk with the agent's own
-                # self-checks (tests passed, readback matched) kept runaway handoffs looking busy on 2026-11-04.
+                # self-checks (tests passed, readback matched) kept runaway handoffs looking busy on 2026-11-04;
+                # task drafts and reflections held in the vault are also invisible to the owner.
                 reasons = []
-                if any(output["id"] not in previous["outputs"] and
-                       _created_since(output["created"], previous["at"], config) for output in outputs):
-                    reasons.append("new output")
                 if _work_saved(task.work, pushed, previous, config):
                     reasons.append("work saved")
                 if current["state"] != previous["state"] and task.task_state in (*tasks.RESTING, "completed", "cancelled"):

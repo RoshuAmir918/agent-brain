@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -841,7 +842,10 @@ def cmd_task(args):
 
 def cmd_handoff(args):
     try:
-        task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), args.report or "", work=args.work)
+        # On Demiurge the runtime names the conversation this turn is in: the report goes back where the work was asked for.
+        here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
+        report = f"demiurge:{here}" if here and not (args.report or "").startswith("demiurge:") else (args.report or "")
+        task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work)
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)

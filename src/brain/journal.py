@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -73,14 +74,19 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     touched = [title for title in dict.fromkeys(_clean(title) for title in record.get("touched") or [])
                if title and (target := vault.resolve(title)) and _public(vault, target)]
     for loop in record.get("loops") or []:
-        loops.add(config, local, loop["kind"], loop["text"], touched[0] if touched else "Conversations",
-                  loop.get("with") or "", loop.get("due") or "")
-    for which in record.get("closed") or []:
+        try:
+            loops.add(config, local, loop["kind"], loop["text"], touched[0] if touched else "Conversations",
+                      loop.get("with") or "", loop.get("due") or "")
+        except ValueError as error:
+            print(f"skipped loop: {error}", file=sys.stderr)
+    for closure in record.get("closed") or []:
+        which, outcome, why = ((closure, "done", "closed in conversation") if isinstance(closure, str) else
+                               (closure["loop"], closure["outcome"], closure["why"]))
         # A retried record or another session may already have closed this loop.
         if any(item.id == which or loops._plain(item.text) == loops._plain(which)
                for item in loops.open_loops(config)):
             try:
-                loops.close(config, which, local, "done", "closed in conversation")
+                loops.close(config, which, local, outcome, why)
             except ValueError:
                 pass   # ambiguous text or a concurrent close leaves the rest of the capture intact
     for which in record.get("ready") or []:

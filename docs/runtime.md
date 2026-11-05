@@ -120,3 +120,4 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 - 0.31.0: only `AGENT_HOME` and `runtime_dir` are supported; removed the folder migration command and compatibility aliases. Maintainer commands work without a runtime; updates skip script reinstalls when `AGENT_HOME` is unset.
 - 0.32.0: a routine's skill declares its context sections; `brain compile-context --sections`.
 - 0.33.0: the runtime writes `works/LIBRARY.md` and `records/works/state.json`; the engine reads the `library` context section and counts a task's saved work as progress.
+- 0.34.0: conversation closures carry `loop`, `outcome` and `why` (legacy strings still apply); loop additions validate known counterparts and refuse the owner; vault drafts and reflections no longer count as continue progress.

@@ -101,7 +101,7 @@ def test_alternate_id_resolves_a_person_and_ambiguity_is_a_stranger(config):
 ])
 def test_invalid_entries_are_dropped_without_failing_the_record(config, entry):
     journal.append_entry(config, {"headline": "Conversation recorded.", "outcome": "done", "access": [entry],
-                                 "loops": [{"kind": "owed", "text": "Relay the answer"}]},
+                                 "loops": [{"kind": "owed", "text": "Relay the answer", "with": "Kevin"}]},
                          "demiurge", AT, user_id="k57kevin")
     assert not (config.vault_path / "People/Access").exists()
     assert [item.text for item in loops.open_loops(config)] == ["Relay the answer"]
