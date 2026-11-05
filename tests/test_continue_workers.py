@@ -120,7 +120,7 @@ def test_due_json_shape_order_and_daily(worker, capsys):
     assert output[1] == {"id": "T-001", "title": "Sample", "state": "in_progress", "pace": "regular",
                          "handedOff": "2026-11-05", "report": "demiurge:conversation", "work": "result",
                          "delivers": "notes in Home", "next": "deliver the notes", "lastChunk": first,
-                         "checkpoint": None, "chunksToday": 1, "budgetLeft": 15}
+                         "checkpoint": None, "chunksToday": 1, "budget": 16, "budgetLeft": 15}
     assert output[0]["lastChunk"] is None and output[0]["next"] is None and output[0]["work"] is None
     assert output[0]["chunksToday"] == 0 and output[0]["budgetLeft"] == 16
     tasks.set_pace(config, "T-001", "daily", config.today())
@@ -167,7 +167,8 @@ def test_sixteenth_chunk_budget_waits_until_next_local_day(worker, capsys):
     assert json.loads(cli(config, capsys, "--due", "--json")) == []
     clock[0] += timedelta(minutes=2)
     result = json.loads(cli(config, capsys, "--due", "--json"))[0]
-    assert result["chunksToday"] == 0 and result["budgetLeft"] == 16
+    # A new local day with no owner engagement since the handoff: the budget halves (whole again on engagement).
+    assert result["chunksToday"] == 0 and result["budget"] == 8 and result["budgetLeft"] == 8
     assert "T-001" in signals.continue_(config)
     cli(config, capsys, "--chunk", "T-001")
     assert row(config, home)["chunks"] == {"date": "2026-11-06", "count": 1}

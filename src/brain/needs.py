@@ -465,3 +465,21 @@ def expire_confirms(config: Config, today: date) -> list[str]:
     if removed:
         path.write_bytes(new.encode("utf-8"))
     return [item.text for item in removed]
+
+
+GENERIC_ASK = re.compile(
+    r"^(?:do you |can you |could you |should i |shall i |want me to |is it ok(?:ay)? (?:if i |to )?)?"
+    r"(?:approve|okay|ok|confirm|accept|allow|proceed(?: with)?|go ahead(?: with)?|do|continue(?: with)?)"
+    r"(?:(?: with)? (?:the |this |that |my )?(?:proposed |suggested |pending |planned |above |next )?"
+    r"(?:action|plan|change|step|request|option|proposal|item|task|idea|it|one)s?)?\s*\??$", re.I)
+
+
+def vague_ask(text: str) -> str | None:
+    """Why an ask cannot stand alone, read cold on a phone, or None when it can. An ask names its subject and the
+    choice ("Want me to publish the 86 verified offers to In The Block now?"), never only "approve the proposed action"."""
+    words = re.findall(r"[\w'’-]+", text)
+    if GENERIC_ASK.match(" ".join(text.split())):
+        return "it does not say what is being approved; name the subject and the choice"
+    if len(words) < 2:
+        return "it is too short to stand alone; name the subject and the choice"
+    return None

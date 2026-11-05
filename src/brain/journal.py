@@ -106,7 +106,11 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
                 except ValueError:
                     pass   # already gone, or an item that resolves where it lives
     if needs_you := _clean(record.get("needsYou")):
-        add_ask(config, local.date(), needs_you, touched[0] if touched else None)
+        from .needs import vague_ask
+        if (reason := vague_ask(needs_you)):
+            print(f"skipped ask {needs_you!r}: {reason}", file=sys.stderr)
+        else:
+            add_ask(config, local.date(), needs_you, touched[0] if touched else None)
     from .session_context import is_owner
     owner = is_owner(config, platform, tuple(value for value in (user_id, user_id_alt) if value))
     if owner:

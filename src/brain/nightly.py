@@ -649,6 +649,10 @@ def cmd_needs_you(args):
     if args.source and not args.ask:
         raise SystemExit("brain needs-you: --source goes with --ask")
     if args.ask:
+        from .needs import vague_ask
+        if (reason := vague_ask(args.ask)):
+            print(f"ask refused: {reason}", file=sys.stderr)
+            sys.exit(2)
         journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "")
         count = len(needs.open_asks((args.config.vault_path / "CURRENT.md").read_bytes().decode("utf-8")))
         if count > needs.OPEN_ASKS:
@@ -897,6 +901,10 @@ def cmd_task(args):
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
+    # A task created, changed or closed in a conversation (not by a background worker) is its owner engaging with it.
+    if os.environ.get("DEMIURGE_CONVERSATION", "").strip() and not os.environ.get("DEMIURGE_TASK", "").strip():
+        from . import continuation
+        continuation.mark_engaged(args.config, task.tid)
     if args.tid == "new":
         print(json.dumps({"id": task.tid, "title": task.title}, ensure_ascii=False) if args.json
               else f"{task.tid} created: {task.title}")
@@ -915,6 +923,8 @@ def cmd_handoff(args):
         report = f"demiurge:{here}" if here and not (args.report or "").startswith("demiurge:") else (args.report or "")
         with vault_lock(args.config):
             task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work)
+        from . import continuation
+        continuation.mark_engaged(args.config, task.tid)
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -937,6 +947,10 @@ def cmd_continue(args):
     if (args.chunk or args.pace or args.checkpoint) and (args.json or args.daily):
         print("--json and --daily go with --due", file=sys.stderr)
         sys.exit(2)
+    if args.engaged:
+        continuation.mark_engaged(args.config, args.engaged)
+        print(f"{args.engaged} engaged")
+        return
     if args.chunk or args.pace or args.checkpoint:
         try:
             if args.chunk:
@@ -956,16 +970,18 @@ def cmd_continue(args):
     registered, archived = load_tasks(args.config)
     worked = continuation.last_worked(args.config)
     chunks = continuation.chunks_today(args.config)
+    limits = continuation.budgets(args.config, registered + archived)
     ready = tasks_mod.due(registered + archived, pace="daily" if args.daily else "regular",
                           worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks,
-                          now=tasks_mod.local_now(args.config))
+                          now=tasks_mod.local_now(args.config), budgets=limits)
     if args.json:
         print(json.dumps([{"id": task.tid, "title": task.title, "state": task.task_state, "pace": tasks_mod.pace(task),
                            "handedOff": task.handoff[0], "report": task.handoff[1], "work": task.work,
                            "delivers": task.delivers, "next": state._field(task.body, "Next", "Next action"),
                            "lastChunk": worked.get(task.tid), "checkpoint": continuation.checkpoint_text(task.tid),
                            "chunksToday": chunks.get(task.tid, 0),
-                           "budgetLeft": None if args.daily else max(0, args.config.daily_chunks - chunks.get(task.tid, 0))}
+                           "budget": None if args.daily else limits.get(task.tid, args.config.daily_chunks),
+                           "budgetLeft": None if args.daily else max(0, limits.get(task.tid, args.config.daily_chunks) - chunks.get(task.tid, 0))}
                           for task in ready], ensure_ascii=False, indent=2))
         return
     if not ready:
@@ -1300,6 +1316,7 @@ def main(argv=None):
     mode.add_argument("--chunk", metavar="TASK")
     mode.add_argument("--pace", nargs=2, metavar=("TASK", "regular|daily"))
     mode.add_argument("--checkpoint", metavar="TASK", help="save a per-task continue checkpoint")
+    mode.add_argument("--engaged", metavar="TASK", help="record that the owner engaged with the task now (its daily budget is whole again)")
     s.add_argument("--text", help="with --checkpoint: where the chunk stopped")
     s.add_argument("--json", action="store_true", help="with --due: JSON array; empty array exits 0")
     s.add_argument("--daily", action="store_true", help="list daily-pace tasks")

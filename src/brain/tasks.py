@@ -186,6 +186,10 @@ def _field_value(config: Config, name: str, value: str) -> str:
     value = single_line(name, value)
     if name == "resume" and not RESUME.fullmatch(value):
         raise ValueError("resume must be YYYY-MM-DD or YYYY-MM-DD HH:MM, in the owner's local time")
+    if name == "ask":
+        from .needs import vague_ask
+        if (reason := vague_ask(value)):
+            raise ValueError(f"ask refused: {reason}")
     limit = {"ask": 16, "why": 40}.get(name)
     if limit and len(value.split()) > limit:
         raise ValueError(f"{name} must be at most {limit} words")
@@ -443,7 +447,8 @@ def save_task(config: Config, task: Task, today: date) -> None:
 
 
 def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None = None, *,
-        chunks: dict[str, int] | None = None, daily_chunks: int = DAILY_CHUNKS, now: str | None = None) -> list[Task]:
+        chunks: dict[str, int] | None = None, daily_chunks: int = DAILY_CHUNKS, now: str | None = None,
+        budgets: dict[str, int] | None = None) -> list[Task]:
     """Handed-off tasks the continue routine should work now: open and not resting on the owner. With `worked` (each
     task's last chunk), the one worked least recently comes first and a task never worked before all of them, so one
     long task cannot hold the slot; otherwise, oldest handoff first. `chunks` is
@@ -451,7 +456,8 @@ def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None 
     worked = worked or {}
     chunks = chunks or {}
     return sorted((t for t in tasks if is_open(t) and t.handoff and t.task_state not in RESTING
-                   and _pace(t.body) == pace and (pace == "daily" or chunks.get(t.tid, 0) < daily_chunks)
+                   and _pace(t.body) == pace
+                   and (pace == "daily" or chunks.get(t.tid, 0) < (budgets or {}).get(t.tid, daily_chunks))
                    # A task resting until a time (`now` is the owner's local "YYYY-MM-DD HH:MM") waits for it.
                    and not (now and t.resume and (t.resume if " " in t.resume else t.resume + " 00:00") > now)),
                   key=lambda t: (worked.get(t.tid, ""), t.handoff[0], t.tid))

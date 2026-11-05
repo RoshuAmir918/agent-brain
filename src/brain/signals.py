@@ -108,7 +108,7 @@ def continue_(config: Config, daily: bool = False) -> str:
     registered, archived = tasks.load_tasks(config)
     due = tasks.due(registered + archived, pace="daily" if daily else "regular",
                     chunks=continuation.chunks_today(config), daily_chunks=config.daily_chunks,
-                    now=tasks.local_now(config))
+                    now=tasks.local_now(config), budgets=continuation.budgets(config, registered + archived))
     lines = [f"date: {now.date().isoformat()}" if due else "date: none"]
     for task in sorted(due, key=lambda task: task.tid):
         if daily:

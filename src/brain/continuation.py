@@ -7,7 +7,7 @@ import json
 import re
 import subprocess
 import tempfile
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from . import runtime, signals, tasks
@@ -85,6 +85,61 @@ def _count(row: dict, day: str) -> int:
 def chunks_today(config: Config) -> dict[str, int]:
     day = _local_now(config).date().isoformat()
     return {tid: _count(row, day) for tid, row in _progress(config).items()}
+
+
+def _engaged_path() -> Path:
+    return signals._home() / "records" / "continue" / "engaged.json"
+
+
+def engaged_at(config: Config) -> dict[str, str]:
+    """When the owner last engaged with each task (a handoff, an instruction in a conversation, an answer), by task."""
+    if runtime.configured() is None:
+        return {}
+    try:
+        records = json.loads(_engaged_path().read_text(encoding="utf-8"))
+        rows = records.get(str(config.vault_path.resolve()), {})
+        return {tid: at for tid, at in rows.items() if isinstance(at, str)}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def mark_engaged(config: Config, tid: str) -> None:
+    """The owner engaged with the task now: its daily budget is whole again."""
+    if runtime.configured() is None:
+        return
+    path = _engaged_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with (path.parent / "progress.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            records = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            records = {}
+        records.setdefault(str(config.vault_path.resolve()), {})[tid] = _local_now(config).isoformat()
+        staged = path.with_suffix(".json.tmp")
+        staged.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
+        staged.replace(path)
+
+
+def budget_for(config: Config, task, engaged: dict[str, str] | None = None) -> int:
+    """Today's chunk budget: whole on a day the owner engaged with the task (or handed it off), then halved for each
+    day without engagement, down to one. A task nobody is following slows down by itself instead of circling."""
+    engaged = engaged_at(config) if engaged is None else engaged
+    anchors = [task.handoff[0]] if task.handoff else []
+    if engaged.get(task.tid):
+        anchors.append(engaged[task.tid][:10])
+    if not anchors:
+        return config.daily_chunks
+    try:
+        days = (_local_now(config).date() - date.fromisoformat(max(anchors))).days
+    except ValueError:
+        return config.daily_chunks
+    return config.daily_chunks if days <= 0 else max(1, config.daily_chunks >> days)
+
+
+def budgets(config: Config, task_list) -> dict[str, int]:
+    engaged = engaged_at(config)
+    return {task.tid: budget_for(config, task, engaged) for task in task_list}
 
 
 def checkpoint(config: Config, tid: str, text: str) -> None:
@@ -185,6 +240,8 @@ def chunk(config: Config, tid: str) -> str:
             staged = path.with_suffix(".json.tmp")
             staged.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
             staged.replace(path)
-            if tasks.pace(task) == "regular" and count == config.daily_chunks:
-                message = f"{tid} reached today's budget of {config.daily_chunks} chunks; it waits until tomorrow"
+            limit = budget_for(config, task)
+            if tasks.pace(task) == "regular" and count == limit:
+                message = (f"{tid} reached today's budget of {limit} chunks; it waits until tomorrow"
+                           + ("" if limit == config.daily_chunks else " (the budget is smaller while its owner has not engaged)"))
             return message
