@@ -191,3 +191,33 @@ def test_vault_at_the_repo_root_means_the_configured_vault(tmp_path):
     (tmp_path / "memory").mkdir()
     assert Config.load(tmp_path).vault_path == (tmp_path / "memory").resolve()
     assert Config.load(tmp_path / "memory").vault_path == (tmp_path / "memory").resolve()
+
+
+def test_continue_budget_default_toml_and_env(tmp_path, monkeypatch):
+    monkeypatch.delenv("BRAIN_DAILY_CHUNKS", raising=False)
+    assert Config.load(cwd=tmp_path).daily_chunks == 16
+    (tmp_path / "brain.toml").write_text("[continue]\ndaily_chunks = 7\n")
+    assert Config.load(cwd=tmp_path).daily_chunks == 7
+    monkeypatch.setenv("BRAIN_DAILY_CHUNKS", "4")
+    assert Config.load(cwd=tmp_path).daily_chunks == 4
+
+
+@pytest.mark.parametrize("setting", ["0", "-1", "true", '"4"', "1.5", '[]'])
+def test_invalid_continue_budget_toml(tmp_path, monkeypatch, setting):
+    monkeypatch.delenv("BRAIN_DAILY_CHUNKS", raising=False)
+    (tmp_path / "brain.toml").write_text("[continue]\ndaily_chunks = " + setting + "\n")
+    with pytest.raises(ValueError, match="continue.daily_chunks must be a positive integer"):
+        Config.load(cwd=tmp_path)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "true", "", "1.5", "many"])
+def test_invalid_continue_budget_env(tmp_path, monkeypatch, value):
+    monkeypatch.setenv("BRAIN_DAILY_CHUNKS", value)
+    with pytest.raises(ValueError, match="BRAIN_DAILY_CHUNKS must be a positive integer"):
+        Config.load(cwd=tmp_path)
+
+
+def test_continue_rejects_unknown_settings(tmp_path):
+    (tmp_path / "brain.toml").write_text("[continue]\nunknown = 1\n")
+    with pytest.raises(ValueError, match="only daily_chunks"):
+        Config.load(cwd=tmp_path)

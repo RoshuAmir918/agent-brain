@@ -1,4 +1,8 @@
-"""The open-task register: parsing, per-task state, tiering, archive moves."""
+"""The open-task register: parsing, per-task state, tiering, archive moves.
+
+Mutation helpers are lock-free: callers must hold vault_lock across the entire
+read/modify/write operation. The CLI, ideas, needs-you and nightly own that lock.
+"""
 from __future__ import annotations
 
 import re
@@ -7,7 +11,8 @@ from datetime import date
 from pathlib import Path
 
 from . import activation as act, fm, works
-from .config import Config
+from .config import DAILY_CHUNKS, Config
+from .vault import TASK_ID_RE, Vault
 
 TASK_HEAD_RE = re.compile(r"^### (T-\d{3}) — (.+?)\s*$", re.M)
 STATE_RE = re.compile(r"^<!-- brain: (.*?) -->\s*$", re.M)
@@ -151,6 +156,142 @@ HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
 PACE_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[^\n]*\n?", re.M)
 WORK_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Work:\*\*[^\n]*\n?", re.M)
 RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
+FIELDS = ("status", "next", "verified", "blocker", "ask", "why", "delivers", "hub")
+
+
+def single_line(name: str, value: str) -> str:
+    if any(char in value for char in "\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"):
+        raise ValueError(f"{name} must be single-line (no newlines)")
+    return value.strip()
+
+
+def note_name(config: Config, value: str) -> str:
+    value = single_line("hub", value)
+    if not value or any(char in value for char in "[]#|"):
+        raise ValueError("hub must name an existing note, without wikilink brackets")
+    resolved = Vault(config.vault_path).resolve(value)
+    if resolved is None or not resolved.endswith(".md"):
+        raise ValueError(f"hub note does not exist: {value}")
+    return resolved.removesuffix(".md")
+
+
+def _field_value(config: Config, name: str, value: str) -> str:
+    value = single_line(name, value)
+    limit = {"ask": 16, "why": 40}.get(name)
+    if limit and len(value.split()) > limit:
+        raise ValueError(f"{name} must be at most {limit} words")
+    return f"[[{note_name(config, value)}]]" if name == "hub" else value
+
+
+def _replace_field(body: str, name: str, value: str | None) -> str:
+    """Replace a whole field block (its line and the indented lines continuing it, and any duplicates), leaving
+    everything else in the entry alone: notes, dated sections and other fields."""
+    aliases = {name, "next action"} if name == "next" else {name}
+    lines = body.splitlines(keepends=True)
+    out, placed, skipping, blanks = [], False, False, []
+    line_for = f"- **{name.title()}:** {value}\n" if value is not None else ""
+    for line in lines:
+        head = re.match(r"^[ \t]*-[ \t]+\*\*([^*\n]+):\*\*", line)
+        if head and head[1].strip().casefold() in aliases and not line[:1].isspace():
+            skipping, blanks = True, []
+            if not placed:
+                out.append(line_for)
+                placed = True
+            continue
+        if skipping and not line.strip():
+            blanks.append(line)   # a blank inside the field is dropped only if an indented line follows
+            continue
+        if skipping and line[:1] in (" ", "\t"):
+            blanks = []
+            continue   # a continuation of the replaced field
+        skipping = False
+        out.extend(blanks)
+        blanks = []
+        out.append(line)
+    out.extend(blanks)
+    body = "".join(out)
+    if not placed and line_for:
+        body = body.rstrip("\n") + "\n" + line_for
+    return body
+
+
+def set_fields(config: Config, tid: str, today: date, *, state: str | None = None,
+               values: dict[str, str] | None = None, clear: list[str] | tuple[str, ...] = (),
+               reviewed: str | None = None) -> Task:
+    """Update an open task's full entry; the caller holds the vault lock. `reviewed` appends a dated Reviewed line
+    (the evening's decisions accumulate; they are never replaced)."""
+    values = values or {}
+    if set(values) - set(FIELDS) or set(clear) - set(FIELDS):
+        raise ValueError("unknown task field")
+    if set(values) & set(clear):
+        raise ValueError("a field cannot be set and cleared together")
+    if state is not None:
+        state = normal_state(single_line("state", state))
+        if state in ("completed", "cancelled"):
+            raise ValueError("use task done or drop with evidence to close a task")
+        if state not in TASK_STATES:
+            raise ValueError(f"unknown task state: {state}")
+    if reviewed is not None:
+        reviewed = single_line("reviewed", reviewed)
+    if state is None and not values and not clear and not reviewed:
+        raise ValueError("set needs a field, --state or --clear")
+    values = {name: _field_value(config, name, value) for name, value in values.items()}
+    registered, archived = load_tasks(config)
+    task = next((t for t in registered + archived if t.tid == tid), None)
+    if task is None or not is_open(task):
+        raise ValueError(f"{tid} is not an open task (unknown or closed)")
+    if state is not None:
+        task.state["state"] = state
+        task.state.pop("status", None)
+    for name in dict.fromkeys([*values, *clear]):
+        task.body = _replace_field(task.body, name, values.get(name))
+    if reviewed:
+        task.body = task.body.rstrip("\n") + f"\n- **Reviewed:** {today.isoformat()} — {reviewed}\n"
+    save_task(config, task, today)
+    return task
+
+
+def next_id(config: Config) -> str:
+    """Next id after every task reference in the vault, including closed/archived tasks."""
+    vault = Vault(config.vault_path)
+    used = [int(number) for note in vault.notes.values() for number in TASK_ID_RE.findall(note.body)]
+    number = max(used, default=0) + 1
+    if number > 999:
+        raise ValueError("no unused T-nnn task id remains")
+    return f"T-{number:03d}"
+
+
+def append_task(config: Config, task: Task) -> None:
+    """Append a full entry to the register; the caller holds the vault lock."""
+    register = config.vault_path / config.agent("Tasks.md")
+    data, body = fm.read(register) if register.exists() else ({"kind": "orientation"}, "# Tasks\n\n## Active work\n")
+    register.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(register, data, body.rstrip("\n") + "\n\n" + task.render() + "\n")
+
+
+def new_task(config: Config, title: str, source: str, *, state: str = "ready",
+             values: dict[str, str] | None = None, work: str | None = None) -> Task:
+    """Create a task without handing it off; the caller holds the vault lock."""
+    title, source = single_line("title", title), single_line("source", source)
+    if not title or not source:
+        raise ValueError("new needs a nonempty title and --source")
+    state = normal_state(single_line("state", state))
+    if state not in ("ready", "in_progress"):
+        raise ValueError("new task state must be ready or in_progress")
+    if work is not None and not works.SLUG.fullmatch(work):
+        raise ValueError("work slug must match [a-z0-9-]+")
+    values = values or {}
+    if set(values) - {"status", "next", "delivers", "hub"}:
+        raise ValueError("unsupported new task field")
+    body = "".join(f"- **{name.title()}:** {_field_value(config, name, value)}\n" for name, value in values.items())
+    resolved = Vault(config.vault_path).resolve(source)
+    source = f"[[{resolved.removesuffix('.md')}]]" if resolved else f'"{source}"'
+    body += f"- **Source:** {source}\n"
+    if work is not None:
+        body += f"- **Work:** {work}\n"
+    task = Task(next_id(config), title, body, {"state": state})
+    append_task(config, task)
+    return task
 
 
 def pace(task: Task) -> str:
@@ -275,13 +416,16 @@ def save_task(config: Config, task: Task, today: date) -> None:
             fm.write(reg, data, body[:s] + task.render_line(config) + ("\n" if body[e:] and not body[e:].startswith("\n") else "") + body[e:])
 
 
-def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None = None) -> list[Task]:
+def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None = None, *,
+        chunks: dict[str, int] | None = None, daily_chunks: int = DAILY_CHUNKS) -> list[Task]:
     """Handed-off tasks the continue routine should work now: open and not resting on the owner. With `worked` (each
     task's last chunk), the one worked least recently comes first and a task never worked before all of them, so one
-    long task cannot hold the slot; otherwise, oldest handoff first."""
+    long task cannot hold the slot; otherwise, oldest handoff first. `chunks` is
+    today's local-day count per task; regular tasks at their budget wait."""
     worked = worked or {}
+    chunks = chunks or {}
     return sorted((t for t in tasks if is_open(t) and t.handoff and t.task_state not in RESTING
-                   and _pace(t.body) == pace),
+                   and _pace(t.body) == pace and (pace == "daily" or chunks.get(t.tid, 0) < daily_chunks)),
                   key=lambda t: (worked.get(t.tid, ""), t.handoff[0], t.tid))
 
 

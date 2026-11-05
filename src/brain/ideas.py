@@ -9,7 +9,7 @@ from . import needs as needs_mod
 from .config import Config
 from .lock import vault_lock
 from .needs import Item
-from .vault import TASK_ID_RE, Vault
+from .vault import Vault
 
 NEW_DAYS = 21
 COOLDOWN_NEW = 1
@@ -200,21 +200,13 @@ def respond(config: Config, which: str, today: date, answer: str) -> Item:
         item = chosen[0]
         tid = None
         if answer == "yes":
-            vault = Vault(config.vault_path)
-            used = [int(number) for note in vault.notes.values() for number in TASK_ID_RE.findall(note.body)]
-            number = max(used, default=0) + 1
-            if number > 999:
-                raise ValueError("no unused T-nnn task id remains")
-            tid = f"T-{number:03d}"
+            tid = tasks.next_id(config)
             body = f"- **Status:** {item.detail}\n"
             if item.needs:
                 body += f"- **Needs:** {item.needs}\n"
             body += f"- **Source:** [[{item.source}]]\n"
             task = tasks.Task(tid, item.text, tasks.with_handoff(body, today, "Home"), {"state": "ready"})
-            register = config.vault_path / config.agent("Tasks.md")
-            data, body = fm.read(register) if register.exists() else ({"kind": "orientation"}, "# Tasks\n\n## Active work\n")
-            register.parent.mkdir(parents=True, exist_ok=True)
-            fm.write(register, data, body.rstrip("\n") + "\n\n" + task.render() + "\n")
+            tasks.append_task(config, task)
         if answer != "not-now":
             if item.origin == "ideas":
                 path = config.vault_path / config.agent("Ideas.md")

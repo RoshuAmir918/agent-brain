@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 SECTIONS = ("before", "start", "current", "primed", "goals", "triggers", "upcoming", "tasks", "library", "directory")   # the parts of .context.md, in order
 PEOPLE_FORMS = ("off", "line", "card")   # the people pointer prefetch adds for a person named in a message
 FORMS = ("names", "snippet", "full")
+DAILY_CHUNKS = 16
 
 
 def pinned_today() -> date | None:
@@ -156,6 +157,7 @@ class Config:
             raise ValueError(f"brain.timezone is not a known zone: {config.timezone}")
         pinned_today()
         config.context   # invalid context settings fail here, not mid-command
+        config.daily_chunks
         return replace(config,
                        **paths,
                        human_name=os.environ.get("BRAIN_HUMAN_NAME", config.human_name),
@@ -191,6 +193,22 @@ class Config:
             return Context.load({})
         with path.open("rb") as stream:
             return Context.load(tomllib.load(stream).get("context", {}))
+
+    @cached_property
+    def daily_chunks(self) -> int:
+        path = self.repo / "brain.toml"
+        values = {}
+        if path.is_file():
+            with path.open("rb") as stream:
+                values = tomllib.load(stream).get("continue", {})
+        if not isinstance(values, dict) or set(values) - {"daily_chunks"}:
+            raise ValueError("brain.toml [continue] must contain only daily_chunks")
+        raw = os.environ.get("BRAIN_DAILY_CHUNKS")
+        where = "BRAIN_DAILY_CHUNKS" if raw is not None else "continue.daily_chunks"
+        value = (int(raw) if raw.strip().isdigit() else None) if raw is not None else values.get("daily_chunks", DAILY_CHUNKS)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise ValueError(f"{where} must be a positive integer")
+        return value
 
     @property
     def human_goals(self) -> str:

@@ -78,6 +78,8 @@ Monitors: the runtime runs the monitor with the routine's environment and workin
 
 ## 4. What the runtime records, and the engine reads
 
+`$AGENT_HOME/records/continue/tasks/<id>.json`: the engine's per-task checkpoint, `{task, at, text}`, atomically replaced by `brain continue --checkpoint T-nnn --text "..."`. Both text and JSON due lists expose its text. The legacy `records/continue/state.json` is left untouched. `records/continue/progress.json` remains keyed by resolved vault path and task id; each record adds `chunks: {date, count}` for the owner's local day. Missing counts mean zero.
+
 `$AGENT_HOME/works/LIBRARY.md`: a `# Library` heading, then one line per work, `- Title | slug | form | status | editable|read-only | ISO updated`, followed by plain-sentence notices about refusals, conflicts or errors. Each work is a git repository with a working copy at `$AGENT_HOME/works/<slug>/`. The runtime refreshes the listing on every run. The engine's `library` context section strips the title, includes up to forty work lines and keeps every notice; it is silently absent without `AGENT_HOME`, the file, or any works or notices.
 
 `$AGENT_HOME/records/works/state.json`: a map from work slug to `{lastPull?, lastPush?, lastCommit?: {hash, when}, refusal?, conflict?, error?}`, with ISO timestamps. `_library` is reserved, not a work. The runtime writes it; the engine reads successful pushes as progress for a task naming that work. A local commit without a push does not count, and missing or unreadable state is no progress.
@@ -112,6 +114,8 @@ The runtime gives the agent these tools besides its six workspace tools: `demiur
 A routine's skill may declare, in its frontmatter's `metadata.runtime`, the compiled-context sections its run needs: `context: [start, current, tasks, library]`, from `before`, `start`, `current`, `primed`, `goals`, `triggers`, `upcoming`, `tasks`, `library`, `directory`. The runtime then loads `brain compile-context --sections <those>` for that run instead of the whole `.context.md`; an empty list means no compiled context. A skill without the declaration gets the whole context. The engine owns these declarations, since it owns the routines; a vault's own skills may declare them too. Requested sections remain within the vault's `[context].sections` allowlist; an explicit list must include `library` to load it.
 
 ## 6. Changes
+
+- 0.36.0: all task-writing commands hold the vault lock; `brain task T-nnn set` edits open task fields and `brain task new` creates entries with the shared idea allocator. Per-task continue checkpoints live in `records/continue/tasks/<id>.json`. `brain continue --due --json` exposes ordered scheduling state, checkpoints and chunk counts, returning `[]` with exit 0 when none. Regular tasks wait after 16 chunks per local day, configurable with `[continue] daily_chunks` or `BRAIN_DAILY_CHUNKS`; daily pace is unaffected. Existing continue routines and legacy state files remain compatible; no migration is required.
 
 - 0.29.0: this page; `schedule.toml` and `brain schedule`; `brain record-spec`; `AGENT_HOME`.
 

@@ -823,21 +823,42 @@ def cmd_channels(args):
 
 def cmd_task(args):
     try:
-        if args.action == "yours":
-            registered, archived = load_tasks(args.config)
-            task = next((t for t in registered + archived if t.tid == args.tid), None)
-            if task is None or not tasks_mod.is_open(task):
-                raise ValueError(f"{args.tid} is not an open task")
-            task.state["state"] = "yours"
-            task.state.pop("status", None)
-            tasks_mod.save_task(args.config, task, args.config.today())
-        else:
-            task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
-                                   args.why or "the owner closed it in their app")
+        values = {name: getattr(args, name) for name in tasks_mod.FIELDS if getattr(args, name) is not None}
+        if args.tid == "new":
+            if not args.source:
+                raise ValueError("task new needs --source")
+            if args.clear:
+                raise ValueError("--clear goes with task T-nnn set")
+        elif args.action not in ("done", "drop", "yours", "set"):
+            raise ValueError("task ACTION must be done, drop, yours or set")
+        elif args.source is not None or args.work is not None or args.json:
+            raise ValueError("--source, --work and --json go with task new")
+        elif args.action != "set" and (set(values) - {"why"} or args.state is not None or args.clear):
+            raise ValueError("field flags and --state/--clear go with task T-nnn set")
+        with vault_lock(args.config):
+            if args.tid == "new":
+                task = tasks_mod.new_task(args.config, args.action, args.source, state="ready" if args.state is None else args.state,
+                                          values=values, work=args.work)
+            elif args.action in ("set", "yours"):
+                task = tasks_mod.set_fields(args.config, args.tid, args.config.today(),
+                                            state="yours" if args.action == "yours" else args.state,
+                                            values=values if args.action == "set" else None, clear=args.clear or (),
+                                            reviewed=args.reviewed)
+            else:
+                task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
+                                       args.why or "the owner closed it in their app")
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
-    print(f"{task.tid} {task.task_state}: {task.title}")
+    if args.tid == "new":
+        print(json.dumps({"id": task.tid, "title": task.title}, ensure_ascii=False) if args.json
+              else f"{task.tid} created: {task.title}")
+    elif args.action == "set":
+        fields = ((["state"] if args.state is not None else []) + list(values) + [f"cleared {name}" for name in args.clear or ()]
+                  + (["reviewed"] if args.reviewed else []))
+        print(f"{task.tid} updated: {', '.join(fields)}")
+    else:
+        print(f"{task.tid} {task.task_state}: {task.title}")
 
 
 def cmd_handoff(args):
@@ -845,7 +866,8 @@ def cmd_handoff(args):
         # On Demiurge the runtime names the conversation this turn is in: the report goes back where the work was asked for.
         here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
         report = f"demiurge:{here}" if here and not (args.report or "").startswith("demiurge:") else (args.report or "")
-        task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work)
+        with vault_lock(args.config):
+            task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work)
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -855,11 +877,20 @@ def cmd_handoff(args):
 
 
 def cmd_continue(args):
-    if args.chunk or args.pace:
-        from . import continuation
+    from . import continuation
+    if (args.text is not None) != bool(args.checkpoint):
+        print("--checkpoint TASK requires --text; --text goes with --checkpoint", file=sys.stderr)
+        sys.exit(2)
+    if (args.chunk or args.pace or args.checkpoint) and (args.json or args.daily):
+        print("--json and --daily go with --due", file=sys.stderr)
+        sys.exit(2)
+    if args.chunk or args.pace or args.checkpoint:
         try:
             if args.chunk:
                 print(continuation.chunk(args.config, args.chunk))
+            elif args.checkpoint:
+                continuation.checkpoint(args.config, args.checkpoint, args.text)
+                print(f"{args.checkpoint} checkpoint saved")
             else:
                 tid, pace = args.pace
                 with vault_lock(args.config):
@@ -870,9 +901,19 @@ def cmd_continue(args):
             sys.exit(2)
         return
     registered, archived = load_tasks(args.config)
-    from . import continuation
+    worked = continuation.last_worked(args.config)
+    chunks = continuation.chunks_today(args.config)
     ready = tasks_mod.due(registered + archived, pace="daily" if args.daily else "regular",
-                          worked=continuation.last_worked(args.config))
+                          worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks)
+    if args.json:
+        print(json.dumps([{"id": task.tid, "title": task.title, "state": task.task_state, "pace": tasks_mod.pace(task),
+                           "handedOff": task.handoff[0], "report": task.handoff[1], "work": task.work,
+                           "delivers": task.delivers, "next": state._field(task.body, "Next", "Next action"),
+                           "lastChunk": worked.get(task.tid), "checkpoint": continuation.checkpoint_text(task.tid),
+                           "chunksToday": chunks.get(task.tid, 0),
+                           "budgetLeft": None if args.daily else max(0, args.config.daily_chunks - chunks.get(task.tid, 0))}
+                          for task in ready], ensure_ascii=False, indent=2))
+        return
     if not ready:
         print("nothing handed off is due")
         sys.exit(1)
@@ -880,7 +921,8 @@ def cmd_continue(args):
         nxt = state._field(task.body, "Next", "Next action") or ""
         print(f"{task.tid} · handed off {task.handoff[0]} · {task.title}" + (f" · next: {nxt[:160]}" if nxt else "")
               + (f" · work: {task.work}" if task.work else "")
-              + (f" · report in {task.handoff[1]}" if task.handoff[1] else ""))
+              + (f" · report in {task.handoff[1]}" if task.handoff[1] else "")
+              + (f" · checkpoint: {checkpoint}" if (checkpoint := continuation.checkpoint_text(task.tid)) is not None else ""))
 
 
 def cmd_watch_signal(args):
@@ -1173,19 +1215,35 @@ def main(argv=None):
     p.add_argument("--run", action="store_true"); p.add_argument("--vault"); p.set_defaults(fn=cmd_people)
     p = actions.add_parser("who", help="identify a person or intellect and find their vault profile")
     p.add_argument("ident"); p.add_argument("--json", action="store_true"); p.add_argument("--vault"); p.set_defaults(fn=cmd_people)
-    s = sub.add_parser("task", help="change one task for the owner: done, drop, or yours (their own work)")
-    s.add_argument("tid"); s.add_argument("action", choices=("done", "drop", "yours")); s.add_argument("--why", default="")
+    s = sub.add_parser("task", help="create a task or change one: done, drop, yours, set",
+                       description="brain task TID {done,drop,yours,set} [fields]; brain task new TITLE --source SOURCE")
+    s.add_argument("tid", metavar="TID|new", help="task id, or new to create a task")
+    s.add_argument("action", metavar="ACTION|TITLE", help="done, drop, yours, set; with new, the task title")
+    s.add_argument("--state", metavar="S", help="open task state; new accepts ready (default) or in_progress")
+    for name in tasks_mod.FIELDS:
+        s.add_argument("--" + name, metavar="NOTE" if name == "hub" else "TEXT",
+                       help="existing note name, without brackets" if name == "hub" else f"replace {name}; with --clear, remove it")
+    s.add_argument("--clear", nargs="+", choices=tasks_mod.FIELDS, metavar="FIELD", action="extend",
+                   help="remove fields (status, next, verified, blocker, ask, why, delivers, hub)")
+    s.add_argument("--reviewed", metavar="TEXT", help="with set: append a dated Reviewed line (the evening's decision and why)")
+    s.add_argument("--source", help="with new: the owner's words or a note name")
+    s.add_argument("--work", metavar="SLUG", help="with new: Library work slug")
+    s.add_argument("--json", action="store_true", help="with new: print {id, title}")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_task)
     s = sub.add_parser("handoff", help="mark a task the owner handed off: the continue routine works it until done or blocked")
     s.add_argument("tid"); s.add_argument("--report", default="", help="where to report, e.g. 'Home' or the room"); s.add_argument("--vault")
     s.add_argument("--work", help="Library work slug, e.g. 'trip-plan'")
     s.set_defaults(fn=cmd_handoff)
-    s = sub.add_parser("continue", help="handed-off tasks due now, oldest first; exits 1 when none")
+    s = sub.add_parser("continue", help="handed-off tasks due now, least recently worked first; text exits 1 when none")
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--due", action="store_true")
     mode.add_argument("--chunk", metavar="TASK")
     mode.add_argument("--pace", nargs=2, metavar=("TASK", "regular|daily"))
-    s.add_argument("--daily", action="store_true"); s.add_argument("--vault"); s.set_defaults(fn=cmd_continue)
+    mode.add_argument("--checkpoint", metavar="TASK", help="save a per-task continue checkpoint")
+    s.add_argument("--text", help="with --checkpoint: where the chunk stopped")
+    s.add_argument("--json", action="store_true", help="with --due: JSON array; empty array exits 0")
+    s.add_argument("--daily", action="store_true", help="list daily-pace tasks")
+    s.add_argument("--vault"); s.set_defaults(fn=cmd_continue)
     s = sub.add_parser("watch-signal", help="stable follow-through monitor output, without a model")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_watch_signal)
     s = sub.add_parser("continue-signal", help="stable due-handoff monitor output, without a model")

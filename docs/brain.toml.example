@@ -25,3 +25,6 @@ prefetch_chars = 1500
 prefetch_form = "names"
 hot_threshold = 7
 warm_threshold = 28
+
+[continue]
+daily_chunks = 16   # BRAIN_DAILY_CHUNKS: positive daily chunk budget per regular-pace task

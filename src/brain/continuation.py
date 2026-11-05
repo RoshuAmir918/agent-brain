@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import fcntl
 import json
+import re
 import subprocess
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
 from . import runtime, signals, tasks
-from .config import Config
+from .config import DAILY_CHUNKS, Config
 from .lock import vault_lock
 
 
@@ -50,16 +53,73 @@ def _work_saved(work: str | None, pushed: tuple[str, str] | None, previous: dict
     return same.returncode != 0
 
 
-def last_worked(config: Config) -> dict[str, str]:
-    """When each of this vault's handed-off tasks last had a chunk counted, from the progress record."""
+def _progress(config: Config) -> dict[str, dict]:
     if runtime.configured() is None:
         return {}
     try:
         records = json.loads((signals._home() / "records" / "continue" / "progress.json").read_text(encoding="utf-8"))
-        return {tid: row["at"] for tid, row in records.get(str(config.vault_path.resolve()), {}).items()
-                if isinstance(row, dict) and isinstance(row.get("at"), str)}
+        return {tid: row for tid, row in records.get(str(config.vault_path.resolve()), {}).items() if isinstance(row, dict)}
     except (OSError, ValueError, AttributeError):
         return {}
+
+
+def last_worked(config: Config) -> dict[str, str]:
+    """When each of this vault's handed-off tasks last had a chunk counted, from the progress record."""
+    return {tid: row["at"] for tid, row in _progress(config).items() if isinstance(row.get("at"), str)}
+
+
+def _local_now(config: Config) -> datetime:
+    now = config.now()
+    return now.replace(tzinfo=config.zone) if now.tzinfo is None else now.astimezone(config.zone)
+
+
+def _count(row: dict, day: str) -> int:
+    chunks = row.get("chunks", {})
+    if isinstance(chunks, dict) and chunks.get("date") == day:
+        count = chunks.get("count")
+        if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+            return count
+    return 0
+
+
+def chunks_today(config: Config) -> dict[str, int]:
+    day = _local_now(config).date().isoformat()
+    return {tid: _count(row, day) for tid, row in _progress(config).items()}
+
+
+def checkpoint(config: Config, tid: str, text: str) -> None:
+    """Atomically replace one task's checkpoint, holding the vault lock internally."""
+    if not re.fullmatch(r"T-\d{3}", tid):
+        raise ValueError("checkpoint needs a T-nnn task id")
+    if runtime.configured() is None:
+        raise ValueError("checkpoint needs AGENT_HOME")
+    with vault_lock(config):
+        registered, archived = tasks.load_tasks(config)
+        if not any(task.tid == tid for task in registered + archived) and not tasks.archive_path(config, tid).exists():
+            raise ValueError(f"unknown task: {tid}")
+        folder = runtime.home() / "records" / "continue" / "tasks"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{tid}.json"
+        staged = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folder, suffix=".tmp", delete=False) as stream:
+                staged = stream.name
+                json.dump({"task": tid, "at": _local_now(config).isoformat(), "text": text}, stream, ensure_ascii=False)
+                stream.write("\n")
+            Path(staged).replace(path)
+        finally:
+            if staged is not None:
+                Path(staged).unlink(missing_ok=True)
+
+
+def checkpoint_text(tid: str) -> str | None:
+    if runtime.configured() is None or not re.fullmatch(r"T-\d{3}", tid):
+        return None
+    try:
+        row = json.loads((runtime.home() / "records" / "continue" / "tasks" / f"{tid}.json").read_text(encoding="utf-8"))
+        return row["text"] if row.get("task") == tid and isinstance(row.get("text"), str) else None
+    except (OSError, ValueError, AttributeError):
+        return None
 
 
 def chunk(config: Config, tid: str) -> str:
@@ -86,10 +146,11 @@ def chunk(config: Config, tid: str) -> str:
                 records = {}
             key = str(config.vault_path.resolve())
             previous = records.get(key, {}).get(tid)
-            now = config.now()
-            now = now.replace(tzinfo=config.zone) if now.tzinfo is None else now
+            now = _local_now(config)
+            day = now.date().isoformat()
+            count = _count(previous or {}, day) + 1
             pushed = _work_commit(task.work)
-            current = {"state": task.task_state, "quiet": 0, "at": now.isoformat()}
+            current = {"state": task.task_state, "quiet": 0, "at": now.isoformat(), "chunks": {"date": day, "count": count}}
             if previous is None:
                 message = f"{tid} baseline stored: 0 quiet chunks"
             else:
@@ -124,4 +185,6 @@ def chunk(config: Config, tid: str) -> str:
             staged = path.with_suffix(".json.tmp")
             staged.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
             staged.replace(path)
+            if tasks.pace(task) == "regular" and count == config.daily_chunks:
+                message = f"{tid} reached today's budget of {config.daily_chunks} chunks; it waits until tomorrow"
             return message
