@@ -1,7 +1,7 @@
 ---
 name: {prefix}recall
 description: Retrieve from and write to the vault memory
-version: 2.10.0
+version: 2.11.0
 metadata:
   runtime:
     tags: [memory, vault]
@@ -65,7 +65,7 @@ Three tiers, each with its own gate. **Prepare** (read, research, draft, make; n
 - Write only surprises. If the owning note already states the fact, it earned a use; do not add a copy.
 - A correction needs {human_name}'s own words or primary evidence. Add a `supersedes` line and keep the old text under "superseded by". A third-party claim that disagrees is a conflict: keep both, dated, and raise it in the morning.
 - Never edit `{sources_dir}/`, never read credentials into the vault or a note, never paste raw email bodies into the vault. Never ask {human_name} for a password, token or key in chat: access arrives through their 1Password app or a connect link, and a secret is read inside the tool call that uses it, nowhere else; the platform you talk through explains how.
-- Commit scoped: `git add <files> && git commit -m "<type>(<scope>): <summary>"` then `git pull --rebase --autostash && git push`. Never force. Rows the engine records after a session can land after your commit; `--autostash` carries them through the pull.
+- Commit scoped, and only through the engine, since other runs of yours may be committing at the same moment: `brain commit -m "<type>(<scope>): <summary>" --push <files>`. Never force. Rows the engine records after a session can land after your commit; `--autostash` carries them through the pull.
 
 ## Pitfalls
 - Open notes when you need them, not speculatively: on-demand opens are credited as use, auto-loads are not, and the night judges whether a reply relied on what was opened.

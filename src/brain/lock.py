@@ -25,3 +25,18 @@ def vault_lock(config: Config):
             yield
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@contextmanager
+def repo_lock(config: Config):
+    """Held while git stages, commits, pulls or pushes the vault's repository. Separate from the vault lock: git only
+    collides with git, and a push should not hold up every task write while it waits on the network. Not reentrant."""
+    key = hashlib.sha256(str(config.repo.resolve()).encode("utf-8")).hexdigest()[:16]
+    folder = Path.home() / ".cache" / "brain"
+    folder.mkdir(parents=True, exist_ok=True)
+    with open(folder / f"repo-{key}.lock", "w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)

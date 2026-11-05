@@ -1,7 +1,7 @@
 ---
 name: {prefix}prime
 description: Write today for the owner, after the night and the People review
-version: 1.1.0
+version: 1.2.0
 metadata:
   runtime:
     tags: [memory, night]
@@ -22,7 +22,7 @@ One job: overwrite `{agent_dir}/Primed.md` with what today is for {human_name}. 
    - **Likely to come up.** The three notes most likely needed today, each with the note to load and its state in a sentence.
    - **Nudge.** At most one: a quiet open task reached from what is hot this week, not set aside, not `yours` (the evening asks about those), and not nudged since it last went quiet ("related to what you're on, untouched since <date>: still want this?"); or a goal in `{human_goals}` with no dated evidence for sixty days, once ("you said <goal> on <date>; nothing since. Still a goal?"). A goal silent for thirty more days after its nudge moves under Set aside with today's date; that is the one edit to Goals this routine makes.
 4. Nothing about the machinery: no audits, counts, stages, versions, commits or routine drift. Those are the Sleep Log's.
-5. `brain compile-context --write`, record `last_run` as above, commit `prime(<date>)` with the files you changed, and push.
+5. `brain compile-context --write`, record `last_run` as above, `brain commit -m "prime(<date>)" --push <the files you changed>`.
 
 ## Boundaries
 Writes only Primed, the compiled context, the prime state file, important mail facts in their owning tasks, and a dormant goal's move to Set aside. Never hubs, profiles, Triggers or CURRENT. Never copy message bodies or contact anyone from this pass.

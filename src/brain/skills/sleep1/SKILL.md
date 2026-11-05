@@ -1,7 +1,7 @@
 ---
 name: {prefix}sleep1
 description: Nightly consolidation of yesterday into memory
-version: 2.3.0
+version: 2.4.0
 metadata:
   runtime:
     tags: [memory, night]
@@ -19,7 +19,7 @@ The night's main job. Yesterday becomes long-term memory: new facts are written 
 - The directory's most active notes and any note the digest touches.
 
 ## Procedure
-1. **Resume check.** `cd $VAULT_REPO && git pull --rebase --autostash`. `git log --since=yesterday --grep='sleep1('` already has a commit for this date means resume: do only what is missing. Uncommitted rows in the vault's ledgers, Journal and Answered log are records the engine wrote since the last commit: they go into tonight's commit as they are. Never stash, revert or set aside working changes in the vault; a change you cannot account for is named in the Sleep Log and committed with the rest.
+1. **Resume check.** `brain pull`. `git log --since=yesterday --grep='sleep1('` already has a commit for this date means resume: do only what is missing. Uncommitted rows in the vault's ledgers, Journal and Answered log are records the engine wrote since the last commit: they go into tonight's commit as they are. Never stash, revert or set aside working changes in the vault; a change you cannot account for is named in the Sleep Log and committed with the rest.
 2. **Attribution check.** `git log --since=yesterday --grep='attribution('` should show the 01:30 commit. If it is missing, note the gap in the Sleep Log and continue; do not redo its work here.
 3. **Extract.** Read the digest and the mail once. A user turn labelled with a platform id or a name other than {human_name}'s is a third party speaking: its facts are claims attributed to that person, never {human_name}'s statements or decisions. List every candidate: a fact about a person, project or {human_name}; a decision; a preference; a correction; a promise or deadline; a question left open; a thing {human_name} said they wanted. Note the time and who said it.
 4. **Sort each candidate against its owning note** (hub, profile, task, Triggers, CURRENT), reading that note first:

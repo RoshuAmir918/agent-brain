@@ -408,25 +408,61 @@ def sh(repo: Path, *args: str) -> str:
     return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
 
 
-def commit(root: Path, message: str) -> str:
-    """Stage agent notes and session context. Returns the short SHA, or '' when clean."""
-    repo = Config.load(root).repo
-    tree = root.relative_to(repo).as_posix()
-    sh(repo, "add", "-A", "--", tree, f":(exclude){tree}/.brain", ".context.md")
-    if not sh(repo, "diff", "--cached", "--name-only"):
-        return ""
-    sh(repo, "commit", "-q", "-m", message)
-    return sh(repo, "rev-parse", "--short", "HEAD")
+def commit(root: Path, message: str, paths: list[str] | None = None) -> str:
+    """Stage and commit under the repository lock: the given paths, or else the agent's notes and session context.
+    Returns the short SHA, or '' when there was nothing to commit."""
+    from .lock import repo_lock
+    config = Config.load(root)
+    repo = config.repo
+    with repo_lock(config):
+        if paths:
+            sh(repo, "add", "-A", "--", *[str(Path(p).resolve()) for p in paths])
+        else:
+            tree = root.relative_to(repo).as_posix()
+            sh(repo, "add", "-A", "--", tree, f":(exclude){tree}/.brain", ".context.md")
+        if not sh(repo, "diff", "--cached", "--name-only"):
+            return ""
+        sh(repo, "commit", "-q", "-m", message)
+        return sh(repo, "rev-parse", "--short", "HEAD")
 
 
 def push(root: Path) -> None:
-    repo = Config.load(root).repo
+    from .lock import repo_lock
+    config = Config.load(root)
+    repo = config.repo
+    with repo_lock(config):
+        try:
+            sh(repo, "pull", "--rebase", "--autostash", "-q", "origin", "main")   # rows written after the commit wait
+        except subprocess.CalledProcessError:
+            subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
+            sys.exit("pull --rebase conflicted; resolve it by hand, nothing was pushed")
+        sh(repo, "push", "-q", "origin", "HEAD:main")
+
+
+def cmd_pull(a):
+    """`brain pull`: bring the vault up to date under the repository lock."""
+    from .lock import repo_lock
+    repo = a.config.repo
+    with repo_lock(a.config):
+        try:
+            sh(repo, "pull", "--rebase", "--autostash", "-q", "origin", "main")
+        except subprocess.CalledProcessError:
+            subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
+            sys.exit("pull --rebase conflicted; resolve it by hand")
+    print("up to date")
+
+
+def cmd_commit(a):
+    """`brain commit -m MESSAGE [--push] [PATH ...]`: the one way a run commits the vault, so parallel runs take turns."""
     try:
-        sh(repo, "pull", "--rebase", "--autostash", "-q", "origin", "main")   # rows written after the commit wait
-    except subprocess.CalledProcessError:
-        subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
-        sys.exit("pull --rebase conflicted; resolve it by hand, nothing was pushed")
-    sh(repo, "push", "-q", "origin", "HEAD:main")
+        sha = commit(a.config.vault_path, a.message, a.paths or None)
+    except subprocess.CalledProcessError as error:
+        print(f"commit failed: {error}", file=sys.stderr)
+        sys.exit(1)
+    print(f"committed {sha}" if sha else "nothing to commit")
+    if a.push:
+        push(a.config.vault_path)
+        print("pushed")
 
 
 # ---------- commands
@@ -1144,6 +1180,11 @@ def main(argv=None):
             enabled.add_argument("--enabled", action="store_true", default=None)
             enabled.add_argument("--disabled", dest="enabled", action="store_false")
             s.add_argument("--owner", action="store_true", default=None)
+    s = sub.add_parser("pull", help="bring the vault's repository up to date under the repository lock")
+    s.add_argument("--vault"); s.set_defaults(fn=cmd_pull)
+    s = sub.add_parser("commit", help="commit the vault under the repository lock (scoped to PATHs when given), optionally pushing")
+    s.add_argument("-m", "--message", required=True); s.add_argument("--push", action="store_true")
+    s.add_argument("paths", nargs="*", metavar="PATH"); s.add_argument("--vault"); s.set_defaults(fn=cmd_commit)
     s = sub.add_parser("nightly"); s.add_argument("--vault"); s.add_argument("--date")
     s.add_argument("--write", action="store_true"); s.add_argument("--commit", action="store_true"); s.add_argument("--push", action="store_true")
     s.add_argument("--sessions-dir")
