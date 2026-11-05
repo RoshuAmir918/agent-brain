@@ -65,6 +65,12 @@ class Task:
         return match[1] if match else None
 
     @property
+    def resume(self) -> str | None:
+        """When a task waiting on a time can move again (`YYYY-MM-DD[ HH:MM]`, the owner's local time), or None."""
+        match = re.search(r"^[ \t]*-[ \t]+\*\*Resume:\*\*[ \t]*(\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)[ \t]*$", self.body, re.M)
+        return match[1] if match else None
+
+    @property
     def handoff(self) -> tuple[str, str] | None:
         """(date, where to report) when the owner handed this task off: work it until done or blocked."""
         match = re.search(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*·[ \t]*report in[ \t]*(.+?))?[ \t]*$", self.body, re.M)
@@ -156,7 +162,8 @@ HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
 PACE_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[^\n]*\n?", re.M)
 WORK_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Work:\*\*[^\n]*\n?", re.M)
 RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
-FIELDS = ("status", "next", "verified", "blocker", "ask", "why", "delivers", "hub")
+FIELDS = ("status", "next", "verified", "blocker", "ask", "why", "delivers", "hub", "resume")
+RESUME = re.compile(r"^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?$")
 
 
 def single_line(name: str, value: str) -> str:
@@ -177,6 +184,8 @@ def note_name(config: Config, value: str) -> str:
 
 def _field_value(config: Config, name: str, value: str) -> str:
     value = single_line(name, value)
+    if name == "resume" and not RESUME.fullmatch(value):
+        raise ValueError("resume must be YYYY-MM-DD or YYYY-MM-DD HH:MM, in the owner's local time")
     limit = {"ask": 16, "why": 40}.get(name)
     if limit and len(value.split()) > limit:
         raise ValueError(f"{name} must be at most {limit} words")
@@ -217,7 +226,7 @@ def _replace_field(body: str, name: str, value: str | None) -> str:
 
 def set_fields(config: Config, tid: str, today: date, *, state: str | None = None,
                values: dict[str, str] | None = None, clear: list[str] | tuple[str, ...] = (),
-               reviewed: str | None = None) -> Task:
+               reviewed: str | None = None, report: str | None = None) -> Task:
     """Update an open task's full entry; the caller holds the vault lock. `reviewed` appends a dated Reviewed line
     (the evening's decisions accumulate; they are never replaced)."""
     values = values or {}
@@ -233,7 +242,9 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
             raise ValueError(f"unknown task state: {state}")
     if reviewed is not None:
         reviewed = single_line("reviewed", reviewed)
-    if state is None and not values and not clear and not reviewed:
+    if report is not None:
+        report = single_line("report", report)
+    if state is None and not values and not clear and not reviewed and report is None:
         raise ValueError("set needs a field, --state or --clear")
     values = {name: _field_value(config, name, value) for name, value in values.items()}
     registered, archived = load_tasks(config)
@@ -247,6 +258,11 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         task.body = _replace_field(task.body, name, values.get(name))
     if reviewed:
         task.body = task.body.rstrip("\n") + f"\n- **Reviewed:** {today.isoformat()} — {reviewed}\n"
+    if report is not None:
+        if not task.handoff:
+            raise ValueError(f"{tid} was not handed off; there is no report line to change")
+        line = f"- **Handed off:** {task.handoff[0]}" + (f" · report in {report}" if report else "")
+        task.body = HANDOFF_LINE.sub(line + "\n", task.body, count=1)
     save_task(config, task, today)
     return task
 
@@ -417,7 +433,7 @@ def save_task(config: Config, task: Task, today: date) -> None:
 
 
 def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None = None, *,
-        chunks: dict[str, int] | None = None, daily_chunks: int = DAILY_CHUNKS) -> list[Task]:
+        chunks: dict[str, int] | None = None, daily_chunks: int = DAILY_CHUNKS, now: str | None = None) -> list[Task]:
     """Handed-off tasks the continue routine should work now: open and not resting on the owner. With `worked` (each
     task's last chunk), the one worked least recently comes first and a task never worked before all of them, so one
     long task cannot hold the slot; otherwise, oldest handoff first. `chunks` is
@@ -425,8 +441,16 @@ def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None 
     worked = worked or {}
     chunks = chunks or {}
     return sorted((t for t in tasks if is_open(t) and t.handoff and t.task_state not in RESTING
-                   and _pace(t.body) == pace and (pace == "daily" or chunks.get(t.tid, 0) < daily_chunks)),
+                   and _pace(t.body) == pace and (pace == "daily" or chunks.get(t.tid, 0) < daily_chunks)
+                   # A task resting until a time (`now` is the owner's local "YYYY-MM-DD HH:MM") waits for it.
+                   and not (now and t.resume and (t.resume if " " in t.resume else t.resume + " 00:00") > now)),
                   key=lambda t: (worked.get(t.tid, ""), t.handoff[0], t.tid))
+
+
+def local_now(config: Config) -> str:
+    """The owner's local time as `YYYY-MM-DD HH:MM`, the form a Resume line uses."""
+    moment = config.now()
+    return (moment if moment.tzinfo is None else moment.astimezone(config.zone)).strftime("%Y-%m-%d %H:%M")
 
 
 def task_activation(t: Task, today: date) -> float:

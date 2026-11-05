@@ -41,7 +41,7 @@ def location(vault, request):
 @pytest.mark.parametrize("name", tasks.FIELDS)
 def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
     config, where = location
-    value = "Project" if name == "hub" else "new value"
+    value = "Project" if name == "hub" else "2026-11-06 08:05" if name == "resume" else "new value"
     out = cli(vault, capsys, "T-001", "set", "--" + name, value)
     assert out == f"T-001 updated: {name}"
     task, = entry(config)
@@ -225,3 +225,20 @@ def test_set_reviewed_appends_a_dated_line_each_time(vault, capsys):
     body = entry(config)[0].body
     assert body.count("- **Reviewed:** ") == 2 and "set aside: nothing at stake" in body
     assert entry(config)[0].task_state == "set_aside"
+
+
+def test_resume_rests_a_task_until_its_time_and_report_changes_only_the_report(vault, capsys, monkeypatch):
+    from datetime import datetime
+    config = Config.load(vault)
+    tasks.hand_off(config, "T-001", TODAY, "Home")
+    cli(vault, capsys, "T-001", "set", "--resume", "2026-11-06 08:05")
+    task, = entry(config)
+    assert task.resume == "2026-11-06 08:05"
+    assert tasks.due([task], now="2026-11-05 22:00") == []
+    assert tasks.due([task], now="2026-11-06 08:05") == [task]
+    assert tasks.due([task]) == [task]
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "T-001", "set", "--resume", "tomorrow morning")
+    cli(vault, capsys, "T-001", "set", "--report", "demiurge:jn7thread")
+    task, = entry(config)
+    assert task.handoff == (TODAY.isoformat(), "demiurge:jn7thread") and task.task_state == "in_progress"

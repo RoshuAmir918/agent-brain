@@ -843,7 +843,7 @@ def cmd_task(args):
                 task = tasks_mod.set_fields(args.config, args.tid, args.config.today(),
                                             state="yours" if args.action == "yours" else args.state,
                                             values=values if args.action == "set" else None, clear=args.clear or (),
-                                            reviewed=args.reviewed)
+                                            reviewed=args.reviewed, report=args.report)
             else:
                 task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
                                        args.why or "the owner closed it in their app")
@@ -855,7 +855,7 @@ def cmd_task(args):
               else f"{task.tid} created: {task.title}")
     elif args.action == "set":
         fields = ((["state"] if args.state is not None else []) + list(values) + [f"cleared {name}" for name in args.clear or ()]
-                  + (["reviewed"] if args.reviewed else []))
+                  + (["reviewed"] if args.reviewed else []) + (["report"] if args.report is not None else []))
         print(f"{task.tid} updated: {', '.join(fields)}")
     else:
         print(f"{task.tid} {task.task_state}: {task.title}")
@@ -910,7 +910,8 @@ def cmd_continue(args):
     worked = continuation.last_worked(args.config)
     chunks = continuation.chunks_today(args.config)
     ready = tasks_mod.due(registered + archived, pace="daily" if args.daily else "regular",
-                          worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks)
+                          worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks,
+                          now=tasks_mod.local_now(args.config))
     if args.json:
         print(json.dumps([{"id": task.tid, "title": task.title, "state": task.task_state, "pace": tasks_mod.pace(task),
                            "handedOff": task.handoff[0], "report": task.handoff[1], "work": task.work,
@@ -1230,7 +1231,8 @@ def main(argv=None):
         s.add_argument("--" + name, metavar="NOTE" if name == "hub" else "TEXT",
                        help="existing note name, without brackets" if name == "hub" else f"replace {name}; with --clear, remove it")
     s.add_argument("--clear", nargs="+", choices=tasks_mod.FIELDS, metavar="FIELD", action="extend",
-                   help="remove fields (status, next, verified, blocker, ask, why, delivers, hub)")
+                   help="remove fields (status, next, verified, blocker, ask, why, delivers, hub, resume)")
+    s.add_argument("--report", metavar="WHERE", help="with set: where a handed-off task reports (demiurge:<conversation id>, or Home)")
     s.add_argument("--reviewed", metavar="TEXT", help="with set: append a dated Reviewed line (the evening's decision and why)")
     s.add_argument("--source", help="with new: the owner's words or a note name")
     s.add_argument("--work", metavar="SLUG", help="with new: Library work slug")
