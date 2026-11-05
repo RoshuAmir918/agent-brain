@@ -434,9 +434,17 @@ def push(root: Path) -> None:
         try:
             sh(repo, "pull", "--rebase", "--autostash", "-q", "origin", "main")   # rows written after the commit wait
         except subprocess.CalledProcessError:
-            subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
-            sys.exit("pull --rebase conflicted; resolve it by hand, nothing was pushed")
-        sh(repo, "push", "-q", "origin", "HEAD:main")
+            # Only a rebase that stopped is a conflict; anything else (no credentials, no network) is git's own error,
+            # already printed above, and is said as such.
+            git_dir = repo / ".git"
+            if (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists():
+                subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
+                sys.exit("pull --rebase conflicted; resolve it by hand, nothing was pushed")
+            sys.exit("pull failed (git's error is above: credentials or network, not a conflict); nothing was pushed")
+        try:
+            sh(repo, "push", "-q", "origin", "HEAD:main")
+        except subprocess.CalledProcessError:
+            sys.exit("push failed (git's error is above); the commit is kept locally")
 
 
 def cmd_pull(a):
@@ -447,8 +455,11 @@ def cmd_pull(a):
         try:
             sh(repo, "pull", "--rebase", "--autostash", "-q", "origin", "main")
         except subprocess.CalledProcessError:
-            subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
-            sys.exit("pull --rebase conflicted; resolve it by hand")
+            git_dir = repo / ".git"
+            if (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists():
+                subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
+                sys.exit("pull --rebase conflicted; resolve it by hand")
+            sys.exit("pull failed (git's error is above: credentials or network, not a conflict)")
     print("up to date")
 
 
