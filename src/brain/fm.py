@@ -1,6 +1,7 @@
 """Frontmatter read/write for vault notes. Flat YAML only."""
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -34,7 +35,14 @@ def read(path: Path) -> tuple[dict, str]:
 
 
 def write(path: Path, data: dict, body: str) -> None:
-    path.write_text(join(data, body), encoding="utf-8")
+    """Write through a temporary file and an atomic rename: a note is never seen half-written, and two writers can no
+    longer leave a truncated file padded with NUL bytes (an Amicus register on 2026-11-05)."""
+    staged = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        staged.write_text(join(data, body), encoding="utf-8")
+        os.replace(staged, path)
+    finally:
+        staged.unlink(missing_ok=True)
 
 
 def first_line(body: str) -> str:

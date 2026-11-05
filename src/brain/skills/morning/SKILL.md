@@ -1,7 +1,7 @@
 ---
 name: {prefix}morning
 description: The morning briefing
-version: 2.4.0
+version: 2.5.0
 metadata:
   runtime:
     tags: [routine, day]
@@ -23,7 +23,7 @@ What today is for {human_name}, at the agreed hour, every day, even when there i
    - **Noticed**, labelled as inference: a new reflection. Never raw numbers.
    - **An idea**, only when `brain ideas` shows one: its proposition in one light line, an offer rather than something they owe. Nothing when it shows none; never more than one.
 4. What the briefing leaves out: whether last night's commits exist, which stages ran, routine drift, retrieval-audit counts, consolidation disagreements, source-coverage caveats, and anything about this profile's own connections or tools. They are in the Sleep Log; `brain health` reports the stages; a maintainer asks for them. When the night did not run, that is one sentence in total, however many stages are missing ("I didn't consolidate last night, so this is from the day before"), never a list. A responsibility's prepared piece (a letter, a comparison, a companion) is one line under Done for you with where it is, not its contents.
-5. After composing, remove every `morning:` line you carried from the task entries (never a `## Needs you` item: it leaves when it is resolved): a fact worth keeping goes into the owning note in one sentence, the rest is gone. The register is a state view, not a log; lines left behind push entries over budget and stop the night.
+5. After composing, remove every `morning:` line you carried from the task entries with `brain task T-nnn set --clear morning` (never a `## Needs you` item: it leaves when it is resolved): a fact worth keeping goes into the owning note in one sentence, the rest is gone. The register is a state view, not a log; lines left behind push entries over budget and stop the night.
 6. **Deliver it.** On Demiurge the briefing is Today, not a message: call `demiurge_today` with `summary`, one line of at most 240 characters saying what matters about the day (where they are and the one thing due, from the Today part above), and `text`, one to three plain lines for their phone ending in what they can do, or nothing when the day needs nothing from them. Demiurge lists what needs them and what you did beneath it, from the brain, so the summary never repeats those. Only when it returns ok, end the run with exactly `[SILENT]` and nothing else, so the scheduler does not also post your reply to Home. When the tool is not in this session or the call fails, return the briefing itself as your final reply: a scheduled run delivers it to Home. Never end with `[SILENT]` unless Today accepted the briefing; a silent morning is a missed one. A run instruction to return the briefing as your final response and not send it through another tool forbids a duplicate message, not `demiurge_today`. Outside a scheduled run (another platform, a CLI), send the composed briefing to {human_name}'s Home, the destination named in `{agent_dir}/Channels.md`. Either way the engine records the run; write no Sleep Log line.
 
 ## Customise

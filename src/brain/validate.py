@@ -313,7 +313,20 @@ def ideas_hygiene(vault: Vault) -> list[str]:
 
 def checks(vault: Vault) -> list[str]:
     """Everything `brain validate` names, which `brain health` counts: structure, then hygiene."""
-    return run(vault, set(vault.notes)) + hygiene(vault)
+    return run(vault, set(vault.notes)) + hygiene(vault) + broken_bytes(vault)
+
+
+def broken_bytes(vault: Vault) -> list[str]:
+    """A note holding NUL bytes was left by a broken write (two writers racing); parsers read past them silently."""
+    out = []
+    for rel in sorted(vault.notes):
+        try:
+            count = (vault.root / rel).read_bytes().count(b"\x00")
+        except OSError:
+            continue
+        if count:
+            out.append(f"{rel}: contains {count} NUL bytes from a broken write; remove them under the vault lock")
+    return out
 
 
 def needs_hygiene(vault: Vault) -> list[str]:

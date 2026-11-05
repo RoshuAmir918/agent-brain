@@ -46,8 +46,9 @@ def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
     assert out == f"T-001 updated: {name}"
     task, = entry(config)
     expected = "[[Topics/Project]]" if name == "hub" else value
-    assert f"- **{name.title()}:** {expected}\n" in task.body
-    assert task.body.count(f"**{name.title()}:**") == 1
+    label = "morning" if name == "morning" else name.title()   # morning notes keep their lowercase convention
+    assert f"- **{label}:** {expected}\n" in task.body
+    assert task.body.count(f"**{label}:**") == 1
     if name == "next":
         assert "Next action" not in task.body and "ORIGINAL_FULL_BODY" not in task.body
     if name == "verified":
@@ -242,3 +243,32 @@ def test_resume_rests_a_task_until_its_time_and_report_changes_only_the_report(v
     cli(vault, capsys, "T-001", "set", "--report", "demiurge:jn7thread")
     task, = entry(config)
     assert task.handoff == (TODAY.isoformat(), "demiurge:jn7thread") and task.task_state == "in_progress"
+
+
+def test_morning_lines_append_and_clear_together(vault, capsys):
+    config = Config.load(vault)
+    cli(vault, capsys, "T-001", "set", "--morning", "check the 8am text")
+    cli(vault, capsys, "T-001", "set", "--morning", "mention the new deck")
+    assert entry(config)[0].body.count("- **morning:** ") == 2
+    cli(vault, capsys, "T-001", "set", "--clear", "morning")
+    assert "morning:" not in entry(config)[0].body
+
+
+def test_new_task_goes_before_standing_state(vault, capsys):
+    config = Config.load(vault)
+    register = vault / config.agent("Tasks.md")
+    data, body = fm.read(register)
+    fm.write(register, data, body.rstrip("\n") + "\n\n## Standing coordination state\n\n- Permission to read mail.\n")
+    cli(vault, capsys, "new", "Fresh work", "--source", "asked today")
+    text = fm.read(register)[1]
+    assert text.index("Fresh work") < text.index("## Standing coordination state")
+
+
+def test_writes_are_atomic_and_validate_reports_nul_bytes(vault):
+    from brain import validate
+    from brain.vault import Vault
+    path = vault / "Atomic.md"
+    fm.write(path, {"kind": "hub", "tier": "warm"}, "# Atomic\n")
+    assert not list(vault.glob(".Atomic.md.*.tmp"))
+    path.write_bytes(path.read_bytes() + b"\x00\x00")
+    assert any("Atomic.md: contains 2 NUL bytes" in p for p in validate.checks(Vault(vault)))

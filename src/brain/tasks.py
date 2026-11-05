@@ -162,7 +162,7 @@ HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
 PACE_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[^\n]*\n?", re.M)
 WORK_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Work:\*\*[^\n]*\n?", re.M)
 RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
-FIELDS = ("status", "next", "verified", "blocker", "ask", "why", "delivers", "hub", "resume")
+FIELDS = ("status", "next", "verified", "blocker", "ask", "why", "delivers", "hub", "resume", "morning")
 RESUME = re.compile(r"^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?$")
 
 
@@ -255,7 +255,11 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         task.state["state"] = state
         task.state.pop("status", None)
     for name in dict.fromkeys([*values, *clear]):
-        task.body = _replace_field(task.body, name, values.get(name))
+        if name == "morning" and name in values:
+            # A note carried to the next briefing; several may wait, and the morning removes them all with --clear.
+            task.body = task.body.rstrip("\n") + f"\n- **morning:** {values[name]}\n"
+        else:
+            task.body = _replace_field(task.body, name, values.get(name))
     if reviewed:
         task.body = task.body.rstrip("\n") + f"\n- **Reviewed:** {today.isoformat()} — {reviewed}\n"
     if report is not None:
@@ -282,7 +286,13 @@ def append_task(config: Config, task: Task) -> None:
     register = config.vault_path / config.agent("Tasks.md")
     data, body = fm.read(register) if register.exists() else ({"kind": "orientation"}, "# Tasks\n\n## Active work\n")
     register.parent.mkdir(parents=True, exist_ok=True)
-    fm.write(register, data, body.rstrip("\n") + "\n\n" + task.render() + "\n")
+    standing = re.search(r"^## Standing", body, re.M)
+    if standing:
+        # A new task is active work: it goes before the standing-state section, not under it.
+        head, tail = body[:standing.start()], body[standing.start():]
+        fm.write(register, data, head.rstrip("\n") + "\n\n" + task.render() + "\n\n" + tail)
+    else:
+        fm.write(register, data, body.rstrip("\n") + "\n\n" + task.render() + "\n")
 
 
 def new_task(config: Config, title: str, source: str, *, state: str = "ready",
