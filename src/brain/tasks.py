@@ -268,6 +268,11 @@ def save_task(config: Config, task: Task, today: date) -> None:
             write_archive(config, task, task.state.get("tier", "warm"), today, whole=True)
     else:
         write_archive(config, task, task.state.get("tier", "warm"), today, whole=True)
+        # The register's warm line carries the state too; left alone, a closed task would still read as open.
+        line = next(((s, e) for (t, s, e), entry in zip(spans, parsed) if t == tid), None)
+        if line:
+            s, e = line
+            fm.write(reg, data, body[:s] + task.render_line(config) + ("\n" if body[e:] and not body[e:].startswith("\n") else "") + body[e:])
 
 
 def due(tasks: list[Task], pace: str = "regular") -> list[Task]:

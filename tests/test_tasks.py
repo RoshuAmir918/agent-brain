@@ -290,3 +290,21 @@ def test_closing_a_registered_task_also_closes_its_older_archive_copy(vault):
     fm.write(reg, data, body.split("### T-060")[0])          # the register stops listing it, as a hand move does
     registered, archived = T.load_tasks(config)
     assert all(t.tid != "T-060" for t in registered + archived)
+
+
+@pytest.mark.parametrize("done", [True, False])
+def test_closing_a_warm_task_closes_its_register_line_too(vault, done):
+    from brain import tasks
+    config = Config.load(vault)
+    task = tasks.load_tasks(config)[0][0]
+    write_archive(config, task, "warm", date(2026, 11, 5), whole=True)
+    register = vault / config.agent("Tasks.md")
+    data, body = fm.read(register)
+    start = body.index(f"### {task.tid}")
+    end = body.find("\n### ", start + 1)
+    end = len(body) if end < 0 else end + 1
+    fm.write(register, data, body[:start] + task.render_line(config) + body[end:])
+    tasks.close(config, task.tid, date(2026, 11, 5), done, "finished" if done else "obsolete")
+    closed = next(t for t in tasks.load_tasks(config)[0] + tasks.load_tasks(config)[1] if t.tid == task.tid)
+    assert not tasks.is_open(closed)
+    assert ("completed" if done else "cancelled") in fm.read(register)[1].split(f"### {task.tid}")[1].split("\n")[1]
