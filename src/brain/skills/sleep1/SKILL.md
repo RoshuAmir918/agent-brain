@@ -3,7 +3,7 @@ name: {prefix}sleep1
 description: Nightly consolidation of yesterday into memory
 version: 2.3.0
 metadata:
-  hermes:
+  runtime:
     tags: [memory, night]
     category: brain
 ---
@@ -38,7 +38,7 @@ The night's main job. Yesterday becomes long-term memory: new facts are written 
    - move closed questions out of "open questions";
    - never drop a fact, never resolve a conflict by taking the newer side, never delete a note. Cold is the floor.
 5a. **CURRENT stays current.** `brain validate` names each CURRENT item whose newest date is over two weeks old. For each: what happened goes, dated, to the History of the note it belongs to; a standing direction moves to its owning hub, or to `Working together` when it is about how to work with {human_name}; what still holds is rewritten for now, with today's date. A dated plan whose day has passed is something that happened. It also names a task CURRENT or Primed still presents as live when the task itself is closed: say it is done, or drop the line.
-6. **Script.** `brain nightly --date <yesterday> --write --commit --push`. It folds uses, recomputes activation and tiers, places tasks, fires triggers, rebuilds CURRENT's threads, the views and `.hermes.md`, validates, and commits `sleep1(<date>)`. A validation failure names the problem; fix it and rerun, never bypass it.
+6. **Script.** `brain nightly --date <yesterday> --write --commit --push`. It folds uses, recomputes activation and tiers, places tasks, fires triggers, rebuilds CURRENT's threads, the views and `.context.md`, validates, and commits `sleep1(<date>)`. A validation failure names the problem; fix it and rerun, never bypass it.
 7. **Sleep Log.** Append one entry, under 150 words, to `{agent_dir}/Sleep Log/<month>.md`: digest words read, candidates found, written / already stated / superseded / conflicts / questions, notes tidied, coverage gaps. That entry is the whole record of the night: no separate consolidation record, no note under `Conversations/` about this routine, no restating of what you declined to do. Commit it if the script did not.
 
 ## Boundaries

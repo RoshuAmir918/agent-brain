@@ -3,7 +3,7 @@ name: {prefix}evening
 description: Decide what has gone quiet, so nobody has to sweep a list
 version: 2.3.0
 metadata:
-  hermes:
+  runtime:
     tags: [routine, day]
     category: brain
 ---

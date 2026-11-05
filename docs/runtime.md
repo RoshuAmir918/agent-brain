@@ -1,6 +1,6 @@
 # The runtime contract
 
-What agent-brain needs from whatever runs the agent, and what it gives back. The Demiurge harness (`demiurge/apps/harness`) is the runtime today; Hermes was the runtime until 2026-11-04. Nothing in the engine may assume more about its runtime than this page says. When the contract changes, this page changes first, in the same release, and the change is named in `CHANGELOG`-style prose at the end.
+What agent-brain needs from whatever runs the agent, and what it gives back. The Demiurge harness (`demiurge/apps/harness`) is the runtime. Nothing in the engine may assume more about its runtime than this page says. When the contract changes, this page changes first, in the same release, and the change is named in `CHANGELOG`-style prose at the end.
 
 ## 1. Who owns what
 
@@ -8,18 +8,18 @@ What agent-brain needs from whatever runs the agent, and what it gives back. The
 | --- | --- | --- |
 | The vault (notes, skills, SOUL, the schedule) | the engine and the agent | the runtime, read-only, except the files the agent writes through its tools |
 | `<vault folder>/<runtime_dir>/schedule.toml` (beside `engine-version`), the declared routines | the engine (`brain schedule`), the agent through that command | the runtime |
-| `<vault>/.context.md`, the compiled session context | the engine (`brain compile-context --write`) | the runtime |
+| `<vault repo>/.context.md`, the compiled session context | the engine (`brain compile-context --write`) | the runtime |
 | `$AGENT_HOME/records/`, routine and engine state | the engine and the agent | the engine |
 | `$AGENT_HOME/harness/`, run state: jobs, runs, sessions | the runtime | the engine, read-only |
 
-`<runtime_dir>` is `brain.toml`'s `hermes_dir` until the 0.30 rename makes it `runtime_dir` (default `Runtime`).
+`<runtime_dir>` is `brain.toml`'s `runtime_dir`, default `Runtime`. This folder holds the schedule, skills and engine state; `.context.md` lives at the vault repository root.
 
 ## 2. Environment
 
 Every process the runtime starts for an agent (its shell, a routine's script, a brain call) gets:
 
 - `VAULT_REPO`: the vault's git repository, also the working directory.
-- `AGENT_HOME`: the agent's workspace root, where `records/` and `harness/` live. Until 0.30 the runtime also sets `HERMES_HOME` to the same path, and the engine reads `AGENT_HOME`, then `HERMES_HOME`, then `~/.hermes`.
+- `AGENT_HOME`: the agent's workspace root, where `records/` and `harness/` live. The engine accepts `HERMES_HOME` only as a deprecated fallback through 0.30; 0.31 drops it. Without either variable, runtime-dependent commands fail with `AGENT_HOME is not set`; a vault can still be read and validated without a runtime.
 - A `PATH` holding `brain` and `demiurge`.
 
 No credential is ever in this environment beyond what `agents/<id>.json`'s `env` names for that agent.
@@ -104,3 +104,5 @@ The runtime gives the agent these tools besides its six workspace tools: `demiur
 ## 6. Changes
 
 - 0.29.0: this page; `schedule.toml` and `brain schedule`; `brain record-spec`; `AGENT_HOME`.
+
+- 0.30.0: `Runtime/` and `runtime_dir`; `.context.md`; `brain runtime-folder --move`; native harness `brain export-sessions` and JSON shards; removed the old runtime plugin, cron and session-store adapters.

@@ -3,13 +3,13 @@ name: {skill}
 description: {name}
 version: 0.1.0
 metadata:
-  hermes:
+  runtime:
     tags: [routine, responsibility]
     category: {agent_name}
 ---
 # {name}
 
-Method for the responsibility whose understanding lives in [[{vault}/{name}|{name}]] and whose state lives under `$HERMES_HOME/records/{records}/`. Run only the phase named in the live cron prompt.
+Method for the responsibility whose understanding lives in [[{vault}/{name}|{name}]] and whose state lives under `$AGENT_HOME/records/{records}/`. Run only the phase named in the live cron prompt.
 
 ## Scope
 What the live permission allows, and where it stops. Permission comes from {human_name}'s recorded words, never from this file.

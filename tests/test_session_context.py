@@ -245,8 +245,8 @@ def test_email_local_part_is_not_a_handle(people_vault):
 
 def test_platform_qualified_maintainer_matches_only_that_platform(people_vault):
     text = session_context.build(people_vault, people_vault.config, platform="demiurge",
-                                 user_id="hermes", user_id_alt="j57maint")
-    assert text.startswith("This session is with a maintainer of this brain (demiurge hermes), not the owner.")
+                                 user_id="maintainer", user_id_alt="j57maint")
+    assert text.startswith("This session is with a maintainer of this brain (demiurge maintainer), not the owner.")
     for platform in ("slack", ""):
         text = session_context.build(people_vault, people_vault.config, platform=platform, user_id="j57maint")
         assert "maintainer" not in text and "the owner." not in text
@@ -255,7 +255,7 @@ def test_platform_qualified_maintainer_matches_only_that_platform(people_vault):
 
 
 def pending(vault):
-    path = vault.root / vault.config.hermes_dir / "pending-migration.md"
+    path = vault.root / vault.config.runtime_dir / "pending-migration.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("# Engine migration\n", encoding="utf-8")
 
@@ -266,7 +266,7 @@ def test_a_pending_migration_is_named_in_every_session_that_can_do_it(people_vau
                                                                 platform=platform, user_id=user_id)
     pending(people_vault)
     text = session_context.build(people_vault, people_vault.config, platform=platform, user_id=user_id)
-    assert "An engine migration is pending: memory/hermes/pending-migration." in text
+    assert "An engine migration is pending: memory/Runtime/pending-migration." in text
     assert "never a reason to stop" in text and "`brain migrate-done`" in text
 
 

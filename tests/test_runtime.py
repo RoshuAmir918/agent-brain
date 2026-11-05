@@ -1,5 +1,7 @@
-"""The engine reads the runtime's jobs and conversations the same way under Hermes and the Demiurge harness."""
+"""The engine reads the Demiurge harness through the runtime contract."""
 import json
+
+import pytest
 from datetime import datetime, timedelta, timezone
 
 from brain import runtime, session_tools, signals
@@ -12,7 +14,7 @@ def harness_jobs(home, jobs):
     (home / "harness/jobs.json").write_text(json.dumps({"jobs": jobs}), encoding="utf-8")
 
 
-def test_harness_jobs_win_and_read_in_hermes_field_names(tmp_path):
+def test_harness_jobs_are_normalized(tmp_path):
     (tmp_path / "cron").mkdir()
     (tmp_path / "cron/jobs.json").write_text(json.dumps({"jobs": [{"name": "demiurge-sync", "last_run_at": "2026-11-04T17:02:00-05:00"}]}))
     harness_jobs(tmp_path, [
@@ -25,10 +27,10 @@ def test_harness_jobs_win_and_read_in_hermes_field_names(tmp_path):
     assert found["continue"]["last_failure"] == {"at": "2026-11-04T21:30:00Z"} and found["continue"]["last_error"] == "timeout"
 
 
-def test_hermes_jobs_are_read_when_there_is_no_harness(tmp_path):
+def test_legacy_job_store_is_ignored(tmp_path):
     (tmp_path / "cron").mkdir()
     (tmp_path / "cron/jobs.json").write_text(json.dumps({"jobs": [{"name": "watch", "last_failure": {"at": "x"}}]}))
-    assert runtime.jobs(tmp_path) == [{"name": "watch", "last_failure": {"at": "x"}}]
+    assert runtime.jobs(tmp_path) == []
     assert runtime.jobs(tmp_path / "missing") == []
 
 
@@ -58,9 +60,10 @@ def test_home_and_configured_environment_precedence(tmp_path, monkeypatch):
     monkeypatch.delenv("AGENT_HOME", raising=False)
     monkeypatch.delenv("HERMES_HOME", raising=False)
     assert runtime.configured() is None
-    assert runtime.home() == tmp_path / ".hermes"
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
-    assert runtime.home() == runtime.configured() == tmp_path / "hermes"
+    with pytest.raises(RuntimeError, match="^AGENT_HOME is not set$"):
+        runtime.home()
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "legacy-home"))
+    assert runtime.home() == runtime.configured() == tmp_path / "legacy-home"
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
     assert runtime.home() == runtime.configured() == tmp_path / "agent"
     monkeypatch.delenv("HERMES_HOME")
@@ -78,5 +81,4 @@ def test_signal_and_install_paths_use_agent_home_only(vault, tmp_path, monkeypat
     signals.watch(Config.load(vault))
     assert (home / "records/watch/signal.json").is_file()
     assert install.scripts_path() == home / "scripts"
-    assert install.provider_path() == home / "plugins/brain"
     assert install.records_path() == home / "records"

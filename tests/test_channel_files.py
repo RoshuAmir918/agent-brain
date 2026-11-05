@@ -10,11 +10,11 @@ from brain.vault import Vault
 
 @pytest.fixture
 def synced(vault, tmp_path, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
     monkeypatch.setenv("BRAIN_TODAY", "2026-11-04")
     rows = [
-        ("Primary", "owner", "Mira <mira@example.com>", "$HERMES_HOME/channels/wrong@example.com/", "live"),
-        ("Other", "owner", "Mira", "`$HERMES_HOME/channels/other@example.com/`", "live"),
+        ("Primary", "owner", "Mira <mira@example.com>", "$AGENT_HOME/channels/wrong@example.com/", "live"),
+        ("Other", "owner", "Mira", "`$AGENT_HOME/channels/other@example.com/`", "live"),
         ("Duplicate", "owner", "mira@example.com", "", "live"),
         ("Missing", "owner", "missing@example.com", "", "live"),
         ("Agent", "own", "echo@example.com", "", "live"),
@@ -25,15 +25,15 @@ def synced(vault, tmp_path, monkeypatch):
     table = channels.HEADER + "\n" + "\n".join(channels.Channel(name, whose, identity, reach, "", "", "", status).render()
                                                for name, whose, identity, reach, status in rows)
     fm.write(vault / "agent/Channels.md", {"kind": "orientation"}, table)
-    sync_job(tmp_path / "hermes", Config.load(vault).now().isoformat())
-    return vault, tmp_path / "hermes/channels"
+    sync_job(tmp_path / "agent-home", Config.load(vault).now().isoformat())
+    return vault, tmp_path / "agent-home/channels"
 
 
 def sync_job(home, last_run_at, status="ok", error=None):
-    (home / "cron").mkdir(parents=True, exist_ok=True)
-    (home / "cron/jobs.json").write_text(json.dumps({"jobs": [{"name": "demiurge-sync", "script": "demiurge-sync.sh",
-                                                               "last_run_at": last_run_at, "last_status": status,
-                                                               "last_error": error}]}), encoding="utf-8")
+    (home / "harness").mkdir(parents=True, exist_ok=True)
+    (home / "harness/jobs.json").write_text(json.dumps({"jobs": [{"name": "demiurge-sync", "script": "demiurge-sync.sh",
+                                                               "lastRunAt": last_run_at, "lastStatus": status,
+                                                               "lastError": error}]}), encoding="utf-8")
 
 
 def event(title="Lunch", start="2026-11-04 14:00", end="2026-11-04 15:00", id="lunch", location="Cafe, Fresno", attendee="mira@example.com (you): accepted", extra=""):
@@ -144,7 +144,7 @@ def test_missing_sync_adds_nothing(synced, monkeypatch):
     assert channel_files.mail(Vault(vault), datetime(2026, 11, 4))["messages"] == []
     calendar_file(root, event())
     message(root)
-    monkeypatch.delenv("HERMES_HOME")
+    monkeypatch.delenv("AGENT_HOME")
     assert compile_context.upcoming(Vault(vault)) == baseline
     assert channel_files.mail(Vault(vault), datetime(2026, 11, 4))["messages"] == []
 
@@ -250,21 +250,21 @@ def test_calendar_says_when_nothing_is_on_it_or_it_cannot_be_seen(synced, tmp_pa
     vault, root = synced
     block = channel_files.calendar(Vault(vault))
     assert "Nothing on the calendar for the next 7 days." in block
-    (tmp_path / "hermes/cron/jobs.json").unlink()
+    (tmp_path / "agent-home/harness/jobs.json").unlink()
     assert "I can't see the calendar: the mail and calendar sync is not set up." in channel_files.calendar(Vault(vault))
-    sync_job(tmp_path / "hermes", "2026-11-01T08:00:00-08:00")
+    sync_job(tmp_path / "agent-home", "2026-11-01T08:00:00-08:00")
     assert "Note: the mail and calendar sync last ran Sun Nov 1 08:00" in channel_files.calendar(Vault(vault))
-    sync_job(tmp_path / "hermes", Config.load(vault).now().isoformat(), status="error", error="401 token\nexpired")
+    sync_job(tmp_path / "agent-home", Config.load(vault).now().isoformat(), status="error", error="401 token\nexpired")
     assert "the last mail and calendar sync failed (401 token expired)" in channel_files.calendar(Vault(vault))
 
 
-def test_no_connected_account_is_said_and_a_vault_without_hermes_says_nothing(synced, monkeypatch):
+def test_no_connected_account_is_said_and_a_vault_without_runtime_says_nothing(synced, monkeypatch):
     vault, root = synced
     fm.write(vault / "agent/Channels.md", {"kind": "orientation"}, channels.HEADER)
     assert "I can't see the calendar: no Google account of the owner's is connected." in channel_files.calendar(Vault(vault))
     assert channel_files.render_mail(channel_files.mail(Vault(vault), datetime(2026, 11, 4))).startswith(
         "coverage: I can't see the mail: no mail or calendar account is connected")
-    monkeypatch.delenv("HERMES_HOME")
+    monkeypatch.delenv("AGENT_HOME")
     assert channel_files.calendar(Vault(vault)) == "" and channel_files.coverage(Vault(vault)) is None
 
 

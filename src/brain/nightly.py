@@ -6,7 +6,7 @@ Usage:
   brain attribute [--vault <path>] --file <record.md> --ts <iso> [--reason <text>] [--write]
   brain attribute [--vault <path>] [--sessions-dir <dir>] [--write]
   brain digest [--vault <path>] --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]
-  (sessions default to $HERMES_HOME/records/sessions, the profile's own export)
+  (sessions default to $AGENT_HOME/records/sessions, the profile's own export)
   brain audit [--vault <path>] [--date YYYY-MM-DD] [--days 14] [--sessions-dir <dir>] [--json]
   brain compile-context [--vault <path>] [--out <path>] [--write]
   brain retrieve [--vault <path>] <query> [--limit 12] [--json [--form names|snippet|full]]
@@ -21,8 +21,9 @@ Usage:
   brain simulate [--h 7 --w 28]
   brain install-skills [--vault <path>]
   brain install-scripts
-  brain install-provider
-  brain paths <soul|skills|scripts|provider|vault|repo> [--vault <path>]
+  brain export-sessions [--date YYYY-MM-DD]
+  brain runtime-folder --move [--dry-run]
+  brain paths <soul|skills|scripts|vault|repo> [--vault <path>]
 
 Without --write the pass runs on a temporary copy of the agent tree and prints
 what it would change. Every step is a function of the vault's current files, so
@@ -51,7 +52,7 @@ from .config import FORMS, Config
 from .lock import vault_lock
 from . import install
 from . import signals
-from . import record, runtime, schedule
+from . import record, runtime, schedule, sessions, runtime_folder
 
 MARK_START = "<!-- brain:active-threads start -->"
 MARK_END = "<!-- brain:active-threads end -->"
@@ -407,10 +408,10 @@ def sh(repo: Path, *args: str) -> str:
 
 
 def commit(root: Path, message: str) -> str:
-    """Stage agent notes and Hermes context. Returns the short SHA, or '' when clean."""
+    """Stage agent notes and session context. Returns the short SHA, or '' when clean."""
     repo = Config.load(root).repo
     tree = root.relative_to(repo).as_posix()
-    sh(repo, "add", "-A", "--", tree, f":(exclude){tree}/.brain", ".hermes.md")
+    sh(repo, "add", "-A", "--", tree, f":(exclude){tree}/.brain", ".context.md")
     if not sh(repo, "diff", "--cached", "--name-only"):
         return ""
     sh(repo, "commit", "-q", "-m", message)
@@ -930,18 +931,14 @@ def cmd_people_mentioned(args):
         print(text)
 
 
-def cmd_shard_sessions(args):
-    written, unchanged = digest.shard(Path(args.jsonl), Path(args.directory))
-    print(f"sharded: {written} written, {unchanged} unchanged")
+def cmd_export_sessions(args):
+    written, unchanged = sessions.export(args.config, args.date)
+    print(f"exported: {written} files written, {unchanged} unchanged")
 
 
-def cmd_session_ids(args):
-    if args.with_kind:
-        for session_id, kind in digest.session_kinds(Path(args.jsonl)):
-            print(f"{session_id}\t{kind}")
-        return
-    for session_id in digest.session_ids(Path(args.jsonl)):
-        print(session_id)
+def cmd_runtime_folder(args):
+    for line in runtime_folder.move(args.config, dry_run=args.dry_run):
+        print(line)
 
 
 def cmd_install_skills(args):
@@ -967,13 +964,6 @@ def cmd_migrate_done(args):
 def cmd_install_scripts(args):
     for path in install.scripts():
         print(f"installed {path}")
-
-
-def cmd_install_provider(args):
-    install.provider()
-    print(install.provider_path())
-    print("hermes config set memory.provider brain")
-    print("restart the gateway")
 
 
 def cmd_timezone(args):
@@ -1042,16 +1032,21 @@ def cmd_schedule(args):
 
 
 def cmd_paths(args):
-    paths = {"soul": args.config.soul_path, "skills": args.config.skills_path, "scripts": install.scripts_path(),
-             "provider": install.provider_path(), "records": install.records_path(),
-             "vault": args.config.vault_path, "repo": args.config.repo, "python": Path(sys.executable),
-             "schedule": schedule.path(args.config)}
-    print(paths[args.path].resolve())
+    paths = {"soul": lambda: args.config.soul_path, "skills": lambda: args.config.skills_path,
+             "scripts": install.scripts_path, "records": install.records_path,
+             "vault": lambda: args.config.vault_path, "repo": lambda: args.config.repo,
+             "python": lambda: Path(sys.executable), "schedule": lambda: schedule.path(args.config)}
+    print(paths[args.path]().resolve())
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="brain")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("export-sessions"); s.add_argument("--vault")
+    s.add_argument("--date", type=date.fromisoformat); s.set_defaults(fn=cmd_export_sessions)
+    s = sub.add_parser("runtime-folder"); s.add_argument("--vault")
+    s.add_argument("--move", action="store_true", required=True); s.add_argument("--dry-run", action="store_true")
+    s.set_defaults(fn=cmd_runtime_folder)
     s = sub.add_parser("record-spec"); s.add_argument("--vault")
     s.add_argument("--json", action="store_true", required=True); s.set_defaults(fn=cmd_record_spec)
     s = sub.add_parser("schedule")
@@ -1088,7 +1083,7 @@ def main(argv=None):
     s.add_argument("--at"); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_ledger_append)
     s = sub.add_parser("journal")
     journal_sub = s.add_subparsers(dest="journal_cmd", required=True)
-    s = journal_sub.add_parser("append"); s.add_argument("--vault"); s.add_argument("--platform", default="hermes")
+    s = journal_sub.add_parser("append"); s.add_argument("--vault"); s.add_argument("--platform", default="demiurge")
     s.add_argument("--user-id", default=""); s.add_argument("--user-id-alt", default="")
     s.add_argument("--at"); s.add_argument("--synthesis", action="store_true"); s.set_defaults(fn=cmd_journal_append)
     s = journal_sub.add_parser("recent"); s.add_argument("--vault"); s.add_argument("--count", type=int, default=30)
@@ -1098,7 +1093,7 @@ def main(argv=None):
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_access)
     s = sub.add_parser("attribute"); s.add_argument("--vault")
     source = s.add_mutually_exclusive_group()
-    source.add_argument("--file"); source.add_argument("--sessions-dir", help="default: $HERMES_HOME/records/sessions")
+    source.add_argument("--file"); source.add_argument("--sessions-dir", help="default: $AGENT_HOME/records/sessions")
     s.add_argument("--ts"); s.add_argument("--reason"); s.add_argument("--write", action="store_true")
     s.set_defaults(fn=cmd_attribute)
     s = sub.add_parser("compile-context"); s.add_argument("--vault"); s.add_argument("--out")
@@ -1175,7 +1170,7 @@ def main(argv=None):
     s = sub.add_parser("state"); s.add_argument("--vault")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_state)
     s = sub.add_parser("health"); s.add_argument("--vault"); s.add_argument("--date")
-    s.add_argument("--json", action="store_true"); s.add_argument("--write", action="store_true", help="write <hermes_dir>/health.md")
+    s.add_argument("--json", action="store_true"); s.add_argument("--write", action="store_true", help="write <runtime_dir>/health.md")
     s.set_defaults(fn=cmd_health)
     s = sub.add_parser("audit"); s.add_argument("--vault"); s.add_argument("--date"); s.add_argument("--days", type=int, default=14)
     s.add_argument("--sessions-dir"); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_audit)
@@ -1191,10 +1186,7 @@ def main(argv=None):
     s = sub.add_parser("simulate"); s.add_argument("--h", type=int); s.add_argument("--w", type=int)
     s.add_argument("--vault")
     s.set_defaults(fn=cmd_simulate)
-    s = sub.add_parser("shard-sessions"); s.add_argument("jsonl"); s.add_argument("directory"); s.add_argument("--vault"); s.set_defaults(fn=cmd_shard_sessions)
-    s = sub.add_parser("session-ids"); s.add_argument("jsonl"); s.add_argument("--vault")
-    s.add_argument("--with-kind", action="store_true", help="print id<TAB>kind: conversation, routine or evaluation")
-    s.set_defaults(fn=cmd_session_ids)
+
     s = sub.add_parser("responsibility", help="build a hub, an own skill and a records folder for standing work")
     s.add_argument("name"); s.add_argument("--skill", required=True); s.add_argument("--records"); s.add_argument("--vault")
     s.set_defaults(fn=cmd_responsibility)
@@ -1209,9 +1201,8 @@ def main(argv=None):
                    help="a step left for the owner (repeatable); it becomes an ask in CURRENT's Needs you")
     s.set_defaults(fn=cmd_migrate_done)
     s = sub.add_parser("install-scripts"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_scripts)
-    s = sub.add_parser("install-provider"); s.add_argument("--vault"); s.set_defaults(fn=cmd_install_provider)
     s = sub.add_parser("paths"); s.add_argument("--vault")
-    s.add_argument("path", choices=("soul", "skills", "scripts", "provider", "records", "vault", "repo", "python", "schedule")); s.set_defaults(fn=cmd_paths)
+    s.add_argument("path", choices=("soul", "skills", "scripts", "records", "vault", "repo", "python", "schedule")); s.set_defaults(fn=cmd_paths)
     a = ap.parse_args(argv)
     if a.cmd == "channels" and a.action == "mail" and not a.since:
         ap.error("channels mail requires --since")

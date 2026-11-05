@@ -103,7 +103,7 @@ def test_defaults_are_the_hard_coded_values(vault):
     assert compile_context.build(Vault(vault)) == default
 
 
-def test_sections_choose_the_parts_of_hermes_md(vault, monkeypatch):
+def test_sections_choose_the_parts_of_context_md(vault, monkeypatch):
     fm.write(vault / "START.md", {"tier": "hot", "pinned": True}, "# Start\nSTART_BODY\n")
     full = compile_context.build(Vault(vault))
     assert "START_BODY" in full and "# Current" in full and "HOT_ENTRY" in full and "## Directory" in full
@@ -133,10 +133,10 @@ def test_legacy_hot_section_enables_directory_once(vault, sections):
 def test_hot_words_sets_the_directory_active_budget_and_context_warning(vault, monkeypatch, capsys):
     toml(vault, "hot_words = 20\n")
     run(capsys, "nightly", "--vault", str(vault), "--write", "--date", "2026-10-05")
-    assert "- [[memory/Active|Active]] — HOT_ENTRY" in (vault.parent / ".hermes.md").read_text()
+    assert "- [[memory/Active|Active]] — HOT_ENTRY" in (vault.parent / ".context.md").read_text()
     monkeypatch.setenv("BRAIN_HOT_WORDS", "3")
     run(capsys, "nightly", "--vault", str(vault), "--write", "--date", "2026-10-05")
-    text = (vault.parent / ".hermes.md").read_text()
+    text = (vault.parent / ".context.md").read_text()
     assert "- [[memory/Active|Active]]" not in text
     assert "Active" in text.split("- Hubs and topics: ")[1].splitlines()[0]
     nightly.main(["compile-context", "--vault", str(vault)])

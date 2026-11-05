@@ -1,6 +1,6 @@
 # agent-brain
 
-The memory engine for a personal AI agent: a Python package that maintains a Markdown vault as long-term memory. Decay by use, observed attribution, surprise-gated writes, commitment triggers, a compiled session-start context, a daily digest of conversations, retrieval, and a night of routines, with the routines shipped as Hermes Agent skills.
+The memory engine for a personal AI agent: a Python package that maintains a Markdown vault as long-term memory. Decay by use, observed attribution, surprise-gated writes, commitment triggers, a compiled session-start context, a daily digest of conversations, retrieval, and a night of routines, with the routines shipped as runtime skills.
 
 To get a vault, start from the [agent-brain-template](https://github.com/RoshuAmir918/agent-brain-template) repository. This repo is the engine that vault installs and updates itself from.
 
@@ -19,16 +19,18 @@ A vault is a git repo with a `brain.toml` naming its folders and the two display
 
 | Command | Does |
 | --- | --- |
-| `brain nightly --write --commit --push` | the deterministic half of the night: fold uses, recompute activation and tiers, place tasks, fire triggers, rebuild the views and `.hermes.md`, validate, commit |
-| `brain attribute --sessions-dir <dir>` | observed and explicit use rows from a Hermes session export |
+| `brain nightly --write --commit --push` | the deterministic half of the night: fold uses, recompute activation and tiers, place tasks, fire triggers, rebuild the views and `.context.md`, validate, commit |
+| `brain attribute --sessions-dir <dir>` | observed and explicit use rows from harness session archives |
+| `brain export-sessions [--date <day>]` | archive harness session transcripts and native JSON shards |
+| `brain schedule list` / `set` / `pause` / `resume` / `remove` | manage the declared routines in `Runtime/schedule.toml` |
 | `brain digest --date <day> --write` | one file of that day's turns between owner and agent, with what the agent read before each reply |
 | `brain retrieve "<query>"` | deterministic candidates: index-line scoring, one-hop spread over links, cold grep |
 | `brain compile-context --write` | the session-start context file |
-| `brain install-skills` / `install-scripts` | render the routines into the vault; put the cron scripts in the Hermes scripts dir |
+| `brain install-skills` / `install-scripts` | render the routines into the vault; put the cron scripts in `$AGENT_HOME/scripts` |
 | `brain update` / `migrate-check` / `migrate-done` | nightly self-upgrade and the agent's part of a migration |
-| `brain validate`, `simulate`, `paths`, `session-ids` | checks, the decay table, resolved paths, session ids from an export |
+| `brain validate`, `simulate`, `paths` | checks, the decay table, resolved paths |
 
-`docs/engine.md` has every command, the config keys, what the nightly pass does in order, and the assumptions the session-export parsers make. The memory model itself is documented in the template's `memory/agent/Memory Spec.md`.
+`docs/engine.md` has every command, the config keys, what the nightly pass does in order, and session archive formats. The [runtime contract](docs/runtime.md) defines `AGENT_HOME`, `Runtime/schedule.toml`, `.context.md` and harness sessions. `brain runtime-folder --move` migrates existing vault paths (`--dry-run` previews); `brain export-sessions` archives harness conversations and routine runs. The memory model itself is documented in the template's `memory/agent/Memory Spec.md`.
 
 ## Layout
 

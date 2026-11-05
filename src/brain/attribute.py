@@ -26,7 +26,7 @@ DAY_RE = re.compile(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)")
 def path_pattern(vault: Vault) -> re.Pattern:
     config = vault.config
     prefixes = (config.agent_dir, config.people_dir, config.agents_dir,
-                str(Path(config.human_profile).parent), config.sources_dir, config.hermes_dir)
+                str(Path(config.human_profile).parent), config.sources_dir, config.runtime_dir)
     directories = "|".join(re.escape(prefix) for prefix in sorted(set(prefixes), key=len, reverse=True))
     return re.compile(r"\b(?:" + re.escape(config.vault) + r"/)?((?:(?:" + directories + r")/)?"
                       r"(?:[A-Z][\w ()'-]*/)*[A-Z][\w ()'-]*\.md)\b")
@@ -151,33 +151,32 @@ def json_session_rows(vault: Vault, path: Path) -> list[Use]:
     from . import digest
 
     automatic, uses = automatic_notes(vault), []
-    for number, record in digest.json_records(path):
-        containers = digest.session_maps(record)
-        kind = session_tools.session_kind(containers, digest.message_list(containers))
-        if kind == "evaluation":
-            continue   # retrieval checks earn nothing, before any extraction or dedupe
-        session_id = digest.text_field(containers, ("id", "session_id"), f"{path.name}:{number}")
-        reason = f"cited in session {session_id}"
-        zone = vault.config.zone
-        previous = next((stamp for fields in containers if (stamp := digest.timestamp_in(fields, zone=zone))), None)
-        for message in digest.message_list(containers):
-            previous = digest.timestamp_in(message, zone=zone) or previous
-            timestamp = previous.isoformat() if previous else fallback_date(path)
-            reads, _ = session_tools.activity(message, vault.config) if kind == "conversation" else ([], [])   # a routine opens notes mechanically; that is not use
-            for read in reads:
-                target = read.removeprefix(vault.config.vault + "/")
-                if target in vault.notes and target not in automatic and not target.startswith(vault.config.observed_excluded):
-                    uses.append(Use(timestamp, target, f"opened on demand in session {session_id}", "observed"))
-            if (str(message.get("role", "")).strip().lower() != "assistant"
-                    or str(message.get("compacted", False)).lower() in ("true", "1")):
-                continue
-            for line in digest.content_text(message.get("content", message.get("text", ""))).splitlines():
-                if line.lstrip().lower().startswith("sources:"):
-                    rows = explicit_uses(vault, line, timestamp, reason)
-                    for use in rows:
-                        use.reason = reason
-                    uses.extend(rows)
-                timestamp = last_timestamp(line) or timestamp
+    from . import sessions
+    record = sessions.read(path)
+    kind = session_tools.session_kind(record)
+    if kind == "evaluation":
+        return []
+    session_id = record["id"]
+    reason = f"cited in session {session_id}"
+    for entry in record["entries"]:
+        item = entry["item"]
+        stamp = digest.parse_timestamp(entry["at"], vault.config.zone)
+        timestamp = stamp.isoformat() if stamp else fallback_date(path)
+        reads, _ = session_tools.activity(item, vault.config) if kind == "conversation" else ([], [])
+        for read in reads:
+            target = read.removeprefix(vault.config.vault + "/")
+            if target in vault.notes and target not in automatic and not target.startswith(vault.config.observed_excluded):
+                uses.append(Use(timestamp, target, f"opened on demand in session {session_id}", "observed"))
+        if item["type"] != "message" or item["role"] != "assistant":
+            continue
+        for line in item["text"].splitlines():
+            if line.lstrip().lower().startswith("sources:"):
+                rows = explicit_uses(vault, line, timestamp, reason)
+                for use in rows:
+                    use.reason = reason
+                uses.extend(rows)
+            timestamp = last_timestamp(line) or timestamp
+
     return uses
 
 
@@ -191,10 +190,10 @@ def sessions(vault: Vault, directory: Path, write: bool = False) -> list[Use]:
         raise ValueError(f"sessions directory does not exist: {directory}")
     known, monthly, uses = {}, {}, []
     from . import digest
-    jsonl = set(digest.jsonl_sources(directory))
-    paths = sorted(jsonl) if jsonl else sorted(directory.rglob("*.md"))
+    shards = set(digest.json_sources(directory))
+    paths = sorted(shards) if shards else sorted(directory.rglob("*.md"))
     for path in paths:
-        rows = json_session_rows(vault, path) if path in jsonl else session_rows(vault, path)
+        rows = json_session_rows(vault, path) if path in shards else session_rows(vault, path)
         for use in rows:
             month = use.ts[:7]
             log = vault.root / vault.config.agent("Use Log") / f"{month}.md"

@@ -14,7 +14,7 @@ TASK_ID_RE = re.compile(r"\bT-(\d{3})\b")
 TRIGGER_ID_RE = re.compile(r"\bTR-(\d{3})\b")
 DAILY = re.compile(r"Conversations/\d{4}-\d{2}-\d{2}\.md\Z")  # immutable daily conversation archives
 
-SKIP_DIRS = {".brain", ".git", ".obsidian", "skills"}  # hermes/skills are SKILL.md files, not notes
+SKIP_DIRS = {".brain", ".git", ".obsidian", "skills"}  # Runtime/skills are SKILL.md files, not notes
 
 
 def is_dream_path(rel: str, config: Config) -> bool:
@@ -117,8 +117,8 @@ class Vault:
         if note is not None and note.data.get("kind") == "log":
             return "log"   # a note may declare itself a record wherever it lives
         if rel.startswith(("Conversations/Sessions/", "Conversations/Digests/")):
-            return "log"   # Hermes session export: cold, never indexed
-        if rel.startswith(self.config.hermes_dir + "/") and rel != f"{self.config.hermes_dir}/README.md":
+            return "log"   # Session export: cold, never indexed
+        if rel.startswith(self.config.runtime_dir + "/") and rel != f"{self.config.runtime_dir}/README.md":
             return "log"   # engine state such as a pending migration, never a note
         if rel.startswith("Conversations/"):
             return "episode"

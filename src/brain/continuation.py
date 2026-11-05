@@ -7,7 +7,7 @@ import hashlib
 import json
 from datetime import date, datetime
 
-from . import signals, state, tasks
+from . import runtime, signals, state, tasks
 from .config import Config
 from .lock import vault_lock
 
@@ -36,6 +36,8 @@ def chunk(config: Config, tid: str) -> str:
             task = tasks.read_archived_task(config, path) if path.exists() else None
         if task is None or not task.handoff:
             raise ValueError(f"{tid} is not a handed-off task")
+        if runtime.configured() is None:
+            return f"{tid} progress not recorded: AGENT_HOME is not set"
         folder = signals._home() / "records" / "continue"
         folder.mkdir(parents=True, exist_ok=True)
         # Different vaults share this file, so the vault's lock alone is not enough.

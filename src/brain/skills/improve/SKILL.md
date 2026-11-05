@@ -3,7 +3,7 @@ name: {prefix}improve
 description: Get better at one responsibility; notice work that should become one
 version: 1.2.0
 metadata:
-  hermes:
+  runtime:
     tags: [routine, day, research]
     category: brain
 ---
@@ -11,7 +11,7 @@ metadata:
 
 The practitioner's pass. Runs each morning after the night and before the briefing, and asks two questions: how could {agent_name} do one of its existing responsibilities materially better, and did yesterday contain work that should become a responsibility. One investigation a day, carried across days until it is done. Never filler: a morning with nothing to recommend is a one-line ledger row.
 
-A responsibility is standing work with judgment in it, held for {human_name} under a permission they gave, with three linked homes: a hub note at the vault root for understanding, an own skill under `{hermes_dir}/skills/` for method, and a folder under `$HERMES_HOME/records/` for state. The hub's frontmatter names both (`skill:` and `records:`); `brain responsibility` builds the set. The recall skill has the rules.
+A responsibility is standing work with judgment in it, held for {human_name} under a permission they gave, with three linked homes: a hub note at the vault root for understanding, an own skill under `{runtime_dir}/skills/` for method, and a folder under `$AGENT_HOME/records/` for state. The hub's frontmatter names both (`skill:` and `records:`); `brain responsibility` builds the set. The recall skill has the rules.
 
 ## Procedure
 1. **Inventory.** Find every responsibility hub: `grep -l '^skill:' {vault}/*.md`. Read each hub's Improvements section and the last rows of the improve ledger (`{agent_dir}/Improve/`, or an older vault's `Improvements/`). An improvement in `trialing` whose trial period has passed is assessed first: compare what happened in the records and ledgers with the intended result, then mark it `adopted` or `dropped` with the date and the evidence.

@@ -54,7 +54,7 @@ def report(config: Config, today: date | None = None) -> dict:
             tiers[note.data["tier"]] += 1
     tasks = config.vault_path / config.agent("Tasks.md")
     open_tasks = sum(1 for task in parse_register(fm.read(tasks)[1])[1] if is_open(task)) if tasks.exists() else 0
-    pending = config.vault_path / config.hermes_dir / "pending-migration.md"
+    pending = config.vault_path / config.runtime_dir / "pending-migration.md"
     pending_since = None
     if pending.exists():
         rel = pending.relative_to(config.repo).as_posix()
@@ -108,7 +108,7 @@ def render(data: dict, *, include_git: bool = True) -> str:
 
 def write(config: Config, data: dict) -> Path:
     """The committed copy: stable across the hour, so refreshes only commit real change."""
-    path = config.vault_path / config.hermes_dir / "health.md"
+    path = config.vault_path / config.runtime_dir / "health.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     text = "---\nkind: log\n---\n" + render(data, include_git=False)
     if not path.exists() or path.read_text(encoding="utf-8") != text:

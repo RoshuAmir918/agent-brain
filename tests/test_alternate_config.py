@@ -8,7 +8,7 @@ from brain import attribute, compile_context, digest, fm, install, nightly, retr
 from brain.config import Config
 from brain.tasks import Task, bounded_hot_body, read_archive_body, seed_uses_from_body
 from brain.vault import Vault
-from conftest import snapshot
+from conftest import snapshot, harness_session, message, tool, write_shards
 
 
 @pytest.fixture
@@ -20,7 +20,7 @@ people_dir = "People"
 agents_dir = "Agents"
 human_profile = "Roshan/Profile.md"
 sources_dir = "Roshan"
-hermes_dir = "Hermes"
+runtime_dir = "Runtime"
 skill_prefix = "orphan-"
 human_name = "Owner Example"
 agent_name = "Guide"
@@ -40,7 +40,7 @@ agent_name = "Guide"
         config.agent("Reflections/Review.md"): "# Review\n",
         config.agent("Primed/2026-10-19.md"): "# Expired\n",
         config.human_profile: "# Owner\n", config.people_dir + "/Alice_Example/Profile.md": "# Alice\n",
-        config.agents_dir + "/Helper/Profile.md": "# Helper\n", config.hermes_dir + "/README.md": "# Hermes\n",
+        config.agents_dir + "/Helper/Profile.md": "# Helper\n", config.runtime_dir + "/README.md": "# Runtime\n",
         "Hot Hub.md": "# Hot hub\nCurrent project.\n", "Warm Hub.md": "# Warm hub\nPrior project.\n",
         "Quiet Hub.md": "# Quiet hub\nDormant project.\n",
         "Source Hub.md": f"# Source hub\n[[{config.sources_dir}/Evidence]]\n[[Archive/Receipt]]\n",
@@ -59,15 +59,13 @@ agent_name = "Guide"
         path = tmp_path / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("READ ONLY HUMAN EVIDENCE")
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
     sessions = install.sessions_records_path()
     sessions.mkdir(parents=True)
-    record = {"id": "fixture", "messages": [
-        {"role": "user", "timestamp": "2026-10-20T12:00:00-07:00", "content": "Question"},
-        {"role": "assistant", "tool_calls": [{"name": "read_file", "arguments":
-         {"path": config.link("Warm Hub.md")}}]},
-        {"role": "assistant", "content": "Answer"}]}
-    (sessions / "all.jsonl").write_text(json.dumps(record) + "\n")
+    stamp = "2026-10-20T12:00:00-07:00"
+    record = harness_session("fixture", [message("user", "Question", stamp),
+        tool("read_file", {"path": config.link("Warm Hub.md")}, stamp), message("assistant", "Answer", stamp)])
+    write_shards(sessions, record)
     return config
 
 
@@ -90,7 +88,7 @@ def test_alternate_layout_whole_night_and_preview(alternate, monkeypatch, capsys
     assert "preserve full body" in read_archive_body(config, "T-003")
     trigger_text = (root / config.agent("Triggers.md")).read_text()
     assert "fired 2026-10-20" in trigger_text and "mentioned 2026-10-20" in trigger_text
-    context = (config.repo / ".hermes.md").read_text()
+    context = (config.repo / ".context.md").read_text()
     assert f"## {config.link(config.agent('Triggers.md'))}" in context
     assert "- People with profiles: Alice Example" in context
     assert "- Agents registered: Helper" in context

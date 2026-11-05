@@ -1,17 +1,14 @@
-"""Defensive tool-call observations shared by session digests and attribution."""
+"""Harness tool-call observations shared by session digests and attribution."""
 from __future__ import annotations
 
 import json
 import re
 import shlex
-import sqlite3
-from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
 from .config import Config
 from .runtime import ROUTINE_PLATFORMS
-ARGUMENT_KEYS = ("arguments", "args", "input", "parameters")
 EVALUATION_RE = re.compile(r"evaluation fixture|retrieval[- ](check|test)|\bRC-\d{2}\b", re.I)
 ROUTINE_RE = re.compile(r"^cron\b|^cron_", re.I)
 
@@ -37,67 +34,18 @@ def _harness_unanswered(folder: Path, now: datetime) -> list[tuple[str, str]]:
 
 
 def unanswered(home: Path, now: datetime) -> list[tuple[str, str]]:
-    """Recent conversations whose last stored message is an unattended user turn, from the harness's session files or
-    Hermes's state.db. The store is optional."""
+    """Recent conversations whose last stored message is an unattended user turn. The store is optional."""
     harness = home / "harness" / "sessions"
-    if harness.is_dir():
-        return _harness_unanswered(harness, now)
-    database = home / "state.db"
-    if not database.is_file():
-        return []
-    floor = int(now.timestamp()) // 60 * 60
-    try:
-        with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=0.2)) as conn:
-            required = {"sessions": {"id", "source"}, "messages": {"id", "session_id", "role", "timestamp"}}
-            for table, columns in required.items():
-                if not columns <= {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}:
-                    return []
-            # A routine's delivery into a conversation is stored as a user turn; it is not someone waiting.
-            delivery = ("AND COALESCE(m.content, '') NOT LIKE '[Cron delivery%' "
-                        if "content" in {row[1] for row in conn.execute("PRAGMA table_info(messages)")} else "")
-            return conn.execute(
-                "SELECT s.id, s.source FROM sessions s JOIN messages m ON m.session_id = s.id "
-                "WHERE s.source NOT IN ('cron', 'subagent', 'cli') AND m.role = 'user' " + delivery +
-                "AND m.id = (SELECT MAX(last.id) FROM messages last WHERE last.session_id = s.id) "
-                "AND m.timestamp < ? AND m.timestamp > ? ORDER BY s.id, s.source",
-                (floor - 10 * 60, floor - 24 * 60 * 60)).fetchall()
-    except (OSError, sqlite3.Error):
-        return []
+    return _harness_unanswered(harness, now) if harness.is_dir() else []
 
 
-def session_kind(containers: list[dict], messages: list[dict]) -> str:
-    """conversation, routine (a cron run: the agent working alone) or evaluation (a retrieval check: earns nothing)."""
-    def field(keys):
-        for key in keys:
-            for container in containers:
-                value = container.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value
-        return ""
-    title, source, session_id = field(("title", "name", "session_title")), field(("source", "platform", "channel")), field(("id", "session_id"))
-    first_user = next((message for message in messages if str(message.get("role", "")).lower() == "user"), None)
-    first_text = first_user.get("content", first_user.get("text", "")) if first_user else ""
-    first_text = first_text if isinstance(first_text, str) else ""
-    if EVALUATION_RE.search(title) or EVALUATION_RE.search(source) or first_text.lstrip().lower().startswith("evaluation fixture:"):
+def session_kind(record: dict) -> str:
+    """Retrieval evaluations earn nothing; only cron sessions are routine runs."""
+    first = next((entry.get("said", entry["item"].get("text", "")) for entry in record["entries"]
+                  if entry["item"]["type"] == "message" and entry["item"].get("role") == "user"), "")
+    if EVALUATION_RE.search(record["id"]) or first.lstrip().lower().startswith("evaluation fixture:"):
         return "evaluation"
-    if ROUTINE_RE.search(source) or ROUTINE_RE.search(title) or ROUTINE_RE.search(session_id):
-        return "routine"
-    return "conversation"
-
-
-def call_arguments(value):
-    if isinstance(value, dict):
-        name = value.get("tool_name", value.get("name", value.get("tool", "")))
-        for key in ARGUMENT_KEYS:
-            if key in value:
-                yield name, value[key]
-                break
-        for key, child in value.items():
-            if key not in ARGUMENT_KEYS:
-                yield from call_arguments(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from call_arguments(child)
+    return "routine" if record["speaker"]["platform"] == "cron" else "conversation"
 
 
 def argument_strings(value):
@@ -143,20 +91,14 @@ def retrieval_query(command: str) -> str | None:
         return ""
 
 
-def activity(message: dict, config: Config) -> tuple[list[str], list[str]]:
-    if str(message.get("role", "")).strip().lower() != "assistant":
+def activity(item: dict, config: Config) -> tuple[list[str], list[str]]:
+    if item["type"] != "tool_call":
         return [], []
-    if str(message.get("compacted", False)).lower() in ("true", "1"):
-        return [], []
+    strings = list(argument_strings(item["arguments"]))
+    queries = [retrieval_query(text) for text in strings] if item["name"] in ("terminal", "exec_command") else []
+    if any(query is not None for query in queries):
+        return [], [query for query in queries if query is not None]
     prefix = re.escape(config.vault + "/")
-    note_pattern = re.compile(prefix + r'''(?:(?!''' + prefix + r''')[^"'\r\n])*?\.md''')
-    reads, retrievals = [], []
-    for name, arguments in call_arguments(message):
-        strings = list(argument_strings(arguments))
-        queries = [retrieval_query(text) for text in strings] if name == "terminal" else []
-        if any(query is not None for query in queries):
-            retrievals.extend(query for query in queries if query is not None)
-            continue
-        for text in strings:
-            reads.extend(match[0] for match in note_pattern.finditer(text))
-    return list(dict.fromkeys(reads)), retrievals
+    note_pattern = re.compile(prefix + r"(?:(?!" + prefix + r")[^\"'\r\n])*?\.md")
+    reads = [match[0] for text in strings for match in note_pattern.finditer(text)]
+    return list(dict.fromkeys(reads)), []

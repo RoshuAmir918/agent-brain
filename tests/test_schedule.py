@@ -1,4 +1,4 @@
-"""Declared routines, CLI edits and imports from both runtimes."""
+"""Declared routines, CLI edits and imports from the harness."""
 import json
 from dataclasses import replace
 
@@ -28,16 +28,16 @@ def write(config, text):
     return target
 
 
-def jobs(config, values, harness=True):
-    folder = runtime.home() / ("harness" if harness else "cron")
+def jobs(config, values):
+    folder = runtime.home() / "harness"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "jobs.json").write_text(json.dumps({"jobs": values}), encoding="utf-8")
 
 
 def test_path_sits_beside_engine_version_in_the_runtime_directory(config, capsys):
-    config = replace(config, hermes_dir="custom/Runtime")
+    config = replace(config, runtime_dir="custom/Runtime")
     assert schedule.path(config) == config.vault_path / "custom/Runtime/schedule.toml"
-    (config.repo / "brain.toml").write_text('[brain]\nhermes_dir = "custom/Runtime"\n')
+    (config.repo / "brain.toml").write_text('[brain]\nruntime_dir = "custom/Runtime"\n')
     nightly.main(["paths", "schedule", "--vault", str(config.vault_path)])
     assert capsys.readouterr().out == str(schedule.path(config)) + "\n"
 
@@ -214,8 +214,7 @@ def test_check_exit_codes_and_invalid_file_not_rewritten(config, capsys):
     assert target.read_bytes() == before
 
 
-@pytest.mark.parametrize("harness", [True, False])
-def test_import_both_runtime_formats_and_force(config, capsys, harness):
+def test_import_harness_and_force(config, capsys):
     values = [
         {"name": "watch", "schedule": {"kind": "cron", "expr": "*/15 6-22 * * *"}, "skills": ["brain-watch"],
          "prompt": "Run watch.", "deliver": "demiurge", "monitor_script": "watch-signal.sh", "workdir": str(config.repo)},
@@ -228,19 +227,11 @@ def test_import_both_runtime_formats_and_force(config, capsys, harness):
         {"name": "finished", "schedule": {"kind": "once", "at": "2026-11-04T12:00:00Z"}, "enabled": False, "last_run_at": "2026-11-04T12:00:00Z"},
         {"name": "brain-migration", "schedule": {"kind": "once", "at": "2026-11-05T12:00:00Z"}},
     ]
-    if harness:
-        for job in values:
-            for snake, camel in (("monitor_script", "monitorScript"), ("no_agent", "noAgent"), ("last_run_at", "lastRunAt")):
-                if snake in job:
-                    job[camel] = job.pop(snake)
-    else:
-        values[3]["skill"] = values[3].pop("skills")[0]
-        for job in values:
-            if job["schedule"]["kind"] == "once":
-                job["schedule"] = {"kind": "once", "run_at": job["schedule"]["at"], "display": "one time"}
-        values[6].pop("enabled")
-        values[6]["state"] = "completed"
-    jobs(config, values, harness=harness)
+    for job in values:
+        for snake, camel in (("monitor_script", "monitorScript"), ("no_agent", "noAgent"), ("last_run_at", "lastRunAt")):
+            if snake in job:
+                job[camel] = job.pop(snake)
+    jobs(config, values)
     cli(config, "import")
     assert "imported 6 routine(s)" in capsys.readouterr().out
     found = schedule.load(config)

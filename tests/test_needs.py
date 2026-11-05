@@ -319,7 +319,7 @@ def test_nightly_commit_covers_expired_current_without_real_git_actions(vault, m
     monkeypatch.setattr(nightly, "sh", fake_git)
     nightly.main(nightly_argv(vault, TODAY, "--write", "--commit"))
     assert "Included in commit." not in fm.read(vault / "CURRENT.md")[1]
-    assert commands[0] == ("add", "-A", "--", "memory", ":(exclude)memory/.brain", ".hermes.md")
+    assert commands[0] == ("add", "-A", "--", "memory", ":(exclude)memory/.brain", ".context.md")
     assert commands[2][:3] == ("commit", "-q", "-m")
     assert "needs-you: confirm accepted after 7 days: Included in commit." in commands[2][3]
     assert "commit fixture-sha" in capsys.readouterr().out

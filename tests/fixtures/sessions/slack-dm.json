@@ -1,0 +1,70 @@
+{
+  "id": "slack-dm",
+  "day": "2026-10-20",
+  "speaker": {
+    "platform": "slack"
+  },
+  "startedAt": "2026-10-20T07:00:00Z",
+  "timezone": "America/Los_Angeles",
+  "system": "",
+  "sessionBlock": "",
+  "owner": true,
+  "peopleSeen": [],
+  "entries": [
+    {
+      "at": "2026-10-20T06:59:00Z",
+      "item": {
+        "type": "message",
+        "role": "user",
+        "text": "Yesterday only."
+      }
+    },
+    {
+      "at": "2026-10-20T07:00:00Z",
+      "item": {
+        "type": "message",
+        "role": "user",
+        "text": "Slack morning question."
+      }
+    },
+    {
+      "at": "2026-10-20T07:02:00Z",
+      "item": {
+        "type": "message",
+        "role": "assistant",
+        "text": "Slack morning answer.\nSources: T-001"
+      }
+    },
+    {
+      "at": "2026-10-20T07:03:00Z",
+      "item": {
+        "type": "message",
+        "role": "user",
+        "text": "Inherited time question."
+      }
+    },
+    {
+      "at": "2026-10-20T07:04:00Z",
+      "item": {
+        "type": "message",
+        "role": "assistant",
+        "text": "  Spacing stays.  \n\nSources: Keep exactly.  \n"
+      }
+    },
+    {
+      "at": "2026-10-21T07:00:00Z",
+      "item": {
+        "type": "message",
+        "role": "user",
+        "text": "Tomorrow only."
+      }
+    }
+  ],
+  "recorded": 0,
+  "usage": {
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "cachedInputTokens": 0,
+    "reasoningTokens": 0
+  }
+}

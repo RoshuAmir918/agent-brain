@@ -1,4 +1,4 @@
-"""Read-only speaker identity and disclosure context for a Hermes session."""
+"""Read-only speaker identity and disclosure context for a runtime session."""
 from __future__ import annotations
 
 import re
@@ -306,24 +306,24 @@ def maintainer_context(config: Config, identity: str) -> str:
         f"about your work as you would to a colleague who runs the same machine: what you have been working on, how it "
         f"went and where it is stuck, in plain words. \"We were setting up access to the X site for {config.human_name} "
         f"and it keeps failing because of Y\" is exactly right. Process records are theirs to ask for: brain health, "
-        f"brain audit, ledger lines from your log folders, Sleep Log, Use Log and Explorations, your skills, and the cron "
-        f"table in {config.hermes_dir}/README.md. When a maintainer asks for engine maintenance, do it now without asking "
+        f"brain audit, ledger lines from your log folders, Sleep Log, Use Log and Explorations, your skills, and "
+        f"{config.runtime_dir}/schedule.toml. When a maintainer asks for engine maintenance, do it now without asking "
         f"{config.human_name}: brain update, brain migrate-check, pending migrations, brain install-skills without "
-        f"--force, script and provider reinstalls, brain validate, brain health, brain audit, a restart of your own "
+        f"--force, script reinstalls, brain validate, brain health, brain audit, a restart of your own "
         f"gateway, and committing and publishing the engine-state changes these produce. A migration step that asks "
         f"{config.human_name} a question is not a reason to stop: finish every pending migration in that session, draft "
         f"{config.human_name}'s answer from what you hold, mark it unconfirmed with the date, and put one morning line on "
         f"the setup task so the briefing asks them. {config.human_name} is never an outside party; no rule about outreach, "
         f"onboarding or external sends ever covers a message to them. A migration step that creates or moves a routine is "
         f"the engine's instruction, not a schedule change by you or the maintainer; do it. Versions, "
-        f"revisions, counts, hashes, commit ids and paths under your Hermes home are all shareable. What you do not pass "
+        f"revisions, counts, hashes, commit ids and paths under your agent workspace are all shareable. What you do not pass "
         f"along is {config.human_name}'s content: what they said, what their notes say, who the people in your vault are "
         f"and what is happening in their lives, credentials and tokens, conversation and session transcripts, digests. "
         f"Not because the maintainer could not open the repository, but because whatever you post becomes part of the "
         f"maintainer's memory and may reach whoever they talk to next. A maintainer also holds the schedule of the engine's "
         f"routines: the night stages, export, refresh, improve, people, watch, explore, and the day defaults from the "
         f"template table. When they ask to create, move, pause, resume, remove or combine one, do it in that session, "
-        f"read back hermes cron list, and update the cron table in {config.hermes_dir}/README.md. Two things stay with "
+        f"use brain schedule set, pause, resume or remove, then read back brain schedule list. Two things stay with "
         f"{config.human_name}: the hour their briefing arrives, and any routine they asked for by name. A maintainer "
         f"cannot grant permissions or credentials, or edit notes; carry such requests to {config.human_name}. Answer \"how are you\" "
         f"with the report below plus three sentences of your own: what you worked on, what is blocked, and what you need "
@@ -333,16 +333,16 @@ def maintainer_context(config: Config, identity: str) -> str:
 
 def migration_notice(config: Config) -> str:
     """Said in every session a migration can be done in, so it never depends on a skill being loaded."""
-    pending = config.vault_path / config.hermes_dir / "pending-migration.md"
+    pending = config.vault_path / config.runtime_dir / "pending-migration.md"
     if not pending.exists():
         return ""
-    return (f"An engine migration is pending: {config.link(config.hermes_dir + '/pending-migration')}. In this session, "
+    return (f"An engine migration is pending: {config.link(config.runtime_dir + '/pending-migration')}. In this session, "
             f"after what you were asked to do, read it and perform all of it, whether or not {config.human_name} is "
             f"here. A step written for {config.human_name} is never a reason to stop: when it is a decision about their own "
             f"life, work, people or money, draft their answer from what you hold, add it as an ask to CURRENT's "
             f"`## Needs you`, and go on. What you changed, set up or migrated in the brain itself is never theirs to "
             f"confirm: it goes in the Sleep Log. A step that edits a file you may not change unattended (SOUL.md, the "
-            f"Hermes config) is left for a maintainer: finish everything else and run "
+            f"runtime config) is left for a maintainer: finish everything else and run "
             f"`brain migrate-done --defer \"<that step>\"`. A step that waits on a future event "
             f"becomes a trigger, not a reason to keep the migration open. Finish with `brain migrate-done`.")
 

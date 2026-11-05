@@ -1,4 +1,4 @@
-"""Assemble the generated Hermes startup context from its owning notes."""
+"""Assemble the generated session startup context from its owning notes."""
 from __future__ import annotations
 
 import re
@@ -187,5 +187,5 @@ def summary(text: str, limit: int = WORD_LIMIT) -> str:
 
 def write(vault: Vault, out: Path | None = None) -> str:
     text = build(vault)
-    (out if out is not None else repo_root(vault.config) / ".hermes.md").write_text(text, encoding="utf-8")
+    (out if out is not None else repo_root(vault.config) / ".context.md").write_text(text, encoding="utf-8")
     return summary(text, vault.config.context.hot_words)

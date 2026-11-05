@@ -55,7 +55,7 @@ SYNC_STALE = timedelta(hours=2)
 
 def coverage(vault: Vault) -> dict | None:
     """What of the owner's Google can be seen, from the registry and the sync job's last run, so a briefing says so
-    instead of going quiet. None outside a Hermes home (a vault without Demiurge has nothing to report)."""
+    instead of going quiet. None outside a agent workspace (a vault without Demiurge has nothing to report)."""
     home = runtime.configured()
     if not home:
         return None

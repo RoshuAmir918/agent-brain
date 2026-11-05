@@ -73,7 +73,7 @@ def test_nightly_removes_retired_views_and_reports_only_existing_files(vault, ca
     for name in ("Hot Set.md", "Warm Index.md"):
         assert not (vault / name).exists()
         assert (f"index: removed generated {name}" in report) == (name in stale)
-    assert "STALE_GENERATED_VIEW" not in (vault.parent / ".hermes.md").read_text()
+    assert "STALE_GENERATED_VIEW" not in (vault.parent / ".context.md").read_text()
     nightly.main(nightly_argv(vault, DAY, "--write"))
     assert "index: removed generated" not in capsys.readouterr().out
 
@@ -97,10 +97,10 @@ def test_full_night_commits_only_agent_notes_and_pushes_one_commit(night_vault):
     assert git(remote, "rev-parse", "main^") == before
     assert git(remote, "rev-list", "--count", f"{before}..main") == "1"
     paths = git(remote, "diff-tree", "--no-commit-id", "--name-only", "-r", tip).splitlines()
-    assert paths and all(p.startswith("memory/") or p == ".hermes.md" for p in paths)
+    assert paths and all(p.startswith("memory/") or p == ".context.md" for p in paths)
     assert not any(p.startswith("memory/.brain/") for p in paths)
-    assert {".hermes.md", "memory/CURRENT.md", "memory/agent/Sleep Log/2026-10.md"} <= set(paths)
-    assert "memory/Hot Hub|" in (root.parent / ".hermes.md").read_text()
+    assert {".context.md", "memory/CURRENT.md", "memory/agent/Sleep Log/2026-10.md"} <= set(paths)
+    assert "memory/Hot Hub|" in (root.parent / ".context.md").read_text()
     assert "Warm Hub" in compile_context.directory(Vault(root)).split("- Hubs and topics: ")[1]
     for name in ("Hot Set.md", "Warm Index.md"):
         assert not (root / name).exists()

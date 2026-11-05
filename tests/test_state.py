@@ -77,7 +77,7 @@ def work(vault):
     note(vault, "agent/Only/2026-10.md", "2026-10-28 | lone | failed | No hub or skill. | Retry.\n", kind="log")
     note(vault, "agent/A/2026-10.md", "2026-10-28 12:30 | lone | blocked | Source tie. | Wait.\n", kind="log")
     note(vault, "agent/Fallback/2026-10.md", "2026-10-28 11:00 | fallback | waiting | No hub. | Wait.\n", kind="log")
-    (vault / "hermes/skills/brain-fallback").mkdir(parents=True)
+    (vault / "Runtime/skills/brain-fallback").mkdir(parents=True)
     note(vault, "Drafts/Café launch.md", kind="draft", created=TODAY)
     note(vault, "Drafts/Tie.md", kind="draft", created="2026-10-28")
     note(vault, "Drafts/Undated.md", kind="draft")
@@ -187,7 +187,7 @@ def test_outputs_dates_kinds_and_ties(work):
 
 
 @pytest.mark.parametrize("folder,data", [
-    ("sources", {}), ("human", {}), ("people", {}), ("agents", {}), ("hermes", {}),
+    ("sources", {}), ("human", {}), ("people", {}), ("agents", {}), ("Runtime", {}),
     ("Public", {"tier": "private"}), ("Public", {"kind": "conversation"}),
 ])
 def test_privacy_excludes_notes_outputs_routines_and_owner_proposals(work, folder, data):
@@ -286,7 +286,7 @@ def test_empty_vault_and_missing_installed_metadata(tmp_path, monkeypatch):
 def test_configured_layout_and_records_name_matching(tmp_path):
     (tmp_path / "brain.toml").write_text('[brain]\nagent_dir = "Worker"\nsources_dir = "imports"\n'
                                         'human_profile = "owner/about/Profile.md"\npeople_dir = "contacts"\n'
-                                        'agents_dir = "bots"\nhermes_dir = "runtime"\nskill_prefix = "own-"\n')
+                                        'agents_dir = "bots"\nruntime_dir = "runtime"\nskill_prefix = "own-"\n')
     root = tmp_path / "memory"
     note(root, "Work.md", "## Improvements\n### October 28 — EXCLUDED\n- **Status:** `adopted`\n",
          skill="own-worker", records="RECEIPTS")

@@ -1,7 +1,7 @@
 """Cron gates change only with actionable state; every clean check leaves a heartbeat."""
 import json
 import os
-import sqlite3
+from contextlib import contextmanager
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -17,29 +17,25 @@ AT = datetime(2026, 10, 28, 12, 0, tzinfo=timezone.utc)
 
 @pytest.fixture
 def monitor(vault, tmp_path, monkeypatch):
-    home = tmp_path / "hermes-home"
+    home = tmp_path / "agent-home"
     home.mkdir()
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("AGENT_HOME", str(home))
     clock = [AT]
     monkeypatch.setattr(Config, "now", lambda self, moment=None: clock[0])
     return Config.load(vault), home, clock
 
 
-def database(home):
-    conn = sqlite3.connect(home / "state.db")
-    # The columns consumed from Hermes's hermes_state_common.py schema.
-    conn.executescript("CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT NOT NULL);"
-                       "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, "
-                       "session_id TEXT NOT NULL REFERENCES sessions(id), role TEXT NOT NULL, "
-                       "timestamp REAL NOT NULL);")
-    return conn
+@contextmanager
+def session_store(home):
+    yield home
 
 
-def session(conn, sid="s1", source="demiurge", age=timedelta(minutes=11), role="user", at=AT):
-    conn.execute("INSERT INTO sessions VALUES (?, ?)", (sid, source))
-    conn.execute("INSERT INTO messages (session_id, role, timestamp) VALUES (?, ?, ?)",
-                 (sid, role, (at - age).timestamp()))
-    conn.commit()
+def session(home, sid="s1", source="demiurge", age=timedelta(minutes=11), role="user", at=AT):
+    from conftest import harness_session, message
+    folder = home / "harness/sessions/2026-10-28"
+    folder.mkdir(parents=True, exist_ok=True)
+    record = harness_session(sid, [message(role, "x", (at - age).isoformat())], platform=source)
+    (folder / f"{sid}.json").write_text(json.dumps(record))
 
 
 def run(capsys, config, command):
@@ -47,7 +43,7 @@ def run(capsys, config, command):
     return capsys.readouterr().out
 
 
-def test_watch_idle_is_stable_without_database_and_heartbeat_advances(monitor, capsys):
+def test_watch_idle_is_stable_without_sessions_and_heartbeat_advances(monitor, capsys):
     config, home, clock = monitor
     first = run(capsys, config, "watch-signal")
     assert first == "due:\nchannels:\nunanswered:\n"
@@ -56,7 +52,7 @@ def test_watch_idle_is_stable_without_database_and_heartbeat_advances(monitor, c
     clock[0] += timedelta(minutes=2, seconds=13)
     assert run(capsys, config, "watch-signal") == first
     assert json.loads(heartbeat.read_text())["checked"] == clock[0].isoformat()
-    assert not (home / "state.db").exists()  # mode=ro never creates the optional source
+    assert not (home / "harness").exists()  # reading never creates the optional source
 
 
 def test_watch_changes_when_loop_becomes_due_and_closes(monitor):
@@ -104,16 +100,14 @@ def test_watch_changes_for_new_channel_files_and_sorts_rows(monitor):
 def test_watch_changes_for_unanswered_session_and_reply(monitor):
     config, home, clock = monitor
     initial = signals.watch(config)
-    with database(home) as conn:
-        session(conn, "z-session", "telegram")
-        session(conn, "a-session")
+    with session_store(home) as store:
+        session(store, "z-session", "telegram")
+        session(store, "a-session")
         changed = signals.watch(config)
         assert changed != initial and changed.endswith("unanswered:\na-session · demiurge\nz-session · telegram")
         assert signals.watch(config) == changed
         assert json.loads((home / "records/watch/signal.json").read_text())["unanswered"] == 2
-        conn.execute("INSERT INTO messages (session_id, role, timestamp) VALUES ('a-session', 'assistant', ?)",
-                     (AT.timestamp(),))
-        conn.commit()
+        session(store, "a-session", role="assistant", age=timedelta(0))
         assert "a-session ·" not in signals.watch(config)
 
 
@@ -125,8 +119,8 @@ def test_watch_changes_for_unanswered_session_and_reply(monitor):
 ])
 def test_unanswered_age_cutoffs(monitor, age, expected):
     config, home, clock = monitor
-    with database(home) as conn:
-        session(conn, age=age)
+    with session_store(home) as store:
+        session(store, age=age)
     assert bool(session_tools.unanswered(home, AT)) is expected
     # Seconds within the check minute cannot cause membership to flap.
     assert session_tools.unanswered(home, AT + timedelta(seconds=59)) == session_tools.unanswered(home, AT)
@@ -134,8 +128,8 @@ def test_unanswered_age_cutoffs(monitor, age, expected):
 
 def test_unanswered_enters_and_leaves_only_at_age_boundaries(monitor):
     config, home, clock = monitor
-    with database(home) as conn:
-        session(conn, age=timedelta(minutes=9, seconds=30))
+    with session_store(home) as store:
+        session(store, age=timedelta(minutes=9, seconds=30))
     first = signals.watch(config)
     clock[0] += timedelta(minutes=1)
     assert signals.watch(config) != first
@@ -147,26 +141,18 @@ def test_unanswered_enters_and_leaves_only_at_age_boundaries(monitor):
                                          ("demiurge", "assistant"), ("telegram", "tool")])
 def test_unanswered_excludes_nonconversations_and_nonuser_tails(monitor, source, role):
     config, home, clock = monitor
-    with database(home) as conn:
-        session(conn, source=source, role=role)
+    with session_store(home) as store:
+        session(store, source=source, role=role)
     assert session_tools.unanswered(home, AT) == []
 
 
-@pytest.mark.parametrize("broken", ["corrupt", "missing-columns", "locked"])
-def test_watch_optional_database_errors_are_empty_and_still_heartbeat(monitor, broken):
+@pytest.mark.parametrize("broken", ["invalid JSON", "{}", '{"entries": [null]}'])
+def test_watch_optional_session_errors_are_empty_and_still_heartbeat(monitor, broken):
     config, home, clock = monitor
-    if broken == "corrupt":
-        (home / "state.db").write_text("not sqlite")
-        assert signals.watch(config) == "due:\nchannels:\nunanswered:"
-    elif broken == "missing-columns":
-        with sqlite3.connect(home / "state.db") as conn:
-            conn.execute("CREATE TABLE sessions (id TEXT)")
-        assert signals.watch(config) == "due:\nchannels:\nunanswered:"
-    else:
-        with database(home) as conn:
-            session(conn)
-            conn.execute("BEGIN EXCLUSIVE")
-            assert signals.watch(config) == "due:\nchannels:\nunanswered:"
+    folder = home / "harness/sessions/2026-10-28"
+    folder.mkdir(parents=True)
+    (folder / "broken.json").write_text(broken)
+    assert signals.watch(config) == "due:\nchannels:\nunanswered:"
     assert (home / "records/watch/signal.json").is_file()
 
 
@@ -228,9 +214,9 @@ def test_engine_error_is_nonzero_and_does_not_heartbeat(monitor, command):
 @pytest.mark.parametrize("age", [None, 25, 23, 24])
 def test_monitor_hygiene_missing_stale_and_clean(monitor, routine, wrapped, age):
     config, home, clock = monitor
-    (home / "cron").mkdir()
-    jobs = [{"skills": [config.skill_prefix + routine], "monitor_script": routine + "-signal.sh"}]
-    (home / "cron/jobs.json").write_text(json.dumps({"jobs": jobs} if wrapped else jobs))
+    (home / "harness").mkdir()
+    jobs = [{"skills": [config.skill_prefix + routine], "monitorScript": routine + "-signal.sh"}]
+    (home / "harness/jobs.json").write_text(json.dumps({"jobs": jobs} if wrapped else jobs))
     if age is not None:
         path = home / "records" / routine / "signal.json"
         path.parent.mkdir(parents=True)
@@ -238,8 +224,8 @@ def test_monitor_hygiene_missing_stale_and_clean(monitor, routine, wrapped, age)
     problems = validate.watch_signal_hygiene(Vault(config.vault_path))
     assert len(problems) == (1 if age is None or age > 24 else 0)
     if problems:
-        assert problems == [f"{routine}'s monitor has not run cleanly in a day: check `hermes cron list` and run "
-                            f"`bash $HERMES_HOME/scripts/{routine}-signal.sh`"]
+        assert problems == [f"{routine}'s monitor has not run cleanly in a day: check `brain schedule list` and run "
+                            f"`bash $AGENT_HOME/scripts/{routine}-signal.sh`"]
         assert problems[0] in validate.hygiene(Vault(config.vault_path))
 
 
@@ -247,26 +233,26 @@ def test_monitor_hygiene_skips_absent_or_unrelated_jobs_and_no_home(monitor, mon
     config, home, clock = monitor
     vault = Vault(config.vault_path)
     assert validate.watch_signal_hygiene(vault) == []
-    (home / "cron").mkdir()
-    path = home / "cron/jobs.json"
-    for raw in [{"jobs": [{"skills": ["brain-watch"]}, {"skills": ["other-continue"], "monitor_script": "s.sh"}]},
+    (home / "harness").mkdir()
+    path = home / "harness/jobs.json"
+    for raw in [{"jobs": [{"skills": ["brain-watch"]}, {"skills": ["other-continue"], "monitorScript": "s.sh"}]},
                 {"jobs": None}, [None, {"skills": None}], "bad shape"]:
         path.write_text(json.dumps(raw))
         assert validate.watch_signal_hygiene(vault) == []
     path.write_text("not json")
     assert validate.watch_signal_hygiene(vault) == []
-    monkeypatch.delenv("HERMES_HOME")
+    monkeypatch.delenv("AGENT_HOME")
     assert validate.watch_signal_hygiene(vault) == []
 
 
 def test_hygiene_handles_invalid_heartbeat_and_profile_continue_prefix(monitor):
     config, home, clock = monitor
-    (home / "cron").mkdir()
+    (home / "harness").mkdir()
     config_path = config.repo / "brain.toml"
     config_path.write_text(config_path.read_text() + 'skill_prefix = "custom-"\n')
-    (home / "cron/jobs.json").write_text(json.dumps({"jobs": [
-        {"skills": ["custom-watch"], "monitor_script": "watch-signal.sh"},
-        {"skills": ["custom-continue"], "monitor_script": "continue-signal.sh"}]}))
+    (home / "harness/jobs.json").write_text(json.dumps({"jobs": [
+        {"skills": ["custom-watch"], "monitorScript": "watch-signal.sh"},
+        {"skills": ["custom-continue"], "monitorScript": "continue-signal.sh"}]}))
     for routine in ("watch", "continue"):
         path = home / "records" / routine / "signal.json"
         path.parent.mkdir(parents=True)
@@ -304,13 +290,13 @@ def test_ready_loop_already_due_changes_the_watch_signal(monitor):
 @pytest.mark.parametrize("routine", ["watch", "continue"])
 def test_a_new_run_failure_changes_the_signal_only_while_something_is_due(monitor, routine):
     config, home, clock = monitor
-    (home / "cron").mkdir()
-    jobs = home / "cron/jobs.json"
+    (home / "harness").mkdir()
+    jobs = home / "harness/jobs.json"
     skill = config.skill_prefix + routine
     signal = signals.watch if routine == "watch" else signals.continue_
 
     def fail(at):
-        jobs.write_text(json.dumps({"jobs": [{"skills": [skill], "last_failure": {"at": at, "detail": "shutdown"}}]}))
+        jobs.write_text(json.dumps({"jobs": [{"skills": [skill], "lastStatus": "failed", "lastRunAt": at}]}))
 
     fail("2026-10-28T08:00:00+00:00")
     idle = signal(config)
@@ -338,18 +324,11 @@ def test_a_rewritten_calendar_day_changes_the_signal(monitor):
     assert signals.watch(config) != first
 
 
-def test_a_routine_delivery_is_not_an_unanswered_turn(monitor):
+def test_only_conversation_user_turns_are_unanswered(monitor):
     config, home, clock = monitor
-    conn = database(home)
-    conn.execute("ALTER TABLE messages ADD COLUMN content TEXT")
-    conn.execute("INSERT INTO sessions VALUES ('room', 'demiurge')")
-    conn.execute("INSERT INTO messages (session_id, role, timestamp, content) VALUES (?, 'user', ?, ?)",
-                 ("room", (AT - timedelta(minutes=30)).timestamp(), "[Cron delivery: night-chores] round begun"))
-    conn.commit()
+    session(home, "routine", source="cron")
     assert session_tools.unanswered(home, AT) == []
-    conn.execute("INSERT INTO messages (session_id, role, timestamp, content) VALUES (?, 'user', ?, ?)",
-                 ("room", (AT - timedelta(minutes=20)).timestamp(), "are you there?"))
-    conn.commit()
+    session(home, "room")
     assert session_tools.unanswered(home, AT) == [("room", "demiurge")]
 
 

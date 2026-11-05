@@ -9,7 +9,7 @@ from brain import attribute, digest, fm, nightly, session_tools
 from brain.tasks import load_tasks
 from brain.config import Config
 from brain.vault import Vault
-from conftest import snapshot
+from conftest import snapshot, harness_session, message, tool, write_shards
 
 DAY = date(2026, 10, 20)
 HARBOR = "memory/Harbor Context.md"
@@ -19,17 +19,19 @@ PROFILE = "memory/people/Alice_Example/Profile.md"
 @pytest.fixture
 def observed_sessions(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("BRAIN_HOT_WORDS", "0")
-    for relative in ("Harbor Context.md", "people/Alice_Example/Profile.md",
-                     "Automatic Note.md", "On Demand Note.md", "Result Only.md"):
+    for relative in ("Harbor Context.md", "people/Alice_Example/Profile.md", "Automatic Note.md", "On Demand Note.md", "Result Only.md"):
         path = vault / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        fm.write(path, {"tier": "hot", "pinned": relative == "Automatic Note.md",
-                        "uses": [], "uses_inferred": []}, "# Fixture\n")
+        fm.write(path, {"tier": "hot", "pinned": relative == "Automatic Note.md", "uses": [], "uses_inferred": []}, "# Fixture\n")
     directory = tmp_path / "exports"
-    directory.mkdir()
-    shutil.copyfile(Path(__file__).parent / "fixtures/all.jsonl", directory / "all.jsonl")
+    shutil.copytree(Path(__file__).parent / "fixtures/sessions", directory / "jsonl")
     (directory / "ignored.md").write_text("## assistant\nSources: T-999\n")
     return directory
+
+
+def replace_shards(directory, *records):
+    shutil.rmtree(directory / "jsonl")
+    write_shards(directory, *records)
 
 
 def test_digest_appends_ordered_reads_and_retrieval_without_changing_text(vault, observed_sessions):
@@ -41,7 +43,7 @@ def test_digest_appends_ordered_reads_and_retrieval_without_changing_text(vault,
     assert "Result Only.md" not in text
 
 
-def test_jsonl_observed_rows_exclude_automatic_load_and_tool_results(vault, observed_sessions):
+def test_harness_observed_rows_exclude_automatic_load_and_tool_results(vault, observed_sessions):
     before = snapshot(vault.parent)
     rows = attribute.sessions(Vault(vault), observed_sessions)
     assert [row.line() for row in rows if row.source == "observed"] == [
@@ -62,7 +64,7 @@ def test_observed_cli_write_is_idempotent_even_after_session_id_changes(vault, o
     before = log.read_bytes()
     nightly.main(args)
     assert capsys.readouterr().out == "" and log.read_bytes() == before
-    path = observed_sessions / "all.jsonl"
+    path = observed_sessions / "jsonl/cli-session.json"
     path.write_text(path.read_text().replace("cli-session", "renamed-session"))
     nightly.main(args)
     assert capsys.readouterr().out == "" and log.read_bytes() == before
@@ -70,14 +72,10 @@ def test_observed_cli_write_is_idempotent_even_after_session_id_changes(vault, o
 
 def test_observed_deduplicates_across_sessions_but_not_dates(vault, observed_sessions):
     attribute.sessions(Vault(vault), observed_sessions, write=True)
-    record = {"id": "another-session", "messages": [
-        {"role": "assistant", "tool_name": "read_file", "arguments": {"path": HARBOR},
-         "timestamp": "2026-10-20T23:00:00Z"},
-        {"role": "assistant", "tool_name": "read_file", "arguments": {"path": HARBOR},
-         "timestamp": "2026-10-21T08:00:00Z"},
-    ]}
-    with (observed_sessions / "all.jsonl").open("a") as stream:
-        stream.write(json.dumps(record) + "\n")
+    record = harness_session("another-session", [
+        tool("read_file", {"path": HARBOR}, "2026-10-20T23:00:00Z"),
+        tool("read_file", {"path": HARBOR}, "2026-10-21T08:00:00Z")])
+    write_shards(observed_sessions, record)
     rows = attribute.sessions(Vault(vault), observed_sessions, write=True)
     assert [row.line() for row in rows] == [
         "2026-10-21T01:00:00-07:00 | Harbor Context.md | "
@@ -103,17 +101,14 @@ def test_observed_never_attributes_excluded_paths(vault, observed_sessions, rela
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
         path.write_text("# Excluded\n")
-    record = {"id": "excluded", "messages": [{"role": "assistant", "tool_name": "read_file",
-              "arguments": {"path": "memory/" + relative}, "timestamp": "2026-10-20T12:00:00Z"}]}
-    (observed_sessions / "all.jsonl").write_text(json.dumps(record) + "\n")
+    record = harness_session("excluded", [tool("read_file", {"path": "memory/" + relative}, "2026-10-20T12:00:00Z")])
+    replace_shards(observed_sessions, record)
     assert attribute.sessions(Vault(vault), observed_sessions) == []
 
 
 def test_directory_active_overflow_is_still_on_demand(vault, observed_sessions):
-    record = {"id": "overflow", "messages": [{"role": "assistant", "tool_name": "search_files",
-              "arguments": {"nested": {"path": "memory/On Demand Note.md"}},
-              "timestamp": "2026-10-20T12:00:00Z"}]}
-    (observed_sessions / "all.jsonl").write_text(json.dumps(record) + "\n")
+    record = harness_session("overflow", [tool("search_files", {"nested": {"path": "memory/On Demand Note.md"}})])
+    replace_shards(observed_sessions, record)
     rows = attribute.sessions(Vault(vault), observed_sessions)
     assert [(row.target, row.source) for row in rows] == [("On Demand Note.md", "observed")]
 
@@ -121,102 +116,70 @@ def test_directory_active_overflow_is_still_on_demand(vault, observed_sessions):
 @pytest.mark.parametrize("sections", ["directory", "hot", ""])
 def test_observed_reads_follow_enabled_directory_selection(vault, observed_sessions, monkeypatch, sections):
     monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", sections)
-    record = {"id": "active", "messages": [{"role": "assistant", "tool_name": "read_file",
-              "arguments": {"path": "memory/Automatic Note.md"}, "timestamp": "2026-10-20T12:00:00Z"}]}
-    (observed_sessions / "all.jsonl").write_text(json.dumps(record) + "\n")
+    record = harness_session("active", [tool("read_file", {"path": "memory/Automatic Note.md"})])
+    replace_shards(observed_sessions, record)
     rows = attribute.sessions(Vault(vault), observed_sessions)
     assert [(row.target, row.source) for row in rows] == ([] if sections else [("Automatic Note.md", "observed")])
 
 
-@pytest.mark.parametrize("call,reads,retrievals", [
-    ({"tool_calls": [{"function": {"name": "read_file", "arguments": json.dumps({"path": PROFILE})}}]},
-     [PROFILE], []),
-    ({"tool_name": "read_file", "arguments": {"path": HARBOR}}, [HARBOR], []),
-    ({"tool_name": "execute_code", "arguments": {HARBOR: {"path": PROFILE}}}, [HARBOR, PROFILE], []),
-    ({"tool_name": "terminal", "arguments": 'cat "' + HARBOR + '"'}, [HARBOR], []),
-    ({"tool_name": "terminal", "arguments": 'python3 -m brain retrieve --vault ../ "harbor CI"'},
-     [], ["harbor CI"]),
-    ({"tool_calls": [{"name": "search_files", "args": {"paths": [HARBOR, PROFILE, HARBOR]}}]},
-     [HARBOR, PROFILE], []),
-    ({"content": [{"type": "tool_use", "name": "execute_code", "input": {"code": 'open("' + HARBOR + '")'}}]},
-     [HARBOR], []),
-    ({"function_call": {"name": "mcp__vault__read", "parameters": {"nested": [json.dumps({"path": PROFILE})]}}},
-     [PROFILE], []),
-    ({"tool_name": "read_file", "arguments": '{"path": "' + HARBOR + '"'}, [HARBOR], []),
-    ({"tool_name": "session_search", "arguments": "memory/missing-prefix " + PROFILE},
-     [PROFILE], []),
-    ({"tool_name": "terminal", "arguments": {"command": 'brain retrieve --json "' + HARBOR + '"', "path": PROFILE}},
-     [], [HARBOR]),
+@pytest.mark.parametrize("name,arguments,reads,retrievals", [
+    ("read_file", {"path": PROFILE}, [PROFILE], []),
+    ("read_file", {"path": HARBOR}, [HARBOR], []),
+    ("execute_code", {HARBOR: {"path": PROFILE}}, [HARBOR, PROFILE], []),
+    ("terminal", 'cat "' + HARBOR + '"', [HARBOR], []),
+    ("terminal", 'python3 -m brain retrieve --vault ../ "harbor CI"', [], ["harbor CI"]),
+    ("search_files", {"paths": [HARBOR, PROFILE, HARBOR]}, [HARBOR, PROFILE], []),
+    ("mcp__vault__read", {"nested": [json.dumps({"path": PROFILE})]}, [PROFILE], []),
+    ("exec_command", {"cmd": 'brain retrieve --json "' + HARBOR + '"', "path": PROFILE}, [], [HARBOR]),
 ])
-def test_defensive_tool_shapes(call, reads, retrievals, template_config):
-    assert session_tools.activity({"role": "assistant", **call}, template_config) == (reads, retrievals)
+def test_harness_tool_arguments(name, arguments, reads, retrievals, template_config):
+    assert session_tools.activity(tool(name, arguments)["item"], template_config) == (reads, retrievals)
 
 
-@pytest.mark.parametrize("role", ["tool", "function", "user", "system", "developer"])
-def test_only_assistant_tool_calls_are_reads(role, template_config):
-    message = {"role": role, "tool_name": "read_file", "arguments": {"path": HARBOR}}
-    assert session_tools.activity(message, template_config) == ([], [])
-
-
-@pytest.mark.parametrize("compacted", [True, 1, "true", "1"])
-def test_compacted_tool_calls_are_not_observed(compacted, template_config):
-    message = {"role": "assistant", "compacted": compacted,
-               "tool_name": "read_file", "arguments": {"path": HARBOR}}
-    assert session_tools.activity(message, template_config) == ([], [])
+@pytest.mark.parametrize("kind", ["message", "tool_result", "reasoning"])
+def test_only_tool_call_entries_are_reads(kind, template_config):
+    assert session_tools.activity({"type": kind, "text": HARBOR}, template_config) == ([], [])
 
 
 def test_digest_resets_reads_at_text_turns_and_keeps_each_retrieval(template_config):
-    record = {"started_at": str(DAY), "messages": [
-        {"role": "assistant", "tool_name": "read_file", "arguments": {"path": HARBOR}},
-        {"role": "user", "content": "Question"},
-        {"role": "assistant", "content": "First"},
-        {"role": "assistant", "tool_name": "terminal", "arguments": 'brain retrieve "harbor CI"'},
-        {"role": "assistant", "tool_name": "terminal", "arguments": 'brain retrieve "people"'},
-        {"role": "assistant", "content": "Second", "tool_name": "read_file", "arguments": {"path": PROFILE}},
-        {"role": "assistant", "content": "Third"},
-    ]}
+    record = harness_session("fixture", [
+        tool("read_file", {"path": HARBOR}), message("user", "Question"), message("assistant", "First"),
+        tool("terminal", 'brain retrieve "harbor CI"'), tool("terminal", 'brain retrieve "people"'),
+        tool("read_file", {"path": PROFILE}), message("assistant", "Second"), message("assistant", "Third")])
     turns = digest.select_session(record, "fixture", DAY, template_config).turns
     assert [(turn.text, turn.reads, turn.retrievals) for turn in turns] == [
-        ("Question", (), ()), ("First", (HARBOR,), ()),
-        ("Second", (PROFILE,), ("harbor CI", "people")), ("Third", (), ())]
+        ("Question", (), ()), ("First", (HARBOR,), ()), ("Second", (PROFILE,), ("harbor CI", "people")), ("Third", (), ())]
 
 
-def test_empty_jsonl_takes_precedence_over_markdown_attribution(vault, observed_sessions):
-    (observed_sessions / "all.jsonl").write_text("")
-    assert attribute.sessions(Vault(vault), observed_sessions) == []
-
-
-def test_jsonl_explicit_sources_keep_session_reason_and_orientation_exclusion(vault, observed_sessions):
-    record = {"session_id": "citations", "messages": [
-        {"role": "user", "content": "Sources: T-999", "timestamp": "2026-10-20T12:00:00Z"},
-        {"role": "assistant", "content": "Sources: [[START]] [[Harbor Context]] T-001 TR-002; no record found"},
-        {"role": "tool", "content": "Sources: T-998"},
-    ]}
-    (observed_sessions / "all.jsonl").write_text(json.dumps(record) + "\n")
+def test_explicit_sources_keep_session_reason_and_orientation_exclusion(vault, observed_sessions):
+    stamp = "2026-10-20T12:00:00Z"
+    record = harness_session("citations", [message("user", "Sources: T-999", stamp),
+        message("assistant", "Sources: [[START]] [[Harbor Context]] T-001 TR-002; no record found", stamp),
+        {"at": stamp, "item": {"type": "tool_result", "callId": "call", "output": "Sources: T-998"}}])
+    replace_shards(observed_sessions, record)
     rows = attribute.sessions(Vault(vault), observed_sessions)
     assert [row.target for row in rows] == ["Harbor Context.md", "T-001", "TR-002", "MISS"]
     assert all(row.ts == "2026-10-20T05:00:00-07:00" and row.source == "explicit"
                and row.reason == "cited in session citations" for row in rows)
 
 
-@pytest.mark.parametrize("bounds", [{"started_at": "2026-10-20T12:00:00Z"}, {}])
-def test_jsonl_observed_timestamp_fallbacks(vault, observed_sessions, bounds):
-    record = {**bounds, "id": "undated", "messages": [
-        {"role": "assistant", "tool_name": "read_file", "arguments": {"path": HARBOR}}]}
-    path = observed_sessions / "all.jsonl"
-    path.write_text(json.dumps(record) + "\n")
-    row, = attribute.sessions(Vault(vault), observed_sessions)
-    expected = "2026-10-20T05:00:00-07:00" if bounds else attribute.fallback_date(path)
-    assert row.ts == expected
-
-
-def test_malformed_jsonl_attribution_never_partially_writes(vault, observed_sessions):
-    with (observed_sessions / "all.jsonl").open("a") as stream:
-        stream.write("invalid JSON\n")
+def test_malformed_shard_attribution_never_partially_writes(vault, observed_sessions):
+    (observed_sessions / "jsonl/z-invalid.json").write_text("invalid JSON")
     before = snapshot(vault.parent)
-    with pytest.raises(ValueError, match="all.jsonl:3: invalid session JSON"):
+    with pytest.raises(ValueError, match="z-invalid.json: invalid session JSON"):
         attribute.sessions(Vault(vault), observed_sessions, write=True)
     assert snapshot(vault.parent) == before
+
+
+@pytest.mark.parametrize("platform,first,sid,expected", [
+    ("slack", "hello", "conversation", "conversation"),
+    ("cron", "run sleep1", "routine", "routine"),
+    ("cli", "hello", "cli", "conversation"),
+    ("slack", "Evaluation fixture: Q09", "check", "evaluation"),
+    ("slack", "answer only", "retrieval-test-RC-04", "evaluation"),
+])
+def test_session_kind(platform, first, sid, expected):
+    assert session_tools.session_kind(harness_session(sid, [message("user", first)], platform=platform)) == expected
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -277,7 +240,7 @@ def test_half_weight_dates_keep_existing_semantics_without_explicit_rows(vault, 
     assert loaded.notes["Hub.md"].data == {"uses": ["2026-10-04"], "uses_inferred": ["2026-10-04"]}
 
 
-def test_jsonl_nightly_attributes_before_fold_and_is_idempotent(vault, observed_sessions):
+def test_harness_nightly_attributes_before_fold_and_is_idempotent(vault, observed_sessions):
     nightly.run(vault, DAY, observed_sessions)
     assert fm.read(vault / "Harbor Context.md")[0]["uses_inferred"] == [str(DAY)]
     assert fm.read(vault / "Automatic Note.md")[0]["uses_inferred"] == []
@@ -287,19 +250,3 @@ def test_jsonl_nightly_attributes_before_fold_and_is_idempotent(vault, observed_
     after = snapshot(vault.parent)
     assert {path for path in before.keys() | after.keys() if before.get(path) != after.get(path)} == {
         "memory/agent/Sleep Log/2026-10.md"}
-
-
-def test_session_kind_classifies_conversation_routine_and_evaluation():
-    from brain import session_tools
-    user = [{"role": "user", "content": "hello"}]
-    assert session_tools.session_kind([{"title": "chat with kevin", "source": "slack"}], user) == "conversation"
-    assert session_tools.session_kind([{"id": "cron_abc_20261021", "source": "cron"}], user) == "routine"
-    assert session_tools.session_kind([{"title": "Evaluation fixture: Q09", "source": "slack"}], user) == "evaluation"
-    assert session_tools.session_kind([{"title": "x"}], [{"role": "user", "content": "Evaluation fixture: what is the capital"}]) == "evaluation"
-    assert session_tools.session_kind([{"title": "retrieval-test RC-04"}], user) == "evaluation"
-
-
-def test_evaluation_kind_matches_retrieval_test_with_a_space_like_the_markdown_filename():
-    from brain import session_tools
-    user = [{"role": "user", "content": "answer only"}]
-    assert session_tools.session_kind([{"title": "Subagent: read-only memory retrieval test. Answer only"}], user) == "evaluation"

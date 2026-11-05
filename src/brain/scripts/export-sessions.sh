@@ -1,7 +1,7 @@
 #!/bin/bash
 # Nightly session export. Deterministic, no model. Each outcome is separate: export, digest, local commit, publication, refresh.
-# Conversations go to the vault; the agent's own routine and evaluation sessions, and every JSONL shard, go to this
-# profile's records under $HERMES_HOME, so each agent on a shared machine keeps its own and the vault holds only memory.
+# Conversations go to the vault; routine transcripts and every JSON shard, go to this
+# profile's records under $AGENT_HOME, so each agent on a shared machine keeps its own and the vault holds only memory.
 set -eu
 VAULT_REPO="${VAULT_REPO:-$HOME/brain}"
 cd "$VAULT_REPO"
@@ -19,37 +19,14 @@ fi
 mkdir -p "$OUT" "$RECORDS"
 git pull --rebase --autostash -q origin main
 
-# The jsonl export returns every session; the markdown export needs a filter, so export markdown per session id,
-# with --force so a session that grew since last night is refreshed.
-# The full export goes to a scratch file and is split into one shard per session under the records folder; only
-# shards that changed are rewritten.
-# A scratch folder, not a file with a suffix: BSD mktemp wants the Xs last, and a TMPDIR ending in a slash broke it on one profile.
-SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/sessions.XXXXXX")"
-EXPORT="$SCRATCH/all.jsonl"
-hermes sessions export "$EXPORT" --format jsonl
-brain shard-sessions "$EXPORT" "$RECORDS"
-kinds="$(brain session-ids "$EXPORT" --with-kind)"
-rm -rf "$SCRATCH"
-failed=0
-while IFS="$(printf '\t')" read -r id kind; do
-  [ -n "$id" ] || continue
-  case "$kind" in conversation) target="$OUT" ;; *) target="$RECORDS" ;; esac
-  hermes sessions export "$target" --format md --session-id "$id" --force || { echo "export-sessions: markdown export failed for session $id" >&2; failed=1; }
-  if ! find "$target" -maxdepth 1 -name "*${id}*.md" | grep -q .; then
-    echo "export-sessions: no markdown file for session $id" >&2; failed=1
-  fi
-done <<< "$kinds"
-if [ "$failed" -ne 0 ]; then
-  echo "export-sessions: export incomplete; nothing committed" >&2
-  exit 1
-fi
+brain export-sessions --date "$DATE"
 
 brain digest --date "$DATE" --write
 # Transcripts and digests are pushed: scrub pasted credentials (key shapes, secret-named assignments) first.
 brain redact "$OUT" "$VAULT/Conversations/Digests" >/dev/null || { echo "export-sessions: redaction failed; nothing committed" >&2; exit 1; }
 git add "$OUT" "$VAULT/Conversations/Digests" "$(dirname "$(brain paths skills)")"   # exports, digests, and engine state such as engine-version and a pending migration
 if ! git diff --cached --quiet; then
-  git commit -q -m "archive($DATE): hermes session export"
+  git commit -q -m "archive($DATE): session export"
 fi
 
 # Publish whatever is pending, including commits an earlier failed run left behind. Large pushes have hit HTTP 400;

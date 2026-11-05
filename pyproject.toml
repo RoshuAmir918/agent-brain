@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-brain"
-version = "0.29.1"
-description = "Configurable Markdown memory mechanics for a personal Hermes agent"
+version = "0.30.0"
+description = "Configurable Markdown memory mechanics for a personal agent"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
@@ -24,4 +24,4 @@ brain = "brain.nightly:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-brain = ["skills/*/SKILL.md", "templates/*.md", "scripts/*.sh", "migrations/*.md", "hermes_plugin/plugin.yaml", "hermes_plugin/README.md"]
+brain = ["skills/*/SKILL.md", "templates/*.md", "scripts/*.sh", "migrations/*.md"]

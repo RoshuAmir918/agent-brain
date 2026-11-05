@@ -17,7 +17,7 @@ def _public(vault: Vault, source: str) -> bool:
     path = PurePosixPath(source.split("#", 1)[0])
     config = vault.config
     excluded = (config.sources_dir, PurePosixPath(config.human_profile).parent.as_posix(),
-                config.people_dir, config.agents_dir, config.hermes_dir)
+                config.people_dir, config.agents_dir, config.runtime_dir)
     if path.is_absolute() or ".." in path.parts or any(path.is_relative_to(folder) for folder in excluded):
         return False
     note = vault.notes.get(path.as_posix()) or vault.notes.get(path.as_posix() + ".md")

@@ -7,7 +7,7 @@ from brain.config import Config
 from brain import attribute, fm, nightly
 from brain.tasks import load_tasks
 from brain.vault import Vault
-from conftest import nightly_argv, snapshot
+from conftest import nightly_argv, snapshot, harness_session, message, tool, write_shards
 
 
 @pytest.fixture
@@ -120,7 +120,7 @@ def test_nightly_attributes_before_folding_and_compiling(vault, exported_session
     assert data["tier"] == "hot"
     task = load_tasks(Config.load(vault))[0][0]
     assert task.uses == ["2026-10-05", "2026-09-20"] and task.state["tier"] == "hot"
-    context = (vault.parent / ".hermes.md").read_text()
+    context = (vault.parent / ".context.md").read_text()
     assert "ORIGINAL_FULL_BODY" in context and "memory/Harbor Context|" in context
     log = vault / "agent/Use Log/2026-10.md"
     before = log.read_bytes()
@@ -133,7 +133,7 @@ def test_nightly_preview_keeps_sessions_and_vault_unchanged(vault, exported_sess
     exports_before = snapshot(exported_sessions)
     nightly.main(nightly_argv(vault, "2026-10-06", "--sessions-dir", str(exported_sessions)))
     assert snapshot(vault) == before and snapshot(exported_sessions) == exports_before
-    assert not (vault.parent / ".hermes.md").exists()
+    assert not (vault.parent / ".context.md").exists()
 
 
 def test_legacy_file_attribution_still_uses_whole_file_and_custom_reason(vault, tmp_path, capsys):
@@ -160,15 +160,12 @@ def test_attribution_ignores_evaluation_sessions_and_routine_opens(tmp_path):
     fm.write(vault / "Harbor.md", {"kind": "hub", "tier": "warm"}, "# Harbor\nbody\n")
     sessions = vault / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
     stamp = "2026-10-21T10:00:00-07:00"
-    call = {"role": "assistant", "content": "ok", "timestamp": stamp,
-            "tool_calls": [{"function": {"name": "read_file", "arguments": json.dumps({"path": "memory/Harbor.md"})}}]}
-    cite = {"role": "assistant", "content": "Sources: [[memory/Harbor]]", "timestamp": stamp}
-    records = [
-        {"id": "conv", "source": "slack", "messages": [call]},
-        {"id": "cron_sleep1", "source": "cron", "messages": [call, cite]},
-        {"id": "eval", "title": "Evaluation fixture: Q01", "messages": [call, cite]},
-    ]
-    (sessions / "all.jsonl").write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
+    call = tool("read_file", {"path": "memory/Harbor.md"}, stamp)
+    cite = message("assistant", "Sources: [[memory/Harbor]]", stamp)
+    write_shards(sessions,
+        harness_session("conv", [call]),
+        harness_session("cron_sleep1", [call, cite], platform="cron"),
+        harness_session("eval", [message("user", "Evaluation fixture: Q01", stamp), call, cite]))
     rows = attribute.sessions(Vault(vault), sessions)
     kinds = sorted((u.source, u.reason.split(" in session ")[-1] if " in session " in u.reason else u.reason) for u in rows)
     assert ("observed", "conv") in kinds
@@ -183,12 +180,11 @@ def test_attribute_defaults_to_the_profile_records_folder(tmp_path, monkeypatch,
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     vault = tmp_path / "memory"; (vault / "agent").mkdir(parents=True)
     fm.write(vault / "Harbor.md", {"kind": "hub", "tier": "warm"}, "# Harbor\nbody\n")
-    home = tmp_path / "hermes-home"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    home = tmp_path / "agent-home"
+    monkeypatch.setenv("AGENT_HOME", str(home))
     sessions = home / "records" / "sessions" / "jsonl"; sessions.mkdir(parents=True)
-    call = {"role": "assistant", "content": "ok", "timestamp": "2026-10-21T10:00:00-07:00",
-            "tool_calls": [{"function": {"name": "read_file", "arguments": json.dumps({"path": "memory/Harbor.md"})}}]}
-    (sessions / "conv.jsonl").write_text(json.dumps({"id": "conv", "source": "slack", "messages": [call]}) + "\n", encoding="utf-8")
+    call = tool("read_file", {"path": "memory/Harbor.md"}, "2026-10-21T10:00:00-07:00")
+    write_shards(sessions.parent, harness_session("conv", [call]))
     nightly.main(["attribute", "--vault", str(vault)])
     assert "Harbor" in capsys.readouterr().out
     assert not (vault / "Conversations").exists()

@@ -15,7 +15,7 @@ TODAY = date(2026, 11, 3)
 
 @pytest.fixture
 def config(vault, monkeypatch):
-    monkeypatch.setenv("HERMES_HOME", str(vault.parent / "hermes-home"))
+    monkeypatch.setenv("AGENT_HOME", str(vault.parent / "agent-home"))
     monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
     return Vault(vault).config
 
@@ -43,7 +43,7 @@ def test_sync_normalizes_skips_idless_entries_and_reconciles(config, payload):
     note = profile(config, "people/rpaimehta/Profile.md", "# Rohan Mehta\n")
     assert directory.load(config) is None
     report = directory.sync(config, payload, TODAY)
-    assert directory.path() == config.repo / "hermes-home/records/directory.json"
+    assert directory.path() == config.repo / "agent-home/records/directory.json"
     assert not directory.path().is_relative_to(config.vault_path)
     assert directory.load(config) == {
         "syncedAt": "2026-11-03",

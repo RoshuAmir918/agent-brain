@@ -9,7 +9,7 @@ uses_inferred: []
 ---
 # {name}
 
-What {agent_name} is responsible for and what it knows. Method is in [[{vault}/{hermes_dir}/skills/{skill}/SKILL|the skill]]; state is under `$HERMES_HOME/records/{records}/`.
+What {agent_name} is responsible for and what it knows. Method is in [[{vault}/{runtime_dir}/skills/{skill}/SKILL|the skill]]; state is under `$AGENT_HOME/records/{records}/`.
 
 ## Objective
 What this work is for and what good performance looks like, in {human_name}'s words where possible, with the date.

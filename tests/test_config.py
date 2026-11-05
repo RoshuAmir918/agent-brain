@@ -14,7 +14,7 @@ def test_defaults_without_config(tmp_path, monkeypatch):
     assert config == Config(tmp_path)
     assert config.vault_path == tmp_path / "memory"
     assert config.soul_path == tmp_path / "memory/agent/SOUL.md"
-    assert config.skills_path == tmp_path / "memory/hermes/skills"
+    assert config.skills_path == tmp_path / "memory/Runtime/skills"
 
 
 def test_discovery_from_cwd_and_vault_merges_defaults(tmp_path, monkeypatch):
@@ -51,13 +51,13 @@ def test_invalid_config_fails_before_writing(tmp_path, setting):
         Config.load(cwd=tmp_path)
 
 
-@pytest.mark.parametrize("name", ["soul", "skills", "scripts", "provider", "vault", "repo"])
+@pytest.mark.parametrize("name", ["soul", "skills", "scripts", "vault", "repo"])
 def test_paths_from_cwd_and_explicit_vault(vault, monkeypatch, capsys, name, tmp_path):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
     monkeypatch.chdir(vault / "agent")
     config = Config.load()
     expected = {"soul": config.soul_path, "skills": config.skills_path,
-                "scripts": tmp_path / "hermes-home/scripts", "provider": tmp_path / "hermes-home/plugins/brain",
+                "scripts": tmp_path / "agent-home/scripts",
                 "vault": vault, "repo": vault.parent}[name]
     nightly.main(["paths", name])
     assert capsys.readouterr().out == str(expected) + "\n"
@@ -119,9 +119,9 @@ def test_nested_configured_paths_preview_and_write(vault, monkeypatch):
     nightly.main(["nightly", "--date", "2026-10-05"])
     assert snapshot(repo) == before
     nightly.main(["nightly", "--date", "2026-10-05", "--write"])
-    assert (repo / ".hermes.md").exists()
+    assert (repo / ".context.md").exists()
     assert "[[notes/wiki/internal/agent/Tasks Archive/T-001|" in (root / "internal/agent/Tasks.md").read_text()
-    assert "## notes/wiki/internal/agent/Triggers.md" in (repo / ".hermes.md").read_text()
+    assert "## notes/wiki/internal/agent/Triggers.md" in (repo / ".context.md").read_text()
 
 
 def test_log_dirs_route_agent_folders_to_log(tmp_path):

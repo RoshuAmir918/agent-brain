@@ -84,7 +84,35 @@ START_MIGRATION = _install.start_migration
 
 @pytest.fixture(autouse=True)
 def migration_runs(monkeypatch):
-    """No test schedules a real Hermes run; each records what it would have started."""
+    """No test schedules a real Runtime run; each records what it would have started."""
     started = []
     monkeypatch.setattr(_install, "start_migration", lambda config: started.append(config) or True)
     return started
+
+
+def message(role, text, at="2026-10-20T07:01:00Z", *, said=None):
+    entry = {"at": at, "item": {"type": "message", "role": role, "text": text}}
+    if said is not None:
+        entry["said"] = said
+    return entry
+
+
+def tool(name, arguments, at="2026-10-20T07:01:00Z"):
+    import json
+    return {"at": at, "item": {"type": "tool_call", "id": "call", "name": name,
+            "arguments": arguments if isinstance(arguments, str) else json.dumps(arguments)}}
+
+
+def harness_session(sid, entries, *, platform="demiurge", owner=True, user_name=None):
+    return {"id": sid, "day": "2026-10-20", "speaker": {"platform": platform, **({"userName": user_name} if user_name else {})},
+            "startedAt": "2026-10-20T07:00:00Z", "timezone": "America/Los_Angeles", "system": "",
+            "sessionBlock": "", "owner": owner, "peopleSeen": [], "entries": entries,
+            "recorded": 0, "usage": {"inputTokens": 0, "outputTokens": 0, "cachedInputTokens": 0, "reasoningTokens": 0}}
+
+
+def write_shards(directory, *records):
+    import json
+    folder = directory / "jsonl"
+    folder.mkdir(parents=True, exist_ok=True)
+    for record in records:
+        (folder / (record["id"] + ".json")).write_text(json.dumps(record) + "\n")

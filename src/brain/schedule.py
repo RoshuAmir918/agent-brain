@@ -34,7 +34,7 @@ class Routine:
 
 
 def path(config: Config) -> Path:
-    return config.vault_path / config.hermes_dir / "schedule.toml"   # beside engine-version and pending-migration.md
+    return config.vault_path / config.runtime_dir / "schedule.toml"   # beside engine-version and pending-migration.md
 
 
 def _workdir(config: Config, value: str | None) -> str | None:
@@ -188,7 +188,7 @@ def save(config: Config, routines: dict[str, Routine]) -> None:
 
 
 def from_jobs(config: Config, jobs: list[dict]) -> dict[str, Routine]:
-    """Import either runtime's schedule and execution fields, never its run state."""
+    """Import the harness's schedule and execution fields, never its run state."""
     found, seen = {}, {}
     for job in jobs:
         name = job.get("name") or job.get("id")
@@ -198,10 +198,9 @@ def from_jobs(config: Config, jobs: list[dict]) -> dict[str, Routine]:
         if not isinstance(timing, dict):
             raise ValueError(f"{name}: runtime schedule must be an object")
         kind = timing.get("kind")
-        once = kind == "once" or bool(timing.get("run_at"))
-        enabled = job.get("enabled", True) and job.get("state") not in ("paused", "completed")
-        # A migration's run is the engine's, not a routine: Hermes and the harness kept every one, some as two-minute
-        # intervals after their single run, all under the same name.
+        once = kind == "once"
+        enabled = job.get("enabled", True)
+        # Migration jobs and completed one-shots are not recurring routines.
         if name.startswith("brain-migration") or once and not enabled and job.get("last_run_at"):
             continue
         rank = (bool(enabled), str(job.get("last_run_at") or ""))
@@ -212,7 +211,7 @@ def from_jobs(config: Config, jobs: list[dict]) -> dict[str, Routine]:
             if rank <= seen[name]:
                 continue
         if once:
-            when = {"at": timing.get("at") or timing.get("run_at")}
+            when = {"at": timing.get("at")}
         elif kind == "cron":
             when = {"cron": timing.get("expr")}
         elif kind == "interval":
@@ -223,7 +222,7 @@ def from_jobs(config: Config, jobs: list[dict]) -> dict[str, Routine]:
         else:
             raise ValueError(f"{name}: unknown runtime schedule {timing!r}")
         prompt, workdir = job.get("prompt"), job.get("workdir")
-        found[name] = Routine(**when, skills=job.get("skills") or ([job["skill"]] if job.get("skill") else []),
+        found[name] = Routine(**when, skills=job.get("skills") or [],
                               prompt=None if prompt == f"Run {name}." else prompt,
                               deliver=job.get("deliver", "local"), monitor=job.get("monitor_script"),
                               script=job.get("script"), agent=not job.get("no_agent", False),

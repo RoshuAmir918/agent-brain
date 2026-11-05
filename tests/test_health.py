@@ -22,9 +22,9 @@ def repo_vault(tmp_path):
     (root / "Conversations/Digests").mkdir(parents=True)
     (root / "Conversations/Digests/2026-10-05.md").write_text(
         "---\nkind: log\n---\n\ncoverage: 2 sessions included, 9 routine sessions and 1 evaluation sessions excluded, 0 turns omitted by the word cap\n")
-    (root / "hermes").mkdir()
-    (root / "hermes/engine-version").write_text("0.1.0\n")
-    (root / "hermes/pending-migration.md").write_text("---\nkind: log\n---\n# pending\n")
+    (root / "Runtime").mkdir()
+    (root / "Runtime/engine-version").write_text("0.1.0\n")
+    (root / "Runtime/pending-migration.md").write_text("---\nkind: log\n---\n# pending\n")
     (root / "people/Alice").mkdir(parents=True)
     fm.write(root / "people/Alice/Profile.md", {"tier": "warm"}, "# Alice\nPRIVATE FACT about Alice.\n")
     return root
@@ -57,7 +57,7 @@ def test_render_and_write_carry_no_note_contents(tmp_path, capsys):
     assert text.startswith("# Health: Agent, 2026-10-06\n") and "PRIVATE" not in text and "Alice" not in text
     assert "Git:" in text
     nightly.main(["health", "--vault", str(root), "--date", "2026-10-06", "--write"])
-    written = root / "hermes/health.md"
+    written = root / "Runtime/health.md"
     assert str(written) in capsys.readouterr().out
     saved = written.read_text()
     assert saved.startswith("---\nkind: log\n---\n# Health:") and "Git:" not in saved
@@ -78,7 +78,7 @@ def test_report_outside_git_is_still_a_report(tmp_path):
 def test_pending_since_is_when_this_migration_arrived_not_when_the_last_one_left(tmp_path):
     import os
     root = repo_vault(tmp_path)
-    pending = root / "hermes/pending-migration.md"
+    pending = root / "Runtime/pending-migration.md"
     env = {"GIT_COMMITTER_DATE": "2026-10-21T12:00:00", "GIT_AUTHOR_DATE": "2026-10-21T12:00:00"}
     def dated(day, *args):
         os.environ.update({"GIT_COMMITTER_DATE": f"{day}T12:00:00", "GIT_AUTHOR_DATE": f"{day}T12:00:00"})

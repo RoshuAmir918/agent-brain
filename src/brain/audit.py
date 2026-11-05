@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
 
-from . import digest, index, install, session_tools
+from . import digest, index, install, session_tools, sessions
 from .config import Config
 from .health import STAGE_RE, git
 from .vault import Vault
@@ -73,7 +73,7 @@ def episodes(vault: Vault, today: date, days: int) -> dict:
 def context(vault: Vault, config: Config) -> dict:
     selected, _, total = index.hot_selection(vault, config.context.hot_words)
     enabled = "directory" in config.context.sections
-    compiled = config.repo / ".hermes.md"
+    compiled = config.repo / ".context.md"
     return {"active_note_words": total if enabled else 0,
             "active_notes": len(selected) if enabled else 0,
             "compiled_context_words": words(compiled.read_text(encoding="utf-8", errors="replace")) if compiled.exists() else 0}
@@ -109,32 +109,32 @@ def routines(directory: Path, today: date, days: int) -> list[dict]:
     """Each cron job's runs in the window, from the session store's own counters: the cost of a routine, not its words."""
     since = datetime.combine(today - timedelta(days=days), datetime.min.time()).timestamp()
     jobs: dict[str, list[dict]] = {}
-    for path in digest.jsonl_sources(directory) if directory.is_dir() else []:
-        for _, record in digest.json_records(path):
-            containers = digest.session_maps(record)
-            if session_tools.session_kind(containers, digest.message_list(containers)) != "routine":
-                continue
-            started = record.get("started_at")
-            if not isinstance(started, (int, float)) or started < since:
-                continue
-            title = str(record.get("title") or "")
-            job = title.split(" · ")[0].strip() if " · " in title else re.sub(r"_\d{8}_\d{6}$", "", digest.record_id(record))
-            jobs.setdefault(job or "unnamed", []).append(record)
+    for path in digest.json_sources(directory) if directory.is_dir() else []:
+        record = sessions.read(path)
+        if session_tools.session_kind(record) != "routine":
+            continue
+        started = digest.parse_timestamp(record["startedAt"])
+        if started is None or started.timestamp() < since:
+            continue
+        jobs.setdefault(record["speaker"].get("userName") or "unnamed", []).append(record)
     out = []
     for job, runs in sorted(jobs.items()):
-        def numbers(key):
-            return [float(run[key]) for run in runs if isinstance(run.get(key), (int, float))]
-        minutes = [(run["ended_at"] - run["started_at"]) / 60 for run in runs
-                   if isinstance(run.get("ended_at"), (int, float)) and isinstance(run.get("started_at"), (int, float))]
-        reasons: dict[str, int] = {}
+        def count(run, kind):
+            return sum(entry["item"]["type"] == kind for entry in run["entries"])
+        minutes = []
         for run in runs:
-            reasons[str(run.get("end_reason") or "unknown")] = reasons.get(str(run.get("end_reason") or "unknown"), 0) + 1
+            start = digest.parse_timestamp(run["startedAt"])
+            end = digest.parse_timestamp(run["entries"][-1]["at"]) if run["entries"] else start
+            if start and end:
+                minutes.append((end - start).total_seconds() / 60)
         out.append({"job": job, "runs": len(runs),
-                    "last": date.fromtimestamp(max(numbers("started_at"))).isoformat(),
-                    "mean_messages": mean(numbers("message_count") or [float(len(digest.message_list(digest.session_maps(run)))) for run in runs]),
-                    "mean_tool_calls": mean(numbers("tool_call_count")),
-                    "mean_input_tokens": mean(numbers("input_tokens")), "mean_output_tokens": mean(numbers("output_tokens")),
-                    "mean_minutes": mean(minutes), "end_reasons": reasons})
+                    "last": max(digest.parse_timestamp(run["startedAt"]).date() for run in runs).isoformat(),
+                    "mean_messages": mean([count(run, "message") for run in runs]),
+                    "mean_tool_calls": mean([count(run, "tool_call") for run in runs]),
+                    "mean_input_tokens": mean([run.get("usage", {}).get("inputTokens", 0) for run in runs]),
+                    "mean_output_tokens": mean([run.get("usage", {}).get("outputTokens", 0) for run in runs]),
+                    "mean_minutes": mean(minutes), "end_reasons": {"unknown": len(runs)}})
+
     return out
 
 

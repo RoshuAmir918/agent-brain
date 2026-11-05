@@ -3,7 +3,7 @@ name: {prefix}rem
 description: One nightly dream from distant notes
 version: 1.0.0
 metadata:
-  hermes:
+  runtime:
     tags: [memory, night]
     category: brain
 ---

@@ -10,18 +10,18 @@ import pytest
 from brain.config import Config
 from brain import digest, fm, nightly
 from brain.vault import Vault
-from conftest import snapshot
+from conftest import snapshot, harness_session, message, tool, write_shards
 
 DAY = date(2026, 10, 20)
 
 
 @pytest.fixture
 def digest_sessions(vault, tmp_path, monkeypatch):
-    home = tmp_path / "hermes-home"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    home = tmp_path / "agent-home"
+    monkeypatch.setenv("AGENT_HOME", str(home))
     directory = home / "records/sessions"
     directory.mkdir(parents=True)
-    shutil.copyfile(Path(__file__).parent / "fixtures/all.jsonl", directory / "all.jsonl")
+    shutil.copytree(Path(__file__).parent / "fixtures/sessions", directory / "jsonl")
     (directory / "ignored.md").write_text("## user 2026-10-20T12:00:00-07:00\nMARKDOWN duplicate\n")
     (directory / "manifest.jsonl").write_text("not a session object\n")
     return directory
@@ -36,7 +36,7 @@ def test_jsonl_preview_filters_roles_preserves_text_and_counts(vault, digest_ses
     assert f"Digest for {DAY}, generated {generated} by brain from 2 sessions, 22 words" in text
     assert text.startswith(digest.FRONTMATTER)
     assert fm.split(text)[0] == {"kind": "log", "tier": "cold", "pinned": False, "uses": [], "uses_inferred": []}
-    assert text.index("## Slack DM (slack)") < text.index("## cli-session (cli)")
+    assert text.index("## slack-dm (slack)") < text.index("## cli-session (cli)")
     assert text.index("**Human** 00:00") < text.index("**Agent** 00:02") < text.index("**Human** 00:03")
     assert "**Human** 00:01\nCLI morning question." in text
     assert "**Agent** 00:03\nCLI morning answer." in text
@@ -112,15 +112,6 @@ def test_sessions_directory_override(vault, digest_sessions, tmp_path, capsys):
     assert not (vault / "Conversations/Digests").exists()
 
 
-@pytest.mark.parametrize("key", ["timestamp", "created_at", "created", "ts", "time", "sent_at"])
-@pytest.mark.parametrize("nested", [False, True])
-def test_timestamp_aliases_and_timings(key, nested):
-    fields = {key: "2026-10-20T07:01:00Z"}
-    if nested:
-        fields = {"timestamp": "invalid", "timings": fields}
-    assert digest.timestamp_in(fields).isoformat() == "2026-10-20T00:01:00-07:00"
-
-
 @pytest.mark.parametrize("value", ["2026-10-20T07:01:00Z", "2026-10-20T00:01:00-0700",
                                   "2026-10-20 00:01", 1792479660, 1792479660000, "1792479660000"])
 def test_iso_epoch_seconds_milliseconds_and_naive_pacific(value):
@@ -134,69 +125,14 @@ def test_invalid_timestamps_are_unusable(value):
 
 
 def test_dst_fold_sorts_by_instant_not_repeated_wall_clock(template_config):
-    record = {"messages": [
-        {"role": "assistant", "content": "Later", "timestamp": "2026-11-01T01:10:00-08:00"},
-        {"role": "user", "content": "Earlier", "timestamp": "2026-11-01T01:50:00-07:00"},
-    ]}
+    record = harness_session("dst", [message("assistant", "Later", "2026-11-01T01:10:00-08:00"),
+                                     message("user", "Earlier", "2026-11-01T01:50:00-07:00")])
     session = digest.select_session(record, "dst", date(2026, 11, 1), template_config)
     assert [turn.text for turn in session.turns] == ["Earlier", "Later"]
 
 
-def test_inheritance_includes_skipped_messages_but_not_leading_undated_turns(template_config):
-    record = {"started_at": "2026-10-20", "ended_at": "2026-10-21", "messages": [
-        {"role": "user", "content": "Leading unknown"},
-        {"role": "system", "timestamp": "2026-10-20T06:59:00Z"},
-        {"role": "assistant", "content": "Still yesterday"},
-        {"role": "tool", "timestamp": "2026-10-20T07:00:00Z"},
-        {"role": "user", "content": "Inherited today"},
-        {"role": "assistant", "content": "Compacted", "compacted": "true", "ts": "2026-10-20T07:02:00Z"},
-        {"role": "assistant", "content": "Inherited compacted time", "active": False},
-    ]}
-    session = digest.select_session(record, "inheritance", DAY, template_config)
-    assert [turn.text for turn in session.turns] == ["Inherited today", "Inherited compacted time"]
-    assert [turn.timestamp.strftime("%H:%M") for turn in session.turns] == ["00:00", "00:02"]
-    assert session.note == ""
-
-
-@pytest.mark.parametrize("day,included", [(date(2026, 10, 18), False), (date(2026, 10, 19), True),
-                                          (DAY, True), (date(2026, 10, 21), True), (date(2026, 10, 22), False)])
-def test_undated_session_uses_inclusive_session_range(day, included, template_config):
-    record = {"session": {"metadata": {"started_at": "2026-10-20T06:59:00Z", "ended_at": "2026-10-21T07:01:00Z"},
-                          "messages": [{"role": "user", "content": "Untimed question"},
-                                       {"role": "assistant", "content": "Untimed answer"}]}}
-    session = digest.select_session(record, "untimed", day, template_config)
-    assert len(session.turns) == (2 if included else 0)
-    if included:
-        assert "no usable message timestamps; session range" in session.note
-        assert all(turn.timestamp.date() == day for turn in session.turns)
-
-
-@pytest.mark.parametrize("bounds,included", [({}, False), ({"started_at": "2026-10-20"}, True),
-    ({"ended_at": "2026-10-20"}, True), ({"started_at": "2026-10-21", "ended_at": "2026-10-19"}, False)])
-def test_missing_or_reversed_session_range(bounds, included, template_config):
-    session = digest.select_session({**bounds, "messages": [{"role": "user", "content": "Untimed"}]}, "bounds", DAY, template_config)
-    assert bool(session.turns) == included
-
-
-@pytest.mark.parametrize("key", ["messages", "history", "turns", "conversation"])
-def test_defensive_message_container_aliases(key, template_config):
-    record = {"data": {"metadata": {"title": "Nested title", "source": "cli"}, key: [None, {
-        "role": "USER", "text": "Nested content", "time": "2026-10-20T00:00:00-07:00"}]}}
-    session = digest.select_session(record, "export", DAY, template_config)
-    assert session.title == "Nested title" and session.source == "cli"
-    assert [turn.text for turn in session.turns] == ["Nested content"]
-
-
-def test_content_blocks_concatenate_without_stripping():
-    content = [None, "  leading ", {"text": "text\n"}, {"type": "output_text", "text": {"value": "ending  "}},
-               {"type": "tool_use", "text": "SKIP"}, {"type": "tool_result", "text": "SKIP"},
-               {"type": "image_url", "text": "SKIP"}, {"type": "text", "text": None}]
-    assert digest.content_text(content) == "  leading text\nending  "
-    assert digest.content_text({"text": "not a content list"}) == ""
-
-
 def test_markdown_fallback_is_recursive_filters_dates_and_preserves_sources(vault, digest_sessions):
-    (digest_sessions / "all.jsonl").unlink()
+    shutil.rmtree(digest_sessions / "jsonl")
     (digest_sessions / "ignored.md").unlink()
     nested = digest_sessions / "nested"
     nested.mkdir()
@@ -218,7 +154,9 @@ def test_markdown_fallback_is_recursive_filters_dates_and_preserves_sources(vaul
     ("## human", "## assistant")])
 def test_markdown_role_and_timestamp_markers(user, assistant, template_config):
     text = f"2026-10-20T07:01:00Z\n{user}\nQuestion\n{assistant}\nTimestamp: 2026-10-20T07:02:00Z\nAnswer\n"
-    session = digest.select_session({"messages": digest.markdown_messages(text)}, "markdown", DAY, template_config)
+    path = template_config.repo / "markdown.md"
+    path.write_text(text)
+    session = digest.markdown_session(path, path.parent, DAY, template_config)
     assert [(turn.role, turn.text, turn.timestamp.strftime("%H:%M")) for turn in session.turns] == [
         ("user", "Question\n", "00:01"), ("assistant", "Answer\n", "00:02")]
 
@@ -253,27 +191,6 @@ def test_unmarked_markdown_is_not_assigned_a_role(vault, tmp_path):
     assert words == 0 and "from 0 sessions" in text and "Unmarked conversation" not in text
 
 
-def test_empty_jsonl_still_takes_precedence(vault, digest_sessions):
-    (digest_sessions / "all.jsonl").write_text("\n[]\nnull\n{}\n")
-    text, words = digest.build(Config.load(vault), DAY)
-    assert words == 0 and "from 0 sessions" in text and "MARKDOWN" not in text
-
-
-@pytest.mark.parametrize("failure", ["malformed", "missing", "negative"])
-def test_bad_inputs_fail_without_writing(vault, digest_sessions, failure):
-    args = ["digest", "--vault", str(vault), "--date", str(DAY), "--write"]
-    if failure == "malformed":
-        (digest_sessions / "all.jsonl").write_text("not json\n")
-    elif failure == "missing":
-        shutil.rmtree(digest_sessions)
-    else:
-        args += ["--max-words", "-1"]
-    before = snapshot(vault.parent)
-    with pytest.raises(SystemExit):
-        nightly.main(args)
-    assert snapshot(vault.parent) == before
-
-
 @pytest.mark.parametrize("extra", [[], ["--date", "not-a-date"]])
 def test_digest_requires_a_valid_date(vault, extra):
     with pytest.raises(SystemExit) as caught:
@@ -291,138 +208,16 @@ def test_digests_are_log_kind_and_excluded_from_mechanical_updates(vault, digest
     assert loaded.kind_for("Conversations/2026-10-20.md") == "episode"
 
 
-def test_session_ids_lists_each_session_once(tmp_path):
-    from brain import digest
-    path = tmp_path / "all.jsonl"
-    path.write_text('{"id": "a1", "messages": []}\n{"session": {"session_id": "b2"}, "messages": []}\n{"id": "a1"}\n\n', encoding="utf-8")
-    assert digest.session_ids(path) == ["a1", "b2"]
-
-
-def test_session_kinds_classify_each_session_once(tmp_path, capsys):
-    from brain import digest, nightly
-    path = tmp_path / "all.jsonl"
-    path.write_text('{"id": "a1", "source": "slack", "messages": []}\n{"id": "cron_x_1", "source": "cron", "messages": []}\n'
-                    '{"id": "e1", "title": "Evaluation fixture: Q01", "messages": []}\n{"id": "a1"}\n', encoding="utf-8")
-    assert digest.session_kinds(path) == [("a1", "conversation"), ("cron_x_1", "routine"), ("e1", "evaluation")]
-    nightly.main(["session-ids", str(path), "--with-kind"])
-    assert capsys.readouterr().out == "a1\tconversation\ncron_x_1\troutine\ne1\tevaluation\n"
-
-
-def test_digest_labels_user_turns_with_the_platform_speaker_when_present(tmp_path, monkeypatch):
-    import json
-    from datetime import date
-    from brain import digest
-    from brain.config import Config
-    (tmp_path / "brain.toml").write_text("[brain]\nhuman_name = 'Owner'\n", encoding="utf-8")
-    sessions = tmp_path / "memory" / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
-    record = {"id": "s", "messages": [
-        {"role": "user", "user": "U0C6FPJNJ3G", "content": "hi", "timestamp": "2026-10-20T10:00:00-07:00"},
-        {"role": "assistant", "content": "hello", "timestamp": "2026-10-20T10:00:05-07:00"},
-        {"role": "user", "content": "me again", "timestamp": "2026-10-20T10:01:00-07:00"}]}
-    (sessions / "all.jsonl").write_text(json.dumps(record) + "\n", encoding="utf-8")
-    text, _ = digest.build(Config.load(tmp_path / "memory"), date(2026, 10, 20), sessions, 25000)
-    assert "**U0C6FPJNJ3G** 10:00" in text and "**Owner** 10:01" in text
-
-
-def test_digest_excludes_evaluation_and_routine_sessions_and_reports_coverage(tmp_path):
-    import json
-    from datetime import date
-    from brain import digest
-    from brain.config import Config
-    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
-    sessions = tmp_path / "memory" / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
-    stamp = "2026-10-21T10:00:00-07:00"
-    records = [
-        {"id": "s1", "title": "chat", "source": "slack", "messages": [{"role": "user", "content": "real talk", "timestamp": stamp}]},
-        {"id": "cron_x_20261021", "source": "cron", "messages": [{"role": "user", "content": "run sleep 1", "timestamp": stamp}]},
-        {"id": "s3", "title": "Evaluation fixture: Q09", "messages": [{"role": "user", "content": "test question", "timestamp": stamp}]},
-    ]
-    (sessions / "all.jsonl").write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
-    config = Config.load(tmp_path / "memory")
-    text, _ = digest.build(config, date(2026, 10, 21), sessions, 25000)
-    assert "real talk" in text and "run sleep 1" not in text and "test question" not in text
-    assert "coverage: 1 sessions included, 1 routine sessions and 1 evaluation sessions excluded, 0 turns omitted" in text
-    text, _ = digest.build(config, date(2026, 10, 21), sessions, 25000, include_routines=True)
-    assert "run sleep 1" in text and "test question" not in text
-
-
-def test_shard_writes_only_changed_sessions_and_readers_use_shards(tmp_path):
-    import json
-    from datetime import date
-    from brain import digest
-    from brain.config import Config
-    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
-    sessions = tmp_path / "memory" / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
-    stamp = "2026-10-21T10:00:00-07:00"
-    export = tmp_path / "export.jsonl"
-    rec = lambda i, text: {"id": i, "source": "slack", "messages": [{"role": "user", "content": text, "timestamp": stamp}]}
-    export.write_text(json.dumps(rec("a", "one")) + "\n" + json.dumps(rec("b", "two")) + "\n", encoding="utf-8")
-    assert digest.shard(export, sessions) == (2, 0)
-    assert digest.shard(export, sessions) == (0, 2)
-    export.write_text(json.dumps(rec("a", "one")) + "\n" + json.dumps(rec("b", "two changed")) + "\n", encoding="utf-8")
-    assert digest.shard(export, sessions) == (1, 1)
-    assert digest.session_ids(export) == ["a", "b"]
-    text, _ = digest.build(Config.load(tmp_path / "memory"), date(2026, 10, 21), sessions, 25000)
-    assert "two changed" in text and "one" in text
-
-
 def test_default_sessions_dir_falls_back_to_the_vault_until_records_exist(tmp_path, monkeypatch):
     from brain import digest
     from brain.config import Config
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     config = Config.load(tmp_path / "memory")
-    home = tmp_path / "hermes-home"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    home = tmp_path / "agent-home"
+    monkeypatch.setenv("AGENT_HOME", str(home))
     legacy = tmp_path / "memory" / "Conversations" / "Sessions"
     assert digest.default_sessions_dir(config) == home / "records" / "sessions"
     legacy.mkdir(parents=True)
     assert digest.default_sessions_dir(config) == legacy
     (home / "records" / "sessions").mkdir(parents=True)
     assert digest.default_sessions_dir(config) == home / "records" / "sessions"
-
-
-def test_digest_days_follow_the_configured_timezone(tmp_path, monkeypatch):
-    import json
-    from datetime import date
-    from brain import digest
-    from brain.config import Config
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
-    (tmp_path / "memory").mkdir()
-    (tmp_path / "brain.toml").write_text('[brain]\nhuman_name = "Mira"\ntimezone = "America/New_York"\n', encoding="utf-8")
-    config = Config.load(tmp_path / "memory")
-    records = tmp_path / "home/records/sessions/jsonl"
-    records.mkdir(parents=True)
-    session = {"id": "late", "title": "late chat", "source": "slack", "messages": [
-        {"role": "user", "content": "still up", "timestamp": "2026-10-26T23:30:00-04:00"},
-        {"role": "assistant", "content": "so am I", "timestamp": "2026-10-26T23:31:00-04:00"}]}
-    (records / "late.jsonl").write_text(json.dumps(session) + "\n", encoding="utf-8")
-    eastern, _ = digest.build(config, date(2026, 10, 26), records.parent)
-    assert "still up" in eastern and "23:30" in eastern
-    pacific, _ = digest.build(Config(tmp_path), date(2026, 10, 26), records.parent)
-    assert "still up" in pacific and "20:30" in pacific
-
-
-def test_a_shared_room_session_names_each_speaker_from_the_hermes_prefix(tmp_path):
-    import json
-    from datetime import date
-    from brain import digest
-    from brain.config import Config
-    (tmp_path / "brain.toml").write_text("[brain]\nhuman_name = 'Owner'\n", encoding="utf-8")
-    sessions = tmp_path / "memory" / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
-    room = {"id": "r", "source": "demiurge", "chat_type": "group", "chat_name": "Hearth", "messages": [
-        {"role": "user", "content": "[Arslan Amir] @orphan are we still on for friday", "timestamp": "2026-10-28T19:00:00-07:00"},
-        {"role": "assistant", "content": "Yes, at eight.", "timestamp": "2026-10-28T19:00:05-07:00"},
-        {"role": "user", "content": "[Roshan Amir] thanks", "timestamp": "2026-10-28T19:01:00-07:00"}]}
-    dm = {"id": "d", "source": "demiurge", "messages": [
-        {"role": "user", "content": "[draft] not a speaker in a one-person session", "timestamp": "2026-10-28T20:00:00-07:00"}]}
-    (sessions / "all.jsonl").write_text(json.dumps(room) + "\n" + json.dumps(dm) + "\n", encoding="utf-8")
-    text, _ = digest.build(Config.load(tmp_path / "memory"), date(2026, 10, 28), sessions, 25000)
-    assert "**Arslan Amir** 19:00" in text and "@orphan are we still on for friday" in text
-    assert "**Roshan Amir** 19:01" in text and "[Arslan Amir]" not in text
-    assert "[draft] not a speaker" in text  # a lone bracket in an ordinary session is just text
-    unlabelled = {"id": "u", "source": "demiurge", "messages": [
-        {"role": "user", "content": "[Kevin Pak] first", "timestamp": "2026-10-28T21:00:00-07:00"},
-        {"role": "user", "content": "[Kevin Pak] second", "timestamp": "2026-10-28T21:01:00-07:00"}]}
-    (sessions / "all.jsonl").write_text(json.dumps(unlabelled) + "\n", encoding="utf-8")
-    text, _ = digest.build(Config.load(tmp_path / "memory"), date(2026, 10, 28), sessions, 25000)
-    assert "**Kevin Pak** 21:00" in text  # no chat type recorded, but every message carries a speaker

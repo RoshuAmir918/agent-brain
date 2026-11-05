@@ -15,8 +15,8 @@ AT = datetime(2026, 11, 4, 12, tzinfo=timezone.utc)
 
 @pytest.fixture
 def work(vault, tmp_path, monkeypatch):
-    home = tmp_path / "hermes"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    home = tmp_path / "agent-home"
+    monkeypatch.setenv("AGENT_HOME", str(home))
     clock = [AT]
     monkeypatch.setattr(Config, "now", lambda self, moment=None: clock[0])
     config = Config.load(vault)
@@ -167,7 +167,7 @@ def test_an_output_resets_the_regular_quiet_count_before_demotion(work, capsys):
 
 @pytest.mark.parametrize("tid", ["T-001", "T-999"])
 def test_chunk_rejects_unknown_and_non_handed_off(vault, tmp_path, monkeypatch, capsys, tid):
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
     with pytest.raises(SystemExit) as error:
         nightly.main(["continue", "--chunk", tid, "--vault", str(vault)])
     assert error.value.code == 2 and f"{tid} is not a handed-off task" in capsys.readouterr().err
@@ -188,16 +188,14 @@ def test_pace_cli_and_daily_due(work, capsys):
     assert error.value.code == 2
 
 
-def test_progress_uses_home_fallback_and_separates_vaults(work, tmp_path, monkeypatch, capsys):
+def test_progress_separates_vaults(work, tmp_path, monkeypatch, capsys):
     config, home, clock = work
-    monkeypatch.delenv("HERMES_HOME")
-    monkeypatch.setattr(Path, "home", lambda: tmp_path / "fallback")
     demote(config, capsys)
     second = Config.load(make_vault(tmp_path / "other" / "memory"))
     tasks.hand_off(second, "T-001", AT.date())
     assert run(second, capsys, "--chunk", "T-001") == "T-001 baseline stored: 0 quiet chunks"
-    assert fingerprint(config, tmp_path / "fallback/.hermes")["quiet"] == 3
-    assert fingerprint(second, tmp_path / "fallback/.hermes")["quiet"] == 0
+    assert fingerprint(config, home)["quiet"] == 3
+    assert fingerprint(second, home)["quiet"] == 0
 
 
 def test_daily_signal_ids_date_heartbeat_and_ignores_next(work, capsys):
@@ -223,11 +221,11 @@ def test_daily_signal_ids_date_heartbeat_and_ignores_next(work, capsys):
 @pytest.mark.parametrize("identification", [{"name": "continue-daily"}, {"prompt": "Run continue daily."}])
 def test_daily_monitor_hygiene_has_its_own_heartbeat(work, identification):
     config, home, clock = work
-    (home / "cron").mkdir(parents=True)
-    (home / "cron/jobs.json").write_text(json.dumps({"jobs": [
-        {"skills": [config.skill_prefix + "continue"], "monitor_script": "continue-daily-signal.sh", **identification}]}))
-    expected = ["continue-daily's monitor has not run cleanly in a day: check `hermes cron list` and run "
-                "`bash $HERMES_HOME/scripts/continue-daily-signal.sh`"]
+    (home / "harness").mkdir(parents=True)
+    (home / "harness/jobs.json").write_text(json.dumps({"jobs": [
+        {"skills": [config.skill_prefix + "continue"], "monitorScript": "continue-daily-signal.sh", **identification}]}))
+    expected = ["continue-daily's monitor has not run cleanly in a day: check `brain schedule list` and run "
+                "`bash $AGENT_HOME/scripts/continue-daily-signal.sh`"]
     assert validate.watch_signal_hygiene(Vault(config.vault_path)) == expected
     signals.continue_(config)  # Regular heartbeat does not satisfy the daily job.
     assert validate.watch_signal_hygiene(Vault(config.vault_path)) == expected
@@ -239,10 +237,10 @@ def test_daily_monitor_hygiene_has_its_own_heartbeat(work, identification):
 
 def test_regular_failure_retry_skips_daily_job_with_the_same_skill(work):
     config, home, clock = work
-    (home / "cron").mkdir(parents=True)
-    (home / "cron/jobs.json").write_text(json.dumps({"jobs": [
-        {"name": "continue-daily", "skills": [config.skill_prefix + "continue"], "last_failure": {"at": "daily"}},
-        {"name": "continue", "skills": [config.skill_prefix + "continue"], "last_failure": {"at": "regular"}}]}))
+    (home / "harness").mkdir(parents=True)
+    (home / "harness/jobs.json").write_text(json.dumps({"jobs": [
+        {"name": "continue-daily", "skills": [config.skill_prefix + "continue"], "lastStatus": "failed", "lastRunAt": "daily"},
+        {"name": "continue", "skills": [config.skill_prefix + "continue"], "lastStatus": "failed", "lastRunAt": "regular"}]}))
     assert "last failure: regular" in signals.continue_(config)
     tasks.set_pace(config, "T-001", "daily", AT.date())
     assert "last failure" not in signals.continue_(config, daily=True)
@@ -270,3 +268,11 @@ def test_fresh_owner_handoff_starts_a_new_regular_quiet_sequence(work, capsys):
     demote(config, capsys)
     tasks.hand_off(config, "T-001", AT.date(), "Home")
     assert run(config, capsys, "--chunk", "T-001") == "T-001 no progress: 1 quiet chunks; pace regular"
+
+
+def test_chunk_without_runtime_skips_progress_recording(work, monkeypatch, capsys):
+    config, home, clock = work
+    monkeypatch.delenv("AGENT_HOME")
+    monkeypatch.delenv("HERMES_HOME", raising=False)
+    assert run(config, capsys, "--chunk", "T-001") == "T-001 progress not recorded: AGENT_HOME is not set"
+    assert not (home / "records/continue/progress.json").exists()

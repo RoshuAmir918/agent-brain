@@ -1,10 +1,9 @@
-"""Install package-owned Hermes routines without changing global config."""
+"""Install package-owned routines without changing global config."""
 from __future__ import annotations
 
 import re
 
 import os
-import shutil
 import subprocess
 import sys
 from importlib.metadata import version as installed_version
@@ -19,12 +18,8 @@ def scripts_path() -> Path:
     return runtime.home().resolve() / "scripts"
 
 
-def provider_path() -> Path:
-    return runtime.home().resolve() / "plugins" / "brain"
-
-
 def records_path() -> Path:
-    """Run payloads for this profile, outside the vault: one Hermes home per agent, so one records tree per agent."""
+    """Run payloads for this profile, outside the vault: one workspace per agent, so one records tree per agent."""
     return runtime.home().resolve() / "records"
 
 
@@ -81,6 +76,8 @@ def skills(config: Config, force: bool = False) -> Path:
             local = local_section(current)
             if local:
                 text = text.rstrip("\n") + "\n\n" + local
+                for token, value in config.template_values().items():
+                    text = text.replace("{" + token + "}", value)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
     memory_spec(config)
@@ -100,6 +97,8 @@ def memory_spec(config: Config) -> Path:
         local = local_section(current)
         if local:
             text = text.rstrip("\n") + "\n\n" + local
+            for token, value in config.template_values().items():
+                text = text.replace("{" + token + "}", value)
         if current.strip() == text.strip():
             return target
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -142,25 +141,12 @@ def scripts() -> list[Path]:
     return installed
 
 
-def provider() -> list[Path]:
-    directory = provider_path()
-    directory.mkdir(parents=True, exist_ok=True)
-    installed = []
-    for name in ("__init__.py", "plugin.yaml", "README.md"):
-        target = directory / name
-        staged = target.with_name(target.name + ".tmp")
-        staged.write_bytes(files("brain").joinpath("hermes_plugin", name).read_bytes())
-        os.replace(staged, target)
-        installed.append(target)
-    return installed
-
-
 def update(config: Config) -> list[Path]:
-    """Upgrade with the owning interpreter, then reinstall scripts and the provider."""
+    """Upgrade with the owning interpreter, then reinstall scripts."""
     if not config.update_source:
         return []
     subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade", config.update_source], check=True)
-    return [*scripts(), *provider()]
+    return scripts()
 
 
 def version_tuple(text: str) -> tuple[int, ...]:
@@ -168,12 +154,12 @@ def version_tuple(text: str) -> tuple[int, ...]:
 
 
 def recorded_version(config: Config) -> str:
-    path = config.vault_path / config.hermes_dir / "engine-version"
+    path = config.vault_path / config.runtime_dir / "engine-version"
     return path.read_text(encoding="utf-8").strip() if path.exists() else "0.0.0"
 
 
 def record_version(config: Config, text: str) -> None:
-    path = config.vault_path / config.hermes_dir / "engine-version"
+    path = config.vault_path / config.runtime_dir / "engine-version"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text + "\n", encoding="utf-8")
 
@@ -198,7 +184,7 @@ def migrate_check(config: Config) -> Path | None:
     if not pending:
         record_version(config, current)
         return None
-    target = config.vault_path / config.hermes_dir / "pending-migration.md"
+    target = config.vault_path / config.runtime_dir / "pending-migration.md"
     body = ["---", "kind: log", "---", f"# Engine migration: {recorded_version(config)} to {current}", "",
             "Perform each section in order, then run `brain migrate-done`. Sections without `unattended: true` need the owner present.", ""]
     for tag, prompt in pending:
@@ -221,7 +207,7 @@ MIGRATION_ROUTINE = "brain-migration-"
 def start_migration(config: Config) -> bool:
     """A new migration starts now, not at the agent's next session: one run of the agent, two minutes out. A vault that
     declares its schedule gets a one-shot routine named for this version (a one-shot that already ran stays done, so a
-    shared name would never run twice), which `migrate-done` removes; otherwise the runtime's `hermes cron create`."""
+    shared name would never run twice), which `migrate-done` removes; without a declared schedule it cannot start."""
     from . import schedule
     if schedule.path(config).exists():
         from datetime import datetime, timedelta
@@ -231,23 +217,15 @@ def start_migration(config: Config) -> bool:
         routines[name] = schedule.Routine(at=at, prompt=MIGRATION_RUN, workdir=str(config.repo))
         schedule.save(config, routines)
         return True
-    hermes = shutil.which("hermes")
-    if hermes is None:
-        return False
-    try:
-        subprocess.run([hermes, "cron", "create", "2m", MIGRATION_RUN, "--repeat", "1", "--name", "brain-migration",
-                        "--deliver", "local", "--workdir", str(config.repo)],
-                       check=True, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return True
+    print(f"migration not started: no declared schedule at {schedule.path(config)}", file=sys.stderr)
+    return False
 
 
 DEFERRED = "deferred-steps.md"
 
 
 def deferred_path(config: Config) -> Path:
-    return config.vault_path / config.hermes_dir / DEFERRED
+    return config.vault_path / config.runtime_dir / DEFERRED
 
 
 def deferred_steps(config: Config) -> list[str]:
@@ -258,19 +236,19 @@ def deferred_steps(config: Config) -> list[str]:
 
 def migrate_done(config: Config, deferred: list[str] | None = None) -> str:
     """Records the version. A step the agent could not complete here (a protected file it may not edit unattended) is
-    carried for a maintainer in <hermes_dir>/deferred-steps.md, which their sessions and `brain health` show, instead of
+    carried for a maintainer in <runtime_dir>/deferred-steps.md, which their sessions and `brain health` show, instead of
     holding the migration open. It is machinery, so it never goes to the owner's Needs you."""
     current = installed_version("agent-brain")
     if deferred:
         path = deferred_path(config)
         text = path.read_text(encoding="utf-8") if path.exists() else (
             "# Deferred migration steps\n\nSteps an unattended migration could not do (a protected file such as SOUL.md "
-            "or the Hermes config). A maintainer approves each in a live session; remove the line once it is done.\n\n")
+            "or another protected file). A maintainer approves each in a live session; remove the line once it is done.\n\n")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text.rstrip("\n") + "\n" + "".join(f"- {config.today().isoformat()} · {current} · {step}\n"
                                                          for step in deferred), encoding="utf-8")
     record_version(config, current)
-    pending = config.vault_path / config.hermes_dir / "pending-migration.md"
+    pending = config.vault_path / config.runtime_dir / "pending-migration.md"
     if pending.exists():
         pending.unlink()
     from . import schedule

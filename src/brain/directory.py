@@ -7,7 +7,7 @@ import tempfile
 from datetime import date
 from pathlib import Path, PurePosixPath
 
-from . import install
+from . import install, runtime
 from .config import Config
 from .session_context import profile_ids
 from .vault import Note, Vault
@@ -44,6 +44,8 @@ def sync(config: Config, payload: dict, today: date) -> list[str]:
 
 
 def load(config: Config) -> dict | None:
+    if runtime.configured() is None:
+        return None
     try:
         directory = json.loads(path().read_text(encoding="utf-8"))
     except (OSError, ValueError):

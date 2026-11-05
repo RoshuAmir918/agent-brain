@@ -1,10 +1,11 @@
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pytest
 
 from brain import audit, fm, nightly
 from brain.config import Config
+from conftest import harness_session, message, tool
 
 DAY = date(2026, 10, 26)
 
@@ -21,19 +22,23 @@ def audited(tmp_path, monkeypatch):
     fm.write(vault / "agent/Results/2026-10-21.md", {"kind": "log"}, "receipt two\n")
     (vault / "Conversations").mkdir()
     fm.write(vault / "Conversations/2026-10-20 Secret lunch with Alice.md", {"kind": "episode", "tier": "warm"}, "# Secret lunch\n" + "word " * 1600)
-    home = tmp_path / "hermes-home"
-    monkeypatch.setenv("HERMES_HOME", str(home))
+    home = tmp_path / "agent-home"
+    monkeypatch.setenv("AGENT_HOME", str(home))
     shards = home / "records/sessions/jsonl"; shards.mkdir(parents=True)
     started = datetime(2026, 10, 20, 5).timestamp()
-    runs = [
-        {"id": "cron_abc_20261024_050000", "source": "cron", "title": "explore · Oct 24 05:00", "started_at": started, "ended_at": started + 600,
-         "message_count": 90, "tool_call_count": 60, "input_tokens": 100000, "output_tokens": 9000, "end_reason": "cron_complete", "messages": []},
-        {"id": "cron_abc_20261025_050000", "source": "cron", "title": "explore · Oct 25 05:00", "started_at": started + 86400, "ended_at": started + 86400 + 300,
-         "message_count": 10, "tool_call_count": 4, "input_tokens": 20000, "output_tokens": 1000, "end_reason": "cron_complete", "messages": []},
-        {"id": "conv1", "source": "slack", "title": "chat", "started_at": started, "message_count": 3, "messages": []},
-    ]
+    runs = []
+    for sid, offset, duration, messages, calls, tokens_in, tokens_out in (("run1", 0, 600, 90, 60, 100000, 9000),
+                                                                      ("run2", 86400, 300, 10, 4, 20000, 1000)):
+        first = datetime.fromtimestamp(started + offset, timezone.utc).isoformat()
+        last = datetime.fromtimestamp(started + offset + duration, timezone.utc).isoformat()
+        record = harness_session(sid, [message("user", "run", first)] * messages + [tool("read_file", {}, last)] * calls,
+                                 platform="cron", user_name="explore")
+        record["startedAt"] = first
+        record["usage"] = {"inputTokens": tokens_in, "outputTokens": tokens_out}
+        runs.append(record)
+    runs.append(harness_session("conv1", [], platform="slack"))
     for run in runs:
-        (shards / f"{run['id']}.jsonl").write_text(json.dumps(run) + "\n", encoding="utf-8")
+        (shards / f"{run['id']}.json").write_text(json.dumps(run) + "\n", encoding="utf-8")
     return Config.load(vault)
 
 
@@ -49,7 +54,8 @@ def test_audit_counts_folders_ledgers_episodes_and_routines_without_contents(aud
     assert data["context"]["compiled_context_words"] == 0
     [job] = data["routines"]
     assert job["job"] == "explore" and job["runs"] == 2 and job["mean_tool_calls"] == 32.0 and job["mean_minutes"] == 7.5
-    assert job["end_reasons"] == {"cron_complete": 2}
+    assert job["mean_messages"] == 50 and job["mean_input_tokens"] == 60000 and job["mean_output_tokens"] == 5000
+    assert job["end_reasons"] == {"unknown": 2}
     text = audit.render(data)
     assert "explore: 2 runs" in text and "Results 2 files, 2 dated" in text
     assert "Secret" not in text and "Alice" not in text and "Harbor" not in text

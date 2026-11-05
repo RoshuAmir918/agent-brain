@@ -104,11 +104,11 @@ def responsibilities(vault: Vault) -> list[str]:
     packaged = {p.name for p in files("brain").joinpath("skills").iterdir()}
     hubs = {n.data.get("skill"): rel for rel, n in vault.notes.items() if n.data.get("skill")}
     for rel, n in vault.notes.items():
-        if n.data.get("skill") and not (vault.root / vault.config.hermes_dir / "skills" / n.data["skill"] / "SKILL.md").is_file():
-            problems.append(f"{rel}: skill {n.data['skill']} has no SKILL.md under {vault.config.hermes_dir}/skills")
+        if n.data.get("skill") and not (vault.root / vault.config.runtime_dir / "skills" / n.data["skill"] / "SKILL.md").is_file():
+            problems.append(f"{rel}: skill {n.data['skill']} has no SKILL.md under {vault.config.runtime_dir}/skills")
         if n.data.get("skill") and not n.data.get("records"):
             problems.append(f"{rel}: responsibility hub without a records folder")
-    skills_dir = vault.root / vault.config.hermes_dir / "skills"
+    skills_dir = vault.root / vault.config.runtime_dir / "skills"
     if skills_dir.is_dir():
         prefix = vault.config.skill_prefix
         for folder in sorted(skills_dir.iterdir()):
@@ -116,7 +116,7 @@ def responsibilities(vault: Vault) -> list[str]:
                 continue
             routine = folder.name[len(prefix):] if folder.name.startswith(prefix) else folder.name
             if routine not in packaged and folder.name not in hubs:
-                problems.append(f"{vault.config.hermes_dir}/skills/{folder.name}: own skill without a responsibility hub (frontmatter skill: {folder.name})")
+                problems.append(f"{vault.config.runtime_dir}/skills/{folder.name}: own skill without a responsibility hub (frontmatter skill: {folder.name})")
     return problems
 
 
@@ -194,7 +194,8 @@ def schedule_hygiene(vault: Vault) -> list[str]:
     from . import runtime, schedule
     config = vault.config
     out = schedule.problems(config)
-    if not schedule.path(config).exists() and runtime.jobs(runtime.home()):
+    home = runtime.configured()
+    if not schedule.path(config).exists() and home and runtime.jobs(home):
         out.append(f"{schedule.path(config)}: runtime jobs have no declared schedule; run `brain schedule import`")
     return out
 
@@ -236,8 +237,8 @@ def watch_signal_hygiene(vault: Vault) -> list[str]:
                 continue
         except (OSError, ValueError, KeyError, TypeError):
             pass
-        out.append(f"{routine}'s monitor has not run cleanly in a day: check `hermes cron list` and run "
-                   f"`bash $HERMES_HOME/scripts/{routine}-signal.sh`")
+        out.append(f"{routine}'s monitor has not run cleanly in a day: check `brain schedule list` and run "
+                   f"`bash $AGENT_HOME/scripts/{routine}-signal.sh`")
     return out
 
 
@@ -274,7 +275,7 @@ def checks(vault: Vault) -> list[str]:
 
 def needs_hygiene(vault: Vault) -> list[str]:
     """Needs you holds the owner's own decisions, once: a bullet repeating a task already waiting on them, or one about
-    the brain itself (a migration, a skill, the Hermes setup), is named so the agent removes it."""
+    the brain itself (a migration, a skill, the runtime setup), is named so the agent removes it."""
     from . import needs
     note = vault.notes.get("CURRENT.md")
     if note is None:
@@ -282,12 +283,12 @@ def needs_hygiene(vault: Vault) -> list[str]:
     config = vault.config
     waiting = [(item.source.split("#")[-1] if "#" in item.source else item.source.rsplit("/", 1)[-1].removesuffix(".md"), item)
                for item in needs.items(vault, config.today()) if item.origin == "task"]
-    hermes = "/" + config.hermes_dir.strip("/") + "/"
+    runtime_folder = "/" + config.runtime_dir.strip("/") + "/"
     out = []
     for item in needs.parse_section(note.body):
         if (tid := needs.duplicates(item, waiting)) is not None:
             out.append(f"CURRENT.md: Needs you repeats {tid}, which already waits on the owner; remove the bullet: {item.text[:80]}")
-        elif hermes in "/" + item.source + "/" or re.search(r"\bmigrations?\b", item.text, re.I):
+        elif runtime_folder in "/" + item.source + "/" or re.search(r"\bmigrations?\b", item.text, re.I):
             out.append(f"CURRENT.md: Needs you holds a note about the brain itself; it belongs in the Sleep Log: {item.text[:80]}")
     return out
 

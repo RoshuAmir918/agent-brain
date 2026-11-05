@@ -20,8 +20,8 @@ def make_vault(tmp_path):
 
 
 def test_generic_layout_resolves_distinct_profiles_orientation_and_skills(vault):
-    relatives = ("human/Profile.md", "people/Alice_Example/Profile.md", "hermes/README.md",
-                 "hermes/skills/example/SKILL.md")
+    relatives = ("human/Profile.md", "people/Alice_Example/Profile.md", "Runtime/README.md",
+                 "Runtime/skills/example/SKILL.md")
     for relative in relatives:
         path = vault / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -39,8 +39,8 @@ def test_generic_layout_resolves_distinct_profiles_orientation_and_skills(vault)
     assert loaded.resolve("Archive/Receipt") == "../Archive/Receipt.md"
     assert loaded.kind_for("people/Alice_Example/Profile.md") == "profile"
     assert loaded.kind_for("human/Profile.md") == "hub"
-    assert loaded.kind_for("hermes/README.md") == "orientation"
-    assert "hermes/skills/example/SKILL.md" not in loaded.notes
+    assert loaded.kind_for("Runtime/README.md") == "orientation"
+    assert "Runtime/skills/example/SKILL.md" not in loaded.notes
 
 
 @pytest.mark.parametrize("prefix", ["", "memory/"])
@@ -301,15 +301,15 @@ def test_single_primed_file_is_primed(tmp_path):
 def test_validate_reports_an_own_skill_without_a_responsibility_hub(vault):
     from brain import validate
     from brain.vault import Vault
-    skill = vault / "hermes/skills/brain-housekeeping/SKILL.md"
+    skill = vault / "Runtime/skills/brain-housekeeping/SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text("# Housekeeping\n", encoding="utf-8")
-    (vault / "hermes/skills/brain-morning").mkdir()
-    (vault / "hermes/skills/brain-morning/SKILL.md").write_text("# Morning\n", encoding="utf-8")
+    (vault / "Runtime/skills/brain-morning").mkdir()
+    (vault / "Runtime/skills/brain-morning/SKILL.md").write_text("# Morning\n", encoding="utf-8")
     v = Vault(vault)
     assert validate.run(v, set()) == []
     assert validate.responsibilities(v) == [
-        "hermes/skills/brain-housekeeping: own skill without a responsibility hub (frontmatter skill: brain-housekeeping)"]
+        "Runtime/skills/brain-housekeeping: own skill without a responsibility hub (frontmatter skill: brain-housekeeping)"]
     fm.write(vault / "Fantasy GM.md", {"kind": "hub", "skill": "brain-housekeeping", "tier": "hot"}, "# Fantasy GM\n")
     v = Vault(vault)
     assert validate.responsibilities(v) == ["Fantasy GM.md: responsibility hub without a records folder"]
@@ -318,4 +318,4 @@ def test_validate_reports_an_own_skill_without_a_responsibility_hub(vault):
     assert validate.responsibilities(v) == []
     fm.write(vault / "Trades.md", {"kind": "hub", "skill": "brain-trades", "records": "trades", "tier": "hot"}, "# Trades\n")
     v = Vault(vault)
-    assert validate.responsibilities(v) == ["Trades.md: skill brain-trades has no SKILL.md under hermes/skills"]
+    assert validate.responsibilities(v) == ["Trades.md: skill brain-trades has no SKILL.md under Runtime/skills"]

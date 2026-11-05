@@ -63,9 +63,9 @@ def test_context_preview_does_not_write_even_with_out(context_vault, capsys):
 
 def test_context_write_defaults_to_parent_without_git(context_vault, capsys):
     nightly.main(["compile-context", "--vault", str(context_vault), "--write"])
-    path = context_vault.parent / ".hermes.md"
+    path = context_vault.parent / ".context.md"
     assert path.read_text() == compile_context.build(Vault(context_vault))
-    assert not (context_vault / ".hermes.md").exists()
+    assert not (context_vault / ".context.md").exists()
     assert capsys.readouterr().out == ""
 
 
@@ -75,7 +75,7 @@ def test_context_custom_out_and_word_warning(context_vault, capsys):
     nightly.main(["compile-context", "--vault", str(context_vault), "--out", str(out), "--write"])
     assert out.read_text().startswith("Generated nightly")
     assert "WARNING: over 6000 words" in capsys.readouterr().err
-    assert not (context_vault.parent / ".hermes.md").exists()
+    assert not (context_vault.parent / ".context.md").exists()
 
 
 def test_repo_root_detects_git_above_vault_parent(repo):
@@ -87,19 +87,19 @@ def test_repo_root_detects_git_above_vault_parent(repo):
 
 def test_nightly_context_is_regenerated_and_committed_at_repo_root(repo):
     root, _ = repo
-    (root.parent / ".hermes.md").write_text("STALE_CONTEXT\n")
+    (root.parent / ".context.md").write_text("STALE_CONTEXT\n")
     nightly.main(nightly_argv(root, "2026-10-05", "--write", "--commit"))
-    context = root.parent / ".hermes.md"
+    context = root.parent / ".context.md"
     assert context.read_text() == compile_context.build(Vault(root))
     assert "STALE_CONTEXT" not in context.read_text()
     assert "T-001 — Sample" in context.read_text()
-    assert git(root.parent, "show", "HEAD:.hermes.md") == context.read_text().strip()
-    assert ".hermes.md" in git(root.parent, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines()
+    assert git(root.parent, "show", "HEAD:.context.md") == context.read_text().strip()
+    assert ".context.md" in git(root.parent, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines()
 
 
 def test_nightly_preview_keeps_real_context_untouched(repo):
     root, _ = repo
-    context = root.parent / ".hermes.md"
+    context = root.parent / ".context.md"
     context.write_text("ORIGINAL_CONTEXT\n")
     before = snapshot(root)
     nightly.main(nightly_argv(root, "2026-10-05"))

@@ -176,7 +176,7 @@ def test_audience_wildcards_subject_overrides_and_blank_dimensions(sharing):
 
 
 @pytest.mark.parametrize("folder,data", [
-    ("sources", {}), ("human", {}), ("people", {}), ("agents", {}), ("hermes", {}),
+    ("sources", {}), ("human", {}), ("people", {}), ("agents", {}), ("Runtime", {}),
     ("Public", {"tier": "private"}), ("Public", {"kind": "conversation"}),
 ])
 def test_shareable_respects_public_boundary_even_with_all_subjects_granted(sharing, folder, data):
