@@ -246,10 +246,12 @@ def _add_ask(config: Config, day: date, text: str, source: str | None, force: bo
     path = config.vault_path / "CURRENT.md"
     data, body = fm.read(path) if path.exists() else ({}, "")
     text = " ".join(text.replace("·", "-").split())   # the separator, inside the text, would break the bullet
-    from .needs import open_asks
+    from .needs import open_asks, replace_task_asks, task_of
     asks = open_asks(body)
     if any(item.text.casefold() == text.casefold() for item in asks):
         return True   # already asked; the first one stands until it is resolved
+    if tid := task_of(source or ""):
+        body = replace_task_asks(config, body, tid, day)
     bullet = f"- {day.isoformat()} · ask · {text}" + (f" · [[{source}]]" if source else "")
     why = " ".join(why.split())
     if why:

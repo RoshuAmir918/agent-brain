@@ -1,7 +1,7 @@
 ---
 name: {prefix}evening
 description: Decide what has gone quiet, so nobody has to sweep a list
-version: 2.5.0
+version: 2.6.0
 metadata:
   runtime:
     tags: [routine, day]
@@ -20,7 +20,7 @@ One job: decide what has gone quiet, so {human_name} never has to sweep a list o
    - a `yours` task, {human_name}'s own work, quiet for two weeks: never dropped or set aside by you. One ask, sourced to the task: "Still on your plate: <title>. Still working on it, done, or drop it?" Their answer decides it (still on: leave it `yours`; done: completed; drop: cancelled), and the Reviewed line restarts its two weeks.
    - left alone when it waits on someone else or on a date still ahead.
    Record each decision with `brain task T-nnn set --reviewed "<set aside | dropped | asked>: <why, in one clause>"` (with `--state set_aside` to set one aside, or `brain task T-nnn drop --why …` to drop it); never edit the register yourself.
-2. **Quiet asks, and too many.** `brain needs-you --stale` lists asks unanswered for two weeks, and `brain needs-you --overflow` the lowest-ranked asks past the five {human_name} sees. Decide each: when it is reversible, take the answer {human_name} would most likely give, act on it, and replace the ask with a `confirm` saying what you did; when it is not, or it was never theirs, remove it and write one dated line on its source note saying why. Never re-ask one.
+2. **Quiet asks, and too many.** `brain needs-you --stale` lists asks unanswered for three days (a task's ask waits with its task and is never listed), and `brain needs-you --overflow` the lowest-ranked asks past the five {human_name} sees. Decide each: when it is reversible, take the answer {human_name} would most likely give, act on it, and replace the ask with a `confirm` saying what you did; when it is not, or it was never theirs, remove it and write one dated line on its source note saying why. Never re-ask one.
 3. **Handled in the world.** For each open ask in `brain needs-you --json`, check whether a channel or a task changing state shows it answered outside any conversation. For an outcome that can be checked (a share or invitation accepted, a payment made, an email sent, a booking confirmed, a form filed), check it once, through the registry row that would show it (`{agent_dir}/Channels.md`, opened the way the row says: a synced mail folder, a command, a connected account) or the task's own evidence. Done: `brain needs-you --resolve <id> --because "<the evidence>"`, and when {human_name} did it themselves, one `morning:` line on the source task saying "looks like you handled <it>". Not checkable, or still not done: leave it.
 4. **What validate names.** `brain validate`. Fix each Needs you problem it names:
    - a bullet repeating a task already waiting on {human_name}: `brain needs-you --resolve "<the bullet>" --because "repeats T-nnn"`;

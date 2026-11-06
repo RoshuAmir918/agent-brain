@@ -394,7 +394,7 @@ def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
         retired = needs.retire_asks(config, today)
     if removed or retired:
         changed.add("CURRENT.md")
-        report.extend(f"needs-you: confirm accepted after 7 days: {text}" for text in removed)
+        report.extend(f"needs-you: confirm accepted after {needs.CONFIRM_DAYS} days: {text}" for text in removed)
         report.extend(f"needs-you: ask unanswered {needs.RETIRE_DAYS} days, retired: {text}" for text in retired)
     with vault_lock(config):
         collapsed = ledger.collapse(config, today)

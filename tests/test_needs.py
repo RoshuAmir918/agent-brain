@@ -244,9 +244,9 @@ def test_expiry_boundary_asks_and_idempotence(vault, newline):
     lines = [
         "---", "# Keep this comment and quoting", 'kind: "orientation"', "---", "# Current",
         "- 2026-10-01 · confirm · Outside the section.", "## Needs you", "",
-        "- 2026-10-22 · confirm · Six days stays.",
-        "- 2026-10-21 · confirm · Seven days accepted. · [[Source]]",
-        "- 2026-10-20 · confirm · Eight days accepted.",
+        "- 2026-10-24 · confirm · Four days stays.",
+        "- 2026-10-23 · confirm · Five days accepted. · [[Source]]",
+        "- 2026-10-22 · confirm · Six days accepted.",
         "- 2020-01-01 · ask · Asks never expire.",
         "- 2026-10-29 · confirm · Future stays.",
         "- 2026-02-30 · confirm · Malformed stays.  ", "",
@@ -254,7 +254,7 @@ def test_expiry_boundary_asks_and_idempotence(vault, newline):
     ]
     before = newline.join(lines).encode("utf-8")
     path.write_bytes(before)
-    assert needs.expire_confirms(Config.load(vault), TODAY) == ["Seven days accepted.", "Eight days accepted."]
+    assert needs.expire_confirms(Config.load(vault), TODAY) == ["Five days accepted.", "Six days accepted."]
     expected = before
     for line in lines[9:11]:
         expected = expected.replace((line + newline).encode("utf-8"), b"")
@@ -277,20 +277,20 @@ def test_expiry_without_section_or_file_is_noop(vault, present):
 def test_nightly_write_expires_and_reports_each_confirm(vault, capsys):
     write_current(vault, "- 2026-10-21 · confirm · First accepted.\n"
                   "- 2026-10-20 · confirm · Second accepted.\n"
-                  "- 2026-10-22 · confirm · Still pending.\n"
-                  "- 2026-10-10 · ask · Still waiting.\n")
+                  "- 2026-10-24 · confirm · Still pending.\n"
+                  "- 2026-10-25 · ask · Still waiting.\n")
     nightly.main(nightly_argv(vault, TODAY, "--write"))
     output = capsys.readouterr().out
     body = fm.read(vault / "CURRENT.md")[1]
     log = vault / "agent/Sleep Log/2026-10.md"
     for text in ("First accepted.", "Second accepted."):
-        line = "needs-you: confirm accepted after 7 days: " + text
+        line = "needs-you: confirm accepted after 5 days: " + text
         assert line in output and line in log.read_text()
         assert text not in body
     assert "Still pending." in body and "Still waiting." in body
     nightly.main(nightly_argv(vault, TODAY, "--write"))
     assert "needs-you:" not in capsys.readouterr().out
-    assert log.read_text().count("needs-you: confirm accepted after 7 days:") == 2
+    assert log.read_text().count("needs-you: confirm accepted after 5 days:") == 2
 
 
 def test_nightly_preview_does_not_expire_in_real_vault(vault, capsys):
@@ -299,7 +299,7 @@ def test_nightly_preview_does_not_expire_in_real_vault(vault, capsys):
     nightly.main(nightly_argv(vault, TODAY))
     assert snapshot(vault.parent) == before
     output = capsys.readouterr().out
-    assert "needs-you: confirm accepted after 7 days: Preview only." in output
+    assert "needs-you: confirm accepted after 5 days: Preview only." in output
     assert "(report only; nothing written)" in output
 
 
@@ -321,7 +321,7 @@ def test_nightly_commit_covers_expired_current_without_real_git_actions(vault, m
     assert "Included in commit." not in fm.read(vault / "CURRENT.md")[1]
     assert commands[0] == ("add", "-A", "--", "memory", ":(exclude)memory/.brain", ".context.md")
     assert commands[2][:3] == ("commit", "-q", "-m")
-    assert "needs-you: confirm accepted after 7 days: Included in commit." in commands[2][3]
+    assert "needs-you: confirm accepted after 5 days: Included in commit." in commands[2][3]
     assert "commit fixture-sha" in capsys.readouterr().out
 
 
@@ -336,10 +336,10 @@ def test_expiry_runs_before_validation_and_is_recorded_on_failure(vault, monkeyp
     monkeypatch.setattr(nightly.validate, "run", fail_validation)
     with pytest.raises(SystemExit, match="1"):
         nightly.main(nightly_argv(vault, TODAY, "--write"))
-    assert "needs-you: confirm accepted after 7 days: Accepted before validation." in capsys.readouterr().out
+    assert "needs-you: confirm accepted after 5 days: Accepted before validation." in capsys.readouterr().out
     log = (vault / "agent/Sleep Log/2026-10.md").read_text()
     assert "write, validation failed, not committed" in log
-    assert "needs-you: confirm accepted after 7 days: Accepted before validation." in log
+    assert "needs-you: confirm accepted after 5 days: Accepted before validation." in log
 
 
 @pytest.mark.parametrize("before_block", [True, False])
@@ -374,7 +374,7 @@ def test_cli_text_and_json(vault, capsys):
     nightly.main(["needs-you", "--json", "--vault", str(vault)])
     result = json.loads(capsys.readouterr().out)
     assert result == [asdict(item) for item in needs.items(Config.load(vault), TODAY)]
-    assert set(result[0]) == {"id", "kind", "text", "origin", "since", "source", "detail", "context", "needs"}
+    assert set(result[0]) == {"id", "kind", "text", "origin", "since", "source", "detail", "context", "needs", "task"}
     assert snapshot(vault.parent) == before
 
 
@@ -432,15 +432,16 @@ def test_cli_ask_rejects_conflicting_arguments(vault, argv):
 
 
 
-def test_an_ask_unanswered_for_four_weeks_is_retired_and_reported(vault, capsys):
-    write_current(vault, "- 2026-09-30 · ask · Twenty-eight days old.\n"
-                  "- 2026-10-01 · ask · Twenty-seven days old.\n")
+def test_an_ask_unanswered_for_five_days_is_retired_and_reported_but_a_tasks_ask_waits(vault, capsys):
+    write_current(vault, "- 2026-10-23 · ask · Five days old.\n"
+                  "- 2026-10-24 · ask · Four days old.\n"
+                  "- 2026-09-30 · ask · The task's own question. · [[agent/Tasks#T-004]]\n")
     nightly.main(nightly_argv(vault, TODAY, "--write"))
     output = capsys.readouterr().out
     body = fm.read(vault / "CURRENT.md")[1]
-    line = "needs-you: ask unanswered 28 days, retired: Twenty-eight days old."
+    line = "needs-you: ask unanswered 5 days, retired: Five days old."
     assert line in output and line in (vault / "agent/Sleep Log/2026-10.md").read_text()
-    assert "Twenty-eight days old." not in body and "Twenty-seven days old." in body
+    assert "Five days old." not in body and "Four days old." in body and "The task's own question." in body
 
 
 def test_a_sixth_ask_is_added_and_the_lowest_ranked_overflow_goes_to_the_evening(vault, capsys, monkeypatch):
@@ -462,12 +463,33 @@ def test_a_sixth_ask_is_added_and_the_lowest_ranked_overflow_goes_to_the_evening
     from brain.vault import Vault
     assert validate.needs_ceiling(Vault(vault)) == ["CURRENT.md: 6 open asks in Needs you; the evening decides the lowest-ranked down to 5 (`brain needs-you --overflow`)"]
 
-def test_stale_lists_asks_two_weeks_old_oldest_first(vault, capsys, monkeypatch):
+def test_stale_lists_asks_three_days_old_oldest_first_but_not_a_tasks(vault, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
-    write_current(vault, "- 2026-10-20 · ask · Fresh.\n- 2026-10-14 · ask · Two weeks.\n- 2026-10-01 · ask · Older.\n"
-                  "- 2026-10-01 · confirm · Not an ask.\n")
+    write_current(vault, "- 2026-10-26 · ask · Fresh.\n- 2026-10-25 · ask · Three days.\n- 2026-10-01 · ask · Older.\n"
+                  "- 2026-10-01 · ask · A task's. · [[agent/Tasks#T-009]]\n- 2026-10-01 · confirm · Not an ask.\n")
     nightly.main(["needs-you", "--vault", str(vault), "--stale"])
-    assert capsys.readouterr().out.splitlines() == ["2026-10-01 · Older. · CURRENT.md", "2026-10-14 · Two weeks. · CURRENT.md"]
+    assert capsys.readouterr().out.splitlines() == ["2026-10-01 · Older. · CURRENT.md", "2026-10-25 · Three days. · CURRENT.md"]
+
+
+def test_a_newer_ask_for_a_task_replaces_its_older_one_and_items_name_the_task(vault):
+    from brain import journal
+    write_current(vault, "- 2026-10-26 · ask · More listings, or tighter commutes? · [[agent/Tasks#T-004]]\n"
+                  "- 2026-10-26 · ask · Reconnect Supabase? · [[agent/Tasks#T-003]]\n"
+                  "- 2026-10-26 · ask · Book the dinner?\n")
+    config = Config.load(vault)
+    journal._add_ask(config, TODAY, "What would done look like for the apartment site?", "agent/Tasks#T-004")
+    body = fm.read(vault / "CURRENT.md")[1]
+    assert "More listings" not in body and "What would done look like" in body
+    assert "Reconnect Supabase?" in body and "Book the dinner?" in body
+    answered = (vault / "agent/Answered/2026-10.md").read_text()
+    assert "More listings, or tighter commutes? · because a newer question about T-004 replaced it" in answered
+    by_text = {item.text: item for item in needs.items(config, TODAY)}
+    assert by_text["What would done look like for the apartment site?"].task == "T-004"
+    assert by_text["Reconnect Supabase?"].task == "T-003"
+    assert by_text["Book the dinner?"].task == ""
+    # a task's ask ranks with what blocks work, ahead of an unlinked one from the same day
+    ranked = [item.text for item in needs.items(config, TODAY)]
+    assert ranked.index("Reconnect Supabase?") < ranked.index("Book the dinner?")
 
 
 
