@@ -26,7 +26,11 @@ def git(repo: Path, *args: str) -> str | None:
         return None
 
 
-def stages(repo: Path, today: date, now: datetime) -> dict[str, dict]:
+# The night stages that serve one person, absent from an enterprise intellect.
+PERSONAL_STAGES = ("people", "prime")
+
+
+def stages(repo: Path, today: date, now: datetime, edition: str = "personal") -> dict[str, dict]:
     """Last recorded run of each night stage, from commit subjects; ok when it covers yesterday or later."""
     last: dict[str, str] = {}
     for line in (git(repo, "log", f"--since={(now - timedelta(days=21)).isoformat(timespec='seconds')}", "--format=%s") or "").splitlines():
@@ -36,7 +40,7 @@ def stages(repo: Path, today: date, now: datetime) -> dict[str, dict]:
     floor = (today - timedelta(days=1)).isoformat()
     return {stage: {"last": last.get(stage),
                     "state": "never" if stage not in last else ("ok" if last[stage] >= floor else "stale")}
-            for stage in STAGES}
+            for stage in STAGES if edition == "personal" or stage not in PERSONAL_STAGES}
 
 
 def report(config: Config, today: date | None = None) -> dict:
@@ -70,7 +74,7 @@ def report(config: Config, today: date | None = None) -> dict:
     return {
         "agent": config.agent_name,
         "date": today.isoformat(),
-        "stages": stages(config.repo, today, config.now()),
+        "stages": stages(config.repo, today, config.now(), config.edition),
         "engine": {"installed": installed, "recorded": install.recorded_version(config),
                    "pending_migration_since": pending_since, "deferred_steps": len(install.deferred_steps(config))},
         "export": {"expected": yesterday, "digest": yesterday if digest.exists() else None, "coverage": coverage},

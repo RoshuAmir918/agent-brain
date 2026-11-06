@@ -6,6 +6,7 @@ metadata:
   runtime:
     tags: [routine, day]
     category: brain
+    editions: [personal]
     context: [primed, current, goals, tasks, triggers, upcoming]
 ---
 # Morning briefing

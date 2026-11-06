@@ -14,6 +14,7 @@ log_dirs = []   # folders under agent_dir that hold receipts, ledgers or results
 skill_prefix = "brain-"
 timezone = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest days, health and audit dates
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables the nightly auto-update
+edition = "personal"                 # "enterprise": an organisation's intellect; no owner profile, goals, people or morning briefing
 
 [context]   # each key also has a BRAIN_* environment override; see docs/engine.md
 hot_words = 6000   # BRAIN_HOT_WORDS: budget in note-body words for the directory's most active notes

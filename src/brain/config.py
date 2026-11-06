@@ -14,6 +14,10 @@ SECTIONS = ("before", "start", "current", "primed", "goals", "triggers", "upcomi
 PEOPLE_FORMS = ("off", "line", "card")   # the people pointer prefetch adds for a person named in a message
 FORMS = ("names", "snippet", "full")
 DAILY_CHUNKS = 16
+# An intellect is one person's (personal) or an organisation's, getting its work done (enterprise): the same engine,
+# installing the routines and skill sections its edition is for. See docs/engine.md, Editions.
+EDITIONS = ("personal", "enterprise")
+PERSONAL_SECTIONS = ("primed", "goals")   # context about one person's day and aims, left out of an enterprise context
 
 
 def pinned_today() -> date | None:
@@ -104,6 +108,7 @@ class Config:
     skill_prefix: str = "brain-"
     timezone: str = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest day boundaries, health and audit dates
     update_source: str = "git+https://github.com/RoshuAmir918/agent-brain"   # empty string disables brain update
+    edition: str = "personal"
     _vault_path: Path | None = None
 
     @classmethod
@@ -149,6 +154,8 @@ class Config:
                 if path.is_absolute() or ".." in path.parts or path == Path("."):
                     raise ValueError(f"brain.{name} must be a relative path without '..'")
                 paths[name] = path.as_posix()
+        if config.edition not in EDITIONS:
+            raise ValueError(f"brain.edition must be one of {', '.join(EDITIONS)}")
         if any(char in config.skill_prefix for char in "/\\") or config.skill_prefix in (".", ".."):
             raise ValueError("brain.skill_prefix must be a name prefix, not a path")
         try:
@@ -193,7 +200,11 @@ class Config:
         if not path.is_file():
             return Context.load({})
         with path.open("rb") as stream:
-            return Context.load(tomllib.load(stream).get("context", {}))
+            context = Context.load(tomllib.load(stream).get("context", {}))
+        if self.edition == "enterprise" and context.sections == SECTIONS:
+            # Unless the vault chose its sections, an enterprise context has no one person's day or goals in it.
+            context = replace(context, sections=tuple(s for s in SECTIONS if s not in PERSONAL_SECTIONS))
+        return context
 
     @cached_property
     def daily_chunks(self) -> int:

@@ -135,6 +135,8 @@ OWNER_PROFILE_WORDS = 500
 def owner_profile(vault: Vault) -> list[str]:
     """On demand only: the owner's profile is loaded into their sessions, so it has to stay short."""
     rel = vault.config.human_profile
+    if vault.config.edition == "enterprise":
+        return []   # an organisation's intellect keeps no owner profile
     note = vault.notes.get(rel)
     words = len(note.body.split()) if note else 0
     return [f"{rel}: {words} words; keep it under {OWNER_PROFILE_WORDS}, dated material in History.md"] \
