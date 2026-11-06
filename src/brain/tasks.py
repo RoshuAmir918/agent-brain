@@ -690,3 +690,39 @@ def load_tasks(config: Config, report: list[str] | None = None) -> tuple[list[Ta
         tasks.append(t)
     archived = [t for t in archived_open_tasks(config) if t.tid not in seen]
     return tasks, archived
+
+
+COMPLETED_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Completed:\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*[—-][ \t]*(.*))?$", re.M)
+
+
+def completed(config: Config, today: date, days: int = 7) -> list[dict]:
+    """Tasks completed in the last `days` local days, newest first, from the register and every archive file: what a
+    follow-on check reads (is the goal a finished task served still open? is there an extension worth offering?)."""
+    sources = []
+    register = config.vault_path / config.agent("Tasks.md")
+    if register.exists():
+        sources.append(fm.read(register)[1])
+    archive = config.vault_path / config.agent("Tasks Archive")
+    if archive.is_dir():
+        for path in sorted(archive.glob("*.md")):
+            sources.append(re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M))
+    seen, out = set(), []
+    for text in sources:
+        for task in parse_register(text)[1]:
+            if task.tid in seen or task.task_state != "completed":
+                continue
+            match = COMPLETED_LINE.search(task.body)
+            if not match:
+                continue
+            try:
+                when = date.fromisoformat(match[1])
+            except ValueError:
+                continue
+            if (today - when).days > days or when > today:
+                continue
+            seen.add(task.tid)
+            source = re.search(r"^[ \t]*-[ \t]+\*\*Source:\*\*[ \t]*(.+?)[ \t]*$", task.body, re.M)
+            out.append({"id": task.tid, "title": task.title, "completed": match[1], "evidence": (match[2] or "").strip(),
+                        "hub": task.hub, "work": task.work, "delivers": task.delivers,
+                        "source": source[1] if source else None})
+    return sorted(out, key=lambda row: (row["completed"], row["id"]), reverse=True)

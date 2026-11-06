@@ -916,6 +916,21 @@ def cmd_task(args):
         print(f"{task.tid} {task.task_state}: {task.title}")
 
 
+def cmd_completed(args):
+    """`brain completed [--days N] [--json]`: tasks finished recently, for the follow-on check."""
+    rows = tasks_mod.completed(args.config, args.config.today(), args.days)
+    if args.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        return
+    if not rows:
+        print(f"nothing completed in the last {args.days} days")
+        return
+    for row in rows:
+        print(f"{row['id']} · completed {row['completed']} · {row['title']}"
+              + (f" · {row['evidence'][:120]}" if row["evidence"] else "")
+              + (f" · hub: {row['hub']}" if row["hub"] else ""))
+
+
 def cmd_handoff(args):
     try:
         # On Demiurge the runtime names the conversation this turn is in: the report goes back where the work was asked for.
@@ -1306,6 +1321,9 @@ def main(argv=None):
     s.add_argument("--work", metavar="SLUG", help="with new: Library work slug")
     s.add_argument("--json", action="store_true", help="with new: print {id, title}")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_task)
+    s = sub.add_parser("completed", help="tasks completed recently, newest first, for the follow-on check")
+    s.add_argument("--days", type=int, default=7); s.add_argument("--json", action="store_true")
+    s.add_argument("--vault"); s.set_defaults(fn=cmd_completed)
     s = sub.add_parser("handoff", help="mark a task the owner handed off: the continue routine works it until done or blocked")
     s.add_argument("tid"); s.add_argument("--report", default="", help="where to report, e.g. 'Home' or the room"); s.add_argument("--vault")
     s.add_argument("--work", help="Library work slug, e.g. 'trip-plan'")

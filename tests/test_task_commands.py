@@ -305,3 +305,21 @@ def test_a_note_mentioning_t999_does_not_use_up_task_ids(vault, capsys):
     (vault / "Eval notes.md").write_text("# Eval notes\n\nThe case seeds T-999 and T-998 as fixtures.\n")
     out = cli(vault, capsys, "new", "Help Hope explore job opportunities", "--source", "asked today")
     assert out.startswith("T-") and "T-1000" not in out and "T-999" not in out
+
+
+def test_completed_lists_the_weeks_finished_tasks_newest_first(vault, capsys):
+    import json
+    from datetime import timedelta
+    config = Config.load(vault)
+    cli(vault, capsys, "new", "Assemble Hope's résumé", "--source", "help Hope with her résumé")
+    tid = entry(config)[-1].tid
+    tasks.complete(config, tid, TODAY, "the résumé is assembled")
+    old = cli(vault, capsys, "new", "Old work", "--source", "long ago").split()[0]
+    tasks.complete(config, old, TODAY - timedelta(days=30), "done long ago")
+    def completed(*args):
+        nightly.main(["completed", *args, "--vault", str(vault)])
+        return capsys.readouterr().out
+    rows = json.loads(completed("--json"))
+    assert [row["id"] for row in rows] == [tid]
+    assert rows[0]["evidence"] == "the résumé is assembled" and rows[0]["source"] == '"help Hope with her résumé"'
+    assert completed("--days", "60").count("· completed") == 2
