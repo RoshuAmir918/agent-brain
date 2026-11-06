@@ -177,7 +177,7 @@ Due rows come from `loops.due`; a ready loop is marked, so marking one that was 
 
 ## Follow-ons
 
-Finishing a task does not finish what it served. `brain completed [--days 7] [--json]` lists completed tasks (register and archives, newest first, with the completion date and evidence, hub, work and source). Continue's Done step and the improve routine ask of each whether the goal or need behind it is still open, or an extension would make the result more useful, and offer the strongest as one idea through `brain ideas --add`: the ideas queue paces it, and the owner decides. A follow-on is never created as a task.
+Finishing a task does not finish what it served. `brain completed [--days 7] [--json]` lists completed tasks (register and archives, newest first, with the completion date and evidence, hub, work and source). Continue's Done step and the improve routine ask of each whether the goal or need behind it is still open, or an extension would make the result more useful, and offer the strongest as one idea through `brain ideas --add`: the ideas queue paces it, and the owner decides. A follow-on is never created as a task, and is held to a high bar: most finished tasks need nothing, so one is offered only when the goal is still open or a step would uniquely help the owner that they would not have thought to ask for, never an invented need.
 
 ## Budgets that follow engagement
 
