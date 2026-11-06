@@ -1,0 +1,33 @@
+name: version
+# Every change to main ships as its own version: migrations, the changelog and `brain update` all key on the number,
+# and two PRs on one number hide each other (0.48.0 and 0.48.1 each shipped twice on 2026-11-06, and the second
+# 0.48.1's migration was never run). A PR's version must be higher than main's when it merges.
+on:
+  pull_request:
+    branches: [main]
+    paths: ["src/**", "pyproject.toml"]
+jobs:
+  bumped:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The version is higher than main's
+        run: |
+          git fetch -q origin main
+          ours=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)
+          theirs=$(git show origin/main:pyproject.toml | grep -m1 '^version = ' | cut -d'"' -f2)
+          echo "this PR: $ours, main: $theirs"
+          if [ "$ours" = "$theirs" ] || [ "$(printf '%s\n%s\n' "$ours" "$theirs" | sort -V | tail -1)" != "$ours" ]; then
+            echo "::error::version $ours is not higher than main's $theirs; bump pyproject.toml (and name any migration file for the new version)"
+            exit 1
+          fi
+          for m in src/brain/migrations/*.md; do
+            v=$(basename "$m" .md)
+            [ "$v" = README ] && continue
+            if [ "$(printf '%s\n%s\n' "$v" "$ours" | sort -V | tail -1)" != "$ours" ]; then
+              echo "::error::migration $m is for $v, beyond this PR's version $ours"
+              exit 1
+            fi
+          done
