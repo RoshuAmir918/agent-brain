@@ -187,7 +187,10 @@ def record_version(config: Config, text: str) -> None:
 
 
 def pending_migrations(config: Config) -> list[tuple[str, str]]:
-    """(version, prompt) for every shipped migration newer than the recorded version, oldest first."""
+    """(version, prompt) for every shipped migration newer than the recorded version, oldest first. A vault with no
+    recorded version is new, made at the installed version, so nothing applies."""
+    if not (config.vault_path / config.runtime_dir / "engine-version").exists():
+        return []
     low, high = version_tuple(recorded_version(config)), version_tuple(installed_version("agent-brain"))
     found = []
     for entry in files("brain").joinpath("migrations").iterdir():

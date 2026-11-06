@@ -229,6 +229,17 @@ def test_migrate_check_writes_pending_prompt_and_done_clears_it(tmp_path, monkey
     assert not pending.exists() and install.recorded_version(config) == "1.2.0"
 
 
+def test_a_new_vault_records_the_installed_version_and_replays_nothing(tmp_path, monkeypatch):
+    from brain import install
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    monkeypatch.setattr(install, "installed_version", lambda name: "1.2.0")
+    assert install.pending_migrations(config) == []
+    assert install.migrate_check(config) is None
+    assert install.recorded_version(config) == "1.2.0"
+
+
 def test_pending_migrations_selects_versions_in_range(tmp_path, monkeypatch):
     from brain import install
     from brain.config import Config
