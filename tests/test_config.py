@@ -221,3 +221,16 @@ def test_continue_rejects_unknown_settings(tmp_path):
     (tmp_path / "brain.toml").write_text("[continue]\nunknown = 1\n")
     with pytest.raises(ValueError, match="only daily_chunks"):
         Config.load(cwd=tmp_path)
+
+
+def test_continue_review_cadence_default_and_toml(tmp_path):
+    assert Config.load(cwd=tmp_path).review_every == 4
+    (tmp_path / "brain.toml").write_text("[continue]\nreview_every = 6\n")
+    assert Config.load(cwd=tmp_path).review_every == 6
+
+
+@pytest.mark.parametrize("setting", ["0", "-1", "true", '"4"', "1.5", '[]'])
+def test_invalid_continue_review_cadence(tmp_path, setting):
+    (tmp_path / "brain.toml").write_text("[continue]\nreview_every = " + setting + "\n")
+    with pytest.raises(ValueError, match="continue.review_every must be a positive integer"):
+        Config.load(cwd=tmp_path)

@@ -17,6 +17,7 @@ def worker(vault, tmp_path, monkeypatch):
     clock = [datetime(2026, 11, 5, 0, 30, tzinfo=ZoneInfo("America/Los_Angeles"))]
     monkeypatch.setattr(Config, "now", lambda self, moment=None: clock[0])
     config = Config.load(vault)
+    tasks.set_fields(config, "T-001", config.today(), values={"delivers": "finished notes in Home"})
     tasks.hand_off(config, "T-001", config.today(), "demiurge:conversation", work="result")
     return config, home, clock
 
@@ -108,11 +109,11 @@ def test_due_json_shape_order_and_daily(worker, capsys):
     tasks.set_fields(config, "T-001", config.today(), values={"next": "deliver the notes", "delivers": "notes in Home"})
     first = clock[0].isoformat()
     cli(config, capsys, "--chunk", "T-001")
-    two = tasks.new_task(config, "Second", "owner words")
+    two = tasks.new_task(config, "Second", "owner words", values={"delivers": "a result"})
     tasks.hand_off(config, two.tid, config.today(), "Home")
     clock[0] += timedelta(minutes=30)
     cli(config, capsys, "--chunk", two.tid)
-    three = tasks.new_task(config, "Third", "START")
+    three = tasks.new_task(config, "Third", "START", values={"delivers": "a result"})
     tasks.hand_off(config, three.tid, config.today())
     listed = cli(config, capsys, "--due").splitlines()
     output = json.loads(cli(config, capsys, "--due", "--json"))
@@ -120,7 +121,8 @@ def test_due_json_shape_order_and_daily(worker, capsys):
     assert output[1] == {"id": "T-001", "title": "Sample", "state": "in_progress", "pace": "regular",
                          "handedOff": "2026-11-05", "report": "demiurge:conversation", "work": "result",
                          "delivers": "notes in Home", "next": "deliver the notes", "lastChunk": first,
-                         "checkpoint": None, "chunksToday": 1, "budget": 16, "budgetLeft": 15}
+                         "checkpoint": None, "chunksToday": 1, "budget": 16, "budgetLeft": 15,
+                         "reviewDue": False, "chunksSinceReview": 1, "lastReview": None}
     assert output[0]["lastChunk"] is None and output[0]["next"] is None and output[0]["work"] is None
     assert output[0]["chunksToday"] == 0 and output[0]["budgetLeft"] == 16
     tasks.set_pace(config, "T-001", "daily", config.today())

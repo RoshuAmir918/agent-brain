@@ -706,7 +706,9 @@ def cmd_needs_you(args):
             raise SystemExit("brain needs-you: --resolve needs --because \"<the evidence>\"")
         with vault_lock(args.config):
             try:
-                item = needs.resolve(args.config, args.resolve, args.because, args.config.today())
+                owner = bool(os.environ.get("DEMIURGE_CONVERSATION", "").strip()
+                             and not os.environ.get("DEMIURGE_TASK", "").strip())
+                item = needs.resolve(args.config, args.resolve, args.because, args.config.today(), owner_engaged=owner)
             except ValueError as error:
                 print(error, file=sys.stderr)
                 sys.exit(1)
@@ -953,13 +955,14 @@ def cmd_task(args):
                 # The ask it stood for is answered or moot: it leaves Needs you with it.
                 needs.settle_tasks(args.config, args.config.today(), [(task.tid, before.body)],
                                    f"{task.tid} is {task.task_state.replace('_', ' ')}")
+            # A conversation's task edit is engagement; worker writes never are.
+            if os.environ.get("DEMIURGE_CONVERSATION", "").strip() and not os.environ.get("DEMIURGE_TASK", "").strip():
+                from . import continuation
+                continuation._mark_engaged(args.config, task.tid, args.source if args.tid == "new" else
+                                           args.next or args.delivers or args.status or args.why)
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
-    # A task created, changed or closed in a conversation (not by a background worker) is its owner engaging with it.
-    if os.environ.get("DEMIURGE_CONVERSATION", "").strip() and not os.environ.get("DEMIURGE_TASK", "").strip():
-        from . import continuation
-        continuation.mark_engaged(args.config, task.tid)
     if args.tid == "new":
         print(json.dumps({"id": task.tid, "title": task.title}, ensure_ascii=False) if args.json
               else f"{task.tid} created: {task.title}")
@@ -993,8 +996,8 @@ def cmd_handoff(args):
         report = f"demiurge:{here}" if here and not (args.report or "").startswith("demiurge:") else (args.report or "")
         with vault_lock(args.config):
             task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work)
-        from . import continuation
-        continuation.mark_engaged(args.config, task.tid)
+            from . import continuation
+            continuation._mark_engaged(args.config, task.tid)
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -1011,18 +1014,34 @@ def cmd_handoff(args):
 
 def cmd_continue(args):
     from . import continuation
-    if (args.text is not None) != bool(args.checkpoint):
-        print("--checkpoint TASK requires --text; --text goes with --checkpoint", file=sys.stderr)
-        sys.exit(2)
-    if (args.chunk or args.pace or args.checkpoint) and (args.json or args.daily):
-        print("--json and --daily go with --due", file=sys.stderr)
-        sys.exit(2)
-    if args.engaged:
-        continuation.mark_engaged(args.config, args.engaged)
-        print(f"{args.engaged} engaged")
-        return
-    if args.chunk or args.pace or args.checkpoint:
-        try:
+    try:
+        if (args.text is not None) != bool(args.checkpoint):
+            raise ValueError("--checkpoint TASK requires --text; --text goes with --checkpoint")
+        if args.tid and (args.due or args.chunk or args.pace or args.checkpoint or args.engaged or args.review or args.review_context):
+            raise ValueError("TASK cannot be combined with another continue mode")
+        if (args.chunk or args.pace or args.checkpoint or args.engaged or args.review) and (args.json or args.daily):
+            raise ValueError("--json goes with --due, TASK or --review-context; --daily goes with --due")
+        if args.daily and (args.tid or args.review_context):
+            raise ValueError("--daily goes with --due")
+        if not args.review and any(value is not None for value in (args.verdict, args.reason, args.ask, args.resume)):
+            raise ValueError("--verdict, --reason, --ask and --resume go with --review")
+        if args.instruction is not None and not args.engaged:
+            raise ValueError("--instruction goes with --engaged")
+        if args.review:
+            if not args.verdict or args.reason is None:
+                raise ValueError("--review requires --verdict and --reason")
+            result = continuation.review(args.config, args.review, args.verdict, args.reason, ask=args.ask, resume=args.resume)
+            print(f"{args.review} review {result['verdict']}: {result['reason']}")
+            return
+        if args.review_context:
+            result = continuation.review_context(args.config, args.review_context)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
+        if args.engaged:
+            continuation.mark_engaged(args.config, args.engaged, args.instruction)
+            print(f"{args.engaged} engaged")
+            return
+        if args.chunk or args.pace or args.checkpoint:
             if args.chunk:
                 print(continuation.chunk(args.config, args.chunk))
             elif args.checkpoint:
@@ -1033,36 +1052,48 @@ def cmd_continue(args):
                 with vault_lock(args.config):
                     tasks_mod.set_pace(args.config, tid, pace, args.config.today())
                 print(f"{tid} pace: {pace}")
-        except ValueError as error:
-            print(error, file=sys.stderr)
-            sys.exit(2)
-        return
-    registered, archived = load_tasks(args.config)
-    worked = continuation.last_worked(args.config)
-    chunks = continuation.chunks_today(args.config)
-    limits = continuation.budgets(args.config, registered + archived)
-    ready = tasks_mod.due(registered + archived, pace="daily" if args.daily else "regular",
-                          worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks,
-                          now=tasks_mod.local_now(args.config), budgets=limits)
-    if args.json:
-        print(json.dumps([{"id": task.tid, "title": task.title, "state": task.task_state, "pace": tasks_mod.pace(task),
+            return
+        task_list = continuation.finish_lines(args.config)
+        worked = continuation.last_worked(args.config)
+        chunks = continuation.chunks_today(args.config)
+        limits = continuation.budgets(args.config, task_list)
+        caps = continuation.budget_caps(args.config)
+        if args.tid:
+            task = next((t for t in task_list if t.tid == args.tid and t.handoff and tasks_mod.is_open(t)), None)
+            if task is None or not task.delivers:
+                raise ValueError(f"{args.tid} needs an open handed-off task with a Delivers line")
+            ready = [task]
+        else:
+            ready = tasks_mod.due(task_list, pace="daily" if args.daily else "regular",
+                                 worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks,
+                                 now=tasks_mod.local_now(args.config), budgets=limits, caps=caps)
+        output = []
+        for task in ready:
+            limit = caps.get(task.tid) if tasks_mod.pace(task) == "daily" else limits.get(task.tid, args.config.daily_chunks)
+            output.append({"id": task.tid, "title": task.title, "state": task.task_state, "pace": tasks_mod.pace(task),
                            "handedOff": task.handoff[0], "report": task.handoff[1], "work": task.work,
                            "delivers": task.delivers, "next": state._field(task.body, "Next", "Next action"),
-                           "lastChunk": worked.get(task.tid), "checkpoint": continuation.checkpoint_text(task.tid),
-                           "chunksToday": chunks.get(task.tid, 0),
-                           "budget": None if args.daily else limits.get(task.tid, args.config.daily_chunks),
-                           "budgetLeft": None if args.daily else max(0, limits.get(task.tid, args.config.daily_chunks) - chunks.get(task.tid, 0))}
-                          for task in ready], ensure_ascii=False, indent=2))
-        return
-    if not ready:
-        print("nothing handed off is due")
-        sys.exit(1)
-    for task in ready:
-        nxt = state._field(task.body, "Next", "Next action") or ""
-        print(f"{task.tid} · handed off {task.handoff[0]} · {task.title}" + (f" · next: {nxt[:160]}" if nxt else "")
-              + (f" · work: {task.work}" if task.work else "")
-              + (f" · report in {task.handoff[1]}" if task.handoff[1] else "")
-              + (f" · checkpoint: {checkpoint}" if (checkpoint := continuation.checkpoint_text(task.tid)) is not None else ""))
+                           "lastChunk": worked.get(task.tid), "checkpoint": continuation.instructions(args.config, task),
+                           "chunksToday": chunks.get(task.tid, 0), "budget": limit,
+                           "budgetLeft": None if limit is None else max(0, limit - chunks.get(task.tid, 0)),
+                           **continuation.review_status(args.config, task.tid)})
+        if args.json:
+            print(json.dumps(output[0] if args.tid else output, ensure_ascii=False, indent=2))
+            return
+        if not ready:
+            print("nothing handed off is due")
+            sys.exit(1)
+        for task, row in zip(ready, output):
+            if args.tid and row["checkpoint"]:
+                print(row["checkpoint"])
+            nxt = row["next"] or ""
+            print(f"{task.tid} · handed off {task.handoff[0]} · {task.title}" + (f" · next: {nxt[:160]}" if nxt else "")
+                  + (f" · work: {task.work}" if task.work else "")
+                  + (f" · report in {task.handoff[1]}" if task.handoff[1] else "")
+                  + (f" · checkpoint: {row['checkpoint']}" if row["checkpoint"] is not None and not args.tid else ""))
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        sys.exit(2)
 
 
 def cmd_watch_signal(args):
@@ -1392,12 +1423,20 @@ def main(argv=None):
     s = sub.add_parser("continue", help="handed-off tasks due now, least recently worked first; text exits 1 when none")
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--due", action="store_true")
+    s.add_argument("tid", nargs="?", metavar="TASK", help="show one task and its next-chunk instructions")
     mode.add_argument("--chunk", metavar="TASK")
     mode.add_argument("--pace", nargs=2, metavar=("TASK", "regular|daily"))
     mode.add_argument("--checkpoint", metavar="TASK", help="save a per-task continue checkpoint")
     mode.add_argument("--engaged", metavar="TASK", help="record that the owner engaged with the task now (its daily budget is whole again)")
+    mode.add_argument("--review-context", metavar="TASK", help="reviewer context as JSON")
+    mode.add_argument("--review", metavar="TASK", help="apply a direction review")
+    s.add_argument("--verdict", choices=("converging", "met", "circling", "stuck"))
+    s.add_argument("--reason", help="one-line review reason")
+    s.add_argument("--ask", help="with a circling review: a concrete steering question")
+    s.add_argument("--resume", help="with a stuck review: YYYY-MM-DD[ HH:MM], local time")
+    s.add_argument("--instruction", help="with --engaged: the owner's latest words for the reviewer")
     s.add_argument("--text", help="with --checkpoint: where the chunk stopped")
-    s.add_argument("--json", action="store_true", help="with --due: JSON array; empty array exits 0")
+    s.add_argument("--json", action="store_true", help="due array, or one TASK/review-context object; empty array exits 0")
     s.add_argument("--daily", action="store_true", help="list daily-pace tasks")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_continue)
     s = sub.add_parser("watch-signal", help="stable follow-through monitor output, without a model")

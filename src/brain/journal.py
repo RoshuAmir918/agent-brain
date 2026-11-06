@@ -71,6 +71,8 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     local = at.replace(tzinfo=config.zone) if at.tzinfo is None else at.astimezone(config.zone)
     from .state import _public   # the export's boundary: a profile or the owner's notes are never named here
     vault = Vault(config.vault_path)
+    from .session_context import is_owner
+    owner = is_owner(config, platform, tuple(value for value in (user_id, user_id_alt) if value))
     touched = [title for title in dict.fromkeys(_clean(title) for title in record.get("touched") or [])
                if title and (target := vault.resolve(title)) and _public(vault, target)]
     for loop in record.get("loops") or []:
@@ -102,7 +104,8 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
                        and (item.id == which or needs._plain(item.text) == needs._plain(which))]
             if len(matched) == 1:
                 try:
-                    needs.resolve(config, matched[0].id, because="answered in conversation", today=local.date())
+                    needs.resolve(config, matched[0].id, because="answered in conversation", today=local.date(),
+                                  owner_engaged=owner)
                 except ValueError:
                     pass   # already gone, or an item that resolves where it lives
     if needs_you := _clean(record.get("needsYou")):
@@ -111,8 +114,6 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
             print(f"skipped ask {needs_you!r}: {reason}", file=sys.stderr)
         else:
             add_ask(config, local.date(), needs_you, touched[0] if touched else None)
-    from .session_context import is_owner
-    owner = is_owner(config, platform, tuple(value for value in (user_id, user_id_alt) if value))
     if owner:
         working_together(config, local.date(), record.get("workingTogether"))
         promote_touched(config, vault, record.get("touched") or [], local.date())
@@ -134,7 +135,7 @@ def promote_touched(config: Config, vault: Vault, touched: list[str], today: dat
     with vault_lock(config):
         registered, archived = tasks.load_tasks(config)
         for task in registered + archived:
-            if not task.handoff or tasks.pace(task) != "daily":
+            if not task.handoff:
                 continue
             own_archive = config.agent(f"Tasks Archive/{task.tid}.md")
             if any((source == own_archive and (not anchor or anchor == task.tid or
@@ -142,7 +143,10 @@ def promote_touched(config: Config, vault: Vault, touched: list[str], today: dat
                    (source == config.agent("Tasks.md") and (anchor == task.tid or
                                                             anchor.startswith(task.tid + " — ")))
                    for source, anchor in targets):
-                tasks.set_pace(config, task.tid, "regular", today)
+                if tasks.pace(task) == "daily":
+                    tasks.set_pace(config, task.tid, "regular", today)
+                from . import continuation
+                continuation._mark_engaged(config, task.tid)
 
 
 WORKING_TOGETHER_WORDS = 250   # the section loads in every session with the owner; past this it is merged at night

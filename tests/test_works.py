@@ -100,6 +100,7 @@ def test_task_work_parsing(body, work):
 def test_handoff_work_sets_replaces_and_preserves_full_entry(vault, archived, monkeypatch, capsys):
     monkeypatch.setenv("BRAIN_TODAY", DAY.isoformat())
     config = Config.load(vault)
+    tasks.set_fields(config, "T-001", DAY, values={"delivers": "a finished trip plan in the Library"})
     if archived:
         task = tasks.load_tasks(config)[0][0]
         tasks.write_archive(config, task, "warm", DAY, whole=True)

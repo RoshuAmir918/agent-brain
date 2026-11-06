@@ -203,6 +203,8 @@ def test_handoff_line_is_parsed_and_written_once_after_the_first_field(vault, ca
     assert once == "- **Status:** open\n- **Handed off:** 2026-11-03 · report in Home\n- **Next:** read the thread\n"
     again = with_handoff(once, date(2026, 11, 4), "")
     assert again.count("Handed off") == 1 and "2026-11-04" in again and "report in" not in again
+    from brain.tasks import set_fields
+    set_fields(Config.load(vault), "T-001", date(2026, 11, 3), values={"delivers": "notes in Home"})
     task = hand_off(Config.load(vault), "T-001", date(2026, 11, 3), "the #lab room")
     assert task.handoff == ("2026-11-03", "the #lab room") and task.task_state == "in_progress"
     registered, _ = load_tasks(Config.load(vault))

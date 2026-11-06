@@ -7,10 +7,11 @@ import json
 import re
 import subprocess
 import tempfile
-from datetime import date, datetime
+from contextlib import contextmanager
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import runtime, signals, tasks
+from . import journal, needs, runtime, signals, state, tasks
 from .config import DAILY_CHUNKS, Config
 from .lock import vault_lock
 
@@ -63,6 +64,28 @@ def _progress(config: Config) -> dict[str, dict]:
         return {}
 
 
+@contextmanager
+def _progress_records(config: Config):
+    """Caller holds the vault lock; the second lock protects records shared by vaults."""
+    folder = signals._home() / "records" / "continue"
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / "progress.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = folder / "progress.json"
+        try:
+            records = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            records = {}
+        rows = records.setdefault(str(config.vault_path.resolve()), {})
+        yield rows
+        staged = path.with_suffix(".json.tmp")
+        try:
+            staged.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
+            staged.replace(path)
+        finally:
+            staged.unlink(missing_ok=True)
+
+
 def last_worked(config: Config) -> dict[str, str]:
     """When each of this vault's handed-off tasks last had a chunk counted, from the progress record."""
     return {tid: row["at"] for tid, row in _progress(config).items() if isinstance(row.get("at"), str)}
@@ -103,14 +126,19 @@ def engaged_at(config: Config) -> dict[str, str]:
         return {}
 
 
-def mark_engaged(config: Config, tid: str) -> None:
-    """The owner engaged with the task now: its daily budget is whole again."""
+def mark_engaged(config: Config, tid: str, instruction: str | None = None) -> None:
+    """The owner engaged: restore the budget and restart the direction check."""
+    with vault_lock(config):
+        _mark_engaged(config, tid, instruction)
+
+
+def _mark_engaged(config: Config, tid: str, instruction: str | None = None) -> None:
+    """Lock-free task-facing variant; caller holds the vault lock."""
     if runtime.configured() is None:
         return
     path = _engaged_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with (path.parent / "progress.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with _progress_records(config) as rows:
         try:
             records = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -119,6 +147,12 @@ def mark_engaged(config: Config, tid: str) -> None:
         staged = path.with_suffix(".json.tmp")
         staged.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
         staged.replace(path)
+        row = rows.setdefault(tid, {})
+        row["chunks_since_review"] = 0
+        row.pop("circling", None)
+        row.pop("budget_cap", None)
+        if instruction:
+            row["instruction"] = {"at": _local_now(config).isoformat(), "text": instruction}
 
 
 def budget_for(config: Config, task, engaged: dict[str, str] | None = None) -> int:
@@ -128,18 +162,180 @@ def budget_for(config: Config, task, engaged: dict[str, str] | None = None) -> i
     anchors = [task.handoff[0]] if task.handoff else []
     if engaged.get(task.tid):
         anchors.append(engaged[task.tid][:10])
-    if not anchors:
-        return config.daily_chunks
     try:
-        days = (_local_now(config).date() - date.fromisoformat(max(anchors))).days
+        days = (_local_now(config).date() - date.fromisoformat(max(anchors))).days if anchors else 0
     except ValueError:
-        return config.daily_chunks
-    return config.daily_chunks if days <= 0 else max(1, config.daily_chunks >> days)
+        days = 0
+    limit = config.daily_chunks if days <= 0 else max(1, config.daily_chunks >> days)
+    return min(limit, budget_caps(config).get(task.tid, limit))
 
 
 def budgets(config: Config, task_list) -> dict[str, int]:
     engaged = engaged_at(config)
     return {task.tid: budget_for(config, task, engaged) for task in task_list}
+
+
+def budget_caps(config: Config) -> dict[str, int]:
+    day = _local_now(config).date().isoformat()
+    return {tid: row["budget_cap"]["limit"] for tid, row in _progress(config).items()
+            if row.get("budget_cap", {}).get("date") == day}
+
+
+def review_status(config: Config, tid: str) -> dict:
+    row = _progress(config).get(tid, {})
+    count = row.get("chunks_since_review", 0)
+    return {"reviewDue": count >= config.review_every, "chunksSinceReview": count,
+            "lastReview": row.get("last_review")}
+
+
+def finish_lines(config: Config) -> list[tasks.Task]:
+    """Raise one task-sourced standing ask, even without a runtime, before scheduling either pace."""
+    with vault_lock(config):
+        registered, archived = tasks.load_tasks(config)
+        for task in registered + archived:
+            if not task.handoff or not tasks.is_open(task) or task.task_state in ("yours", "set_aside"):
+                continue
+            if task.delivers and task.state.get("finish_asked") == "pending":
+                current = config.vault_path / "CURRENT.md"
+                for item in needs.open_asks(current.read_text(encoding="utf-8")) if current.exists() else []:
+                    if task.tid in item.source and item.text.startswith("What would done look like for "):
+                        needs.resolve(config, item.id, "the task now has a Delivers line", config.today(), record_answer=False)
+                task.state["finish_asked"] = "answered"
+                tasks.save_task(config, task, config.today())
+            elif not task.delivers and not task.state.get("finish_asked"):
+                journal._add_ask(config, config.today(),
+                                 f"What would done look like for {task.title}? Until then {config.agent_name} "
+                                 "won't keep working on it in the background.",
+                                 config.agent(f"Tasks#{task.tid}"))
+                task.state["finish_asked"] = "pending"
+                tasks.save_task(config, task, config.today())
+        return registered + archived
+
+
+def _task(config: Config, tid: str, *, open_only: bool = False) -> tasks.Task:
+    registered, archived = tasks.load_tasks(config)
+    task = next((t for t in registered + archived if t.tid == tid), None)
+    if task is None and re.fullmatch(r"T-\d{3}", tid) and tasks.archive_path(config, tid).exists():
+        task = tasks.read_archived_task(config, tasks.archive_path(config, tid))
+    if task is None or not task.handoff or (open_only and not tasks.is_open(task)):
+        raise ValueError(f"{tid} is not an open handed-off task" if open_only else f"{tid} is not a handed-off task")
+    return task
+
+
+def instructions(config: Config, task: tasks.Task) -> str | None:
+    checkpoint = checkpoint_text(task.tid)
+    close = _progress(config).get(task.tid, {}).get("close_out")
+    if close and tasks.is_open(task):
+        prefix = (f"The reviewer judged the Delivers met ({close['reason']}). This chunk closes the task: "
+                  f"verify the deliverable exactly as the Delivers says, then `brain task {task.tid} done` "
+                  f"with the evidence and tell {config.human_name} once where the task reports, or, if it is not "
+                  f"actually met, say precisely what is missing with `brain task {task.tid} set --next …`.")
+        return prefix + (f"\n\n{checkpoint}" if checkpoint else "")
+    return checkpoint
+
+
+def clear_close_out(config: Config, tid: str) -> None:
+    """Called by the task write path under the vault lock when a task closes."""
+    if runtime.configured() is not None and _progress(config).get(tid, {}).get("close_out"):
+        with _progress_records(config) as rows:
+            rows[tid].pop("close_out", None)
+
+
+def answered(config: Config, source: str, question: str, because: str, owner_engaged: bool = False) -> None:
+    """Remember a task-sourced answer without treating a worker's discovery as owner engagement. Caller holds the lock."""
+    match = re.search(r"\bT-\d{3}\b", source)
+    if match and runtime.configured() is not None:
+        registered, archived = tasks.load_tasks(config)
+        if any(t.tid == match[0] and t.handoff for t in registered + archived):
+            text = f"{question} Answer: {because}"
+            if owner_engaged:
+                _mark_engaged(config, match[0], text)
+            else:
+                with _progress_records(config) as rows:
+                    rows.setdefault(match[0], {})["instruction"] = {"at": _local_now(config).isoformat(), "text": text}
+
+
+def _owner_instruction(config: Config, task: tasks.Task, row: dict) -> str | None:
+    if instruction := (row.get("instruction") or {}).get("text"):
+        return instruction
+    # Before review records existed, task-sourced resolutions were kept only in the Answered ledger.
+    for path in sorted((config.vault_path / config.agent("Answered")).glob("*.md"), reverse=True):
+        for line in reversed(path.read_text(encoding="utf-8").splitlines()):
+            parts = line.removeprefix("- ").split(" · ")
+            if (len(parts) == 5 and parts[1] == "ask" and parts[0] >= task.handoff[0]
+                    and re.search(r"\b" + re.escape(task.tid) + r"\b", parts[4])
+                    and parts[3].startswith("because ") and parts[3] != "because the task now has a Delivers line"):
+                return f"{parts[2]} Answer: {parts[3].removeprefix('because ')}"
+    return state._field(task.body, "Source")
+
+
+def review_context(config: Config, tid: str) -> dict:
+    with vault_lock(config):
+        task = _task(config, tid)
+        row = _progress(config).get(tid, {})
+        results = row.get("results", [])[-6:]
+        # Old engines only kept the most recent checkpoint; include it when no counted results exist.
+        if not results and (saved := _checkpoint(tid)):
+            results = [{"at": saved.get("at"), "text": saved["text"]}]
+        count = chunks_today(config).get(tid, 0)
+        limit = budget_caps(config).get(tid) if tasks.pace(task) == "daily" else budget_for(config, task)
+        return {"id": task.tid, "title": task.title, "delivers": task.delivers, "work": task.work,
+                "status": state._field(task.body, "Status"), "next": state._field(task.body, "Next", "Next action"),
+                "source": state._field(task.body, "Source"),
+                "ownerInstruction": _owner_instruction(config, task, row),
+                "results": results, "lastReview": row.get("last_review"), "chunksToday": count,
+                "budgetLeft": None if limit is None else max(0, limit - count)}
+
+
+def review(config: Config, tid: str, verdict: str, reason: str, *, ask: str | None = None,
+           resume: str | None = None) -> dict:
+    if verdict not in ("converging", "met", "circling", "stuck"):
+        raise ValueError("unknown review verdict")
+    reason = tasks.single_line("reason", reason)
+    if not reason:
+        raise ValueError("review needs a nonempty --reason")
+    if verdict == "circling":
+        if not ask:
+            raise ValueError("circling needs --ask")
+        ask = tasks._field_value(config, "ask", ask)
+    elif ask is not None:
+        raise ValueError("--ask goes with a circling review")
+    if resume is not None:
+        if verdict != "stuck":
+            raise ValueError("--resume goes with a stuck review")
+        resume = tasks._field_value(config, "resume", resume)
+    if runtime.configured() is None:
+        raise ValueError("review needs AGENT_HOME")
+    with vault_lock(config):
+        task = _task(config, tid, open_only=True)
+        limit = budget_for(config, task)
+        with _progress_records(config) as rows:
+            row = rows.setdefault(tid, {})
+            now = _local_now(config)
+            last = {"verdict": verdict, "at": now.isoformat(), "reason": reason}
+            if verdict == "circling":
+                tasks.set_fields(config, tid, config.today(),
+                                 state="waiting_for_owner" if row.get("circling") else None,
+                                 values={"ask": ask})
+                # CURRENT carries the first non-blocking ask; the escalated task supplies its own question.
+                needs.settle_tasks(config, config.today(), [(tid, task.body)], "replaced by the review's steering question")
+                if not row.get("circling"):
+                    journal._add_ask(config, config.today(), ask, config.agent(f"Tasks#{tid}"))
+                count = _count(row, now.date().isoformat())
+                row["budget_cap"] = {"date": now.date().isoformat(), "limit": count + max(0, limit - count) // 2}
+            elif verdict == "stuck":
+                morning = now.replace(hour=8, minute=0, second=0, microsecond=0)
+                if morning <= now:
+                    morning += timedelta(days=1)
+                tasks.set_fields(config, tid, config.today(), state="blocked",
+                                 values={"blocker": reason, "resume": resume or morning.strftime("%Y-%m-%d %H:%M")})
+            row["circling"] = verdict == "circling"
+            row["chunks_since_review"] = 0
+            row["last_review"] = last
+            row.setdefault("reviews", []).append(last)
+            if verdict == "met":
+                row["close_out"] = last
+        return last
 
 
 def checkpoint(config: Config, tid: str, text: str) -> None:
@@ -167,14 +363,19 @@ def checkpoint(config: Config, tid: str, text: str) -> None:
                 Path(staged).unlink(missing_ok=True)
 
 
-def checkpoint_text(tid: str) -> str | None:
+def _checkpoint(tid: str) -> dict | None:
     if runtime.configured() is None or not re.fullmatch(r"T-\d{3}", tid):
         return None
     try:
         row = json.loads((runtime.home() / "records" / "continue" / "tasks" / f"{tid}.json").read_text(encoding="utf-8"))
-        return row["text"] if row.get("task") == tid and isinstance(row.get("text"), str) else None
+        return row if row.get("task") == tid and isinstance(row.get("text"), str) else None
     except (OSError, ValueError, AttributeError):
         return None
+
+
+def checkpoint_text(tid: str) -> str | None:
+    row = _checkpoint(tid)
+    return row["text"] if row else None
 
 
 def chunk(config: Config, tid: str) -> str:
@@ -189,24 +390,17 @@ def chunk(config: Config, tid: str) -> str:
             raise ValueError(f"{tid} is not a handed-off task")
         if runtime.configured() is None:
             return f"{tid} progress not recorded: AGENT_HOME is not set"
-        folder = signals._home() / "records" / "continue"
-        folder.mkdir(parents=True, exist_ok=True)
-        # Different vaults share this file, so the vault's lock alone is not enough.
-        with (folder / "progress.lock").open("w") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            path = folder / "progress.json"
-            try:
-                records = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                records = {}
-            key = str(config.vault_path.resolve())
-            previous = records.get(key, {}).get(tid)
+        with _progress_records(config) as rows:
+            previous = rows.get(tid)
             now = _local_now(config)
             day = now.date().isoformat()
             count = _count(previous or {}, day) + 1
             pushed = _work_commit(task.work)
-            current = {"state": task.task_state, "quiet": 0, "at": now.isoformat(), "chunks": {"date": day, "count": count}}
-            if previous is None:
+            current = {**(previous or {}), "state": task.task_state, "quiet": 0, "at": now.isoformat(),
+                       "chunks": {"date": day, "count": count},
+                       "chunks_since_review": (previous or {}).get("chunks_since_review", 0) + 1}
+            current.pop("close_out", None)   # one counted chunk gets the close-out instruction
+            if previous is None or "state" not in previous:
                 message = f"{tid} baseline stored: 0 quiet chunks"
             else:
                 # Only what the owner can see counts. A Verified line rewritten each chunk with the agent's own
@@ -236,10 +430,13 @@ def chunk(config: Config, tid: str) -> str:
             current["pace"] = tasks.pace(task)
             if pushed and pushed[0]:
                 current["work_commit"] = pushed[0]
-            records.setdefault(key, {})[tid] = current
-            staged = path.with_suffix(".json.tmp")
-            staged.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
-            staged.replace(path)
+            saved = _checkpoint(tid)
+            result = (saved["text"] if saved and saved != (previous or {}).get("checkpoint") else
+                      state._field(task.body, "Status") or state._field(task.body, "Next", "Next action") or message)
+            if saved:
+                current["checkpoint"] = saved
+            current["results"] = [*(previous or {}).get("results", []), {"at": now.isoformat(), "text": result}][-6:]
+            rows[tid] = current
             limit = budget_for(config, task)
             if tasks.pace(task) == "regular" and count == limit:
                 message = (f"{tid} reached today's budget of {limit} chunks; it waits until tomorrow"

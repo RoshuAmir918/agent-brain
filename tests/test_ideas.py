@@ -158,7 +158,7 @@ def test_yes_creates_ready_handoff_using_ids_from_closed_archives(vault):
     task, = [task for task in load_tasks(config)[0] if task.tid == "T-042"]
     assert task.title == item.text and task.task_state == "ready"
     assert task.handoff == ("2026-11-03", "Home")
-    assert due(load_tasks(config)[0]) == [task]
+    assert due(load_tasks(config)[0]) == []   # the accepted offer still needs a Delivers line
     assert "- **Status:** A useful result." in task.body
     assert "- **Needs:** Gmail access" in task.body and "- **Source:** [[Topic]]" in task.body
     assert "Gmail access" not in path.read_text()
@@ -223,7 +223,8 @@ def test_improvements_are_only_ideas_and_respond_in_their_hub(vault, answer, sta
     if answer != "not-now":
         assert "2026-11-03" in section
     if answer == "yes":
-        assert due(load_tasks(config)[0])[0].title == item.text
+        assert any(task.title == item.text and task.handoff for task in load_tasks(config)[0])
+        assert due(load_tasks(config)[0]) == []   # no background chunks before Delivers is specified
     if answer in ("no", "stop-asking"):
         assert not ideas.add(config, TODAY + timedelta(days=100), item.text.upper(), "Topic")
 
