@@ -208,12 +208,16 @@ def fire_triggers(vault: Vault, tasks: list[Task], today: date, report: list[str
 def place(config: Config, t: Task, today: date, cold_open: list, report: list[str]) -> str:
     """Tier one open task and return its register text: full entry, one line, or nothing."""
     prev = t.state.get("tier")
+    if prev is None and not t.uses and not t.uses_inferred:
+        t.add_use(today.isoformat())   # a task the night has never placed is new: it starts warm, not cold
     b = task_activation(t, today)
-    tier = act.tier_for(b, t.state.get("pinned") == "true", config.context.hot_threshold, config.context.warm_threshold)
+    # A handoff being worked is active work whatever its uses say: it stays in the register where the owner reads it.
+    pinned = t.state.get("pinned") == "true" or bool(t.handoff and t.task_state != "set_aside")
+    tier = act.tier_for(b, pinned, config.context.hot_threshold, config.context.warm_threshold)
     t.state["tier"] = tier
     t.state["activation"] = f"{b:.2f}" if b != float("-inf") else "-99"
     if tier == "hot":
-        bounded = bounded_hot_body(t, config)   # raises when it would have to guess; the night stops and Sleep 1 fixes the entry
+        bounded = bounded_hot_body(t, config)   # raises when it would have to guess; process_tasks leaves the entry as is
         if bounded != t.body:
             write_archive(config, t, "hot but over the register budget", today)
             t.body = bounded
@@ -239,22 +243,39 @@ def process_tasks(config: Config, today: date, tasks: list[Task], archived: list
     first = {}
     for i, (tid, _, _) in enumerate(spans):
         first.setdefault(tid, i)
-    cold_open, out = [], body
+    cold_open, closed, out = [], [], body
     for i, (tid, s, e) in sorted(enumerate(spans), key=lambda x: -x[1][1]):
         t = by_id[tid]
         if first[tid] != i:
             rendered = ""
             report.append(f"task: {tid} duplicate register entry removed")
         elif not is_open(t):
-            continue
+            rendered = ""   # a closed task leaves the register: its entry to its archive file, a line to the month's
+            write_archive(config, t, t.task_state or "closed", today)
+            closed.append(t)
         else:
-            rendered = place(config, t, today, cold_open, report)
+            try:
+                rendered = place(config, t, today, cold_open, report)
+            except ValueError as error:
+                # Bounding it would mean guessing: the entry stays exactly as it is for Sleep 1, and the night goes on.
+                report.append(f"task: needs judgment, left as is: {error}")
+                continue
         chunk = rendered + ("\n" if rendered else "")
         if out[s:e] != chunk:
             out = out[:s] + chunk + out[e:]
     restored = []
     for t in archived:
-        rendered = place(config, t, today, cold_open, report)
+        try:
+            rendered = place(config, t, today, cold_open, report)
+        except ValueError as error:
+            if not (t.handoff and t.task_state != "set_aside"):
+                report.append(f"task: needs judgment, left in the archive: {error}")
+                continue
+            # A handoff being worked is listed in the register even when its entry needs trimming: as a warm line.
+            report.append(f"task: needs judgment, listed warm: {error}")
+            t.state["tier"] = "warm"
+            write_archive(config, t, "warm", today)
+            rendered = t.render_line(config)
         if rendered:
             restored.append(rendered)
             report.append(f"task: {t.tid} restored to the register ({t.state['tier']})")
@@ -268,6 +289,16 @@ def process_tasks(config: Config, today: date, tasks: list[Task], archived: list
             out = out.rstrip("\n") + "\n\n" + "\n".join(restored) + "\n"
     if out != body:
         fm.write(reg, data, out)
+    if closed:
+        month = config.vault_path / config.agent("Tasks Archive") / f"{today.strftime('%Y-%m')}.md"
+        with month.open("a", encoding="utf-8") as stream:
+            for t in sorted(closed, key=lambda t: t.tid):
+                end = re.search(r"^[ \t]*-[ \t]+\*\*(?:Completed|Dropped):\*\*[ \t]*(.+?)[ \t]*$", t.body, re.M)
+                stream.write(f"- **{t.tid} — {t.title}** · {t.task_state}" + (f" {end[1]}" if end else "")
+                             + f" · [[{config.link(config.agent('Tasks Archive/' + t.tid))}|entry]]\n")
+                report.append(f"task: {t.tid} {t.task_state}, moved to the archive")
+        swept = needs.settle_tasks(config, today, [(t.tid, t.body) for t in closed], "the task closed")
+        report.extend(f"needs-you: resolved, its task closed: {text}" for text in swept)
     return [t for t in tasks + archived if is_open(t)], sorted(cold_open)
 
 
@@ -341,13 +372,20 @@ def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
     changed |= fire_triggers(vault, tasks + archived, today, report)
     # Persist task uses before consuming the triggers that supplied them. If
     # task processing is interrupted, the still-active trigger can safely retry.
-    with vault_lock(config):   # an ask may have reached CURRENT since the load: keep its body, save our frontmatter
+    with vault_lock(config):
+        # Until here the night changes only frontmatter (uses, tiers). Other writers change bodies at any hour (an ask
+        # reaching CURRENT, a worker's task write): keep each body as it is on disk now, save our frontmatter.
         for rel in changed - {vault.config.agent("Triggers.md")}:
-            if rel == "CURRENT.md":
-                fm.write(vault.root / rel, vault.notes[rel].data, fm.read(vault.root / rel)[1])
-            else:
-                vault.notes[rel].save()
-    open_tasks, _ = process_tasks(config, today, tasks, archived, report)
+            fm.write(vault.root / rel, vault.notes[rel].data, fm.read(vault.root / rel)[1])
+    with vault_lock(config):
+        # Workers write tasks day and night: process the register as it is now, carrying the uses credited above.
+        credited = {t.tid: t.state for t in tasks + archived}
+        tasks, archived = load_tasks(config)
+        for t in tasks + archived:
+            for key in ("uses", "inferred"):
+                if credited.get(t.tid, {}).get(key):
+                    t.state[key] = credited[t.tid][key]
+        open_tasks, _ = process_tasks(config, today, tasks, archived, report)
     if vault.config.agent("Triggers.md") in changed:
         vault.notes[vault.config.agent("Triggers.md")].save()
     with vault_lock(config):   # the after-session writer adds asks to CURRENT at any hour
@@ -874,30 +912,47 @@ def cmd_channels(args):
 
 def cmd_task(args):
     try:
-        values = {name: getattr(args, name) for name in tasks_mod.FIELDS if getattr(args, name) is not None}
+        values = {name: getattr(args, name) for name in tasks_mod.FIELDS if getattr(args, name) is not None
+                  and not (name == "work" and args.tid == "new")}
         if args.tid == "new":
             if not args.source:
                 raise ValueError("task new needs --source")
             if args.clear:
                 raise ValueError("--clear goes with task T-nnn set")
-        elif args.action not in ("done", "drop", "yours", "set"):
-            raise ValueError("task ACTION must be done, drop, yours or set")
-        elif args.source is not None or args.work is not None or args.json:
-            raise ValueError("--source, --work and --json go with task new")
-        elif args.action != "set" and (set(values) - {"why"} or args.state is not None or args.clear):
-            raise ValueError("field flags and --state/--clear go with task T-nnn set")
+        elif args.action not in ("done", "drop", "yours", "set", "reopen"):
+            raise ValueError("task ACTION must be done, drop, yours, reopen or set")
+        elif args.source is not None or args.json:
+            raise ValueError("--source and --json go with task new")
+        elif args.action != "set" and (set(values) - {"why"} or args.state is not None or args.clear
+                                       or args.reviewed is not None or args.report is not None or args.title is not None):
+            raise ValueError("field flags, --state, --title, --reviewed, --report and --clear go with task T-nnn set")
+        in_turn = bool(os.environ.get("DEMIURGE_CONVERSATION", "").strip() or os.environ.get("DEMIURGE_TASK", "").strip())
+        if args.action in ("done", "drop", "reopen") and not args.why and (in_turn or args.action == "reopen"):
+            # Without --why only the owner's own Done or Drop in the app closes a task, and it says so.
+            raise ValueError(f"task {args.action} needs --why \"<the evidence or the reason>\"")
         with vault_lock(args.config):
+            before = None
+            if args.tid != "new":
+                registered, archived = load_tasks(args.config)
+                before = next((t for t in registered + archived if t.tid == args.tid), None)
             if args.tid == "new":
                 task = tasks_mod.new_task(args.config, args.action, args.source, state="ready" if args.state is None else args.state,
                                           values=values, work=args.work)
+            elif args.action == "reopen":
+                task = tasks_mod.reopen(args.config, args.tid, args.config.today(), args.why)
             elif args.action in ("set", "yours"):
+                fields = values if args.action == "set" else ({"status": args.why} if args.why else None)
                 task = tasks_mod.set_fields(args.config, args.tid, args.config.today(),
                                             state="yours" if args.action == "yours" else args.state,
-                                            values=values if args.action == "set" else None, clear=args.clear or (),
-                                            reviewed=args.reviewed, report=args.report)
+                                            values=fields, clear=args.clear or (),
+                                            reviewed=args.reviewed, report=args.report, title=args.title)
             else:
                 task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
                                        args.why or "the owner closed it in their app")
+            if before is not None and before.task_state == "waiting_for_owner" and task.task_state != "waiting_for_owner":
+                # The ask it stood for is answered or moot: it leaves Needs you with it.
+                needs.settle_tasks(args.config, args.config.today(), [(task.tid, before.body)],
+                                   f"{task.tid} is {task.task_state.replace('_', ' ')}")
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -1020,7 +1075,8 @@ def cmd_continue_signal(args):
 
 def cmd_stale_tasks(args):
     tasks, archived = load_tasks(args.config)
-    for task, touched in quiet(tasks + archived, args.config.today()):
+    from . import continuation
+    for task, touched in quiet(tasks + archived, args.config.today(), continuation.last_worked(args.config)):
         line = f"{task.tid} · {task.task_state or 'open'} · {task.state.get('tier', 'untiered')} · last touched {touched or 'never'} · {task.title}"
         print(line + (f" · {task.first_status()}" if task.first_status() else ""))
 
@@ -1305,20 +1361,25 @@ def main(argv=None):
     p.add_argument("--run", action="store_true"); p.add_argument("--vault"); p.set_defaults(fn=cmd_people)
     p = actions.add_parser("who", help="identify a person or intellect and find their vault profile")
     p.add_argument("ident"); p.add_argument("--json", action="store_true"); p.add_argument("--vault"); p.set_defaults(fn=cmd_people)
-    s = sub.add_parser("task", help="create a task or change one: done, drop, yours, set",
-                       description="brain task TID {done,drop,yours,set} [fields]; brain task new TITLE --source SOURCE")
+    s = sub.add_parser("task", help="create a task or change one: done, drop, yours, reopen, set",
+                       description="brain task TID {done,drop,yours,reopen,set} [fields]; brain task new TITLE --source SOURCE")
     s.add_argument("tid", metavar="TID|new", help="task id, or new to create a task")
-    s.add_argument("action", metavar="ACTION|TITLE", help="done, drop, yours, set; with new, the task title")
+    s.add_argument("action", metavar="ACTION|TITLE", help="done, drop, yours, reopen, set; with new, the task title")
     s.add_argument("--state", metavar="S", help="open task state; new accepts ready (default) or in_progress")
     for name in tasks_mod.FIELDS:
+        if name == "work":
+            continue   # --work below: with new or set
         s.add_argument("--" + name, metavar="NOTE" if name == "hub" else "TEXT",
-                       help="existing note name, without brackets" if name == "hub" else f"replace {name}; with --clear, remove it")
-    s.add_argument("--clear", nargs="+", choices=tasks_mod.FIELDS, metavar="FIELD", action="extend",
-                   help="remove fields (status, next, verified, blocker, ask, why, delivers, hub, resume)")
+                       help="existing note name, without brackets" if name == "hub"
+                       else "replace Latest evidence: a dated line with a link to it" if name == "evidence"
+                       else f"replace {name}; with --clear, remove it")
+    s.add_argument("--clear", nargs="+", choices=(*tasks_mod.FIELDS, "handoff"), metavar="FIELD", action="extend",
+                   help="remove fields (" + ", ".join(tasks_mod.FIELDS) + "); handoff takes the task back from its worker")
+    s.add_argument("--title", help="with set: rename the task")
     s.add_argument("--report", metavar="WHERE", help="with set: where a handed-off task reports (demiurge:<conversation id>, or Home)")
     s.add_argument("--reviewed", metavar="TEXT", help="with set: append a dated Reviewed line (the evening's decision and why)")
     s.add_argument("--source", help="with new: the owner's words or a note name")
-    s.add_argument("--work", metavar="SLUG", help="with new: Library work slug")
+    s.add_argument("--work", metavar="SLUG", help="with new or set: Library work slug")
     s.add_argument("--json", action="store_true", help="with new: print {id, title}")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_task)
     s = sub.add_parser("completed", help="tasks completed recently, newest first, for the follow-on check")

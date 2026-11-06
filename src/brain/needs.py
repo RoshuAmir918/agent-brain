@@ -452,6 +452,30 @@ def resolve(config: Config, which: str, because: str, today: date) -> Item:
     return item
 
 
+def settle_tasks(config: Config, today: date, settled: list[tuple[str, str]], because: str) -> list[str]:
+    """Take out of CURRENT's Needs you the asks that stood for tasks no longer waiting on the owner (answered, moved on
+    or closed): a bullet whose source names the task, or that repeats its Ask. `settled` is (task id, the entry as it
+    was when it waited). The caller holds the vault lock; each one is recorded as answered."""
+    path = config.vault_path / "CURRENT.md"
+    if not settled or not path.exists():
+        return []
+    body = path.read_bytes().decode("utf-8")
+    span = _section(body, "Needs you")
+    if span is None:
+        return []
+    asks = {tid: _plain(ask) for tid, entry in settled if (ask := _owner_lines(entry)[0])}
+    def stood_for(item: Item) -> bool:
+        named = set(re.findall(r"\bT-\d{3}\b", item.source))
+        return any(tid in named or asks.get(tid) == _plain(item.text) for tid, _ in settled)
+    new, removed = _without(body, span, stood_for)
+    if removed:
+        path.write_bytes(new.encode("utf-8"))
+        for item in removed:
+            _answered(config, today, f"- {today.isoformat()} · {item.kind} · {item.text} · because {because}"
+                      + (f" · [[{item.source}]]" if item.source != "CURRENT.md" else ""))
+    return [item.text for item in removed]
+
+
 def expire_confirms(config: Config, today: date) -> list[str]:
     path = config.vault_path / "CURRENT.md"
     if not path.exists():

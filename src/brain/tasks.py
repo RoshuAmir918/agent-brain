@@ -146,8 +146,8 @@ def parse_register(text: str) -> tuple[list[tuple[str, int, int]], list[Task]]:
     spans, tasks = [], []
     for i, h in enumerate(heads):
         start = h.start()
-        # section ends at the next ### or ## heading
-        nxt = re.compile(r"^#{2,3} ", re.M).search(text, h.end())
+        # An entry ends at the next task or section; a `### notes` subheading inside it is part of the entry.
+        nxt = re.compile(r"^(?:## |### T-\d{3} — )", re.M).search(text, h.end())
         end = nxt.start() if nxt else len(text)
         chunk = text[h.end():end]
         m = STATE_RE.search(chunk)
@@ -162,7 +162,8 @@ HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
 PACE_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[^\n]*\n?", re.M)
 WORK_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Work:\*\*[^\n]*\n?", re.M)
 RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
-FIELDS = ("status", "next", "verified", "blocker", "ask", "why", "delivers", "hub", "resume", "morning")
+FIELDS = ("status", "next", "verified", "evidence", "blocker", "ask", "why", "delivers", "hub", "work", "resume", "morning")
+LABELS = {"evidence": "Latest evidence"}   # the line a field writes, when it is not the field's own name
 RESUME = re.compile(r"^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?$")
 
 
@@ -190,6 +191,8 @@ def _field_value(config: Config, name: str, value: str) -> str:
         from .needs import vague_ask
         if (reason := vague_ask(value)):
             raise ValueError(f"ask refused: {reason}")
+    if name == "work" and not works.SLUG.fullmatch(value):
+        raise ValueError("work slug must match [a-z0-9-]+")
     limit = {"ask": 16, "why": 40}.get(name)
     if limit and len(value.split()) > limit:
         raise ValueError(f"{name} must be at most {limit} words")
@@ -199,10 +202,11 @@ def _field_value(config: Config, name: str, value: str) -> str:
 def _replace_field(body: str, name: str, value: str | None) -> str:
     """Replace a whole field block (its line and the indented lines continuing it, and any duplicates), leaving
     everything else in the entry alone: notes, dated sections and other fields."""
-    aliases = {name, "next action"} if name == "next" else {name}
+    label = LABELS.get(name, name.title())
+    aliases = {name, "next action"} if name == "next" else {name, label.casefold()}
     lines = body.splitlines(keepends=True)
     out, placed, skipping, blanks = [], False, False, []
-    line_for = f"- **{name.title()}:** {value}\n" if value is not None else ""
+    line_for = f"- **{label}:** {value}\n" if value is not None else ""
     for line in lines:
         head = re.match(r"^[ \t]*-[ \t]+\*\*([^*\n]+):\*\*", line)
         if head and head[1].strip().casefold() in aliases and not line[:1].isspace():
@@ -230,11 +234,12 @@ def _replace_field(body: str, name: str, value: str | None) -> str:
 
 def set_fields(config: Config, tid: str, today: date, *, state: str | None = None,
                values: dict[str, str] | None = None, clear: list[str] | tuple[str, ...] = (),
-               reviewed: str | None = None, report: str | None = None) -> Task:
+               reviewed: str | None = None, report: str | None = None, title: str | None = None) -> Task:
     """Update an open task's full entry; the caller holds the vault lock. `reviewed` appends a dated Reviewed line
-    (the evening's decisions accumulate; they are never replaced)."""
+    (the evening's decisions accumulate; they are never replaced). Clearing `handoff` takes the task back from its
+    worker: it stays open, worked only when someone asks."""
     values = values or {}
-    if set(values) - set(FIELDS) or set(clear) - set(FIELDS):
+    if set(values) - set(FIELDS) or set(clear) - set(FIELDS) - {"handoff"}:
         raise ValueError("unknown task field")
     if set(values) & set(clear):
         raise ValueError("a field cannot be set and cleared together")
@@ -248,16 +253,29 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         reviewed = single_line("reviewed", reviewed)
     if report is not None:
         report = single_line("report", report)
-    if state is None and not values and not clear and not reviewed and report is None:
-        raise ValueError("set needs a field, --state or --clear")
+    if title is not None:
+        title = single_line("title", title)
+        if not title:
+            raise ValueError("title must not be empty")
+    if state is None and not values and not clear and not reviewed and report is None and title is None:
+        raise ValueError("set needs a field, --state, --title or --clear")
     values = {name: _field_value(config, name, value) for name, value in values.items()}
     registered, archived = load_tasks(config)
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
-        raise ValueError(f"{tid} is not an open task (unknown or closed)")
+        raise ValueError(f"{tid} is not an open task (unknown or closed); a closed one comes back with task {tid} reopen")
+    if state == "waiting_for_owner" and "ask" not in values and ("ask" in clear or not _owner_ask(task.body)):
+        raise ValueError("waiting_for_owner needs the question: --ask \"…\" --why \"…\"")
     if state is not None:
         task.state["state"] = state
         task.state.pop("status", None)
+    if title is not None:
+        task.title = title
+    if "handoff" in clear:
+        if not task.handoff:
+            raise ValueError(f"{tid} was not handed off")
+        task.body = PACE_LINE.sub("", HANDOFF_LINE.sub("", task.body))
+        clear = [name for name in clear if name != "handoff"]
     for name in dict.fromkeys([*values, *clear]):
         if name == "morning" and name in values:
             # A note carried to the next briefing; several may wait, and the morning removes them all with --clear.
@@ -273,6 +291,11 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         task.body = HANDOFF_LINE.sub(line + "\n", task.body, count=1)
     save_task(config, task, today)
     return task
+
+
+def _owner_ask(body: str) -> str | None:
+    match = re.search(r"^[ \t]*-[ \t]+\*\*Ask:\*\*[ \t]*(\S.*?)[ \t]*$", body, re.M)
+    return match[1] if match else None
 
 
 def next_id(config: Config) -> str:
@@ -329,6 +352,7 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     if work is not None:
         body += f"- **Work:** {work}\n"
     task = Task(next_id(config), title, body, {"state": state})
+    task.add_use(config.today().isoformat())   # made today is used today: a new task starts in the register
     append_task(config, task)
     return task
 
@@ -374,7 +398,8 @@ def with_handoff(body: str, today: date, report_to: str) -> str:
 
 def hand_off(config: Config, tid: str, today: date, report_to: str = "", work: str | None = None) -> Task:
     """Mark a task handed off by the owner and in progress, in the register entry or the archive body, whichever holds
-    the full entry; returns the task as written."""
+    the full entry; returns the task as written. A fresh handoff restarts the date, budget and pace: to attach a work to
+    a task already handed off, `brain task T-nnn set --work <slug>`."""
     if work is not None and not works.SLUG.fullmatch(work):
         raise ValueError("work slug must match [a-z0-9-]+")
     registered, archived = load_tasks(config)
@@ -429,6 +454,25 @@ def close(config: Config, tid: str, today: date, done: bool, why: str) -> Task:
     task.state["state"] = "cancelled"
     task.state.pop("status", None)
     task.body = task.body.rstrip("\n") + f"\n- **Dropped:** {today.isoformat()} — {why}\n"
+    save_task(config, task, today)
+    return task
+
+
+def reopen(config: Config, tid: str, today: date, why: str) -> Task:
+    """Bring a completed or cancelled task back as ready, wherever its entry is, with a dated line saying why; its
+    earlier evidence stays. The night puts it back in the register."""
+    registered, _ = load_tasks(config)
+    task = next((t for t in registered if t.tid == tid), None)
+    if task is None and archive_path(config, tid).exists():
+        task = read_archived_task(config, archive_path(config, tid))
+    if task is None:
+        raise ValueError(f"{tid} is not a task")
+    if is_open(task):
+        raise ValueError(f"{tid} is already open")
+    task.state["state"] = "ready"
+    task.state.pop("status", None)
+    task.add_use(today.isoformat())   # active again today, so the night brings it back to the register
+    task.body = task.body.rstrip("\n") + f"\n- **Reopened:** {today.isoformat()} — {why}\n"
     save_task(config, task, today)
     return task
 
@@ -488,14 +532,15 @@ def is_open(t: Task) -> bool:
     return t.state.get("status", "open") == "open"   # legacy: only an explicit open, or none, is open
 
 
-def quiet(tasks: list[Task], today: date) -> list[tuple[Task, str]]:
+def quiet(tasks: list[Task], today: date, worked: dict[str, str] | None = None) -> list[tuple[Task, str]]:
     """Open tasks that have gone untouched long enough to review, oldest first, with the day each was last touched.
-    A set-aside task is already decided; the review never sees it again until its state changes."""
+    A set-aside task is already decided; the review never sees it again until its state changes. `worked` (each
+    task's last continue chunk) counts as a touch: a handoff its worker moved today is not quiet."""
     out = []
     for t in tasks:
         if not is_open(t) or t.task_state == "set_aside":
             continue
-        touched = t.last_touched()
+        touched = max(t.last_touched(), (worked or {}).get(t.tid, "")[:10])
         days = OWNER_QUIET_DAYS if t.task_state in ("waiting_for_owner", "yours") else QUIET_DAYS
         if not touched or (today - date.fromisoformat(touched)).days >= days:
             out.append((t, touched))
@@ -558,12 +603,14 @@ def bounded_hot_body(t: Task, config: Config) -> str:
     # Only an explicitly labeled direct latest pointer permits older Evidence
     # to be omitted. Otherwise retain every Evidence block in full, or fail.
     latest = any(label(chunk) == "latest evidence" and direct_pointer(chunk) for chunk in chunks)
+    newest_review = max((i for i, chunk in enumerate(chunks) if label(chunk) == "reviewed"), default=-1)
     required, optional = [], []
-    for chunk in chunks:
+    for i, chunk in enumerate(chunks):
         if "\n".join(chunk).strip() == pointer:
             continue
         name = label(chunk)
-        current = name != "earlier evidence" and (name != "evidence" or not latest)
+        current = (name != "earlier evidence" and (name != "evidence" or not latest)
+                   and (name != "reviewed" or i == newest_review))
         (required if current else optional).append(chunk)
     if not any(label(chunk) not in (None, "evidence", "earlier evidence") for chunk in required):
         raise ValueError(f"{t.tid}: parent judgment required: no labeled current fields; cannot create a useful task summary")

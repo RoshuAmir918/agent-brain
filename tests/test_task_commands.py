@@ -41,12 +41,13 @@ def location(vault, request):
 @pytest.mark.parametrize("name", tasks.FIELDS)
 def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
     config, where = location
-    value = "Project" if name == "hub" else "2026-11-06 08:05" if name == "resume" else "new value"
+    value = ("Project" if name == "hub" else "2026-11-06 08:05" if name == "resume" else "new-value" if name == "work"
+             else "new value")
     out = cli(vault, capsys, "T-001", "set", "--" + name, value)
     assert out == f"T-001 updated: {name}"
     task, = entry(config)
     expected = "[[Topics/Project]]" if name == "hub" else value
-    label = "morning" if name == "morning" else name.title()   # morning notes keep their lowercase convention
+    label = "morning" if name == "morning" else tasks.LABELS.get(name, name.title())   # morning notes keep their lowercase convention
     assert f"- **{label}:** {expected}\n" in task.body
     assert task.body.count(f"**{label}:**") == 1
     if name == "next":
