@@ -37,9 +37,9 @@ def test_identity_derivation_and_normalization(vault, title, data, expected):
 
 
 def test_validate_duplicate_ids_names_both_hubs_and_invalid_slug(vault):
-    hub(vault, "First", records="Chicken_alerts")
-    hub(vault, "Second", records="chicken-alerts")
-    hub(vault, "!!!")
+    hub(vault, "First", records="Chicken_alerts", skill="brain-first")
+    hub(vault, "Second", records="chicken-alerts", skill="brain-second")
+    hub(vault, "!!!", skill="!!!")
     problems = validate.responsibilities(Vault(vault))
     assert "duplicate responsibility id 'chicken-alerts': First.md and Second.md" in problems
     assert any("!!!.md: responsibility id must match" in problem for problem in problems)
@@ -105,12 +105,13 @@ def test_fallback_name_wins_over_shared_skill_and_ties_use_hub_path(vault):
     assert [entry["routines"] for entry in entries] == [["shared"], ["second"]]
 
 
-def test_discovery_includes_title_and_legacy_hubs_but_not_ordinary_notes(vault):
+def test_discovery_includes_hubs_with_a_skill_but_not_title_only_hubs_or_ordinary_notes(vault):
     hub(vault, "Title only")
     fm.write(vault / "Legacy.md", {"skill": "brain-legacy"}, "")
     fm.write(vault / "Ordinary.md", {"tier": "hot"}, "")
     hub(vault, "Draft", kind="draft", skill="brain-draft")
-    assert [entry["id"] for entry in responsibilities.discover(Vault(vault))] == ["legacy", "title-only"]
+    # A hub with no skill (a folder README, a context note) is not something the intellect keeps up.
+    assert [entry["id"] for entry in responsibilities.discover(Vault(vault))] == ["legacy"]
 
 
 def test_private_responsibility_owns_routine_without_exporting_its_id(vault):
@@ -122,3 +123,12 @@ def test_private_responsibility_owns_routine_without_exporting_its_id(vault):
     assert [entry["id"] for entry in snapshot["responsibilities"]] == ["visible"]
     assert snapshot["responsibilities"][0]["routines"] == []
     assert snapshot["routines"][0]["responsibility"] is None
+
+
+
+def test_folder_readme_hubs_are_not_responsibilities_and_do_not_collide(vault):
+    hub(vault, "people/README")
+    hub(vault, "agents/README")
+    hub(vault, "Chickens", skill="brain-chickens", records="chickens")
+    assert [entry["id"] for entry in responsibilities.discover(Vault(vault))] == ["chickens"]
+    assert not [p for p in validate.responsibilities(Vault(vault)) if "duplicate" in p]

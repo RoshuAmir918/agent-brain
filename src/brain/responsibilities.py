@@ -23,7 +23,9 @@ def discover(vault: Vault) -> list[dict]:
     for source, note in sorted(vault.notes.items()):
         if vault.kind_for(source) != "hub" or note.data.get("kind", "hub") != "hub":
             continue
-        if not (note.data.get("skill") or note.data.get("records") or note.data.get("kind") == "hub"):
+        # A responsibility is a hub with its own skill (the engine's definition everywhere else); a hub without one is
+        # a folder index or a context note, never something the intellect keeps up.
+        if not note.data.get("skill"):
             continue
         out.append({"id": identity(vault.config, note), "title": note.stem, "hub": source,
                     "skill": note.data.get("skill"), "records": note.data.get("records"),
