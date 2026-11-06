@@ -45,7 +45,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, loops, needs, retrieve, session_context, state, triggers, validate
+from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, loops, needs, retrieve, session_context, state, triggers, validate, views
 from . import tasks as tasks_mod
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, quiet, task_activation, write_archive
 from .vault import DAILY, Vault
@@ -921,13 +921,22 @@ def cmd_task(args):
                 raise ValueError("task new needs --source")
             if args.clear:
                 raise ValueError("--clear goes with task T-nnn set")
-        elif args.action not in ("done", "drop", "yours", "set", "reopen"):
-            raise ValueError("task ACTION must be done, drop, yours, reopen or set")
+        elif args.action not in ("done", "drop", "yours", "set", "reopen", "view"):
+            raise ValueError("task ACTION must be done, drop, yours, reopen, set or view")
         elif args.source is not None or args.json:
             raise ValueError("--source and --json go with task new")
         elif args.action != "set" and (set(values) - {"why"} or args.state is not None or args.clear
                                        or args.reviewed is not None or args.report is not None or args.title is not None):
             raise ValueError("field flags, --state, --title, --reviewed, --report and --clear go with task T-nnn set")
+        if args.action == "view":
+            if values or args.why:
+                raise ValueError("task T-nnn view takes its view as JSON on stdin, nothing else")
+            registered, archived = load_tasks(args.config)
+            if not any(t.tid == args.tid and tasks_mod.is_open(t) for t in registered + archived):
+                raise ValueError(f"{args.tid} is not an open task")
+            view = views.write(args.config, args.tid, sys.stdin.read())
+            print(f"{args.tid} view saved: {len(view['pieces'])} pieces" if view else f"{args.tid} view removed")
+            return
         in_turn = bool(os.environ.get("DEMIURGE_CONVERSATION", "").strip() or os.environ.get("DEMIURGE_TASK", "").strip())
         if args.action in ("done", "drop", "reopen") and not args.why and (in_turn or args.action == "reopen"):
             # Without --why only the owner's own Done or Drop in the app closes a task, and it says so.
@@ -1406,7 +1415,7 @@ def main(argv=None):
     s = sub.add_parser("task", help="create a task or change one: done, drop, yours, reopen, set",
                        description="brain task TID {done,drop,yours,reopen,set} [fields]; brain task new TITLE --source SOURCE")
     s.add_argument("tid", metavar="TID|new", help="task id, or new to create a task")
-    s.add_argument("action", metavar="ACTION|TITLE", help="done, drop, yours, reopen, set; with new, the task title")
+    s.add_argument("action", metavar="ACTION|TITLE", help="done, drop, yours, reopen, set, view (JSON on stdin); with new, the task title")
     s.add_argument("--state", metavar="S", help="open task state; new accepts ready (default) or in_progress")
     for name in tasks_mod.FIELDS:
         if name == "work":
