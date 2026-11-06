@@ -62,7 +62,8 @@ def append(config: Config, entries: list | None, platform: str, at: datetime, *,
            user_id: str = "", user_id_alt: str = "") -> Path | None:
     """Keep valid entries only, resolving identity from the session rather than the model."""
     user_ids = tuple(value for value in (user_id, user_id_alt) if value)
-    if session_context.is_owner(config, platform, user_ids) or not isinstance(entries, list) or not entries:
+    if (session_context.is_owner(config, platform, user_ids) or session_context.is_member(config, platform, user_ids)
+            or not isinstance(entries, list) or not entries):
         return None
     vault = Vault(config.vault_path)
     vocabulary = access.subjects(vault, config)

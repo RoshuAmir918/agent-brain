@@ -71,8 +71,10 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     local = at.replace(tzinfo=config.zone) if at.tzinfo is None else at.astimezone(config.zone)
     from .state import _public   # the export's boundary: a profile or the owner's notes are never named here
     vault = Vault(config.vault_path)
-    from .session_context import is_owner
-    owner = is_owner(config, platform, tuple(value for value in (user_id, user_id_alt) if value))
+    from .session_context import is_member, is_owner
+    ids = tuple(value for value in (user_id, user_id_alt) if value)
+    # In an organisation's intellect a member is the owner of their own conversation and tasks.
+    owner = is_owner(config, platform, ids) or is_member(config, platform, ids)
     touched = [title for title in dict.fromkeys(_clean(title) for title in record.get("touched") or [])
                if title and (target := vault.resolve(title)) and _public(vault, target)]
     for loop in record.get("loops") or []:
