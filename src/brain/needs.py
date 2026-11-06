@@ -15,8 +15,9 @@ from .vault import Vault
 
 KINDS = ("ask", "confirm")
 OPEN_ASKS = 5        # asks shown at once; past it, the evening decides the lowest-ranked down to it
-STALE_DAYS = 14      # an ask unanswered this long is the evening's to decide or retire
-RETIRE_DAYS = 28     # an ask unanswered this long leaves the list; silence is an answer
+STALE_DAYS = 3       # an ask unanswered this long is the evening's to decide or retire
+RETIRE_DAYS = 5      # an ask unanswered this long leaves the list; silence is an answer. A task's ask settles with it.
+CONFIRM_DAYS = 5     # a confirm unanswered this long is taken as accepted
 ASK_WORDS = 16       # an owner-facing Ask line: a proposition, read cold on a phone
 WHY_WORDS = 40       # its Why line: what the owner gets, one or two plain sentences
 DATED_HEADING_RE = re.compile(
@@ -39,10 +40,18 @@ class Item:
     context: str = ""
     needs: str = ""
     label: InitVar[str | None] = None   # what the id is keyed on, when the text is built from changing fields
+    task: str = field(init=False)       # the task it stands for (T-nnn), when its source names one; else ""
 
     def __post_init__(self, label: str | None) -> None:
         key = json.dumps([self.origin, self.source, label if label is not None else self.text], ensure_ascii=False)
         self.id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+        self.task = task_of(self.source) or ""
+
+
+def task_of(source: str) -> str | None:
+    """The task a source names: the register's `Tasks#T-nnn` anchor or a task's archive note."""
+    match = re.search(r"(?:#|Tasks Archive/)(T-\d{3})(?:\.md)?$", source)
+    return match[1] if match else None
 
 
 def _section(body: str, title: str) -> tuple[int, int] | None:
@@ -274,7 +283,7 @@ def rank(item: Item, config: Config, today: date) -> tuple:
         return (1, 0, "")
     soon = any((when := mentioned(m, today)) and today <= when <= date.fromordinal(today.toordinal() + 7)
                for m in DATE.finditer(item.text))
-    blocking = item.origin == "task" or item.source.startswith(config.agents_dir + "/")
+    blocking = item.origin == "task" or bool(item.task) or item.source.startswith(config.agents_dir + "/")
     newest_first = "".join(chr(0x10FFFF - ord(c)) for c in (item.since or "0000-00-00"))
     return (0, 0 if soon else 1 if blocking else 2, newest_first)
 
@@ -291,17 +300,18 @@ def open_asks(body: str) -> list[Item]:
 
 
 def stale(config: Config, today: date, days: int = STALE_DAYS) -> list[Item]:
-    """Asks in CURRENT unanswered for `days` or more, oldest first."""
+    """Asks in CURRENT unanswered for `days` or more, oldest first; a task's ask waits with its task instead."""
     path = config.vault_path / "CURRENT.md"
     if not path.exists():
         return []
     body = path.read_bytes().decode("utf-8")
-    old = [item for item in open_asks(body) if (today - date.fromisoformat(item.since)).days >= days]
+    old = [item for item in open_asks(body) if not item.task and (today - date.fromisoformat(item.since)).days >= days]
     return sorted(old, key=lambda item: item.since)
 
 
 def retire_asks(config: Config, today: date, days: int = RETIRE_DAYS) -> list[str]:
-    """Remove asks unanswered for `days` or more: the backstop when no routine decided them. Returns their texts."""
+    """Remove asks unanswered for `days` or more: the backstop when no routine decided them. A task's ask stays while
+    the task waits; it settles with the task. Returns their texts."""
     path = config.vault_path / "CURRENT.md"
     if not path.exists():
         return []
@@ -309,10 +319,10 @@ def retire_asks(config: Config, today: date, days: int = RETIRE_DAYS) -> list[st
     span = _section(body, "Needs you")
     if span is None:
         return []
-    new, removed = _without(body, span, lambda item: item.kind == "ask"
+    new, removed = _without(body, span, lambda item: item.kind == "ask" and not item.task
                             and (today - date.fromisoformat(item.since)).days >= days)
     if removed:
-        path.write_bytes(new.encode("utf-8"))
+        fm.write(path, {}, new)
     return [item.text for item in removed]
 
 
@@ -487,9 +497,9 @@ def expire_confirms(config: Config, today: date) -> list[str]:
     if span is None:
         return []
     new, removed = _without(body, span, lambda item: item.kind == "confirm"
-                            and (today - date.fromisoformat(item.since)).days >= 7)
+                            and (today - date.fromisoformat(item.since)).days >= CONFIRM_DAYS)
     if removed:
-        path.write_bytes(new.encode("utf-8"))
+        fm.write(path, {}, new)
     return [item.text for item in removed]
 
 
@@ -509,3 +519,16 @@ def vague_ask(text: str) -> str | None:
     if len(words) < 2:
         return "it is too short to stand alone; name the subject and the choice"
     return None
+
+
+def replace_task_asks(config: Config, body: str, tid: str, today: date) -> str:
+    """CURRENT's body without the open asks that stand for `tid`, each recorded as replaced: a task carries one question
+    at a time, its newest. The caller holds the vault lock and writes the body."""
+    span = _section(body, "Needs you")
+    if span is None:
+        return body
+    new, removed = _without(body, span, lambda item: item.kind == "ask" and item.task == tid)
+    for item in removed:
+        _answered(config, today, f"- {today.isoformat()} · {item.kind} · {item.text} · because a newer question about "
+                  f"{tid} replaced it · [[{item.source}]]")
+    return new
