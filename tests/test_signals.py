@@ -22,7 +22,9 @@ def monitor(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_HOME", str(home))
     clock = [AT]
     monkeypatch.setattr(Config, "now", lambda self, moment=None: clock[0])
-    return Config.load(vault), home, clock
+    config = Config.load(vault)
+    tasks.set_fields(config, "T-001", config.today(), values={"delivers": "notes in Home"})
+    return config, home, clock
 
 
 @contextmanager
@@ -193,7 +195,7 @@ def test_continue_lists_archived_tasks_sorted_by_id_and_full_next_line(monitor):
     for tid, state, date in [("T-009", "in_progress", "2026-10-20"), ("T-002", "ready", "2026-10-21"),
                               ("T-003", "completed", "2026-10-20")]:
         tasks.write_archive(config, tasks.Task(tid, "Work", "- **Handed off:** " + date + " · report in Home\n"
-                                              "- **Next:** " + "full next line " * 20 + "\n", {"state": state}),
+                                              "- **Delivers:** notes in Home\n- **Next:** " + "full next line " * 20 + "\n", {"state": state}),
                             "warm", AT.date(), whole=True)
     result = signals.continue_(config).splitlines()
     assert len(result) == 3 and result[1].startswith("T-002 · ready ·") and result[2].startswith("T-009 · in_progress ·")

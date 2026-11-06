@@ -105,10 +105,11 @@ def watch(config: Config) -> str:
 def continue_(config: Config, daily: bool = False) -> str:
     from . import continuation
     now, home = _check(config), _home()
-    registered, archived = tasks.load_tasks(config)
-    due = tasks.due(registered + archived, pace="daily" if daily else "regular",
+    task_list = continuation.finish_lines(config)
+    due = tasks.due(task_list, pace="daily" if daily else "regular",
                     chunks=continuation.chunks_today(config), daily_chunks=config.daily_chunks,
-                    now=tasks.local_now(config), budgets=continuation.budgets(config, registered + archived))
+                    now=tasks.local_now(config), budgets=continuation.budgets(config, task_list),
+                    caps=continuation.budget_caps(config))
     lines = [f"date: {now.date().isoformat()}" if due else "date: none"]
     for task in sorted(due, key=lambda task: task.tid):
         if daily:

@@ -8,7 +8,7 @@ from dataclasses import InitVar, dataclass, field
 from datetime import date
 from pathlib import PurePosixPath
 
-from . import access, access_log
+from . import access, access_log, fm
 from .config import Config
 from .tasks import archive_path, load_tasks
 from .vault import Vault
@@ -361,16 +361,14 @@ def _remove_bullet(config: Config, item: Item) -> None:
             return True
         return False
     new, _ = _without(body, span, first)
-    path.write_bytes(new.encode("utf-8"))
+    fm.write(path, {}, new)
 
 
 def _answered(config: Config, today: date, line: str) -> None:
     log = config.vault_path / config.agent("Answered") / f"{today:%Y-%m}.md"
     log.parent.mkdir(parents=True, exist_ok=True)
-    if not log.exists():
-        log.write_text(ANSWERED_HEADER, encoding="utf-8")
-    with log.open("a", encoding="utf-8") as stream:
-        stream.write(line + "\n")
+    body = log.read_text(encoding="utf-8") if log.exists() else ANSWERED_HEADER
+    fm.write(log, {}, body + line + "\n")
 
 
 TASK_SOURCE = re.compile(r"#(T-\d{3})$")
@@ -432,7 +430,8 @@ def _drop_proposal(config: Config, item: Item, today: date) -> None:
     path.write_text(body[:heading] + changed + body[end:], encoding="utf-8")
 
 
-def resolve(config: Config, which: str, because: str, today: date) -> Item:
+def resolve(config: Config, which: str, because: str, today: date, *, record_answer: bool = True,
+            owner_engaged: bool = False) -> Item:
     """Remove one item from CURRENT's Needs you because something answered it, and record what did, in
     `<agent_dir>/Answered/YYYY-MM.md`. `which` is an item id from `brain needs-you --json`, or text that matches exactly
     one open item. Tasks, proposals and access requests are resolved where they live, not here."""
@@ -449,6 +448,9 @@ def resolve(config: Config, which: str, because: str, today: date) -> Item:
     if item.source != "CURRENT.md":
         line += f" · [[{item.source}]]"
     _answered(config, today, line)
+    if record_answer:
+        from . import continuation
+        continuation.answered(config, item.source, item.text, because, owner_engaged)
     return item
 
 
@@ -469,7 +471,7 @@ def settle_tasks(config: Config, today: date, settled: list[tuple[str, str]], be
         return any(tid in named or asks.get(tid) == _plain(item.text) for tid, _ in settled)
     new, removed = _without(body, span, stood_for)
     if removed:
-        path.write_bytes(new.encode("utf-8"))
+        fm.write(path, {}, new)
         for item in removed:
             _answered(config, today, f"- {today.isoformat()} · {item.kind} · {item.text} · because {because}"
                       + (f" · [[{item.source}]]" if item.source != "CURRENT.md" else ""))

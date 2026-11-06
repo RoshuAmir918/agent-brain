@@ -20,6 +20,7 @@ def work(vault, tmp_path, monkeypatch):
     clock = [AT]
     monkeypatch.setattr(Config, "now", lambda self, moment=None: clock[0])
     config = Config.load(vault)
+    tasks.set_fields(config, "T-001", config.today(), values={"delivers": "finished notes in Home"})
     tasks.hand_off(config, "T-001", AT.date(), "Home")
     return config, home, clock
 
@@ -68,6 +69,8 @@ def test_due_filters_pace_and_resting_states_oldest_first():
     daily = tasks.Task("T-003", "Daily", "- **Handed off:** 2026-11-01\n- **Pace:** daily\n")
     older = tasks.Task("T-001", "Older", "- **Handed off:** 2026-10-30\n- **Pace:** daily\n")
     all_tasks = [regular, daily, older]
+    for item in all_tasks:
+        item.body += "- **Delivers:** a result in Home\n"
     assert tasks.due(all_tasks) == [regular]
     assert tasks.due(all_tasks, pace="daily") == [older, daily]
     for resting in (*tasks.RESTING, "completed", "cancelled"):
@@ -431,7 +434,7 @@ def test_due_puts_the_task_worked_least_recently_first(work, capsys):
     config, home, clock = work
     one = task(config)
     two = tasks.Task(tid="T-099", title="Torts notes", state={"state": "in_progress"},
-                     body="- **Handed off:** 2026-11-05 · report in Home\n")
+                     body="- **Handed off:** 2026-11-05 · report in Home\n- **Delivers:** notes in Home\n")
     assert [t.tid for t in tasks.due([two, one])] == ["T-001", "T-099"]   # oldest handoff without history
     run(config, capsys, "--chunk", "T-001")
     worked = continuation.last_worked(config)

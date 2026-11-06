@@ -435,6 +435,8 @@ def complete(config: Config, tid: str, today: date, evidence: str) -> Task:
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
         raise ValueError(f"{tid} is not an open task")
+    from . import continuation
+    continuation.clear_close_out(config, tid)
     task.state["state"] = "completed"
     task.state.pop("status", None)
     task.body = task.body.rstrip("\n") + f"\n- **Completed:** {today.isoformat()} — {evidence}\n"
@@ -451,6 +453,8 @@ def close(config: Config, tid: str, today: date, done: bool, why: str) -> Task:
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
         raise ValueError(f"{tid} is not an open task")
+    from . import continuation
+    continuation.clear_close_out(config, tid)
     task.state["state"] = "cancelled"
     task.state.pop("status", None)
     task.body = task.body.rstrip("\n") + f"\n- **Dropped:** {today.isoformat()} — {why}\n"
@@ -501,16 +505,19 @@ def save_task(config: Config, task: Task, today: date) -> None:
 
 def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None = None, *,
         chunks: dict[str, int] | None = None, daily_chunks: int = DAILY_CHUNKS, now: str | None = None,
-        budgets: dict[str, int] | None = None) -> list[Task]:
+        budgets: dict[str, int] | None = None, caps: dict[str, int] | None = None) -> list[Task]:
     """Handed-off tasks the continue routine should work now: open and not resting on the owner. With `worked` (each
     task's last chunk), the one worked least recently comes first and a task never worked before all of them, so one
     long task cannot hold the slot; otherwise, oldest handoff first. `chunks` is
     today's local-day count per task; regular tasks at their budget wait."""
     worked = worked or {}
     chunks = chunks or {}
-    return sorted((t for t in tasks if is_open(t) and t.handoff and t.task_state not in RESTING
+    return sorted((t for t in tasks if is_open(t) and t.handoff and t.delivers
+                   and (t.task_state not in RESTING or (t.task_state == "blocked" and t.resume and now
+                                                       and (t.resume if " " in t.resume else t.resume + " 00:00") <= now))
                    and _pace(t.body) == pace
                    and (pace == "daily" or chunks.get(t.tid, 0) < (budgets or {}).get(t.tid, daily_chunks))
+                   and (t.tid not in (caps or {}) or chunks.get(t.tid, 0) < caps[t.tid])
                    # A task resting until a time (`now` is the owner's local "YYYY-MM-DD HH:MM") waits for it.
                    and not (now and t.resume and (t.resume if " " in t.resume else t.resume + " 00:00") > now)),
                   key=lambda t: (worked.get(t.tid, ""), t.handoff[0], t.tid))

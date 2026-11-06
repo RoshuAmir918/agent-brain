@@ -17,6 +17,7 @@ def setup(vault, tmp_path, monkeypatch):
     clock = [AT]
     monkeypatch.setattr(Config, "now", lambda self, moment=None: clock[0])
     config = Config.load(vault)
+    tasks.set_fields(config, "T-001", config.today(), values={"delivers": "notes in Home"})
     tasks.hand_off(config, "T-001", AT.date(), "Home")
     return config, clock, monkeypatch
 

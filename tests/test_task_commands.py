@@ -236,6 +236,7 @@ def test_resume_rests_a_task_until_its_time_and_report_changes_only_the_report(v
     from datetime import datetime
     config = Config.load(vault)
     tasks.hand_off(config, "T-001", TODAY, "Home")
+    tasks.set_fields(config, "T-001", TODAY, values={"delivers": "notes in Home"})
     cli(vault, capsys, "T-001", "set", "--resume", "2026-11-06 08:05")
     task, = entry(config)
     assert task.resume == "2026-11-06 08:05"

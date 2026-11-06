@@ -28,6 +28,7 @@ def register(vault):
 
 @pytest.fixture(autouse=True)
 def no_conversation(monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
     monkeypatch.delenv("DEMIURGE_CONVERSATION", raising=False)
     monkeypatch.delenv("DEMIURGE_TASK", raising=False)
 
