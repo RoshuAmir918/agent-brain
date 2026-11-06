@@ -683,6 +683,12 @@ def cmd_retrieve(a):
             print(f"{candidate.score:g}  {candidate.tier}  {candidate.path}  — {candidate.reason}")
 
 
+def speaker() -> str | None:
+    """The person this turn is with, as the runtime names them (BRAIN_SPEAKER=<platform>:<id>), when it names one."""
+    value = os.environ.get("BRAIN_SPEAKER", "").strip()
+    return value if tasks_mod.PERSON.fullmatch(value) else None
+
+
 def cmd_needs_you(args):
     if args.source and not args.ask:
         raise SystemExit("brain needs-you: --source goes with --ask")
@@ -728,6 +734,8 @@ def cmd_needs_you(args):
             print(f"{item.since} · {item.text} · {item.source}")
         return
     items = needs.items(args.config, args.config.today())
+    if args.for_:
+        items = [item for item in items if item.owner == args.for_]
     if args.json:
         print(json.dumps([asdict(item) for item in items], ensure_ascii=False, indent=2))
     else:
@@ -1003,8 +1011,10 @@ def cmd_handoff(args):
         # On Demiurge the runtime names the conversation this turn is in: the report goes back where the work was asked for.
         here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
         report = f"demiurge:{here}" if here and not (args.report or "").startswith("demiurge:") else (args.report or "")
+        # In an organisation's intellect a task is the person's who handed it off: the runtime names the speaker.
+        owner = args.for_ or (speaker() if args.config.edition == "enterprise" else None)
         with vault_lock(args.config):
-            task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work)
+            task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work, owner=owner)
             from . import continuation
             continuation._mark_engaged(args.config, task.tid)
     except ValueError as error:
@@ -1058,6 +1068,13 @@ def cmd_continue(args):
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return
         if args.engaged:
+            # A task's budget follows its own owner's engagement: in an organisation, someone else asking about it
+            # is interest, not the owner steering it.
+            by = args.by or speaker()
+            task = next((t for t in sum(load_tasks(args.config), []) if t.tid == args.engaged), None)
+            if task is not None and task.owner and by and by != task.owner:
+                print(f"{args.engaged} not engaged: {by} is not its owner ({task.owner})")
+                return
             continuation.mark_engaged(args.config, args.engaged, args.instruction)
             print(f"{args.engaged} engaged")
             return
@@ -1389,6 +1406,7 @@ def main(argv=None):
     s.add_argument("--reason", choices=("no", "done", "stop-asking"), default="no",
                    help="with --dismiss: what the owner chose (no, done: they did it, stop-asking: no questions like it)")
     s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
+    s.add_argument("--for", dest="for_", metavar="PERSON", help="list only what is for this person (<platform>:<id>): the asks of tasks they own")
     s.add_argument("--why", metavar="TEXT", help="with --ask: why it needs the owner and what a yes or a no means, in plain words")
     s.set_defaults(fn=cmd_needs_you)
     s = sub.add_parser("loops", help="promises, answers owed and waits on others")
@@ -1446,6 +1464,7 @@ def main(argv=None):
     s = sub.add_parser("handoff", help="mark a task the owner handed off: the continue routine works it until done or blocked")
     s.add_argument("tid"); s.add_argument("--report", default="", help="where to report, e.g. 'Home' or the room"); s.add_argument("--vault")
     s.add_argument("--work", help="Library work slug, e.g. 'trip-plan'")
+    s.add_argument("--for", dest="for_", metavar="PERSON", help="who the task is for, as <platform>:<id> (enterprise: the speaker by default)")
     s.set_defaults(fn=cmd_handoff)
     s = sub.add_parser("continue", help="handed-off tasks due now, least recently worked first; text exits 1 when none")
     mode = s.add_mutually_exclusive_group()
@@ -1455,6 +1474,7 @@ def main(argv=None):
     mode.add_argument("--pace", nargs=2, metavar=("TASK", "regular|daily"))
     mode.add_argument("--checkpoint", metavar="TASK", help="save a per-task continue checkpoint")
     mode.add_argument("--engaged", metavar="TASK", help="record that the owner engaged with the task now (its daily budget is whole again)")
+    s.add_argument("--by", metavar="PERSON", help="with --engaged: who engaged, as <platform>:<id> (default: the speaker); only the task's owner counts")
     mode.add_argument("--review-context", metavar="TASK", help="reviewer context as JSON")
     mode.add_argument("--review", metavar="TASK", help="apply a direction review")
     mode.add_argument("--wake", metavar="REASON", help="end open tasks' rests on computer")

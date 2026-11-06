@@ -95,7 +95,7 @@ def test_tasks_use_engine_state_and_register_precedence(work):
                          "detail": "Moving [[Evidence|proof]]", "next": "Ship [[Draft]]", "handoff": None, "pace": "regular", "blockers": "None",
                          "hub": "Work/Watch", "work": None, "delivers": None, "tier": "hot", "archived": False, "source": "agent/Tasks.md#T-004",
                          "ask": None, "why": None, "verified": None, "evidence": None, "resume": None, "report": None,
-                         "lastChunk": None, "chunksToday": None, "budget": None, "closed": None, "outcome": None, "view": None, "said": None}
+                         "lastChunk": None, "chunksToday": None, "budget": None, "closed": None, "outcome": None, "view": None, "said": None, "owner": None}
     assert [(task["state"], task["open"]) for task in result] == [
         ("in_progress", True), ("completed", False), ("cancelled", False), (None, True),
         ("waiting_for_owner", True), ("completed", False), ("waiting_for_owner", True), ("cancelled", False), (None, True)]

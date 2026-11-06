@@ -73,8 +73,15 @@ class Task:
     @property
     def handoff(self) -> tuple[str, str] | None:
         """(date, where to report) when the owner handed this task off: work it until done or blocked."""
-        match = re.search(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*·[ \t]*report in[ \t]*(.+?))?[ \t]*$", self.body, re.M)
-        return (match[1], (match[2] or "").strip()) if match else None
+        match = HANDOFF.search(self.body)
+        return (match[1], (match[3] or "").strip()) if match else None
+
+    @property
+    def owner(self) -> str | None:
+        """Who the task is for: the person who handed it off (`· for <platform>:<id>`), in an organisation's intellect.
+        A personal intellect's tasks are all its owner's and carry none."""
+        match = HANDOFF.search(self.body)
+        return match[2] if match and match[2] else None
 
     @property
     def uses(self) -> list[str]:
@@ -158,6 +165,9 @@ def parse_register(text: str) -> tuple[list[tuple[str, int, int]], list[Task]]:
     return spans, tasks
 
 
+HANDOFF = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*·[ \t]*for[ \t]+(\S+))?"
+                     r"(?:[ \t]*·[ \t]*report in[ \t]*(.+?))?[ \t]*$", re.M)
+PERSON = re.compile(r"^[a-z][a-z0-9_-]*:[A-Za-z0-9_.@-]+$")   # a person as the runtime names them: <platform>:<id>
 HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
 PACE_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[^\n]*\n?", re.M)
 WORK_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Work:\*\*[^\n]*\n?", re.M)
@@ -288,7 +298,7 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
     if report is not None:
         if not task.handoff:
             raise ValueError(f"{tid} was not handed off; there is no report line to change")
-        line = f"- **Handed off:** {task.handoff[0]}" + (f" · report in {report}" if report else "")
+        line = handoff_line(task.handoff[0], task.owner, report)
         task.body = HANDOFF_LINE.sub(line + "\n", task.body, count=1)
     after = current_words(task, config)
     # A field written long stays long: past the limit only a person can cut the entry down, so it is refused here,
@@ -396,9 +406,13 @@ def set_pace(config: Config, tid: str, pace: str, today: date) -> Task:
     return task
 
 
-def with_handoff(body: str, today: date, report_to: str) -> str:
+def handoff_line(day: str, owner: str | None, report_to: str) -> str:
+    return f"- **Handed off:** {day}" + (f" · for {owner}" if owner else "") + (f" · report in {report_to}" if report_to else "")
+
+
+def with_handoff(body: str, today: date, report_to: str, owner: str | None = None) -> str:
     """The task's entry with one Handed off line, placed after its first field line."""
-    line = f"- **Handed off:** {today.isoformat()}" + (f" · report in {report_to}" if report_to else "")
+    line = handoff_line(today.isoformat(), owner, report_to)
     body = PACE_LINE.sub("", HANDOFF_LINE.sub("", body))
     lines = body.splitlines()
     at = next((i + 1 for i, text in enumerate(lines) if text.lstrip().startswith("- **")), 0)
@@ -406,17 +420,21 @@ def with_handoff(body: str, today: date, report_to: str) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def hand_off(config: Config, tid: str, today: date, report_to: str = "", work: str | None = None) -> Task:
+def hand_off(config: Config, tid: str, today: date, report_to: str = "", work: str | None = None,
+             owner: str | None = None) -> Task:
     """Mark a task handed off by the owner and in progress, in the register entry or the archive body, whichever holds
     the full entry; returns the task as written. A fresh handoff restarts the date, budget and pace: to attach a work to
     a task already handed off, `brain task T-nnn set --work <slug>`."""
     if work is not None and not works.SLUG.fullmatch(work):
         raise ValueError("work slug must match [a-z0-9-]+")
+    if owner is not None and not PERSON.fullmatch(owner):
+        raise ValueError("--for names a person as <platform>:<id>, e.g. slack:U0123ABC")
     registered, archived = load_tasks(config)
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
         raise ValueError(f"{tid} is not an open task")
-    task.body = with_handoff(task.body, today, report_to)
+    # A fresh handoff names who it is for now; one that names nobody keeps the task's owner.
+    task.body = with_handoff(task.body, today, report_to, owner or task.owner)
     if work is not None:
         task.body = WORK_LINE.sub("", task.body).rstrip("\n") + f"\n- **Work:** {work}\n"
     if task.task_state in (None, "ready", *RESTING):

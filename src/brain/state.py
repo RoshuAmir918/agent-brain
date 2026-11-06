@@ -73,7 +73,7 @@ def _tasks(vault: Vault) -> list[dict]:
              "lastChunk": worked.get(task.tid), "chunksToday": chunks.get(task.tid, 0) if task.handoff else None,
              "budget": limits.get(task.tid), "closed": closing(task)[0], "outcome": closing(task)[1],
              "tier": task.state.get("tier"), "archived": archived, "source": source, "view": views.read(config, task.tid),
-             "said": _said(_field(task.body, "Source"))}
+             "said": _said(_field(task.body, "Source")), "owner": task.owner}
             for task, archived, source in entries if _public(vault, source)]
 
 

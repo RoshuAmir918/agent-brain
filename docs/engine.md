@@ -115,7 +115,9 @@ Discovery walks upward from an explicit `--vault`, or from cwd when omitted, cho
 - **Routines.** `brain schedule init` adds the routines this edition starts with (the night's memory passes, the session export and context refresh, watch, continue and continue-daily, explore, improve and evening; personal adds people, prime and the morning briefing) and never changes a routine already scheduled.
 - **Checks.** `brain health` does not expect the people and prime stages, and validation keeps no owner profile, in an enterprise vault.
 
-In enterprise, what is said to the intellect is visible to the whole organisation by stated policy, and it keeps no patient data, credentials or production records in notes (recall's "Talking to your colleagues"). Per-task owners and organisation members come next.
+In enterprise, what is said to the intellect is visible to the whole organisation by stated policy, and it keeps no patient data, credentials or production records in notes (recall's "Talking to your colleagues").
+
+**Per-task owners.** In an organisation's intellect a task is the person's who handed it off. The runtime names the person a turn is with in `BRAIN_SPEAKER` (`<platform>:<id>`, e.g. `slack:U0123ABC`); `brain handoff` records them on the handoff line (`- **Handed off:** 2026-11-06 · for slack:U0123ABC · report in …`), or `--for PERSON` names them. A handoff that names nobody keeps the task's owner, and `task set --report` never drops it. A personal intellect never writes one: all its tasks are its owner's. A task's Needs you items are for its owner (`owner` in `brain needs-you --json` and the state export; `brain needs-you --for PERSON` lists one person's), and `brain state --json` tasks carry `owner`. `brain continue --engaged T [--by PERSON]` counts only the owner's engagement: another person asking about the task leaves its budget as it is. Organisation members come with the Slack bridge.
 
 ## Runtime context
 
