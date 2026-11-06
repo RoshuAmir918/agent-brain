@@ -130,24 +130,24 @@ def test_unknown_and_closed_task_refused(location, vault, capsys, closed):
 def test_new_parses_appends_sources_json_and_shared_id_allocation(vault, capsys):
     config = Config.load(vault)
     tasks.write_archive(config, tasks.Task("T-041", "Old", "", {"state": "completed"}), "cold", TODAY)
-    fm.write(vault / "References.md", {}, "Previously mentioned T-057.\n")
-    assert tasks.next_id(config) == "T-058"
+    fm.write(vault / "References.md", {}, "Previously mentioned T-057.\n")   # a mention uses no id up
+    assert tasks.next_id(config) == "T-042"
     assert cli(vault, capsys, "new", "Prepare notes", "--source", "Please prepare the notes",
                "--status", "starting", "--next", "read", "--delivers", "a summary", "--hub", "START",
-               "--work", "notes", "--state", "In progress") == "T-058 created: Prepare notes"
-    task = next(task for task in entry(config) if task.tid == "T-058")
+               "--work", "notes", "--state", "In progress") == "T-042 created: Prepare notes"
+    task = next(task for task in entry(config) if task.tid == "T-042")
     assert (task.title, task.task_state, task.work, task.hub, task.delivers) == ("Prepare notes", "in_progress", "notes", "START", "a summary")
     assert '- **Source:** "Please prepare the notes"' in task.body and task.handoff is None
     assert "- **Next:** read\n" in task.body
     assert tasks.parse_register(task.render())[1][0].render() == task.render()
     output = cli(vault, capsys, "new", "Another", "--source", "memory/START.md", "--json")
-    assert json.loads(output) == {"id": "T-059", "title": "Another"}
-    task = next(task for task in entry(config) if task.tid == "T-059")
+    assert json.loads(output) == {"id": "T-043", "title": "Another"}
+    task = next(task for task in entry(config) if task.tid == "T-043")
     assert task.task_state == "ready" and "- **Source:** [[START]]" in task.body
     # Accepted ideas use precisely the same allocator and append path.
     assert ideas.add(config, TODAY, "Organize notes?", "START", "Save time")
     ideas.respond(config, "Organize notes?", TODAY, "yes")
-    assert next(task for task in entry(config) if task.tid == "T-060").handoff == (TODAY.isoformat(), "Home")
+    assert next(task for task in entry(config) if task.tid == "T-044").handoff == (TODAY.isoformat(), "Home")
 
 
 @pytest.mark.parametrize("args,message", [
@@ -168,7 +168,10 @@ def test_new_invalid_does_not_write(vault, capsys, args, message):
 
 
 def test_new_refuses_exhausted_ids(vault, capsys):
-    fm.write(vault / "Old.md", {}, "Reference T-999")
+    # Only a real task uses an id up: a T-999 task heading in the register exhausts them, a mention never does.
+    register = vault / Config.load(vault).agent("Tasks.md")
+    data, body = fm.read(register)
+    fm.write(register, data, body.rstrip("\n") + "\n\n### T-999 — The last one\n<!-- brain: state=ready -->\n- **Status:** x\n")
     with pytest.raises(SystemExit) as error:
         cli(vault, capsys, "new", "Title", "--source", "words")
     assert error.value.code == 1 and "no unused T-nnn" in capsys.readouterr().err
@@ -296,3 +299,9 @@ def test_brain_commit_stages_scoped_paths_under_the_repo_lock(vault, capsys, mon
     assert "test: one only" in shown and "One.md" in shown and "Two.md" not in shown
     nightly.main(["commit", "-m", "nothing", str(vault / "One.md"), "--vault", str(vault)])
     assert capsys.readouterr().out.strip() == "nothing to commit"
+
+
+def test_a_note_mentioning_t999_does_not_use_up_task_ids(vault, capsys):
+    (vault / "Eval notes.md").write_text("# Eval notes\n\nThe case seeds T-999 and T-998 as fixtures.\n")
+    out = cli(vault, capsys, "new", "Help Hope explore job opportunities", "--source", "asked today")
+    assert out.startswith("T-") and "T-1000" not in out and "T-999" not in out

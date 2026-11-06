@@ -276,9 +276,18 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
 
 
 def next_id(config: Config) -> str:
-    """Next id after every task reference in the vault, including closed/archived tasks."""
-    vault = Vault(config.vault_path)
-    used = [int(number) for note in vault.notes.values() for number in TASK_ID_RE.findall(note.body)]
+    """Next id after every task that exists: the register's headings and the archive's, open or closed. Only real task
+    headings count; a note that merely mentions an id (an example, a test fixture, "T-999") never uses one up."""
+    heading = re.compile(r"^#{1,3} T-(\d{3})\b", re.M)
+    used = []
+    register = config.vault_path / config.agent("Tasks.md")
+    sources = [register] if register.exists() else []
+    archive = config.vault_path / config.agent("Tasks Archive")
+    if archive.is_dir():
+        sources += sorted(archive.glob("*.md"))
+        used += [int(m[1]) for path in archive.glob("T-*.md") if (m := re.match(r"T-(\d{3})\.md$", path.name))]
+    for path in sources:
+        used += [int(number) for number in heading.findall(path.read_text(encoding="utf-8", errors="replace"))]
     number = max(used, default=0) + 1
     if number > 999:
         raise ValueError("no unused T-nnn task id remains")
