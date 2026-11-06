@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .config import Config
 from .lock import vault_lock
+from .responsibilities import ID_PATTERN
 
 HEADER = "# The routines this agent runs. Edit with `brain schedule`; the runtime applies changes within a minute.\n"
 TIMING = ("cron", "every", "at")
@@ -31,6 +32,8 @@ class Routine:
     workdir: str | None = None
     enabled: bool = True
     owner: bool = False
+    responsibility: str | None = None
+    needs: list[str] = field(default_factory=list)
 
 
 def path(config: Config) -> Path:
@@ -69,7 +72,7 @@ def _cron(value: str) -> bool:
     return True
 
 
-def _problems(raw: dict) -> list[str]:
+def _problems(raw: dict, *, known_needs: bool = True) -> list[str]:
     out = []
     if set(raw) - {"routines"}:
         out.append("only [routines.<name>] tables are supported")
@@ -92,9 +95,12 @@ def _problems(raw: dict) -> list[str]:
             if key in ("agent", "enabled", "owner"):
                 if not isinstance(value, bool):
                     out.append(f"{label}: must be a boolean")
-            elif key == "skills":
+            elif key in ("skills", "needs"):
                 if not isinstance(value, list) or not all(isinstance(s, str) for s in value):
                     out.append(f"{label}: must be a list of strings")
+                elif key == "needs" and known_needs:
+                    out.extend(f"{label}: unknown need {need!r}; only computer is supported"
+                               for need in value if need != "computer")
             elif key in Routine.__dataclass_fields__:
                 if not isinstance(value, str):
                     out.append(f"{label}: must be a string")
@@ -112,6 +118,8 @@ def _problems(raw: dict) -> list[str]:
                         out.append(f"{label}: must be an ISO datetime with an offset")
                 elif key == "deliver" and not re.fullmatch(r"local|demiurge(?::[^\s:]+)?", value):
                     out.append(f"{label}: must be local, demiurge or demiurge:<id>")
+                elif key == "responsibility" and not re.fullmatch(ID_PATTERN, value):
+                    out.append(f"{label}: must match ^{ID_PATTERN}$")
                 elif key in ("monitor", "script", "workdir") and not value.strip():
                     out.append(f"{label}: must be a nonempty string")
         if values.get("agent") is False and not values.get("script"):
@@ -132,14 +140,36 @@ def load(config: Config) -> dict[str, Routine]:
     return _parse(source.read_text(encoding="utf-8")) if source.exists() else {}
 
 
-def problems(config: Config) -> list[str]:
+def problems(config: Config, *, known_needs: bool = True) -> list[str]:
     try:
         source = path(config)
         if not source.exists():
             return []
-        return [f"{source}: {error}" for error in _problems(tomllib.loads(source.read_text(encoding="utf-8")))]
+        return [f"{source}: {error}" for error in _problems(tomllib.loads(source.read_text(encoding="utf-8")), known_needs=known_needs)]
     except (OSError, ValueError) as error:
         return [f"{path(config)}: {error}"]
+
+
+def warnings(config: Config, responsibility_ids: set[str]) -> list[str]:
+    source = path(config)
+    try:
+        raw = tomllib.loads(source.read_text(encoding="utf-8")).get("routines", {})
+    except (OSError, ValueError):
+        return []   # structural problems are reported by problems()
+    out = []
+    if not isinstance(raw, dict):
+        return out
+    for name, values in raw.items():
+        if not isinstance(values, dict):
+            continue
+        responsibility = values.get("responsibility")
+        if isinstance(responsibility, str) and re.fullmatch(ID_PATTERN, responsibility) and responsibility not in responsibility_ids:
+            out.append(f"{source}: routines.{name}.responsibility: unknown responsibility {responsibility!r}")
+        needs = values.get("needs", [])
+        if isinstance(needs, list):
+            out.extend(f"{source}: routines.{name}.needs: unknown need {need!r}; only computer is supported"
+                       for need in needs if isinstance(need, str) and need != "computer")
+    return out
 
 
 def render(routines: dict[str, Routine]) -> str:

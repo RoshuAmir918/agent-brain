@@ -607,7 +607,7 @@ def cmd_validate(a):
     problems = validate.checks(vault)
     for p in problems:
         print(p)
-    warnings = validate.work_warnings(vault) + validate.deliverable_warnings(vault)
+    warnings = validate.work_warnings(vault) + validate.deliverable_warnings(vault) + validate.schedule_warnings(vault)
     for warning in warnings:
         print(f"warning: {warning}")
     print(f"{len(problems)} problems")
@@ -1287,8 +1287,11 @@ def cmd_schedule(args):
                 if action == "set":
                     changes = {key: getattr(args, key) for key in schedule.Routine.__dataclass_fields__
                                if getattr(args, key, None) is not None}
-                    if "skills" in changes:
-                        changes["skills"] = [skill.strip() for skill in changes["skills"].split(",") if skill.strip()]
+                    for key in ("skills", "needs"):
+                        if key in changes:
+                            changes[key] = [value.strip() for value in changes[key].split(",") if value.strip()]
+                    if changes.get("responsibility") == "":
+                        changes["responsibility"] = None
                     if any(key in changes for key in schedule.TIMING):
                         changes = {**dict.fromkeys(schedule.TIMING), **changes}
                     existed = name in routines
@@ -1344,7 +1347,7 @@ def main(argv=None):
             timing = s.add_mutually_exclusive_group()
             for key in schedule.TIMING:
                 timing.add_argument("--" + key)
-            for key in ("skills", "prompt", "deliver", "monitor", "script", "workdir"):
+            for key in ("skills", "prompt", "deliver", "monitor", "script", "workdir", "responsibility", "needs"):
                 s.add_argument("--" + key)
             agent = s.add_mutually_exclusive_group()
             agent.add_argument("--agent", action="store_true", default=None)

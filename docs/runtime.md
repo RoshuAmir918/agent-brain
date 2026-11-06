@@ -66,6 +66,10 @@ Fields, per routine (the table name is the routine's name, `[a-z0-9-]+`, unique)
 | `workdir` | default `$VAULT_REPO` |
 | `enabled` | default `true`; `false` keeps the routine declared but paused |
 | `owner` | default `false`; `true` marks a routine the owner asked for by name |
+| `responsibility` | optional responsibility id, matching `^[a-z0-9][a-z0-9-]{0,62}$`; explicitly assigns the routine to that hub; unknown ids are validation warnings |
+| `needs` | default `[]`; `["computer"]` means the work needs the owner's computer (the harness's hands target); only `computer` is supported |
+
+Set these with `brain schedule set <name> --responsibility <id> --needs computer`; clear them with `--responsibility "" --needs ""`, like clearing `--skills`. `brain schedule list --json` includes both fields (`null` and `[]` when absent). `set` refuses unknown needs; `brain validate` warns about them in a hand-edited file without failing validation. Responsibility ids and fallback links are described in [the engine guide](engine.md#responsibilities).
 
 Reconciliation, by the runtime, at start and whenever the file's modification time or size changes (checked each scheduler tick):
 
@@ -115,6 +119,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.48.0: schedule routines add `responsibility` and `needs`; `brain state --json` adds schedule-based `responsibilities` and each existing routine row's responsibility id. State schema remains 1.
 - 0.36.4: the watch skill starts each pass with `brain channels mail --since <checked_at>` and resolves Needs you asks and loops that new mail settles (`brain needs-you --resolve`, `brain loops --close`, with the message as evidence); its state file records `checked_at`; it lists its commands so a pass spends no calls on `--help`. Installed skills update on `brain update`.
 - 0.47.0: per-task owners. With `edition = "enterprise"`, `brain handoff` records the person a task is for on its handoff line (`· for <platform>:<id>`), from `--for` or the runtime's `BRAIN_SPEAKER`, kept through later handoffs and report changes. Needs you items carry `owner` (the task's), `brain needs-you --for PERSON` filters by it, `brain state --json` tasks carry `owner`, and `brain continue --engaged T --by PERSON` (default `BRAIN_SPEAKER`) counts only the owner's engagement. Personal vaults never record an owner.
 - 0.46.1: task views. A number's trend may say `since` when it starts, and the kit and the recall skill say each thing appears in one piece, with counts that match what they count.

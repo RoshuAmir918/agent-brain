@@ -54,6 +54,8 @@ agent = false
 workdir = "/somewhere else"
 enabled = false
 owner = true
+responsibility = "chicken-alerts"
+needs = ["computer"]
 
 [routines.a-once]
 at = "2026-11-05T06:30:00-05:00"
@@ -83,7 +85,10 @@ skills = []
     schedule.save(config, parsed)
     assert schedule.path(config).read_text() == text
     keys = [line.split(" = ")[0] for line in text.split('[routines.z-watch]\n')[1].splitlines()]
-    assert keys == ["cron", "skills", "prompt", "deliver", "monitor", "script", "agent", "workdir", "enabled", "owner"]
+    assert keys == ["cron", "skills", "prompt", "deliver", "monitor", "script", "agent", "workdir", "enabled", "owner", "responsibility", "needs"]
+    assert parsed["z-watch"].responsibility == "chicken-alerts"
+    assert parsed["z-watch"].needs == ["computer"]
+    assert parsed["a-once"].responsibility is None and parsed["a-once"].needs == []
 
 
 @pytest.mark.parametrize("source, expected", [
@@ -110,6 +115,12 @@ skills = []
     ('[routines.x]\nat="tomorrow"', 'ISO datetime with an offset'),
     ('[routines.x]\nevery="1h"\nskills="x"', 'list of strings'),
     ('[routines.x]\nevery="1h"\nskills=[1]', 'list of strings'),
+    ('[routines.x]\nevery="1h"\nneeds="computer"', 'list of strings'),
+    ('[routines.x]\nevery="1h"\nneeds=[1]', 'list of strings'),
+    ('[routines.x]\nevery="1h"\nneeds=["phone"]', 'unknown need'),
+    ('[routines.x]\nevery="1h"\nresponsibility=1', 'must be a string'),
+    *[(f'[routines.x]\nevery="1h"\nresponsibility="{value}"', 'must match')
+      for value in ('', 'Bad_ID', '-bad', 'a' * 64)],
     *[(f'[routines.x]\nevery="1h"\n{key}=1', f'{key}: must be a string')
       for key in ('prompt', 'deliver', 'monitor', 'script', 'workdir')],
     *[(f'[routines.x]\nevery="1h"\n{key}="false"', f'{key}: must be a boolean')
@@ -168,6 +179,8 @@ def test_cli_create_merge_change_timing_pause_resume_remove(config, capsys):
 @pytest.mark.parametrize("args", [("set", "new"), ("set", "bad_name", "--every", "1h"),
                                   ("set", "watch", "--no-agent"), ("set", "watch", "--every", "0m"),
                                   ("set", "watch", "--deliver", "slack"), ("remove", "missing"),
+                                  ("set", "watch", "--needs", "computer,phone"),
+                                  ("set", "watch", "--responsibility", "Bad_ID"),
                                   ("pause", "missing"), ("resume", "missing")])
 def test_invalid_mutation_never_writes(config, args):
     schedule.save(config, {"watch": Routine(every="15m")})
@@ -176,6 +189,44 @@ def test_invalid_mutation_never_writes(config, args):
         cli(config, *args)
     assert error.value.code
     assert schedule.path(config).read_bytes() == before
+
+
+def test_cli_responsibility_and_needs_set_merge_list_clear(config, capsys):
+    cli(config, "set", "alerts", "--every", "1h", "--responsibility", "chicken-alerts", "--needs", "computer")
+    cli(config, "set", "alerts", "--prompt", "Check alerts")
+    capsys.readouterr()
+    cli(config, "list", "--json")
+    row = json.loads(capsys.readouterr().out)["alerts"]
+    assert row["responsibility"] == "chicken-alerts" and row["needs"] == ["computer"]
+    assert schedule.load(config)["alerts"].prompt == "Check alerts"
+    cli(config, "set", "alerts", "--responsibility", "", "--needs", "")
+    routine = schedule.load(config)["alerts"]
+    assert routine.responsibility is None and routine.needs == []
+    text = schedule.path(config).read_text()
+    assert "responsibility =" not in text and "needs =" not in text
+
+
+def test_unknown_responsibility_and_need_are_validate_warnings_not_errors(config, capsys, monkeypatch):
+    # An unknown id may be declared before its hub is created.
+    cli(config, "set", "alerts", "--every", "1h", "--responsibility", "unknown")
+    assert schedule.load(config)["alerts"].responsibility == "unknown"
+    assert validate.schedule_hygiene(Vault(config.vault_path)) == []
+    write(config, '[routines.alerts]\nevery="1h"\nresponsibility="unknown"\nneeds=["phone"]\n')
+    vault = Vault(config.vault_path)
+    assert validate.schedule_hygiene(vault) == []
+    warnings = validate.schedule_warnings(vault)
+    assert len(warnings) == 2
+    assert "unknown responsibility 'unknown'" in warnings[0]
+    assert "unknown need 'phone'" in warnings[1]
+    monkeypatch.setattr(validate, "checks", lambda vault: validate.schedule_hygiene(vault))
+    monkeypatch.setattr(validate, "work_warnings", lambda vault: [])
+    monkeypatch.setattr(validate, "deliverable_warnings", lambda vault: [])
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as error:
+        nightly.main(["validate", "--vault", str(config.vault_path)])
+    assert error.value.code == 0
+    output = capsys.readouterr().out
+    assert output.count("warning:") == 2 and "0 problems\n2 warnings\n" in output
 
 
 def test_invalid_create_never_creates_file(config):
