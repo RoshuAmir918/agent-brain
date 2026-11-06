@@ -157,6 +157,27 @@ def is_owner(config: Config, platform: str, user_ids: tuple[str, ...]) -> bool:
     return platform == "cli" or listed(config.owner_user_ids, platform, user_ids)
 
 
+def is_member(config: Config, platform: str, user_ids: tuple[str, ...]) -> bool:
+    """In an organisation's intellect, anyone the runtime names is a member: the door (Slack's bridge, the stage's
+    sign-in) admits only members, so the engine trusts it. A maintainer and the routine's own runs are not members."""
+    return (config.edition == "enterprise" and bool(user_ids) and platform not in ("", "cron")
+            and not listed(config.maintainers, platform, user_ids))
+
+
+def member_context(config: Config, platform: str, user_ids: tuple[str, ...], user_name: str, operator: bool) -> str:
+    org = config.human_name
+    who = user_name or (f"{platform}:{user_ids[0]}" if user_ids else "the operator")
+    person = f"{platform}:{user_ids[-1]}" if user_ids and platform not in ("", "cli") else None
+    lines = [f"This session is with {who}, a member of {org}" + (" and its operator." if operator else ".")]
+    lines.append(f"What is said to you here is visible to the whole team, by {org}'s policy: keep nothing between "
+                 "colleagues, and no patient data, credentials or production records in notes.")
+    if person:
+        lines.append(f"Work they hand you is theirs ({person}): its questions and milestones go to them.")
+    if operator:
+        lines.append(f"As the operator they may change how you are set up (`{config.skill_prefix}setup`); other members may not.")
+    return "\n".join(lines)
+
+
 def audience_targets(vault: Vault, config: Config, person: Note) -> set[str]:
     targets = {person.rel}
     directory = PurePosixPath(config.people_dir) / "Groups"
@@ -364,6 +385,11 @@ def with_notice(text: str, config: Config) -> str:
 def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = "",
           user_id_alt: str = "", user_name: str = "", chat_id: str = "") -> str:
     user_ids = tuple(value for value in (user_id, user_id_alt) if value)
+    if config.edition == "enterprise" and (is_owner(config, platform, user_ids) or is_member(config, platform, user_ids)):
+        if not is_owner(config, platform, user_ids) and matching_agents(vault, config, user_ids, platform):
+            return intellect_context(vault, config, matching_agents(vault, config, user_ids, platform)[0],
+                                     f"{platform} {user_id or user_id_alt}")
+        return with_notice(member_context(config, platform, user_ids, user_name, is_owner(config, platform, user_ids)), config)
     if is_owner(config, platform, user_ids):
         return with_notice("\n\n".join(part for part in (f"This session is with {config.human_name}, the owner.",
                                                           owner_card(vault, config)) if part), config)
