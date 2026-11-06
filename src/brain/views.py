@@ -13,7 +13,7 @@ from .config import Config
 MAX_BYTES = 16_000
 MAX_PIECES = 6
 MAX_TEXT = 200
-ROW_STATES = ("good", "new", "held", "out")
+ROW_STATES = ("good", "new", "held", "waiting", "blocked", "out")
 ITEM_STATES = ("done", "open", "waiting", "blocked")
 
 KINDS = ("numbers", "progress", "table", "checklist", "places", "links", "gallery", "steps", "schedule")
@@ -25,10 +25,11 @@ KIT = """pieces, at most 6, each one of the kinds below; any piece may add "from
        numbers, oldest first; since says when the trend starts ("since Nov 2")
   {"kind": "progress", "title", "done": n, "total": n, "unit"?, "detail"?}
   {"kind": "table", "title", "columns": [..] (1-6), "rows": [{"cells": [..], "state"?, "link"?}], "note"?}   up to 40 rows
-       state: good | new | held | out
+       state: good | new | held | waiting (sent, awaiting a reply) | blocked | out
   {"kind": "checklist", "title", "items": [{"text", "state", "detail"?}]}                       up to 20 items
        state: done | open | waiting | blocked
-  {"kind": "places", "title", "items": [{"name", "detail"?, "query"}]}                           up to 20; query is what a map searches
+  {"kind": "places", "title", "items": [{"name", "detail"?, "query", "value"?, "state"?, "link"?}]}   up to 20; query is what a
+       map searches; value, state (as a table row's) and link let candidates with a location be one piece, not a table and a map
   {"kind": "links", "title"?, "items": [{"label", "href"}]}                                       up to 10; https URL or a vault note path
   {"kind": "gallery", "title", "items": [{"image", "label", "value"?, "state"?, "link"?}]}         up to 24; image an https URL
   {"kind": "steps", "title", "items": [{"label", "detail"?}], "current": i}                       2-8 stages; current is the stage now (0-based)
@@ -212,10 +213,12 @@ def _kind(at: str, piece: dict) -> dict:
     if kind == "places":
         items = []
         for x in _list(f"{at} items", piece.get("items"), 1, 20):
-            if not isinstance(x, dict):
-                raise ValueError(f"{at} items are {{\"name\", \"detail\"?, \"query\"}}")
+            if not isinstance(x, dict) or set(x) - {"name", "detail", "query", "value", "state", "link"}:
+                raise ValueError(f"{at} items are {{\"name\", \"detail\"?, \"query\", \"value\"?, \"state\"?, \"link\"?}}")
             items.append(_drop_none({"name": _text(f"{at} name", x.get("name")), "detail": _text(f"{at} detail", x.get("detail"), False),
-                                     "query": _text(f"{at} query", x.get("query"))}))
+                                     "query": _text(f"{at} query", x.get("query")), "value": _text(f"{at} value", x.get("value"), False),
+                                     "state": _state(f"{at} state", x.get("state"), ROW_STATES, False),
+                                     "link": _href(f"{at} link", x["link"]) if x.get("link") else None}))
         return {"kind": kind, "title": title, "items": items}
     items = []
     for x in _list(f"{at} items", piece.get("items"), 1, 10):
