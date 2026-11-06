@@ -7,7 +7,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import access, fm, health, ideas, journal, ledger, loops, needs, tasks, triggers
+from . import access, fm, health, ideas, journal, ledger, loops, needs, tasks, triggers, views
 from .config import Config
 from .session_context import legacy, profile_ids
 from .vault import Vault
@@ -72,7 +72,7 @@ def _tasks(vault: Vault) -> list[dict]:
              "report": (task.handoff[1] or None) if task.handoff else None, "pace": tasks.pace(task),
              "lastChunk": worked.get(task.tid), "chunksToday": chunks.get(task.tid, 0) if task.handoff else None,
              "budget": limits.get(task.tid), "closed": closing(task)[0], "outcome": closing(task)[1],
-             "tier": task.state.get("tier"), "archived": archived, "source": source}
+             "tier": task.state.get("tier"), "archived": archived, "source": source, "view": views.read(config, task.tid)}
             for task, archived, source in entries if _public(vault, source)]
 
 
