@@ -73,8 +73,8 @@ def test_a_view_too_big_to_carry_is_refused(vault, capsys, monkeypatch):
 
 
 V2 = {"pieces": [
-    {"kind": "numbers", "from": "from Mercury, checking", "items": [{"label": "Balance", "value": "$236,443", "trend": [210, 225, 219, 236]},
-                                                                    {"label": "Payroll", "value": "-$18,400"}]},
+    {"kind": "numbers", "from": "from Mercury, checking", "items": [{"label": "Balance", "value": "$236,443", "trend": [210, 225, 219, 236], "since": "since Oct 1"},
+                                                                    {"label": "Payroll", "value": "-$18,400", "since": "since Oct 1"}]},
     {"kind": "gallery", "title": "Jackets under ¥150,000", "items": [{"image": "https://img.example/a.jpg", "label": "Needles track", "value": "¥34,100", "state": "new", "link": "https://shop.example/a"}]},
     {"kind": "steps", "title": "Order", "items": [{"label": "Ordered"}, {"label": "Shipped"}, {"label": "In Tokyo"}, {"label": "Home"}], "current": 1},
     {"kind": "schedule", "title": "Saturday", "items": [{"time": "10am", "text": "Farmers market"}, {"time": "2:30", "text": "Open studio"}]},
@@ -85,6 +85,8 @@ def test_kit_v2_gallery_steps_schedule_trends_and_provenance_are_kept(vault, cap
     assert view(vault, capsys, monkeypatch, V2) == "T-001 view saved: 4 pieces"
     kept = views.read(Config.load(vault), "T-001")["pieces"]
     assert kept[0]["from"] == "from Mercury, checking" and kept[0]["items"][0]["trend"] == [210, 225, 219, 236]
+    # A trend says when it starts; a since with no trend to label is dropped.
+    assert kept[0]["items"][0]["since"] == "since Oct 1" and "since" not in kept[0]["items"][1]
     assert kept[2]["current"] == 1 and kept[3]["items"][1] == {"time": "2:30", "text": "Open studio"}
 
 

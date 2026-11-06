@@ -19,8 +19,10 @@ ITEM_STATES = ("done", "open", "waiting", "blocked")
 KINDS = ("numbers", "progress", "table", "checklist", "places", "links", "gallery", "steps", "schedule")
 # What each piece holds. Every string is plain text (no markup), at most MAX_TEXT characters.
 KIT = """pieces, at most 6, each one of the kinds below; any piece may add "from": where its data came from
-  ("from Zillow, 41 listings read"), said plainly.
-  {"kind": "numbers", "title"?, "items": [{"label", "value", "detail"?, "trend"?: [n, ...]}]}   2-4 items; trend 2-30 numbers
+  ("from Zillow, 41 listings read"), said plainly. Each thing appears in one piece: the same candidates in a gallery or a
+  table, not both, and a count in numbers matches the rows or items it counts.
+  {"kind": "numbers", "title"?, "items": [{"label", "value", "detail"?, "trend"?: [n, ...], "since"?}]}   2-4 items; trend 2-30
+       numbers, oldest first; since says when the trend starts ("since Nov 2")
   {"kind": "progress", "title", "done": n, "total": n, "unit"?, "detail"?}
   {"kind": "table", "title", "columns": [..] (1-6), "rows": [{"cells": [..], "state"?, "link"?}], "note"?}   up to 40 rows
        state: good | new | held | out
@@ -135,14 +137,15 @@ def _kind(at: str, piece: dict) -> dict:
     if kind == "numbers":
         items = []
         for x in _list(f"{at} items", piece.get("items"), 2, 4):
-            if not isinstance(x, dict) or set(x) - {"label", "value", "detail", "trend"}:
-                raise ValueError(f"{at} items are {{\"label\", \"value\", \"detail\"?, \"trend\"?}}")
+            if not isinstance(x, dict) or set(x) - {"label", "value", "detail", "trend", "since"}:
+                raise ValueError(f"{at} items are {{\"label\", \"value\", \"detail\"?, \"trend\"?, \"since\"?}}")
             trend = x.get("trend")
             if trend is not None and not (isinstance(trend, list) and 2 <= len(trend) <= 30
                                           and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in trend)):
                 raise ValueError(f"{at} trend must be 2 to 30 numbers, oldest first")
             items.append(_drop_none({"label": _text(f"{at} label", x.get("label")), "value": _text(f"{at} value", x.get("value")),
-                                     "detail": _text(f"{at} detail", x.get("detail"), False), "trend": trend}))
+                                     "detail": _text(f"{at} detail", x.get("detail"), False), "trend": trend,
+                                     "since": _text(f"{at} since", x.get("since"), False) if trend is not None else None}))
         return _drop_none({"kind": kind, "title": title, "items": items})
     if kind == "gallery":
         items = []
