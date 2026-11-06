@@ -108,3 +108,24 @@ def test_the_owners_own_words_are_exported_when_the_source_quotes_them(vault, ca
     tid = capsys.readouterr().out.split()[0]
     exported = next(t for t in state._tasks(Vault(config.vault_path)) if t["id"] == tid)
     assert exported["said"] == "Rohan in Home, Nov 5: Yes add ledger to my library"
+
+
+def test_rows_and_places_can_wait_and_places_carry_value_state_and_link(vault, capsys, monkeypatch):
+    located = {"pieces": [
+        {"kind": "table", "title": "Applications", "columns": ["Where", "Sent"], "rows": [
+            {"cells": ["A", "Mon"], "state": "waiting"}, {"cells": ["B", "Tue"], "state": "blocked"}]},
+        {"kind": "places", "title": "Apartments", "items": [
+            {"name": "A", "query": "A street", "value": "$2,100", "state": "good", "link": "https://listing.example/a"},
+            {"name": "B", "query": "B street"}]},
+    ]}
+    assert view(vault, capsys, monkeypatch, located) == "T-001 view saved: 2 pieces"
+    kept = views.read(Config.load(vault), "T-001")["pieces"]
+    assert [r["state"] for r in kept[0]["rows"]] == ["waiting", "blocked"]
+    assert kept[1]["items"][0] == {"name": "A", "query": "A street", "value": "$2,100", "state": "good", "link": "https://listing.example/a"}
+    assert kept[1]["items"][1] == {"name": "B", "query": "B street"}
+
+
+def test_places_refuse_what_they_cannot_draw(vault, capsys, monkeypatch):
+    with pytest.raises(SystemExit):
+        view(vault, capsys, monkeypatch, {"pieces": [{"kind": "places", "title": "P", "items": [{"name": "A", "query": "q", "state": "maybe"}]}]})
+    assert "state must be one of" in capsys.readouterr().err
