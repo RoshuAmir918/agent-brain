@@ -66,8 +66,8 @@ class Task:
 
     @property
     def resume(self) -> str | None:
-        """When a task waiting on a time can move again (`YYYY-MM-DD[ HH:MM]`, the owner's local time), or None."""
-        match = re.search(r"^[ \t]*-[ \t]+\*\*Resume:\*\*[ \t]*(\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)[ \t]*$", self.body, re.M)
+        """A local `YYYY-MM-DD[ HH:MM]`, `computer` (until woken), or None."""
+        match = re.search(r"^[ \t]*-[ \t]+\*\*Resume:\*\*[ \t]*(computer|\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)[ \t]*$", self.body, re.M)
         return match[1] if match else None
 
     @property
@@ -164,7 +164,7 @@ WORK_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Work:\*\*[^\n]*\n?", re.M)
 RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
 FIELDS = ("status", "next", "verified", "evidence", "blocker", "ask", "why", "delivers", "hub", "work", "resume", "morning")
 LABELS = {"evidence": "Latest evidence"}   # the line a field writes, when it is not the field's own name
-RESUME = re.compile(r"^\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?$")
+RESUME = re.compile(r"^(?:computer|\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)$")
 
 
 def single_line(name: str, value: str) -> str:
@@ -186,7 +186,7 @@ def note_name(config: Config, value: str) -> str:
 def _field_value(config: Config, name: str, value: str) -> str:
     value = single_line(name, value)
     if name == "resume" and not RESUME.fullmatch(value):
-        raise ValueError("resume must be YYYY-MM-DD or YYYY-MM-DD HH:MM, in the owner's local time")
+        raise ValueError("resume must be computer, YYYY-MM-DD or YYYY-MM-DD HH:MM, in the owner's local time")
     if name == "ask":
         from .needs import vague_ask
         if (reason := vague_ask(value)):
@@ -523,6 +523,8 @@ def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None 
     worked = worked or {}
     chunks = chunks or {}
     return sorted((t for t in tasks if is_open(t) and t.handoff and t.delivers
+                   # Computer rests end only on an explicit wake, regardless of time or pace.
+                   and t.resume != "computer"
                    and (t.task_state not in RESTING or (t.task_state == "blocked" and t.resume and now
                                                        and (t.resume if " " in t.resume else t.resume + " 00:00") <= now))
                    and _pace(t.body) == pace

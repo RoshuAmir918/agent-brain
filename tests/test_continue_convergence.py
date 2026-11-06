@@ -267,6 +267,16 @@ def test_stuck_blocks_until_resume_with_reason(worker, capsys, resume):
     assert due(config, capsys)[0]["id"] == "T-001"
 
 
+def test_stuck_accepts_computer_resume_and_waits_for_wake(worker, capsys):
+    config, clock = worker
+    verdict(config, capsys, "stuck", "The publishing laptop is offline", "--resume", "computer")
+    assert task(config).resume == "computer" and task(config).task_state == "blocked"
+    clock[0] += timedelta(days=1)
+    assert due(config, capsys) == []
+    assert cli(config, capsys, "--wake", "computer") == "T-001 woken: Sample"
+    assert due(config, capsys)[0]["id"] == "T-001"
+
+
 def test_daily_circling_cap_applies_and_can_reach_zero(worker, capsys):
     config, clock = worker
     tasks.set_pace(config, "T-001", "daily", config.today())

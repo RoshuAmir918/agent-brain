@@ -250,6 +250,25 @@ def test_resume_rests_a_task_until_its_time_and_report_changes_only_the_report(v
     assert task.handoff == (TODAY.isoformat(), "demiurge:jn7thread") and task.task_state == "in_progress"
 
 
+def test_resume_computer_round_trips_through_task_cli(location, vault, capsys):
+    config, _ = location
+    assert cli(vault, capsys, "T-001", "set", "--resume", "computer") == "T-001 updated: resume"
+    assert entry(config)[0].resume == "computer"
+    assert "- **Resume:** computer" in entry(config)[0].body
+    cli(vault, capsys, "T-001", "set", "--clear", "resume")
+    assert entry(config)[0].resume is None
+
+
+@pytest.mark.parametrize("resume", ["tomorrow", "Computer", "network", "computer online", ""])
+def test_invalid_resume_words_refused_without_writes(vault, capsys, resume):
+    before = snapshot(vault)
+    with pytest.raises(SystemExit) as error:
+        cli(vault, capsys, "T-001", "set", "--resume", resume)
+    assert error.value.code == 1
+    assert "resume must be" in capsys.readouterr().err
+    assert snapshot(vault) == before
+
+
 def test_morning_lines_append_and_clear_together(vault, capsys):
     config = Config.load(vault)
     cli(vault, capsys, "T-001", "set", "--morning", "check the 8am text")

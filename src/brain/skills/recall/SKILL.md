@@ -1,7 +1,7 @@
 ---
 name: {prefix}recall
 description: Retrieve from and write to the vault memory
-version: 2.12.0
+version: 2.13.0
 metadata:
   runtime:
     tags: [memory, vault]
@@ -21,7 +21,7 @@ A request that depends on a person, project, task, past decision or dated fact w
 2. Run `cd "$VAULT_REPO" && brain retrieve "<query>"`. Load the top candidates that plausibly answer; read them in full, not just the index line.
 3. For a dated or historical question, also use `session_search` or grep `{vault}/Conversations/`. Your own routine runs are not there: they are under `$AGENT_HOME/records/sessions/`, outside the vault. Load only matching sections.
 4. Before relying on a claim, look for a "superseded by" line at the top of the note.
-5. Answer. No citation line is needed; attribution is observed from what you opened.
+5. Answer. No citation line is needed; attribution is observed from what you opened. When {human_name} asks how a task is going and its remaining step is something you can try right now (the computer, a send, a save), try it in this turn before calling it pending, and answer from what happened.
 6. If you searched and found nothing, say so in those words and which applies: no record exists, the record is cold and was not searched, the source was partial, or the record says it did not happen.
 
 ## What you can do

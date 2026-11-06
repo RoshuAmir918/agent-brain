@@ -1017,16 +1017,27 @@ def cmd_continue(args):
     try:
         if (args.text is not None) != bool(args.checkpoint):
             raise ValueError("--checkpoint TASK requires --text; --text goes with --checkpoint")
-        if args.tid and (args.due or args.chunk or args.pace or args.checkpoint or args.engaged or args.review or args.review_context):
+        if args.tid and (args.due or args.chunk or args.pace or args.checkpoint or args.engaged
+                         or args.review or args.review_context or args.wake is not None):
             raise ValueError("TASK cannot be combined with another continue mode")
         if (args.chunk or args.pace or args.checkpoint or args.engaged or args.review) and (args.json or args.daily):
-            raise ValueError("--json goes with --due, TASK or --review-context; --daily goes with --due")
-        if args.daily and (args.tid or args.review_context):
+            raise ValueError("--json goes with --due, TASK, --review-context or --wake; --daily goes with --due")
+        if args.daily and (args.tid or args.review_context or args.wake is not None):
             raise ValueError("--daily goes with --due")
         if not args.review and any(value is not None for value in (args.verdict, args.reason, args.ask, args.resume)):
             raise ValueError("--verdict, --reason, --ask and --resume go with --review")
         if args.instruction is not None and not args.engaged:
             raise ValueError("--instruction goes with --engaged")
+        if args.wake is not None:
+            woken = continuation.wake(args.config, args.wake)
+            if args.json:
+                print(json.dumps([task.tid for task in woken]))
+            else:
+                for task in woken:
+                    print(f"{task.tid} woken: {task.title}")
+            if not woken:
+                sys.exit(1)
+            return
         if args.review:
             if not args.verdict or args.reason is None:
                 raise ValueError("--review requires --verdict and --reason")
@@ -1430,13 +1441,14 @@ def main(argv=None):
     mode.add_argument("--engaged", metavar="TASK", help="record that the owner engaged with the task now (its daily budget is whole again)")
     mode.add_argument("--review-context", metavar="TASK", help="reviewer context as JSON")
     mode.add_argument("--review", metavar="TASK", help="apply a direction review")
+    mode.add_argument("--wake", metavar="REASON", help="end open tasks' rests on computer")
     s.add_argument("--verdict", choices=("converging", "met", "circling", "stuck"))
     s.add_argument("--reason", help="one-line review reason")
     s.add_argument("--ask", help="with a circling review: a concrete steering question")
-    s.add_argument("--resume", help="with a stuck review: YYYY-MM-DD[ HH:MM], local time")
+    s.add_argument("--resume", help="with a stuck review: computer or YYYY-MM-DD[ HH:MM], local time")
     s.add_argument("--instruction", help="with --engaged: the owner's latest words for the reviewer")
     s.add_argument("--text", help="with --checkpoint: where the chunk stopped")
-    s.add_argument("--json", action="store_true", help="due array, or one TASK/review-context object; empty array exits 0")
+    s.add_argument("--json", action="store_true", help="due array (empty exits 0), TASK/review-context object, or woken ids (empty exits 1)")
     s.add_argument("--daily", action="store_true", help="list daily-pace tasks")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_continue)
     s = sub.add_parser("watch-signal", help="stable follow-through monitor output, without a model")
