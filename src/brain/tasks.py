@@ -266,6 +266,7 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         raise ValueError(f"{tid} is not an open task (unknown or closed); a closed one comes back with task {tid} reopen")
     if state == "waiting_for_owner" and "ask" not in values and ("ask" in clear or not _owner_ask(task.body)):
         raise ValueError("waiting_for_owner needs the question: --ask \"…\" --why \"…\"")
+    before = current_words(task, config)
     if state is not None:
         task.state["state"] = state
         task.state.pop("status", None)
@@ -289,6 +290,12 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
             raise ValueError(f"{tid} was not handed off; there is no report line to change")
         line = f"- **Handed off:** {task.handoff[0]}" + (f" · report in {report}" if report else "")
         task.body = HANDOFF_LINE.sub(line + "\n", task.body, count=1)
+    after = current_words(task, config)
+    # A field written long stays long: past the limit only a person can cut the entry down, so it is refused here,
+    # where the writer still has what it meant. A write that does not grow the entry is always taken.
+    if values and after > MAX_WORDS and after > before:
+        raise ValueError(f"{tid} would hold {after} words of current fields; the limit is {MAX_WORDS}. Say it shorter: "
+                         "a sentence or two per field, the detail in a note linked with --evidence")
     save_task(config, task, today)
     return task
 
@@ -352,6 +359,9 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     if work is not None:
         body += f"- **Work:** {work}\n"
     task = Task(next_id(config), title, body, {"state": state})
+    if (words := current_words(task, config)) > MAX_WORDS:
+        raise ValueError(f"the new task would hold {words} words; the limit is {MAX_WORDS}. Say it shorter: "
+                         "a sentence or two per field")
     task.add_use(config.today().isoformat())   # made today is used today: a new task starts in the register
     append_task(config, task)
     return task
@@ -578,10 +588,27 @@ def archive_path(config: Config, tid: str) -> Path:
     return config.vault_path / config.agent("Tasks Archive") / f"{tid}.md"
 
 
-def bounded_hot_body(t: Task, config: Config) -> str:
-    """Keep whole current fields and direct evidence; ambiguity needs judgment."""
-    if t.word_count() <= MAX_WORDS:
-        return t.body
+def _chunk_label(chunk: list[str]) -> str | None:
+    match = re.match(r"^\s*-\s+\*\*([^*]+?)(?:\s*:\s*\*\*|\*\*\s*:)", chunk[0])
+    return match[1].strip().casefold() if match else None
+
+
+def _direct_pointer(t: Task, config: Config, chunk: list[str]) -> bool:
+    """A link to something other than the task's own archive."""
+    text = "\n".join(chunk)
+    links = re.findall(r"\[\[([^\]]+)\]\]", text)
+    links += re.findall(r"\[[^\]]+\]\(([^)]+)\)", text)
+    links += re.findall(r"https?://\S+", text)
+    for link in links:
+        target = link.split("|", 1)[0].split("#", 1)[0].removeprefix(config.vault + "/").removesuffix(".md")
+        if target not in (config.agent(f"Tasks Archive/{t.tid}"), f"Tasks Archive/{t.tid}"):
+            return True
+    return False
+
+
+def _partition(t: Task, config: Config) -> tuple[list[list[str]], list[list[str]], str]:
+    """The entry's fields as chunks of lines: those a hot entry must keep whole (its current fields, the newest Reviewed,
+    and the evidence that is current) and those it may leave to the archive; and the archive pointer line."""
     pointer = f"- **Earlier evidence:** [[{config.link(config.agent('Tasks Archive/' + t.tid))}|{t.tid} archive]]"
     chunks = []
     for line in t.body.splitlines():
@@ -592,20 +619,9 @@ def bounded_hot_body(t: Task, config: Config) -> str:
             chunks[-1].append(line)
         else:
             chunks.append([line])
-    def label(chunk):
-        match = re.match(r"^\s*-\s+\*\*([^*]+?)(?:\s*:\s*\*\*|\*\*\s*:)", chunk[0])
-        return match[1].strip().casefold() if match else None
-
+    label = _chunk_label
     def direct_pointer(chunk):
-        text = "\n".join(chunk)
-        links = re.findall(r"\[\[([^\]]+)\]\]", text)
-        links += re.findall(r"\[[^\]]+\]\(([^)]+)\)", text)
-        links += re.findall(r"https?://\S+", text)
-        for link in links:
-            target = link.split("|", 1)[0].split("#", 1)[0].removeprefix(config.vault + "/").removesuffix(".md")
-            if target not in (config.agent(f"Tasks Archive/{t.tid}"), f"Tasks Archive/{t.tid}"):
-                return True
-        return False
+        return _direct_pointer(t, config, chunk)
 
     # Only an explicitly labeled direct latest pointer permits older Evidence
     # to be omitted. Otherwise retain every Evidence block in full, or fail.
@@ -619,6 +635,26 @@ def bounded_hot_body(t: Task, config: Config) -> str:
         current = (name != "earlier evidence" and (name != "evidence" or not latest)
                    and (name != "reviewed" or i == newest_review))
         (required if current else optional).append(chunk)
+    return required, optional, pointer
+
+
+def current_words(t: Task, config: Config) -> int:
+    """Words a hot entry cannot shed to the archive: what `bounded_hot_body` must fit in MAX_WORDS."""
+    try:
+        required, _, pointer = _partition(t, config)
+    except ValueError:
+        return t.word_count()
+    return len(pointer.split()) + sum(len("\n".join(chunk).split()) for chunk in required)
+
+
+def bounded_hot_body(t: Task, config: Config) -> str:
+    """Keep whole current fields and direct evidence; ambiguity needs judgment."""
+    if t.word_count() <= MAX_WORDS:
+        return t.body
+    required, optional, pointer = _partition(t, config)
+    label = _chunk_label
+    def direct_pointer(chunk):
+        return _direct_pointer(t, config, chunk)
     if not any(label(chunk) not in (None, "evidence", "earlier evidence") for chunk in required):
         raise ValueError(f"{t.tid}: parent judgment required: no labeled current fields; cannot create a useful task summary")
     if not any(label(chunk) in ("latest evidence", "evidence") and direct_pointer(chunk) for chunk in required):
