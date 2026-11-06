@@ -41,6 +41,7 @@ class Item:
     needs: str = ""
     label: InitVar[str | None] = None   # what the id is keyed on, when the text is built from changing fields
     task: str = field(init=False)       # the task it stands for (T-nnn), when its source names one; else ""
+    owner: str = field(init=False, default="")   # who it is for: its task's owner, in an organisation's intellect; else ""
 
     def __post_init__(self, label: str | None) -> None:
         key = json.dumps([self.origin, self.source, label if label is not None else self.text], ensure_ascii=False)
@@ -258,6 +259,9 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
                                            detail=why, context=task.title if ask else "", label=task.title)))
     out = [item for item in out if duplicates(item, waiting) is None] + [item for _, item in waiting]
     out.extend(_access_items(vault, config, today))
+    owners = {task.tid: task.owner for task in tasks + archived if task.owner} if (config.vault_path / register).exists() else {}
+    for item in out:
+        item.owner = owners.get(item.task, "")
     gone = dismissed_ids(config)
     return sorted((item for item in out if item.id not in gone), key=lambda item: rank(item, config, today))
 
