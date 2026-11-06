@@ -244,13 +244,14 @@ def add_ask(config: Config, day: date, text: str, source: str | None, force: boo
         return _add_ask(config, day, text, source, force, why)
 
 
-def _add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False, why: str = "") -> bool:
+def _add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False, why: str = "", *,
+             distinct_source: bool = False) -> bool:
     path = config.vault_path / "CURRENT.md"
     data, body = fm.read(path) if path.exists() else ({}, "")
     text = " ".join(text.replace("·", "-").split())   # the separator, inside the text, would break the bullet
     from .needs import open_asks, replace_task_asks, task_of
     asks = open_asks(body)
-    if any(item.text.casefold() == text.casefold() for item in asks):
+    if any(item.text.casefold() == text.casefold() and (not distinct_source or item.source == source) for item in asks):
         return True   # already asked; the first one stands until it is resolved
     if tid := task_of(source or ""):
         body = replace_task_asks(config, body, tid, day)

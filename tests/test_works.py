@@ -1,10 +1,12 @@
 """The runtime's Library connects task work to context, handoffs and advisory validation."""
-from datetime import date
+import json
+from datetime import date, timedelta
 
 import pytest
 
-from brain import compile_context, fm, nightly, state, tasks, validate
+from brain import compile_context, fm, journal, needs, nightly, state, tasks, validate, works
 from brain.config import Config, SECTIONS
+from brain.lock import vault_lock
 from brain.vault import Vault
 from conftest import snapshot
 
@@ -22,6 +24,155 @@ def library_home(tmp_path, monkeypatch):
 
 def write_library(home, body=LISTING):
     (home / "works/LIBRARY.md").write_text("# Library\n\n" + body, encoding="utf-8")
+
+
+@pytest.mark.parametrize("extra,created,opened", [
+    ("", None, None),
+    (" | created 2026-10-29 | opened never", date(2026, 10, 29), "never"),
+    (" | created 2026-10-29 | opened 2026-11-04", date(2026, 10, 29), date(2026, 11, 4)),
+    (" | created 2026-10-29", date(2026, 10, 29), None),
+    (" | created 2026-02-30 | opened never", None, "never"),
+    (" | created 20261029 | opened 2026-02-30", None, None),
+    (" | 2026-10-29 | never", None, None),
+])
+def test_parse_library_dates_and_legacy_rows(extra, created, opened):
+    line = " \t- NYC deal campaign | nyc-deal-campaign | table | draft | editable | 2026-11-05T12:00:00Z" + extra
+    body = "# Library\nLibrary sync error: retry later.\n" + line + "\n- Not a work\n"
+    assert works.parse(body) == [works.Work("nyc-deal-campaign", "NYC deal campaign", "table", "draft", True,
+                                           created, opened)]
+    assert works.slugs(body) == {"nyc-deal-campaign"}
+
+
+def draft_row(slug="trip-plan", title="Trip plan", *, status="draft", access="editable", age=7, opened="never"):
+    return (f"- {title} | {slug} | document | {status} | {access} | 2026-11-05T12:00:00Z"
+            f" | created {(DAY - timedelta(days=age)).isoformat()} | opened {opened}\n")
+
+
+@pytest.mark.parametrize("row,eligible", [
+    (draft_row(), True),
+    (draft_row(age=8), True),
+    (draft_row(age=14), True),
+    (draft_row(age=6), False),
+    (draft_row(age=-1), False),
+    (draft_row(opened="2026-11-01"), False),
+    (draft_row(status="kept"), False),
+    (draft_row(status="retired"), False),
+    (draft_row(access="read-only"), False),
+    (LISTING.replace("active", "draft"), False),
+    (draft_row().replace("created 2026-10-29", "created 2026-02-30"), False),
+    (draft_row().replace("opened never", "opened unknown"), False),
+])
+def test_nightly_library_ask_eligibility_and_exact_text(vault, library_home, row, eligible):
+    write_library(library_home, row)
+    report = nightly.run(vault, DAY)
+    items = needs.items(Config.load(vault), DAY)
+    record = library_home / "records/library/asked.json"
+    if eligible:
+        assert len(items) == 1
+        item = items[0]
+        assert item.text == "Still want Trip plan in your Library? I can keep it, keep it updated, or put it away."
+        assert (item.kind, item.since, item.source, item.task) == ("ask", DAY.isoformat(), "CURRENT#Library/trip-plan", "")
+        assert json.loads(record.read_text()) == {"trip-plan": DAY.isoformat()}
+        assert "needs-you: Library ask: trip-plan" in report
+        assert validate.run(Vault(vault), {"CURRENT.md"}) == []
+    else:
+        assert items == []
+        assert not record.exists()
+        assert not any("Library ask:" in line for line in report)
+
+
+@pytest.mark.parametrize("ending", ["lapse", "resolve", "dismiss"])
+def test_library_ask_never_repeats_after_leaving_current(vault, library_home, ending):
+    write_library(library_home, draft_row())
+    config = Config.load(vault)
+    nightly.run(vault, DAY)
+    record = library_home / "records/library/asked.json"
+    before = record.read_bytes()
+    nightly.run(vault, DAY)
+    assert len(needs.items(config, DAY)) == 1
+    if ending == "resolve":
+        with vault_lock(config):
+            needs.resolve(config, needs.items(config, DAY)[0].id, "Owner said keep it", DAY)
+    elif ending == "dismiss":
+        with vault_lock(config):
+            needs.dismiss(config, needs.items(config, DAY)[0].id, DAY)
+    else:
+        nightly.run(vault, DAY + timedelta(days=4))
+        assert len(needs.items(config, DAY)) == 1
+        nightly.run(vault, DAY + timedelta(days=5))
+    assert needs.items(config, DAY) == []
+    # A title change still names the same work; the durable record is keyed on slug.
+    write_library(library_home, draft_row(title="Renamed trip plan"))
+    nightly.run(vault, DAY + timedelta(days=6))
+    assert needs.items(config, DAY) == []
+    assert record.read_bytes() == before
+
+
+@pytest.mark.parametrize("already_asked", [False, True])
+def test_library_preview_never_changes_real_vault_or_records(vault, library_home, already_asked):
+    write_library(library_home, draft_row())
+    if already_asked:
+        nightly.run(vault, DAY)
+    before = snapshot(vault.parent)
+    report = nightly.preview(vault, DAY)
+    assert snapshot(vault.parent) == before
+    assert ("needs-you: Library ask: trip-plan" in report) == (not already_asked)
+    nightly.run(vault, DAY)
+    assert len(needs.items(Config.load(vault), DAY)) == 1
+
+
+def test_library_asks_use_full_listing_and_distinguish_same_titles(vault, library_home):
+    write_library(library_home, LISTING * 40 + draft_row(slug="first-plan") + draft_row(slug="second-plan"))
+    nightly.run(vault, DAY)
+    assert {item.source for item in needs.items(Config.load(vault), DAY)} == {
+        "CURRENT#Library/first-plan", "CURRENT#Library/second-plan"}
+    assert json.loads((library_home / "records/library/asked.json").read_text()) == {
+        "first-plan": DAY.isoformat(), "second-plan": DAY.isoformat()}
+
+
+def test_library_ask_recovers_existing_source_after_interruption(vault, library_home):
+    write_library(library_home, draft_row())
+    config = Config.load(vault)
+    journal.add_ask(config, DAY - timedelta(days=1), "An older title's Library question?", "CURRENT#Library/trip-plan")
+    nightly.run(vault, DAY)
+    items = needs.items(config, DAY)
+    assert len(items) == 1 and items[0].text == "An older title's Library question?"
+    assert json.loads((library_home / "records/library/asked.json").read_text()) == {
+        "trip-plan": (DAY - timedelta(days=1)).isoformat()}
+
+
+@pytest.mark.parametrize("broken", ["{", "[]"])
+def test_library_ask_does_not_reset_unreadable_records(vault, library_home, broken):
+    write_library(library_home, draft_row())
+    record = library_home / "records/library/asked.json"
+    record.parent.mkdir(parents=True)
+    record.write_text(broken)
+    report = nightly.run(vault, DAY)
+    assert needs.items(Config.load(vault), DAY) == []
+    assert record.read_text() == broken
+    assert any(line.startswith("library: asked record unreadable, skipped asks:") for line in report)
+
+
+def test_library_record_failed_replace_preserves_record_and_recovers_ask(vault, library_home, monkeypatch):
+    write_library(library_home, draft_row())
+    record = library_home / "records/library/asked.json"
+    record.parent.mkdir(parents=True)
+    record.write_text('{"other-work": "2026-10-01"}\n')
+    before = record.read_bytes()
+    replace = fm.os.replace
+    def fail_record(source, target):
+        if target == record:
+            raise OSError("interrupted record replace")
+        replace(source, target)
+    with monkeypatch.context() as patch:
+        patch.setattr(fm.os, "replace", fail_record)
+        with pytest.raises(OSError, match="interrupted record replace"):
+            nightly.run(vault, DAY)
+    assert record.read_bytes() == before
+    assert list(record.parent.iterdir()) == [record]
+    nightly.run(vault, DAY + timedelta(days=1))
+    assert len(needs.items(Config.load(vault), DAY)) == 1
+    assert json.loads(record.read_text()) == {"other-work": "2026-10-01", "trip-plan": DAY.isoformat()}
 
 
 def test_library_section_present_after_tasks_before_directory(vault, library_home):
