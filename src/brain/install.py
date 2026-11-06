@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 
 import os
 import subprocess
@@ -36,6 +37,21 @@ ADOPTED = frozenset({"morning", "evening"})
 # everything else is a default the vault owns after first install
 
 LOCAL_HEADING = re.compile(r"^## Local[ \t]*$", re.M)
+EDITIONS_LINE = re.compile(r"^\s+editions:\s*\[([^\]]*)\]\s*$", re.M)
+# A part of a skill for one edition only: `<!-- personal -->` … `<!-- /personal -->` on lines of their own.
+EDITION_BLOCK = re.compile(r"^<!-- (personal|enterprise) -->\n(.*?)^<!-- /\1 -->\n", re.M | re.S)
+
+
+def editions(text: str) -> set[str]:
+    """The editions a skill is for, from `metadata.runtime.editions` in its frontmatter; every edition when unsaid."""
+    head = text.split("\n---", 1)[0] if text.startswith("---") else ""
+    match = EDITIONS_LINE.search(head)
+    return {part.strip() for part in match[1].split(",") if part.strip()} if match else {"personal", "enterprise"}
+
+
+def for_edition(text: str, edition: str) -> str:
+    """The skill as this edition reads it: other editions' parts removed, this edition's kept without their markers."""
+    return EDITION_BLOCK.sub(lambda m: m[2] if m[1] == edition else "", text)
 
 
 def local_section(text: str) -> str:
@@ -51,7 +67,7 @@ def render_skill(config: Config, name: str) -> str:
     if not template.is_file():
         raise ValueError(f"no such routine: {name}; the package has " + ", ".join(
             sorted(p.name for p in files("brain").joinpath("skills").iterdir() if p.joinpath("SKILL.md").is_file())))
-    text = template.read_text(encoding="utf-8")
+    text = for_edition(template.read_text(encoding="utf-8"), config.edition)
     for token, value in config.template_values().items():
         text = text.replace("{" + token + "}", value)
     return text
@@ -63,9 +79,15 @@ def skills(config: Config, force: bool = False) -> Path:
         if not template.is_file():
             continue
         target = config.skills_path / (config.skill_prefix + routine.name) / "SKILL.md"
+        text = template.read_text(encoding="utf-8")
+        if config.edition not in editions(text):
+            # Not this edition's: an earlier render (before the vault changed edition) is removed with its folder.
+            if target.exists() and routine.name in CORE:
+                shutil.rmtree(target.parent)
+            continue
         if target.exists() and routine.name not in CORE and not force:
             continue
-        text = template.read_text(encoding="utf-8")
+        text = for_edition(text, config.edition)
         for token, value in config.template_values().items():
             text = text.replace("{" + token + "}", value)
         if target.exists():

@@ -187,6 +187,34 @@ def save(config: Config, routines: dict[str, Routine]) -> None:
         _save(config, routines)
 
 
+def defaults(config: Config) -> dict[str, Routine]:
+    """The routines an intellect of this edition starts with: the night's memory passes and the work routines for every
+    edition, and the owner's day (people, prime, the morning briefing) for a personal one. Times are the owner's zone."""
+    p = config.skill_prefix
+    routines = {
+        "session-export": Routine(cron="30 0 * * *", prompt="", script=f"{p}export.sh", agent=False),
+        "attribution": Routine(cron="30 1 * * *", skills=[f"{p}attribute"], prompt="Run attribution for yesterday."),
+        "sleep1": Routine(cron="30 2 * * *", skills=[f"{p}sleep1"], prompt="Run Sleep 1 for yesterday."),
+        "rem": Routine(cron="30 3 * * *", skills=[f"{p}rem"], prompt="Run REM."),
+        "sleep2": Routine(cron="0 4 * * *", skills=[f"{p}sleep2"], prompt="Run Sleep 2."),
+        "context-refresh": Routine(cron="15 * * * *", prompt="", script=f"{p}refresh.sh", agent=False),
+        "improve": Routine(cron="30 7 * * *", skills=[f"{p}improve"], prompt="Run Improve."),
+        "watch": Routine(cron="*/15 6-22 * * *", skills=[f"{p}watch"], deliver="demiurge", monitor="watch-signal.sh"),
+        "continue": Routine(cron="*/30 * * * *", skills=[f"{p}continue"], deliver="demiurge", monitor="continue-signal.sh"),
+        "continue-daily": Routine(cron="0 12 * * *", skills=[f"{p}continue"], prompt="Run continue daily.", deliver="demiurge",
+                                  monitor="continue-daily-signal.sh"),
+        "explore": Routine(cron="30 8-22/2 * * *", skills=[f"{p}explore"], prompt="Run the explore pass.", deliver="demiurge"),
+        "evening": Routine(cron="0 20 * * *", skills=[f"{p}evening"], prompt="Run the evening review.", deliver="demiurge"),
+    }
+    if config.edition == "personal":
+        routines |= {
+            "people": Routine(cron="0 6 * * *", skills=[f"{p}people"]),
+            "prime": Routine(cron="30 7 * * *", skills=[f"{p}prime"]),
+            "morning": Routine(cron="0 8 * * *", skills=[f"{p}morning"], prompt="Run the morning briefing.", deliver="demiurge"),
+        }
+    return routines
+
+
 def from_jobs(config: Config, jobs: list[dict]) -> dict[str, Routine]:
     """Import the harness's schedule and execution fields, never its run state."""
     found, seen = {}, {}

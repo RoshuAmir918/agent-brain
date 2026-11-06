@@ -1252,7 +1252,14 @@ def cmd_schedule(args):
                     print(f"{name}: {timing}" + (" (paused)" if not routine.enabled else ""))
             return
         with vault_lock(config):
-            if action == "import":
+            if action == "init":
+                # Adds what this edition starts with; a routine the vault already has is never touched.
+                routines = schedule.load(config)
+                added = [name for name in schedule.defaults(config) if name not in routines]
+                routines |= {name: schedule.defaults(config)[name] for name in added}
+                changed = (f"added {len(added)} {config.edition} routine(s): {', '.join(added)}" if added
+                           else f"every {config.edition} routine is already scheduled")
+            elif action == "import":
                 if schedule.path(config).exists() and not args.force:
                     raise ValueError(f"{schedule.path(config)} exists; use --force to replace it")
                 routines = schedule.from_jobs(config, runtime.jobs(runtime.home()))
@@ -1308,7 +1315,7 @@ def main(argv=None):
     s.add_argument("--json", action="store_true", required=True); s.set_defaults(fn=cmd_record_spec)
     s = sub.add_parser("schedule")
     actions = s.add_subparsers(dest="schedule_cmd", required=True)
-    for action in ("list", "set", "remove", "pause", "resume", "check", "import"):
+    for action in ("list", "set", "remove", "pause", "resume", "check", "import", "init"):
         s = actions.add_parser(action); s.add_argument("--vault"); s.set_defaults(fn=cmd_schedule)
         if action in ("set", "remove", "pause", "resume"):
             s.add_argument("name")
