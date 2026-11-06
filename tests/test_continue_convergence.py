@@ -81,6 +81,23 @@ def test_missing_delivers_raises_one_standing_ask_and_returns_when_set(worker, c
     assert needs.items(config, config.today()) == []
 
 
+def test_a_task_waiting_on_its_owner_is_not_asked_its_finish_line_until_it_moves(worker, capsys):
+    config, _ = worker
+    tasks.set_fields(config, "T-001", config.today(), clear=["delivers", "work"])
+    due(config, capsys)
+    assert [item.text for item in needs.items(config, config.today())] == [
+        "What would done look like for Sample? Until then Agent won't keep working on it in the background."]
+    tasks.set_fields(config, "T-001", config.today(), state="waiting_for_owner",
+                     values={"ask": "Does the shortlist page open for you?", "why": "Then I can finish it."})
+    due(config, capsys)
+    assert [item.text for item in needs.items(config, config.today())] == ["Does the shortlist page open for you?"]
+    assert "finish_asked" not in task(config).state
+    tasks.set_fields(config, "T-001", config.today(), state="in_progress")
+    due(config, capsys)
+    assert [item.text for item in needs.items(config, config.today())] == [
+        "What would done look like for Sample? Until then Agent won't keep working on it in the background."]
+
+
 def test_gate_works_without_runtime_and_does_not_touch_unhanded_tasks(worker, capsys, monkeypatch):
     config, _ = worker
     monkeypatch.delenv("AGENT_HOME")

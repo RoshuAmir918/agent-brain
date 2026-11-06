@@ -195,13 +195,21 @@ def finish_lines(config: Config) -> list[tasks.Task]:
         for task in registered + archived:
             if not task.handoff or not tasks.is_open(task) or task.task_state in ("yours", "set_aside"):
                 continue
-            if task.delivers and task.state.get("finish_asked") == "pending":
+            waiting = task.task_state == "waiting_for_owner"
+            if (task.delivers or waiting) and task.state.get("finish_asked") == "pending":
+                # A task waiting on its owner already asks them one thing; the finish line waits until it moves again.
+                because = "the task now has a Delivers line" if task.delivers else "the task already waits on its owner"
                 current = config.vault_path / "CURRENT.md"
                 for item in needs.open_asks(current.read_text(encoding="utf-8")) if current.exists() else []:
                     if task.tid in item.source and item.text.startswith("What would done look like for "):
-                        needs.resolve(config, item.id, "the task now has a Delivers line", config.today(), record_answer=False)
-                task.state["finish_asked"] = "answered"
+                        needs.resolve(config, item.id, because, config.today(), record_answer=False)
+                if task.delivers:
+                    task.state["finish_asked"] = "answered"
+                else:
+                    task.state.pop("finish_asked")
                 tasks.save_task(config, task, config.today())
+            elif waiting:
+                continue
             elif not task.delivers and not task.state.get("finish_asked"):
                 journal._add_ask(config, config.today(),
                                  f"What would done look like for {task.title}? Until then {config.agent_name} "
