@@ -121,6 +121,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.49.1: every open task keeps a view. A task whose result has no shape shows its own plan (steps or a checklist from its Delivers, Next and blockers, and links to its work); the recall skill asks for one at creation, and a migration fills in the open tasks that have none.
 - 0.49.0: background workers take daily tasks too. Default text and JSON continue due lists and `continue-signal` include daily tasks from noon local until their first counted chunk that day, with existing gates and ordering. `--daily` stays compatible. Default schedules drop `continue` and `continue-daily`; an unattended migration removes both routines and refreshes skills. Validate and health no longer check their monitor heartbeats.
 
 - 0.48.1: a migration has each intellect write a view for every open task whose result has a shape, from what the task and its notes already hold, since views were only chosen at handoff and no existing task had one.
