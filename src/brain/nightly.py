@@ -53,7 +53,7 @@ from .config import FORMS, SECTIONS, Config
 from .lock import vault_lock
 from . import install
 from . import signals
-from . import record, runtime, schedule, sessions
+from . import record, runtime, schedule, sessions, works
 
 MARK_START = "<!-- brain:active-threads start -->"
 MARK_END = "<!-- brain:active-threads end -->"
@@ -351,7 +351,48 @@ def sleep_log(config: Config, today: date, lines: list[str], mode: str) -> None:
 
 # ---------- the pass
 
-def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
+
+def ask_library(config: Config, today: date, report: list[str], records_path: Path | None = None) -> bool:
+    """Ask once per unopened draft. Caller holds the vault lock, including for the records write."""
+    home = runtime.configured()
+    if home is None:
+        return False
+    eligible = [work for work in works.parse(works.library() or "")
+                if work.status == "draft" and work.editable and work.opened == "never"
+                and work.created is not None and (today - work.created).days >= 7]
+    if not eligible:
+        return False
+    path = records_path if records_path is not None else home / "records/library/asked.json"
+    try:
+        asked = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(asked, dict):
+            raise ValueError("expected an object keyed by work slug")
+    except FileNotFoundError:
+        asked = {}
+    except (OSError, ValueError) as error:
+        report.append(f"library: asked record unreadable, skipped asks: {error}")
+        return False
+    current = config.vault_path / "CURRENT.md"
+    existing = {item.source: item.since for item in needs.open_asks(fm.read(current)[1])} if current.exists() else {}
+    changed = False
+    for work in eligible:
+        if work.slug in asked:
+            continue
+        # CURRENT is a real vault note; the Library anchor identifies the work without creating a broken link.
+        source = f"CURRENT#Library/{work.slug}"
+        if source not in existing:
+            text = f"Still want {work.title} in your Library? I can keep it, keep it updated, or put it away."
+            journal._add_ask(config, today, text, source, distinct_source=True)
+            report.append(f"needs-you: Library ask: {work.slug}")
+            changed = True
+        # Recover an interruption after CURRENT was saved but before its record was written.
+        asked[work.slug] = existing.get(source) or today.isoformat()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fm.write(path, {}, json.dumps(asked, indent=2, sort_keys=True) + "\n")
+    return changed
+
+
+def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_records: Path | None = None) -> list[str]:
     """Apply the whole night to the vault at root. Returns the report; exits 1 on validation failure."""
     report: list[str] = []
     vault = Vault(root)
@@ -390,6 +431,8 @@ def run(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
         vault.notes[vault.config.agent("Triggers.md")].save()
     with vault_lock(config):   # the after-session writer adds asks to CURRENT at any hour
         rebuild_current(config, open_tasks, today, report)
+        if ask_library(config, today, report, library_records):
+            changed.add("CURRENT.md")
         removed = needs.expire_confirms(config, today)
         retired = needs.retire_asks(config, today)
     if removed or retired:
@@ -437,7 +480,17 @@ def preview(root: Path, today: date, sessions_dir: Path | None = None) -> list[s
                 target = Path(tmp) / sibling
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.symlink_to(src, target_is_directory=True)
-        return run(shadow, today, sessions_dir)
+        # Preview reads the real listing but only marks asks in its disposable records copy.
+        library_records = Path(tmp) / "library/asked.json"
+        if (home := runtime.configured()) is not None:
+            try:
+                saved = (home / "records/library/asked.json").read_bytes()
+            except FileNotFoundError:
+                pass
+            else:
+                library_records.parent.mkdir(parents=True, exist_ok=True)
+                library_records.write_bytes(saved)
+        return run(shadow, today, sessions_dir, library_records=library_records)
 
 
 # ---------- git
