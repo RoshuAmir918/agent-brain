@@ -72,8 +72,15 @@ def _tasks(vault: Vault) -> list[dict]:
              "report": (task.handoff[1] or None) if task.handoff else None, "pace": tasks.pace(task),
              "lastChunk": worked.get(task.tid), "chunksToday": chunks.get(task.tid, 0) if task.handoff else None,
              "budget": limits.get(task.tid), "closed": closing(task)[0], "outcome": closing(task)[1],
-             "tier": task.state.get("tier"), "archived": archived, "source": source, "view": views.read(config, task.tid)}
+             "tier": task.state.get("tier"), "archived": archived, "source": source, "view": views.read(config, task.tid),
+             "said": _said(_field(task.body, "Source"))}
             for task, archived, source in entries if _public(vault, source)]
+
+
+def _said(source: str | None) -> str | None:
+    """The owner's own words a task began from, when its Source quotes them: `"Rohan in Home, Nov 5: Yes add ledger"`."""
+    match = re.search(r'"([^"]{3,400})"', source or "")
+    return match[1].strip() if match else None
 
 
 def _public_link(vault: Vault, title: str | None) -> str | None:

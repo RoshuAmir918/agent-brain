@@ -70,3 +70,39 @@ def test_a_view_too_big_to_carry_is_refused(vault, capsys, monkeypatch):
     with pytest.raises(SystemExit):
         view(vault, capsys, monkeypatch, {"pieces": [{"kind": "table", "title": "T", "columns": ["A", "B", "C"], "rows": rows}]})
     assert "the limit is 16000" in capsys.readouterr().err
+
+
+V2 = {"pieces": [
+    {"kind": "numbers", "from": "from Mercury, checking", "items": [{"label": "Balance", "value": "$236,443", "trend": [210, 225, 219, 236]},
+                                                                    {"label": "Payroll", "value": "-$18,400"}]},
+    {"kind": "gallery", "title": "Jackets under ¥150,000", "items": [{"image": "https://img.example/a.jpg", "label": "Needles track", "value": "¥34,100", "state": "new", "link": "https://shop.example/a"}]},
+    {"kind": "steps", "title": "Order", "items": [{"label": "Ordered"}, {"label": "Shipped"}, {"label": "In Tokyo"}, {"label": "Home"}], "current": 1},
+    {"kind": "schedule", "title": "Saturday", "items": [{"time": "10am", "text": "Farmers market"}, {"time": "2:30", "text": "Open studio"}]},
+]}
+
+
+def test_kit_v2_gallery_steps_schedule_trends_and_provenance_are_kept(vault, capsys, monkeypatch):
+    assert view(vault, capsys, monkeypatch, V2) == "T-001 view saved: 4 pieces"
+    kept = views.read(Config.load(vault), "T-001")["pieces"]
+    assert kept[0]["from"] == "from Mercury, checking" and kept[0]["items"][0]["trend"] == [210, 225, 219, 236]
+    assert kept[2]["current"] == 1 and kept[3]["items"][1] == {"time": "2:30", "text": "Open studio"}
+
+
+@pytest.mark.parametrize("bad, says", [
+    ({"pieces": [{"kind": "gallery", "title": "G", "items": [{"image": "http://x/a.jpg", "label": "a"}]}]}, "image must be an https URL"),
+    ({"pieces": [{"kind": "steps", "title": "S", "items": [{"label": "a"}, {"label": "b"}], "current": 2}]}, "index of one of its 2 stages"),
+    ({"pieces": [{"kind": "numbers", "items": [{"label": "a", "value": "1", "trend": [1]}, {"label": "b", "value": "2"}]}]}, "2 to 30 numbers"),
+    ({"pieces": [{"kind": "schedule", "title": "S", "items": [{"time": "at some point later in the afternoon maybe", "text": "x"}]}]}, "say it as people do"),
+])
+def test_kit_v2_refuses_shapes_it_cannot_draw(vault, capsys, monkeypatch, bad, says):
+    with pytest.raises(SystemExit):
+        view(vault, capsys, monkeypatch, bad)
+    assert says in capsys.readouterr().err
+
+
+def test_the_owners_own_words_are_exported_when_the_source_quotes_them(vault, capsys):
+    config = Config.load(vault)
+    nightly.main(["task", "new", "Add Ledger to the Library", "--source", "Rohan in Home, Nov 5: Yes add ledger to my library", "--vault", str(vault)])
+    tid = capsys.readouterr().out.split()[0]
+    exported = next(t for t in state._tasks(Vault(config.vault_path)) if t["id"] == tid)
+    assert exported["said"] == "Rohan in Home, Nov 5: Yes add ledger to my library"

@@ -16,9 +16,11 @@ MAX_TEXT = 200
 ROW_STATES = ("good", "new", "held", "out")
 ITEM_STATES = ("done", "open", "waiting", "blocked")
 
+KINDS = ("numbers", "progress", "table", "checklist", "places", "links", "gallery", "steps", "schedule")
 # What each piece holds. Every string is plain text (no markup), at most MAX_TEXT characters.
-KIT = """pieces, at most 6, each one of:
-  {"kind": "numbers", "title"?, "items": [{"label", "value", "detail"?}]}                       2-4 items
+KIT = """pieces, at most 6, each one of the kinds below; any piece may add "from": where its data came from
+  ("from Zillow, 41 listings read"), said plainly.
+  {"kind": "numbers", "title"?, "items": [{"label", "value", "detail"?, "trend"?: [n, ...]}]}   2-4 items; trend 2-30 numbers
   {"kind": "progress", "title", "done": n, "total": n, "unit"?, "detail"?}
   {"kind": "table", "title", "columns": [..] (1-6), "rows": [{"cells": [..], "state"?, "link"?}], "note"?}   up to 40 rows
        state: good | new | held | out
@@ -26,6 +28,9 @@ KIT = """pieces, at most 6, each one of:
        state: done | open | waiting | blocked
   {"kind": "places", "title", "items": [{"name", "detail"?, "query"}]}                           up to 20; query is what a map searches
   {"kind": "links", "title"?, "items": [{"label", "href"}]}                                       up to 10; https URL or a vault note path
+  {"kind": "gallery", "title", "items": [{"image", "label", "value"?, "state"?, "link"?}]}         up to 24; image an https URL
+  {"kind": "steps", "title", "items": [{"label", "detail"?}], "current": i}                       2-8 stages; current is the stage now (0-based)
+  {"kind": "schedule", "title", "items": [{"time", "text", "detail"?}]}                            up to 12; time as people say it ("2:30", "Thu 9am")
 """
 
 
@@ -111,20 +116,67 @@ def _drop_none(d: dict) -> dict:
 
 def _piece(i: int, piece) -> dict:
     at = f"piece {i + 1}"
-    if not isinstance(piece, dict) or piece.get("kind") not in ("numbers", "progress", "table", "checklist", "places", "links"):
-        raise ValueError(f"{at}: kind must be numbers, progress, table, checklist, places or links\n" + KIT)
+    if not isinstance(piece, dict) or piece.get("kind") not in KINDS:
+        raise ValueError(f"{at}: kind must be {', '.join(KINDS[:-1])} or {KINDS[-1]}\n" + KIT)
+    clean = _kind(at, piece)
+    source = _text(f"{at} from", piece.get("from"), False)
+    return {**clean, "from": source} if source else clean
+
+
+def _kind(at: str, piece: dict) -> dict:
     kind = piece["kind"]
     allowed = {"numbers": {"title", "items"}, "progress": {"title", "done", "total", "unit", "detail"},
                "table": {"title", "columns", "rows", "note"}, "checklist": {"title", "items"},
-               "places": {"title", "items"}, "links": {"title", "items"}}[kind] | {"kind"}
+               "places": {"title", "items"}, "links": {"title", "items"}, "gallery": {"title", "items"},
+               "steps": {"title", "items", "current"}, "schedule": {"title", "items"}}[kind] | {"kind", "from"}
     if extra := set(piece) - allowed:
         raise ValueError(f"{at} ({kind}): unknown {', '.join(sorted(extra))}\n" + KIT)
     title = _text(f"{at} title", piece.get("title"), required=kind not in ("numbers", "links"))
     if kind == "numbers":
-        items = [_drop_none({"label": _text(f"{at} label", x.get("label")), "value": _text(f"{at} value", x.get("value")),
-                             "detail": _text(f"{at} detail", x.get("detail"), False)})
-                 for x in _list(f"{at} items", piece.get("items"), 2, 4) if isinstance(x, dict)]
+        items = []
+        for x in _list(f"{at} items", piece.get("items"), 2, 4):
+            if not isinstance(x, dict) or set(x) - {"label", "value", "detail", "trend"}:
+                raise ValueError(f"{at} items are {{\"label\", \"value\", \"detail\"?, \"trend\"?}}")
+            trend = x.get("trend")
+            if trend is not None and not (isinstance(trend, list) and 2 <= len(trend) <= 30
+                                          and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in trend)):
+                raise ValueError(f"{at} trend must be 2 to 30 numbers, oldest first")
+            items.append(_drop_none({"label": _text(f"{at} label", x.get("label")), "value": _text(f"{at} value", x.get("value")),
+                                     "detail": _text(f"{at} detail", x.get("detail"), False), "trend": trend}))
         return _drop_none({"kind": kind, "title": title, "items": items})
+    if kind == "gallery":
+        items = []
+        for x in _list(f"{at} items", piece.get("items"), 1, 24):
+            if not isinstance(x, dict) or set(x) - {"image", "label", "value", "state", "link"}:
+                raise ValueError(f"{at} items are {{\"image\", \"label\", \"value\"?, \"state\"?, \"link\"?}}")
+            image = _text(f"{at} image", x.get("image"))
+            if not image.startswith("https://"):
+                raise ValueError(f"{at} image must be an https URL")
+            items.append(_drop_none({"image": image, "label": _text(f"{at} label", x.get("label")),
+                                     "value": _text(f"{at} value", x.get("value"), False),
+                                     "state": _state(f"{at} state", x.get("state"), ROW_STATES, False),
+                                     "link": _href(f"{at} link", x["link"]) if x.get("link") else None}))
+        return {"kind": kind, "title": title, "items": items}
+    if kind == "steps":
+        items = []
+        for x in _list(f"{at} items", piece.get("items"), 2, 8):
+            if not isinstance(x, dict) or set(x) - {"label", "detail"}:
+                raise ValueError(f"{at} items are {{\"label\", \"detail\"?}}")
+            items.append(_drop_none({"label": _text(f"{at} label", x.get("label")), "detail": _text(f"{at} detail", x.get("detail"), False)}))
+        current = _count(f"{at} current", piece.get("current"))
+        if current >= len(items):
+            raise ValueError(f"{at} current must be the index of one of its {len(items)} stages (0-based)")
+        return {"kind": kind, "title": title, "items": items, "current": current}
+    if kind == "schedule":
+        items = []
+        for x in _list(f"{at} items", piece.get("items"), 1, 12):
+            if not isinstance(x, dict) or set(x) - {"time", "text", "detail"}:
+                raise ValueError(f"{at} items are {{\"time\", \"text\", \"detail\"?}}")
+            time = _text(f"{at} time", x.get("time"))
+            if len(time) > 24:
+                raise ValueError(f"{at} time is long; say it as people do (\"2:30\", \"Thu 9am\")")
+            items.append(_drop_none({"time": time, "text": _text(f"{at} text", x.get("text")), "detail": _text(f"{at} detail", x.get("detail"), False)}))
+        return {"kind": kind, "title": title, "items": items}
     if kind == "progress":
         done, total = _count(f"{at} done", piece.get("done")), _count(f"{at} total", piece.get("total"))
         if total == 0 or done > total:
