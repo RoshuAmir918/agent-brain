@@ -230,9 +230,6 @@ def defaults(config: Config) -> dict[str, Routine]:
         "context-refresh": Routine(cron="15 * * * *", prompt="", script=f"{p}refresh.sh", agent=False),
         "improve": Routine(cron="30 7 * * *", skills=[f"{p}improve"], prompt="Run Improve."),
         "watch": Routine(cron="*/15 6-22 * * *", skills=[f"{p}watch"], deliver="demiurge", monitor="watch-signal.sh"),
-        "continue": Routine(cron="*/30 * * * *", skills=[f"{p}continue"], deliver="demiurge", monitor="continue-signal.sh"),
-        "continue-daily": Routine(cron="0 12 * * *", skills=[f"{p}continue"], prompt="Run continue daily.", deliver="demiurge",
-                                  monitor="continue-daily-signal.sh"),
         "explore": Routine(cron="30 8-22/2 * * *", skills=[f"{p}explore"], prompt="Run the explore pass.", deliver="demiurge"),
         "evening": Routine(cron="0 20 * * *", skills=[f"{p}evening"], prompt="Run the evening review.", deliver="demiurge"),
     }

@@ -339,6 +339,39 @@ def test_schedule_hygiene_and_integration(config):
     assert validate.schedule_hygiene(vault) == []
 
 
+def test_continue_sunset_migration_preserves_other_routines_and_needs_no_heartbeat(config, monkeypatch):
+    from brain import health, install
+    install.record_version(config, "0.48.1")
+    monkeypatch.setattr(install, "installed_version", lambda name: "0.49.0")
+    migrations = install.pending_migrations(config)
+    assert [version for version, _ in migrations] == ["0.49.0"]
+    text = migrations[0][1]
+    assert "unattended: true" in text
+    assert all(command in text for command in ("brain schedule remove continue", "brain schedule remove continue-daily",
+                                               "brain install-skills", "brain validate", "brain migrate-done"))
+    other = Routine(every="2h", prompt="Keep the owner's custom work", enabled=False)
+    schedule.save(config, {"custom": other,
+                           "continue": Routine(every="30m", skills=["brain-continue"], monitor="continue-signal.sh"),
+                           "continue-daily": Routine(cron="0 12 * * *", skills=["brain-continue"], monitor="continue-daily-signal.sh")})
+    # The runtime can still show the retired jobs while it reconciles the removal.
+    jobs(config, [{"name": name, "skills": ["brain-continue"], "monitorScript": name + "-signal.sh"}
+                  for name in ("continue", "continue-daily")])
+    cli(config, "remove", "continue")
+    cli(config, "remove", "continue-daily")
+    assert schedule.load(config) == {"custom": other}
+    for reconciled in (False, True):
+        if reconciled:
+            jobs(config, [])
+        vault = Vault(config.vault_path)
+        assert validate.watch_signal_hygiene(vault) == []
+        assert not any("continue" in problem for problem in validate.checks(vault))
+        # Health counts the same checks; no separate continue-monitor expectation.
+        assert health.report(config)["vault"]["validation_problems"] == len(validate.checks(vault))
+    cli(config, "init")
+    assert not {"continue", "continue-daily"} & set(schedule.load(config))
+    assert schedule.load(config)["custom"] == other
+
+
 def test_save_omits_default_workdir_and_preserves_unicode_and_controls(config):
     routine = Routine(every="1h", workdir=str(config.repo), prompt="Café 🌙\x7f\nA new line")
     schedule.save(config, {"watch": routine})
