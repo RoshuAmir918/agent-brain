@@ -327,20 +327,18 @@ def test_daily_signal_ids_date_heartbeat_and_ignores_next(work, capsys):
 
 
 @pytest.mark.parametrize("identification", [{"name": "continue-daily"}, {"prompt": "Run continue daily."}])
-def test_daily_monitor_hygiene_has_its_own_heartbeat(work, identification):
+def test_retired_daily_monitor_needs_no_heartbeat(work, identification):
     config, home, clock = work
     (home / "harness").mkdir(parents=True)
     (home / "harness/jobs.json").write_text(json.dumps({"jobs": [
         {"skills": [config.skill_prefix + "continue"], "monitorScript": "continue-daily-signal.sh", **identification}]}))
-    expected = ["continue-daily's monitor has not run cleanly in a day: check `brain schedule list` and run "
-                "`bash $AGENT_HOME/scripts/continue-daily-signal.sh`"]
-    assert validate.watch_signal_hygiene(Vault(config.vault_path)) == expected
-    signals.continue_(config)  # Regular heartbeat does not satisfy the daily job.
-    assert validate.watch_signal_hygiene(Vault(config.vault_path)) == expected
+    assert validate.watch_signal_hygiene(Vault(config.vault_path)) == []
+    signals.continue_(config)
+    assert validate.watch_signal_hygiene(Vault(config.vault_path)) == []
     signals.continue_(config, daily=True)
     assert validate.watch_signal_hygiene(Vault(config.vault_path)) == []
     clock[0] += timedelta(hours=25)
-    assert validate.watch_signal_hygiene(Vault(config.vault_path)) == expected
+    assert validate.watch_signal_hygiene(Vault(config.vault_path)) == []
 
 
 def test_regular_failure_retry_skips_daily_job_with_the_same_skill(work):

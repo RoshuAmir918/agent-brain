@@ -211,11 +211,11 @@ def test_engine_error_is_nonzero_and_does_not_heartbeat(monitor, command):
     assert not (home / "records").exists()
 
 
-@pytest.mark.parametrize("routine", ["watch", "continue"])
 @pytest.mark.parametrize("wrapped", [True, False])
 @pytest.mark.parametrize("age", [None, 25, 23, 24])
-def test_monitor_hygiene_missing_stale_and_clean(monitor, routine, wrapped, age):
+def test_monitor_hygiene_missing_stale_and_clean(monitor, wrapped, age):
     config, home, clock = monitor
+    routine = "watch"
     (home / "harness").mkdir()
     jobs = [{"skills": [config.skill_prefix + routine], "monitorScript": routine + "-signal.sh"}]
     (home / "harness/jobs.json").write_text(json.dumps({"jobs": jobs} if wrapped else jobs))
@@ -247,7 +247,7 @@ def test_monitor_hygiene_skips_absent_or_unrelated_jobs_and_no_home(monitor, mon
     assert validate.watch_signal_hygiene(vault) == []
 
 
-def test_hygiene_handles_invalid_heartbeat_and_profile_continue_prefix(monitor):
+def test_hygiene_handles_invalid_watch_heartbeat_and_ignores_retired_continue_monitor(monitor):
     config, home, clock = monitor
     (home / "harness").mkdir()
     config_path = config.repo / "brain.toml"
@@ -259,7 +259,7 @@ def test_hygiene_handles_invalid_heartbeat_and_profile_continue_prefix(monitor):
         path = home / "records" / routine / "signal.json"
         path.parent.mkdir(parents=True)
         path.write_text('{"checked": "invalid"}')
-    assert len(validate.watch_signal_hygiene(Vault(config.vault_path))) == 2
+    assert len(validate.watch_signal_hygiene(Vault(config.vault_path))) == 1
 
 
 @pytest.mark.parametrize("routine", ["watch", "continue", "continue-daily"])

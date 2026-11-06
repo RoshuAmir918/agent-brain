@@ -260,11 +260,10 @@ def schedule_warnings(vault: Vault) -> list[str]:
 
 
 def watch_signal_hygiene(vault: Vault) -> list[str]:
-    """A gated routine still owes a daily clean monitor check, even when it never wakes the model."""
+    """Watch still owes a daily clean monitor check, even when it never wakes the model."""
     import json
     from datetime import datetime, timedelta
     from . import runtime
-    from .signals import _daily_job
     home = runtime.configured()
     if not home:
         return []
@@ -273,32 +272,25 @@ def watch_signal_hygiene(vault: Vault) -> list[str]:
         return []
     now = vault.config.now()
     now = now.replace(tzinfo=vault.config.zone) if now.tzinfo is None else now
-    out = []
-    for routine in ("watch", "continue", "continue-daily"):
-        def owns(job):
-            if not isinstance(job, dict) or not job.get("monitor_script"):
-                return False
-            skills = job.get("skills", [])
-            if isinstance(skills, str):
-                skills = [skills]
-            if routine != "watch" and _daily_job(job) != (routine == "continue-daily"):
-                return False
-            return isinstance(skills, list) and any(
-                isinstance(skill, str) and (skill.endswith("watch") if routine == "watch" else
-                                           skill == vault.config.skill_prefix + "continue") for skill in skills)
-        if not any(owns(job) for job in jobs):
-            continue
-        try:
-            record = json.loads((home / "records" / routine / "signal.json").read_text(encoding="utf-8"))
-            checked = datetime.fromisoformat(record["checked"])
-            checked = checked.replace(tzinfo=vault.config.zone) if checked.tzinfo is None else checked
-            if now - checked <= timedelta(hours=24):
-                continue
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-        out.append(f"{routine}'s monitor has not run cleanly in a day: check `brain schedule list` and run "
-                   f"`bash $AGENT_HOME/scripts/{routine}-signal.sh`")
-    return out
+    def owns(job):
+        if not isinstance(job, dict) or not job.get("monitor_script"):
+            return False
+        skills = job.get("skills", [])
+        if isinstance(skills, str):
+            skills = [skills]
+        return isinstance(skills, list) and any(isinstance(skill, str) and skill.endswith("watch") for skill in skills)
+    if not any(owns(job) for job in jobs):
+        return []
+    try:
+        record = json.loads((home / "records" / "watch" / "signal.json").read_text(encoding="utf-8"))
+        checked = datetime.fromisoformat(record["checked"])
+        checked = checked.replace(tzinfo=vault.config.zone) if checked.tzinfo is None else checked
+        if now - checked <= timedelta(hours=24):
+            return []
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return ["watch's monitor has not run cleanly in a day: check `brain schedule list` and run "
+            "`bash $AGENT_HOME/scripts/watch-signal.sh`"]
 
 
 def loops_hygiene(vault: Vault) -> list[str]:

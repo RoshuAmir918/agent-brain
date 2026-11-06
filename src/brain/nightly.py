@@ -1027,7 +1027,7 @@ def cmd_handoff(args):
               "a minute and reports back here. Tell them so in one line and end your reply; do not start the work in "
               "this turn.")
         return
-    print(f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: worked by the continue routine until done or "
+    print(f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: worked by a background worker until done or "
           f"blocked{', reported in ' + where if where else ''}.")
 
 
@@ -1101,7 +1101,7 @@ def cmd_continue(args):
                 raise ValueError(f"{args.tid} needs an open handed-off task with a Delivers line")
             ready = [task]
         else:
-            ready = tasks_mod.due(task_list, pace="daily" if args.daily else "regular",
+            ready = tasks_mod.due(task_list, pace="daily" if args.daily else None,
                                  worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks,
                                  now=tasks_mod.local_now(args.config), budgets=limits, caps=caps)
         output = []
@@ -1464,7 +1464,7 @@ def main(argv=None):
     s = sub.add_parser("completed", help="tasks completed recently, newest first, for the follow-on check")
     s.add_argument("--days", type=int, default=7); s.add_argument("--json", action="store_true")
     s.add_argument("--vault"); s.set_defaults(fn=cmd_completed)
-    s = sub.add_parser("handoff", help="mark a task the owner handed off: the continue routine works it until done or blocked")
+    s = sub.add_parser("handoff", help="mark a task the owner handed off: a background worker works it until done or blocked")
     s.add_argument("tid"); s.add_argument("--report", default="", help="where to report, e.g. 'Home' or the room"); s.add_argument("--vault")
     s.add_argument("--work", help="Library work slug, e.g. 'trip-plan'")
     s.add_argument("--for", dest="for_", metavar="PERSON", help="who the task is for, as <platform>:<id> (enterprise: the speaker by default)")

@@ -67,9 +67,11 @@ def test_schedule_init_adds_the_editions_routines_and_never_touches_one_already_
     nightly.main(["schedule", "init", "--vault", str(vault)])
     assert "added" in capsys.readouterr().out
     routines = schedule.load(config)
-    assert {"continue", "continue-daily", "evening", "sleep1", "attribution"} <= set(routines)
+    assert {"evening", "sleep1", "attribution"} <= set(routines)
+    assert not {"continue", "continue-daily"} & set(routines)
     assert not {"morning", "people", "prime"} & set(routines)
     assert routines["watch"].cron == "0 9 * * 1-5"
     nightly.main(["schedule", "init", "--vault", str(vault)])
     assert "already scheduled" in capsys.readouterr().out
     assert {"morning", "people", "prime"} <= set(schedule.defaults(Config(repo=config.repo)))
+    assert not {"continue", "continue-daily"} & set(schedule.defaults(Config(repo=config.repo)))

@@ -378,7 +378,7 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
 
 
 def pace(task: Task) -> str:
-    """No Pace line means the regular thirty-minute pass."""
+    """No Pace line means regular chunks while the task is due."""
     return _pace(task.body)
 
 
@@ -531,13 +531,14 @@ def save_task(config: Config, task: Task, today: date) -> None:
             fm.write(reg, data, body[:s] + task.render_line(config) + ("\n" if body[e:] and not body[e:].startswith("\n") else "") + body[e:])
 
 
-def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None = None, *,
+def due(tasks: list[Task], pace: str | None = "regular", worked: dict[str, str] | None = None, *,
         chunks: dict[str, int] | None = None, daily_chunks: int = DAILY_CHUNKS, now: str | None = None,
         budgets: dict[str, int] | None = None, caps: dict[str, int] | None = None) -> list[Task]:
-    """Handed-off tasks the continue routine should work now: open and not resting on the owner. With `worked` (each
+    """Handed-off tasks a worker should work now: open and not resting on the owner. With `worked` (each
     task's last chunk), the one worked least recently comes first and a task never worked before all of them, so one
     long task cannot hold the slot; otherwise, oldest handoff first. `chunks` is
-    today's local-day count per task; regular tasks at their budget wait."""
+    today's local-day count per task; regular tasks at their budget wait. `pace=None` combines both paces,
+    with daily tasks due from noon local until their first counted chunk. Explicit paces keep the legacy lists."""
     worked = worked or {}
     chunks = chunks or {}
     return sorted((t for t in tasks if is_open(t) and t.handoff and t.delivers
@@ -545,8 +546,10 @@ def due(tasks: list[Task], pace: str = "regular", worked: dict[str, str] | None 
                    and t.resume != "computer"
                    and (t.task_state not in RESTING or (t.task_state == "blocked" and t.resume and now
                                                        and (t.resume if " " in t.resume else t.resume + " 00:00") <= now))
-                   and _pace(t.body) == pace
-                   and (pace == "daily" or chunks.get(t.tid, 0) < (budgets or {}).get(t.tid, daily_chunks))
+                   and (pace is None or _pace(t.body) == pace)
+                   and (_pace(t.body) == "daily" or chunks.get(t.tid, 0) < (budgets or {}).get(t.tid, daily_chunks))
+                   and (pace is not None or _pace(t.body) != "daily"
+                        or (now and now[11:] >= "12:00" and chunks.get(t.tid, 0) == 0))
                    and (t.tid not in (caps or {}) or chunks.get(t.tid, 0) < caps[t.tid])
                    # A task resting until a time (`now` is the owner's local "YYYY-MM-DD HH:MM") waits for it.
                    and not (now and t.resume and (t.resume if " " in t.resume else t.resume + " 00:00") > now)),

@@ -106,7 +106,7 @@ def continue_(config: Config, daily: bool = False) -> str:
     from . import continuation
     now, home = _check(config), _home()
     task_list = continuation.finish_lines(config)
-    due = tasks.due(task_list, pace="daily" if daily else "regular",
+    due = tasks.due(task_list, pace="daily" if daily else None,
                     chunks=continuation.chunks_today(config), daily_chunks=config.daily_chunks,
                     now=tasks.local_now(config), budgets=continuation.budgets(config, task_list),
                     caps=continuation.budget_caps(config))
