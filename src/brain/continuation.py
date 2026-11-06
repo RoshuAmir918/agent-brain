@@ -346,6 +346,22 @@ def review(config: Config, tid: str, verdict: str, reason: str, *, ask: str | No
         return last
 
 
+def wake(config: Config, reason: str) -> list[tasks.Task]:
+    """End matching rests under the vault lock, without recording owner engagement."""
+    if reason != "computer":
+        raise ValueError("unknown wake reason; expected computer")
+    with vault_lock(config):
+        registered, archived = tasks.load_tasks(config)
+        woken = []
+        for task in registered + archived:
+            if tasks.is_open(task) and task.resume == reason:
+                # Like an elapsed date, keep Blocker as the last evidence. Clearing Resume
+                # means a blocked task needs its active state restored to remain eligible.
+                woken.append(tasks.set_fields(config, task.tid, config.today(), clear=["resume"],
+                                               state="in_progress" if task.task_state == "blocked" else None))
+        return woken
+
+
 def checkpoint(config: Config, tid: str, text: str) -> None:
     """Atomically replace one task's checkpoint, holding the vault lock internally."""
     if not re.fullmatch(r"T-\d{3}", tid):

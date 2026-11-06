@@ -307,4 +307,5 @@ def build(config: Config, today: date) -> dict:
             "loops": _loops(vault, loops.open_loops(config)),
             "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
             "idea": owner_idea, "ideasOpen": ideas_open, "channels": _channels(vault),
-            "shareable": _shareable(vault, hubs, recent)}
+            "shareable": _shareable(vault, hubs, recent),
+            "waitingOnComputer": [task["id"] for task in task_entries if task["open"] and task["resume"] == "computer"]}
