@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from importlib.resources import files
 
-from . import access, fm, works
+from . import access, fm, responsibilities as responsibility_ids, works
 from .vault import Vault
 from .tasks import TASK_STATES, parse_register
 
@@ -146,6 +146,15 @@ def owner_profile(vault: Vault) -> list[str]:
 def responsibilities(vault: Vault) -> list[str]:
     """Every own skill is a responsibility: a hub at the vault root names it and its records folder. On demand only; the nightly write is never blocked on it."""
     problems = []
+    seen = {}
+    for entry in responsibility_ids.discover(vault):
+        ident, rel = entry["id"], entry["hub"]
+        if not re.fullmatch(responsibility_ids.ID_PATTERN, ident):
+            problems.append(f"{rel}: responsibility id must match ^{responsibility_ids.ID_PATTERN}$")
+        if ident in seen:
+            problems.append(f"duplicate responsibility id {ident!r}: {seen[ident]} and {rel}")
+        else:
+            seen[ident] = rel
     packaged = {p.name for p in files("brain").joinpath("skills").iterdir()}
     hubs = {n.data.get("skill"): rel for rel, n in vault.notes.items() if n.data.get("skill")}
     for rel, n in vault.notes.items():
@@ -238,11 +247,16 @@ def hygiene(vault: Vault) -> list[str]:
 def schedule_hygiene(vault: Vault) -> list[str]:
     from . import runtime, schedule
     config = vault.config
-    out = schedule.problems(config)
+    out = schedule.problems(config, known_needs=False)
     home = runtime.configured()
     if not schedule.path(config).exists() and home and runtime.jobs(home):
         out.append(f"{schedule.path(config)}: runtime jobs have no declared schedule; run `brain schedule import`")
     return out
+
+
+def schedule_warnings(vault: Vault) -> list[str]:
+    from . import schedule
+    return schedule.warnings(vault.config, {entry["id"] for entry in responsibility_ids.discover(vault)})
 
 
 def watch_signal_hygiene(vault: Vault) -> list[str]:

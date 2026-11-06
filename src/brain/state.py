@@ -7,7 +7,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import access, fm, health, ideas, journal, ledger, loops, needs, tasks, triggers, views
+from . import access, fm, health, ideas, journal, ledger, loops, needs, responsibilities, schedule, tasks, triggers, views
 from .config import Config
 from .session_context import legacy, profile_ids
 from .vault import Vault
@@ -278,7 +278,15 @@ def build(config: Config, today: date) -> dict:
         vault.load()
     task_entries = _tasks(vault)
     hubs = _hubs(vault, task_entries)
+    responsibility_entries = responsibilities.discover(vault)
+    routine_owners = responsibilities.link(responsibility_entries, schedule.load(config))
+    public_ids = {entry["id"] for entry in responsibility_entries if _public(vault, entry["hub"])}
+    responsibility_entries = [entry for entry in responsibility_entries if _public(vault, entry["hub"])]
     rows = _rows(vault)
+    routine_entries = _routines(config, hubs, rows)
+    for routine in routine_entries:
+        owner = routine_owners.get(routine["name"].casefold())
+        routine["responsibility"] = owner if owner in public_ids else None
     floor = (today - timedelta(days=29)).isoformat()
     recent = [{"id": hashlib.sha256((source + "\n" + line).encode("utf-8")).hexdigest()[:12],
                "at": at, "routine": row.routine, "outcome": row.outcome, "account": row.account,
@@ -308,11 +316,12 @@ def build(config: Config, today: date) -> dict:
     if version and health.git(config.vault_path, "--no-optional-locks", "status", "--porcelain"):
         version += "+dirty"
     return {"schema": 1, "engine": engine, "version": version, "tasks": task_entries, "hubs": hubs,
-            "routines": _routines(config, hubs, rows), "triggers": trigger_entries, "ledger": recent,
+            "routines": routine_entries, "triggers": trigger_entries, "ledger": recent,
             "journal": _journal(vault, today),  # kept for one more release while the owner's app switches to loops
             "needsYou": owner_items, "outputs": _outputs(vault),
             "loops": _loops(vault, loops.open_loops(config)),
             "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
             "idea": owner_idea, "ideasOpen": ideas_open, "channels": _channels(vault),
             "shareable": _shareable(vault, hubs, recent),
-            "waitingOnComputer": [task["id"] for task in task_entries if task["open"] and task["resume"] == "computer"]}
+            "waitingOnComputer": [task["id"] for task in task_entries if task["open"] and task["resume"] == "computer"],
+            "responsibilities": responsibility_entries}

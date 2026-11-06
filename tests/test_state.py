@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import fm, health, needs, nightly, state, triggers
+from brain import fm, health, needs, nightly, schedule, state, triggers
 from brain.config import Config
 from brain.tasks import Task, write_archive
 from conftest import git, snapshot
@@ -131,11 +131,11 @@ def test_hubs_sections_and_progress(work):
 
 def test_routines_join_responsibilities_and_all_months_but_not_unknown_legacy_rows(work):
     assert state.build(work, TODAY)["routines"] == [
-        {"name": "fallback", "skill": "brain-fallback", "hub": None, "ledger": "agent/Fallback"},
-        {"name": "futureRoutine", "skill": None, "hub": None, "ledger": "agent/Receipts"},
-        {"name": "lone", "skill": None, "hub": None, "ledger": "agent/A"},
-        {"name": "upkeep", "skill": "brain-maintain", "hub": "Maintenance", "ledger": None},
-        {"name": "WATCH", "skill": "brain-watch", "hub": "Watch", "ledger": "agent/Receipts"},
+        {"name": "fallback", "skill": "brain-fallback", "hub": None, "ledger": "agent/Fallback", "responsibility": None},
+        {"name": "futureRoutine", "skill": None, "hub": None, "ledger": "agent/Receipts", "responsibility": None},
+        {"name": "lone", "skill": None, "hub": None, "ledger": "agent/A", "responsibility": None},
+        {"name": "upkeep", "skill": "brain-maintain", "hub": "Maintenance", "ledger": None, "responsibility": None},
+        {"name": "WATCH", "skill": "brain-watch", "hub": "Watch", "ledger": "agent/Receipts", "responsibility": None},
     ]
 
 
@@ -257,7 +257,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     nightly.main(["state", "--json", "--vault", str(work.vault_path)])
     output = capsys.readouterr().out
     parsed = json.loads(output)
-    assert list(parsed) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer"]
+    assert list(parsed) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities"]
     assert output == json.dumps(parsed, ensure_ascii=False, indent=2) + "\n"
     nightly.main(["state", "--vault", str(work.vault_path)])
     summary = capsys.readouterr().out
@@ -265,7 +265,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     assert summary == " · ".join(f"{len(parsed[key])} {key}" for key in KEYS[3:]) + "\n"
     process = subprocess.run([sys.executable, "-m", "brain", "state", "--json", "--vault", str(work.vault_path)],
                              text=True, capture_output=True, check=True)
-    assert list(json.loads(process.stdout)) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer"]
+    assert list(json.loads(process.stdout)) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities"]
     assert process.stderr == ""
 
 
@@ -278,10 +278,11 @@ def test_empty_vault_and_missing_installed_metadata(tmp_path, monkeypatch):
 
     monkeypatch.setattr(health, "installed_version", missing)
     result = state.build(Config.load(root), TODAY)
-    assert list(result) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer"]
+    assert list(result) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities"]
     assert result["engine"] == "unknown"
     assert result["idea"] is None and result["ideasOpen"] == 0
     assert result["waitingOnComputer"] == []
+    assert result["responsibilities"] == []
     assert all(result[key] == [] for key in KEYS[3:])
     assert result["shareable"] == {kind: {"tell": {}, "hubs": [], "receipts": []} for kind in ("known", "anyone")}
 
@@ -300,7 +301,7 @@ def test_configured_layout_and_records_name_matching(tmp_path):
              kind="draft")
     note(root, "imports-public/Visible.md")
     result = state.build(Config.load(root), TODAY)
-    assert result["routines"] == [{"name": "receipts", "skill": "own-worker", "hub": "Work", "ledger": "Worker/Receipts"}]
+    assert result["routines"] == [{"name": "receipts", "skill": "own-worker", "hub": "Work", "ledger": "Worker/Receipts", "responsibility": None}]
     assert result["tasks"][0]["source"] == "Worker/Tasks.md#T-001"
     assert next(hub for hub in result["hubs"] if hub["title"] == "Work")["progress"] == {"done": 1, "total": 1}
     assert any(hub["title"] == "Visible" for hub in result["hubs"])
