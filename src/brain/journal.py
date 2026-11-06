@@ -151,7 +151,6 @@ def promote_touched(config: Config, vault: Vault, touched: list[str], today: dat
                 continuation._mark_engaged(config, task.tid)
 
 
-WORKING_TOGETHER_WORDS = 250   # the section loads in every session with the owner; past this it is merged at night
 HEADING = re.compile(r"^##[ \t]+Working together\b[^\n]*$", re.M)
 
 

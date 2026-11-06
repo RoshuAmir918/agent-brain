@@ -6,7 +6,7 @@ import pytest
 
 from brain import attribute, compile_context, digest, fm, install, nightly, retrieve
 from brain.config import Config
-from brain.tasks import Task, bounded_hot_body, read_archive_body, seed_uses_from_body
+from brain.tasks import Task, bounded_hot_body, read_archive_body
 from brain.vault import Vault
 from conftest import snapshot, harness_session, message, tool, write_shards
 
@@ -135,8 +135,6 @@ def test_alternate_plain_paths_and_task_evidence(alternate):
     task = Task("T-099", "Large", "- **Status:** open\n"
                 f"- **Latest evidence:** [[{config.link('Conversations/2026-10-19')}]]\n"
                 "- **Evidence:** " + "historical " * 200 + "\n")
-    seed_uses_from_body(task, date(2026, 10, 20), config)
-    assert task.uses == ["2026-10-19"]
     bounded = bounded_hot_body(task, config)
     assert f"[[{config.link(config.agent('Tasks Archive/T-099'))}|" in bounded
     assert "[[memory/" not in bounded
