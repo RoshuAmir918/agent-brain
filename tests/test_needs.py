@@ -702,3 +702,17 @@ def test_current_presenting_a_closed_task_as_live_is_named(vault, monkeypatch):
     from brain.vault import Vault
     problems = validate.closed_task_mentions(Vault(vault))
     assert len(problems) == 1 and "T-010" in problems[0] and "in progress" in problems[0]
+
+
+def test_a_task_field_written_for_a_maintainer_is_named(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-07")
+    write_tasks(vault,
+                Task("T-020", "Prepare the Mac", "- **Next:** Maintainer: inspect the diagnostic in thread `1792692172.812869`.\n", {"state": "blocked"}),
+                Task("T-021", "Book the hotel", "- **Next:** Ask both hotels about a garden room, then hold the better one.\n", {"state": "in_progress"}),
+                Task("T-022", "Fix sync", "- **Blockers:** brain continue fails reading agent/Tasks.md\n", {"state": "blocked"}),
+                Task("T-023", "Old", "- **Next:** Maintainer: done already.\n", {"state": "completed"}))
+    from brain import validate
+    from brain.vault import Vault
+    problems = validate.owner_facing_tasks(Vault(vault))
+    assert [p.split(":")[0] for p in problems] == ["T-020", "T-022"]
+    assert "Next" in problems[0] and "Blockers" in problems[1]

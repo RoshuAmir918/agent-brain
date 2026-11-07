@@ -293,7 +293,7 @@ def hygiene(vault: Vault) -> list[str]:
             + needs_ceiling(vault) + needs_hygiene(vault) + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
             + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault)
-            + trigger_dates(vault) + owners.problems(vault.config) + tellable_hygiene(vault))
+            + trigger_dates(vault) + owners.problems(vault.config) + tellable_hygiene(vault) + owner_facing_tasks(vault))
 
 
 def trigger_dates(vault: Vault) -> list[str]:
@@ -455,6 +455,29 @@ def task_states_by_id(vault: Vault) -> dict[str, str]:
             found = {path.stem: head[1]} if head else {}
         states.update(found)
     return states
+
+
+# A task's Next, Status, Blockers, Ask and Why are what its owner reads in their app. These mark text written for a
+# maintainer instead: the word itself, code, a command, a file path or a raw message id.
+MAINTAINER_TEXT = re.compile(r"\bmaintainer\b|`[^`]+`|\bbrain \w+|(?:^|[\s(])(?:~|\.{0,2})/[\w.-]+/|\b[\w-]+\.(?:md|json|toml|py|sh|log)\b|\b\d{9,}\b", re.I)
+OWNER_FIELDS = ("Next", "Status", "Blockers", "Ask", "Why")
+
+
+def owner_facing_tasks(vault: Vault) -> list[str]:
+    """An open task's fields are read by its owner in their app; one written for a maintainer is named, so the agent
+    says what it means for the owner and keeps the detail in the task's evidence note."""
+    from .tasks import is_open, load_tasks
+    if not (vault.root / vault.config.agent("Tasks.md")).exists():
+        return []
+    out = []
+    for task in load_tasks(vault.config)[0]:
+        if not is_open(task):
+            continue
+        for name in OWNER_FIELDS:
+            text = fm.field(task.body, name)
+            if text and MAINTAINER_TEXT.search(text):
+                out.append(f"{task.tid}: its {name} is written for a maintainer, not its owner; say what it means for them, the detail in its evidence note: {text[:80]}")
+    return out
 
 
 def closed_task_mentions(vault: Vault) -> list[str]:

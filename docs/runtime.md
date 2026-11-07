@@ -127,6 +127,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.76.0: a task's Next, Status, Blockers, Ask and Why are written for its owner, who reads them in the app; `brain validate` names one written for a maintainer (the word, code, a command, a path, a thread id), and a migration rewrites the ones there are, the detail kept in the evidence note.
 - 0.71.0: a finished task says what is left and what could come next. `brain task T-nnn done` takes `--left TEXT` and up to three `--then STAGE`, written as `Left` and `Then` lines after the Completed line (a later close replaces them, a reopen removes them); the state export's task rows add `left` and `then`. The continue skill writes them at close and puts a next stage of the same line of work in `--then` rather than an idea. No migration.
 - 0.70.0: which subject a tellable fact goes under. The seed and sleep1 skills file a place, service or purchase the owner used as `experiences`, trips and lodging as `whereabouts`, and keep `schedule` to free and busy; a migration re-sorts existing tellable notes.
 - 0.67.0: the seed reads the backfill. Owner mail and calendar reading lists include the sync's one-time twelve-month backfill; `brain portrait seed --account <address|all> --clear-backfill` clears it after the Seeds note is written, keeping `.done`. Coverage adds `unreadBackfill`, which the daily personal people pass seeds as backfills complete.
