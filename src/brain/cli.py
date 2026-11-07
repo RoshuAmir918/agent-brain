@@ -1060,6 +1060,19 @@ def cmd_tellable(args):
 def cmd_portrait(args):
     if args.action != "seed" and (args.reviews or args.plans or args.account or args.days is not None or args.clear_backfill):
         raise SystemExit("brain portrait: --reviews, --plans, --account, --days and --clear-backfill go with seed")
+    if args.action == "stamp":
+        print(f"{portrait.stamp(args.config)} new line id(s)")
+        return
+    if args.action == "mark":
+        if not (args.id and args.verdict):
+            raise SystemExit("brain portrait mark: ID and one of " + ", ".join(portrait.VERDICTS))
+        try:
+            with vault_lock(args.config):
+                line = portrait.mark(args.config, args.id, args.verdict, args.words or "", args.config.today())
+        except ValueError as error:
+            raise SystemExit(f"brain portrait mark: {error}")
+        print(f"{args.verdict}: ^{line.id} {line.text}")
+        return
     if args.action == "coverage":
         data = seed.coverage(Vault(args.config.vault_path), args.config.today())
         print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else seed.render_coverage(data))
@@ -1555,8 +1568,11 @@ def main(argv=None):
     s.add_argument("--reviews", metavar="DIR"); s.add_argument("--author", metavar="LOGIN")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_reception)
     s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
-    s.add_argument("action", nargs="?", choices=["seed", "coverage"],
-                   help="seed: what to read to seed the portrait; coverage: what it knows and from where")
+    s.add_argument("action", nargs="?", choices=["seed", "coverage", "stamp", "mark"],
+                   help="seed: what to read to seed the portrait; coverage: what it knows and from where; "
+                        "stamp: give new lines their ids now; mark ID right|wrong|not-this: the owner's answer to a line")
+    s.add_argument("id", nargs="?"); s.add_argument("verdict", nargs="?", choices=portrait.VERDICTS)
+    s.add_argument("--words", metavar="TEXT", help="mark: the owner's own words, kept when a line is wrong")
     s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments, for Taste")
     s.add_argument("--plans", metavar="DIR", help="seed: one file per project with the issues done on it, for After and Energy")
     s.add_argument("--account", metavar="ADDRESS|all", help="seed: the owner's synced mail and calendar")

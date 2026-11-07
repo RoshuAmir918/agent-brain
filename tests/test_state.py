@@ -258,7 +258,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     cli.main(["state", "--json", "--vault", str(work.vault_path)])
     output = capsys.readouterr().out
     parsed = json.loads(output)
-    assert list(parsed) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities", "portrait"]
+    assert list(parsed) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait"]
     assert output == json.dumps(parsed, ensure_ascii=False, indent=2) + "\n"
     cli.main(["state", "--vault", str(work.vault_path)])
     summary = capsys.readouterr().out
@@ -266,7 +266,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     assert summary == " · ".join(f"{len(parsed[key])} {key}" for key in KEYS[3:]) + "\n"
     process = subprocess.run([sys.executable, "-m", "brain", "state", "--json", "--vault", str(work.vault_path)],
                              text=True, capture_output=True, check=True)
-    assert list(json.loads(process.stdout)) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities", "portrait"]
+    assert list(json.loads(process.stdout)) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait"]
     assert process.stderr == ""
 
 
@@ -279,7 +279,7 @@ def test_empty_vault_and_missing_installed_metadata(tmp_path, monkeypatch):
 
     monkeypatch.setattr(health, "installed_version", missing)
     result = state.build(Config.load(root), TODAY)
-    assert list(result) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities", "portrait"]
+    assert list(result) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait"]
     assert result["engine"] == "unknown"
     assert result["idea"] is None and result["ideasOpen"] == 0
     assert result["waitingOnComputer"] == []

@@ -171,3 +171,59 @@ def stamp(config: Config) -> int:
         if count:
             fm.write(path, data, "".join(out))
     return count
+
+
+VERDICTS = ("right", "wrong", "not-this")
+
+
+def mark(config: Config, ident: str, verdict: str, words: str, today: date) -> Line:
+    """The owner's answer to one line. Right: it becomes `said`, high, dated today. Wrong: it leaves for History, and
+    their words, when they give them, become a `Not` line. Not this: it leaves for History and the subject becomes a `Not`
+    line, so the agent stops drawing on it. The caller holds the vault lock."""
+    if verdict not in VERDICTS:
+        raise ValueError(f"verdict must be one of {', '.join(VERDICTS)}")
+    ident = ident.lstrip("^")
+    path = config.vault_path / config.human_portrait
+    if not path.is_file():
+        raise ValueError("no portrait yet")
+    data, body = fm.read(path)
+    lines, _ = parse(body)
+    found = [line for line in lines if line.id == ident]
+    if not found:
+        raise ValueError(f"no portrait line ^{ident}; a line gets its id when the night or `brain portrait stamp` runs")
+    line = found[0]
+    raw = body.splitlines(keepends=True)
+    start = next(i for i, text in enumerate(raw) if LINE.match(text.rstrip("\r\n")) and text.rstrip().endswith(f"^{ident}"))
+    end = start + 1
+    while end < len(raw) and DETAIL.match(raw[end].rstrip("\r\n")):
+        end += 1
+    words = " ".join(words.replace("·", "-").split())
+    if verdict == "right":
+        kept = [text for text in raw[start + 1:end] if not text.lstrip().startswith("- test:")]
+        head = f"- {line.text} · said · high · {today.isoformat()} · {line.source} ^{ident}\n"
+        raw[start:end] = [head, *kept]
+        fm.write(path, data, "".join(raw))
+        line.basis, line.confidence, line.evidence = "said", "high", today.isoformat()
+        return line
+    removed = "".join(raw[start:end]).rstrip("\n")
+    del raw[start:end]
+    history = path.with_name("History.md")
+    hdata, hbody = fm.read(history) if history.is_file() else ({"kind": "log", "tier": "cold"}, "# History\n")
+    said = f" · their words: {words}" if words else ""
+    hbody = hbody.rstrip("\n") + f"\n- {today.isoformat()} · portrait line marked {verdict} by the owner{said}\n" + \
+        "".join(f"  {text}\n" for text in removed.splitlines()) 
+    fm.write(history, hdata, hbody)
+    text = words if verdict == "wrong" else f"Not to draw on: {words or line.text}"
+    body = "".join(raw)
+    if text:
+        link = f"[[{config.link(history.relative_to(config.vault_path).as_posix()[:-3])}]]"
+        bullet = f"- {text} · said · high · {today.isoformat()} · {link}\n"
+        heading = re.search(r"^## Not[ \t]*$", body, re.M)
+        if heading:
+            following = re.compile(r"^## ", re.M).search(body, heading.end())
+            at = following.start() if following else len(body)
+            body = body[:at].rstrip("\n") + "\n" + bullet + ("\n" + body[at:] if following else "")
+        else:
+            body = body.rstrip("\n") + "\n\n## Not\n" + bullet
+    fm.write(path, data, body)
+    return line
