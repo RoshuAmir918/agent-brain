@@ -23,7 +23,7 @@ LINE = re.compile(r"^- (?P<text>.+?) · (?P<basis>[^ ·]+) · (?P<confidence>[^ 
                   r"(?P<source>.+?)(?: \^(?P<id>[0-9a-f]{4}))?[ \t]*$")
 DETAIL = re.compile(r"^[ \t]+- (?P<key>[a-z]+):[ \t]*(?P<value>.*?)[ \t]*$")
 ID = re.compile(r"\^([0-9a-f]{4})\b")
-AFTER_ONLY = ("for", "horizon")
+AFTER_ONLY = ("for", "horizon", "goal")   # goal: the person's G-n this line reflects, from `brain goals`
 
 
 @dataclass
@@ -40,12 +40,13 @@ class Line:
     for_: str = ""
     test: str = ""
     against: str = ""
+    goal: str = ""
 
     def public(self) -> dict:
         """What leaves the vault: everything but the counterevidence."""
         return {"id": self.id, "section": self.section, "rank": self.rank, "text": self.text, "basis": self.basis,
                 "confidence": self.confidence, "evidence": self.evidence, "source": self.source,
-                "horizon": self.horizon, "for": self.for_, "test": self.test}
+                "horizon": self.horizon, "for": self.for_, "test": self.test, "goal": self.goal}
 
 
 def parse(body: str) -> tuple[list[Line], list[str]]:
@@ -65,10 +66,12 @@ def parse(body: str) -> tuple[list[Line], list[str]]:
             key, value = detail["key"], detail["value"]
             if not lines or lines[-1].section != section:
                 problems.append(f"{section}: {key}: line with no claim above it")
-            elif key not in ("for", "test", "against", "horizon"):
+            elif key not in ("for", "test", "against", "horizon", "goal"):
                 problems.append(f"{section} · {lines[-1].text}: unknown field {key!r}")
             elif key in AFTER_ONLY and section != "After":
                 problems.append(f"{section} · {lines[-1].text}: {key} belongs to After lines only")
+            elif key == "goal" and not re.fullmatch(r"G-\d+", value):
+                problems.append(f"{section} · {lines[-1].text}: goal {value!r}; a goal id such as G-3")
             elif key == "horizon" and value not in HORIZONS:
                 problems.append(f"{section} · {lines[-1].text}: horizon {value!r}; one of {', '.join(HORIZONS)}")
             else:

@@ -169,7 +169,15 @@ def portrait_hygiene(vault: Vault) -> list[str]:
     from . import portrait
     rel = vault.config.human_portrait
     note = vault.notes.get(rel)
-    return portrait.hygiene(note.body, vault.config.today(), rel, vault.config.edition == "enterprise") if note else []
+    if not note:
+        return []
+    found = portrait.hygiene(note.body, vault.config.today(), rel, vault.config.edition == "enterprise")
+    if vault.config.edition == "personal":
+        from . import goals
+        known = {goal.gid for goal in goals.load(vault.config)}
+        found += [f"{rel} · After · {line.text}: goal {line.goal} is not in {vault.config.human_goals}"
+                  for line in portrait.load(vault.config) if line.goal and line.goal not in known]
+    return found
 
 
 def tellable_hygiene(vault: Vault) -> list[str]:

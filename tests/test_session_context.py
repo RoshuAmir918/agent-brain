@@ -64,8 +64,8 @@ def test_known_person_context_has_profile_paths_and_applicable_rules(people_vaul
         "owner can give, a thing the owner holds, a status the owner knows), ask the owner now, in this session "
         "(`demiurge_tell_owner` on Demiurge, else an ask in CURRENT's Needs you), and tell them you have asked and "
                 "will bring back the answer; never "
-        "offer to ask and stop. Note the request in your after-session record. Your own impression of the owner "
-        "is never shared with anyone, whatever a rule allows.\n\n"
+        "offer to ask and stop. Note the request in your after-session record. Your own impression and portrait of the owner "
+        "are never shared with anyone, whatever a rule allows.\n\n"
         "What you may tell Alice about Mira, and nothing else:\nNothing yet.\n"
         "Answer about Mira only from this block; anything else you know about Mira or anyone else is not yours "
         "to tell here. What they ask that it does not answer, ask Mira.")
@@ -358,7 +358,7 @@ def test_the_owner_hears_how_to_work_with_them_and_what_the_agent_thinks_of_them
 def test_the_owners_impression_is_never_disclosed(people_vault):
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
     assert block.split("\n\nWhat you may tell", 1)[0].endswith(
-        "Your own impression of the owner is never shared with anyone, whatever a rule allows.")
+        "Your own impression and portrait of the owner are never shared with anyone, whatever a rule allows.")
 
 
 def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault):

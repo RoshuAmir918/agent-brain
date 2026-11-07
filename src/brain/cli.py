@@ -998,7 +998,8 @@ def cmd_reception(args):
             if not (args.kind and args.what and args.source):
                 raise ValueError("add needs --kind, --what and --source")
             with vault_lock(config):
-                print(reception.record(config, args.kind, args.what, args.source, args.portrait or ""))
+                at = datetime.strptime(args.at, "%Y-%m-%d %H:%M").replace(tzinfo=config.zone) if args.at else None
+                print(reception.record(config, args.kind, args.what, args.source, args.portrait or "", at))
         elif args.action == "set":
             if not (args.id and args.outcome):
                 raise ValueError("set needs ID and OUTCOME")
@@ -1506,6 +1507,7 @@ def main(argv=None):
     s.add_argument("id", nargs="?"); s.add_argument("outcome", nargs="?")
     s.add_argument("--kind", choices=reception.KINDS); s.add_argument("--what"); s.add_argument("--source")
     s.add_argument("--portrait", metavar="ID", help="the portrait line this offer served")
+    s.add_argument("--at", metavar="'YYYY-MM-DD HH:MM'", help="add: when it was offered, for a row written after the fact")
     s.add_argument("--days", type=int, default=30); s.add_argument("--weeks", type=int, default=8)
     s.add_argument("--reviews", metavar="DIR"); s.add_argument("--author", metavar="LOGIN")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_reception)

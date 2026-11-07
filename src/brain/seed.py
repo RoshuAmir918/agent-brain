@@ -619,7 +619,23 @@ def coverage(vault, today: date) -> dict:
                 and (any(path.is_file() for path in (folder / "backfill/mail").glob("*/*.md"))
                      or any(path.is_file() for path in (folder / "backfill/calendar").glob("*.md")))]
     return {"sections": sections, "sources": sources, "unreadChannels": unread, "unreadBackfill": backfill,
-            "problems": problems}
+            "attention": attention(config, lines, today), "problems": problems}
+
+
+def attention(config, lines, today: date, days: int = 7) -> list[dict]:
+    """How often each After line was served in the last week: explore runs whose account names `portrait:<id>`, and
+    offers recorded against it. A top line with none is a direction nobody is working toward."""
+    from . import ledger, reception
+    floor = (today - timedelta(days=days)).isoformat()
+    runs: Counter = Counter()
+    for path in ledger.discover(config):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            row = ledger.parse_row(line)
+            if row and row.when[:10] >= floor:
+                runs.update(set(re.findall(r"portrait:\^?([0-9a-f]{4})", row.account)))
+    offers = Counter(row.portrait for _, row in reception.rows(config, today - timedelta(days=days)) if row.portrait)
+    return [{"id": line.id, "text": line.text, "rank": line.rank, "runs": runs[line.id], "offers": offers[line.id]}
+            for line in lines if line.section == "After" and line.id]
 
 
 def render_coverage(data: dict) -> str:
@@ -634,5 +650,9 @@ def render_coverage(data: dict) -> str:
         out += ["", "Connected and never read for the portrait: " + ", ".join(data["unreadChannels"])]
     if data["unreadBackfill"]:
         out += ["", "Unread backfill: " + ", ".join(data["unreadBackfill"])]
+    if data["attention"]:
+        out += ["", "After lines served this week (explore runs, offers):"]
+        out += [f"- ^{a['id']} {a['text']}: {a['runs']} runs, {a['offers']} offers" + (" · nothing" if not a["runs"] + a["offers"] else "")
+                for a in data["attention"]]
     out += [f"problem: {problem}" for problem in data["problems"]]
     return "\n".join(out)

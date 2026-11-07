@@ -201,3 +201,53 @@ def test_a_company_after_line_says_where_the_intellect_can_help(vault):
     assert validate.portrait_hygiene(Vault(vault)) == []
     assert portrait.hygiene("## After\n- Run a marathon · said · high · 2026-11-01 · [[START]]\n  - horizon: year\n",
                             date(2026, 11, 6), "P") == []
+
+
+def test_the_owner_card_leaves_the_impression_to_the_portrait_once_there_is_one(vault):
+    from brain import session_context
+    (vault / "human").mkdir(exist_ok=True)
+    fm.write(vault / "human/Profile.md", {"kind": "profile", "tier": "hot"},
+             "# Human\n## Working together\nBrief me in bullets.\n## Impression\nIMPRESSION_TEXT here.\n")
+    config = Config.load(vault)
+    card = session_context.owner_card(Vault(vault), config)
+    assert "IMPRESSION_TEXT" in card and "Talk about your Impression only" in card
+    write_portrait(vault)
+    card = session_context.owner_card(Vault(vault), config)
+    assert "Brief me in bullets." in card and "IMPRESSION_TEXT" not in card
+    assert "Talk about your Portrait of them only with Human alone" in card
+
+
+def test_coverage_shows_which_after_lines_were_served_this_week(vault, monkeypatch):
+    from brain import reception, seed
+    from brain.lock import vault_lock
+    from datetime import datetime
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-06")
+    write_portrait(vault, BODY.replace("· [[START]]\n  - horizon: now", "· [[START]] ^91c0\n  - horizon: now"))
+    (vault / "agent/Explore").mkdir()
+    (vault / "agent/Explore/2026-11.md").write_text("---\nkind: log\n---\n"
+        "- 2026-11-05 09:00 | explore | held | work: Lisbon shortlist, held, portrait:3f2a | none\n"
+        "- 2026-10-01 09:00 | explore | held | work: too old, portrait:91c0 | none\n")
+    config = Config.load(vault)
+    with vault_lock(config):
+        reception.record(config, "draft", "Lisbon shortlist", "START", "3f2a", at=datetime(2026, 11, 5, 9))
+    data = seed.coverage(Vault(vault), date(2026, 11, 6))
+    assert [(a["id"], a["runs"], a["offers"]) for a in data["attention"]] == [("3f2a", 1, 1), ("91c0", 0, 0)]
+    assert "- ^91c0 Wants to start climbing: 0 runs, 0 offers · nothing" in seed.render_coverage(data)
+
+
+def test_an_after_line_may_name_the_goal_it_reflects_and_the_goal_must_exist(vault):
+    from brain import goals
+    from brain.lock import vault_lock
+    config = Config.load(vault)
+    with vault_lock(config):
+        gid = goals.new(config, "Run a marathon", "I want to run Boston").gid
+    write_portrait(vault, f"## After\n- Run Boston · said · high · 2026-11-01 · [[START]]\n  - horizon: year\n  - goal: {gid}\n"
+                          "  - for: race plans near the office\n## Taste\n- Jazz · said · high · 2026-11-01 · [[START]]\n  - goal: G-1\n")
+    lines, problems = portrait.parse((vault / "human/Portrait.md").read_text())
+    assert lines[0].goal == gid and lines[0].public()["goal"] == gid
+    assert "Taste · Jazz: goal belongs to After lines only" in problems
+    write_portrait(vault, "## After\n- Run Boston · said · high · 2026-11-01 · [[START]]\n  - horizon: year\n  - goal: G-99\n"
+                          "- Sail · guess · low · 2026-11-01 · [[START]]\n  - horizon: longer\n  - goal: marathon\n  - test: ask\n")
+    found = "\n".join(validate.portrait_hygiene(Vault(vault)))
+    assert "After · Run Boston: goal G-99 is not in human/Goals.md" in found
+    assert "After · Sail: goal 'marathon'; a goal id such as G-3" in found

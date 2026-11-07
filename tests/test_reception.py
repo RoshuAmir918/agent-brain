@@ -126,3 +126,11 @@ def test_cli_adds_sets_summarises_and_measures(vault, config, capsys, tmp_path):
     cli.main(["reception", "burden", "--vault", str(vault), "--reviews", str(tmp_path / "reviews"), "--author", "me",
               "--weeks", "1"])
     assert "Correction burden on me's merged PRs" in capsys.readouterr().out
+
+
+def test_a_row_can_be_written_after_the_fact_with_its_real_time(vault, config, capsys):
+    cli.main(["reception", "add", "--vault", str(vault), "--kind", "idea", "--what", "Old idea", "--source", "START",
+              "--at", "2026-09-14 10:30"])
+    ident = capsys.readouterr().out.strip()
+    assert [row.at for _, row in reception.rows(config) if row.id == ident] == ["2026-09-14 10:30"]
+    assert (vault / "agent/Reception/2026-09.md").exists()
