@@ -1695,7 +1695,7 @@ def main(argv=None):
                        description="brain task TID {done,drop,yours,reopen,set} [fields]; brain task new TITLE --source SOURCE", parents=[vault])
     s.add_argument("tid", metavar="TID|new", help="task id, or new to create a task")
     s.add_argument("action", metavar="ACTION|TITLE", help="done, drop, yours, reopen, set, view (JSON on stdin); with new, the task title")
-    s.add_argument("--state", metavar="S", help="open task state; new accepts ready (default) or in_progress")
+    s.add_argument("--state", metavar="S", help="open task state; new accepts ready (default), in_progress or yours")
     for name in tasks_mod.FIELDS:
         if name == "work":
             continue   # --work below: with new or set
