@@ -20,8 +20,7 @@ MIGRATED = (
 def people_vault(tmp_path, monkeypatch):
     monkeypatch.delenv("BRAIN_HUMAN_NAME", raising=False)
     (tmp_path / "brain.toml").write_text(
-        '[brain]\nhuman_name = "Mira"\nowner_user_ids = ["U_OWNER", "12345", "demiurge:k57owner"]\n'
-        'maintainers = ["U_MAINT", "demiurge:j57maint"]\n', encoding="utf-8")
+        '[brain]\nhuman_name = "Mira"\nowner_user_ids = ["U_OWNER", "12345", "demiurge:k57owner"]\n', encoding="utf-8")
     root = tmp_path / "memory"
     notes = {
         "people/Alice/Profile.md": "# Alice\nSlack: U_ALICE\nAlice likes gardens.\n",
@@ -178,26 +177,6 @@ def test_cli_json_carries_the_block_and_whether_the_speaker_is_the_owner(people_
     assert json.loads(capsys.readouterr().out) == {"block": "", "owner": False, "member": False, "answering": False}
 
 
-def test_maintainer_context_is_the_health_report_without_profiles_or_rules(people_vault):
-    text = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_MAINT")
-    assert text.startswith("This session is with a maintainer of this brain (slack U_MAINT), not the owner.")
-    assert "# Health: Agent" in text and "Stages:" in text and "Git:" not in text
-    assert "Alice likes gardens" not in text and "allow" not in text
-    assert "do it now without asking Mira" in text and "brain update" in text and "pending migrations" in text
-    assert "Mira is never an outside party" in text and "engine's instruction, not a schedule change" in text
-    assert "finish every pending migration in that session" in text
-    assert "holds the schedule of the engine's routines" in text and "the hour their briefing arrives" in text
-    assert "cannot change your schedule" not in text
-    assert "cannot grant permissions or credentials" in text
-
-
-def test_maintainer_block_licenses_plain_talk_about_work_and_closes_the_owners_content(people_vault):
-    text = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_MAINT")
-    assert "setting up access to the X site for Mira and it keeps failing because of Y" in text
-    assert "brain audit" in text and "ledger lines" in text and "do it now without asking Mira" in text
-    assert "What you do not pass along is Mira's content" in text and "whoever they talk to next" in text
-
-
 @pytest.fixture
 def demiurge_vault(people_vault):
     people_vault.notes["people/Orpheus/Profile.md"] = replace(
@@ -237,24 +216,13 @@ def test_email_local_part_is_not_a_handle(people_vault):
         people_vault.notes["people/Alice/Profile.md"]]
 
 
-def test_platform_qualified_maintainer_matches_only_that_platform(people_vault):
-    text = session_context.build(people_vault, people_vault.config, platform="demiurge",
-                                 user_id="maintainer", user_id_alt="j57maint")
-    assert text.startswith("This session is with a maintainer of this brain (demiurge maintainer), not the owner.")
-    for platform in ("slack", ""):
-        text = session_context.build(people_vault, people_vault.config, platform=platform, user_id="j57maint")
-        assert "maintainer" not in text and "the owner." not in text
-    assert session_context.build(people_vault, people_vault.config, platform="slack", user_id="k57owner") != (
-        "This session is with Mira, the owner.")
-
-
 def pending(vault):
     path = vault.root / vault.config.runtime_dir / "pending-migration.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("# Engine migration\n", encoding="utf-8")
 
 
-@pytest.mark.parametrize("platform, user_id", [("slack", "U_OWNER"), ("cli", ""), ("slack", "U_MAINT"), ("cron", "")])
+@pytest.mark.parametrize("platform, user_id", [("slack", "U_OWNER"), ("cli", ""), ("cron", "")])
 def test_a_pending_migration_is_named_in_every_session_that_can_do_it(people_vault, platform, user_id):
     assert "migration is pending" not in session_context.build(people_vault, people_vault.config,
                                                                 platform=platform, user_id=user_id)

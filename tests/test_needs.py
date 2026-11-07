@@ -719,7 +719,7 @@ def test_current_presenting_a_closed_task_as_live_is_named(vault, monkeypatch):
     assert len(problems) == 1 and "T-010" in problems[0] and "in progress" in problems[0]
 
 
-def test_a_task_field_written_for_a_maintainer_is_named(vault, monkeypatch):
+def test_a_task_field_written_in_engine_terms_is_named(vault, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-11-07")
     write_tasks(vault,
                 Task("T-020", "Prepare the Mac", "- **Next:** Maintainer: inspect the diagnostic in thread `1792692172.812869`.\n", {"state": "blocked"}),

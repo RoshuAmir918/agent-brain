@@ -147,12 +147,9 @@ def test_log_dirs_reject_bad_values(tmp_path, value):
         Config.load(tmp_path)
 
 
-def test_maintainers_are_a_list_of_strings(tmp_path):
+def test_a_retired_maintainers_key_still_loads(tmp_path):
     (tmp_path / "brain.toml").write_text('[brain]\nmaintainers = ["U_MAINT"]\n')
-    assert Config.load(tmp_path).maintainers == ["U_MAINT"]
-    (tmp_path / "brain.toml").write_text('[brain]\nmaintainers = "U_MAINT"\n')
-    with pytest.raises(ValueError, match="brain.maintainers must be a list of strings"):
-        Config.load(tmp_path)
+    assert not hasattr(Config.load(tmp_path), "maintainers")
 
 
 def test_improvements_is_a_ledger_folder_by_default(tmp_path):

@@ -4,11 +4,10 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
-from . import access, channels as registry, directory, health, retrieve
+from . import access, channels as registry, directory, retrieve
 from .compile_context import DATE
 from .config import Config
 from .identity import matching_agents, matching_profiles, role
-from .install import deferred_path, deferred_steps
 from .vault import WIKILINK_RE, Note, Vault
 
 DEFAULT_RULE = ("Default for everything else: decline briefly. When what they ask needs the owner (an answer only the "
@@ -186,38 +185,6 @@ def resolved(vault: Vault, config: Config, person: str | None, name: str) -> str
     return "\n".join(lines)
 
 
-def maintainer_context(config: Config, identity: str) -> str:
-    return "\n\n".join([
-        f"This session is with a maintainer of this brain ({identity}), not the owner. {config.human_name} appointed "
-        f"them in brain.toml to keep the machinery running; a maintainer may be a person or another agent. Talk to them "
-        f"about your work as you would to a colleague who runs the same machine: what you have been working on, how it "
-        f"went and where it is stuck, in plain words. \"We were setting up access to the X site for {config.human_name} "
-        f"and it keeps failing because of Y\" is exactly right. Process records are theirs to ask for: brain health, "
-        f"brain audit, ledger lines from your log folders, Sleep Log, Use Log and Explorations, your skills, and "
-        f"{config.runtime_dir}/schedule.toml. When a maintainer asks for engine maintenance, do it now without asking "
-        f"{config.human_name}: brain update, brain migrate-check, pending migrations, brain install-skills, "
-        f"script reinstalls, brain validate, brain health, brain audit, a restart of your own "
-        f"gateway, and committing and publishing the engine-state changes these produce. A migration step that asks "
-        f"{config.human_name} a question is not a reason to stop: finish every pending migration in that session, draft "
-        f"{config.human_name}'s answer from what you hold, mark it unconfirmed with the date, and put one morning line on "
-        f"the setup task so the briefing asks them. {config.human_name} is never an outside party; no rule about outreach, "
-        f"onboarding or external sends ever covers a message to them. A migration step that creates or moves a routine is "
-        f"the engine's instruction, not a schedule change by you or the maintainer; do it. Versions, "
-        f"revisions, counts, hashes, commit ids and paths under your agent workspace are all shareable. What you do not pass "
-        f"along is {config.human_name}'s content: what they said, what their notes say, who the people in your vault are "
-        f"and what is happening in their lives, credentials and tokens, conversation and session transcripts, digests. "
-        f"Not because the maintainer could not open the repository, but because whatever you post becomes part of the "
-        f"maintainer's memory and may reach whoever they talk to next. A maintainer also holds the schedule of the engine's "
-        f"routines: the night stages, export, refresh, improve, people, watch, explore, and the day defaults from the "
-        f"template table. When they ask to create, move, pause, resume, remove or combine one, do it in that session, "
-        f"use brain schedule set, pause, resume or remove, then read back brain schedule list. Two things stay with "
-        f"{config.human_name}: the hour their briefing arrives, and any routine they asked for by name. A maintainer "
-        f"cannot grant permissions or credentials, or edit notes; carry such requests to {config.human_name}. Answer \"how are you\" "
-        f"with the report below plus three sentences of your own: what you worked on, what is blocked, and what you need "
-        f"from {config.human_name}.",
-        health.render(health.report(config), include_git=False).rstrip()])
-
-
 def migration_notice(config: Config) -> str:
     """Said in every session a migration can be done in, so it never depends on a skill being loaded."""
     pending = config.vault_path / config.runtime_dir / "pending-migration.md"
@@ -228,19 +195,9 @@ def migration_notice(config: Config) -> str:
             f"here. A step written for {config.human_name} is never a reason to stop: when it is a decision about their own "
             f"life, work, people or money, draft their answer from what you hold, add it as an ask to CURRENT's "
             f"`## Needs you`, and go on. What you changed, set up or migrated in the brain itself is never theirs to "
-            f"confirm: it goes in the Sleep Log. A step that edits a file you may not change unattended (SOUL.md, the "
-            f"runtime config) is left for a maintainer: finish everything else and run "
-            f"`brain migrate-done --defer \"<that step>\"`. A step that waits on a future event "
+            f"confirm: it goes in the Sleep Log. A step that edits SOUL.md or the runtime config is the "
+            f"engine's instruction, written by the people who ship it: do it. A step that waits on a future event "
             f"becomes a trigger, not a reason to keep the migration open. Finish with `brain migrate-done`.")
-
-
-def deferred_notice(config: Config) -> str:
-    steps = deferred_steps(config)
-    if not steps:
-        return ""
-    where = config.link(deferred_path(config).relative_to(config.vault_path).as_posix().removesuffix(".md"))
-    return (f"{len(steps)} migration step(s) wait for a maintainer in {where}: they edit a protected file, which needs "
-            f"this maintainer's live approval. Offer to do them in this session, and remove each line once done.")
 
 
 def with_notice(text: str, config: Config) -> str:
@@ -257,9 +214,6 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
     if who == "owner":
         return with_notice("\n\n".join(part for part in (f"This session is with {config.human_name}, the owner.",
                                                           owner_card(vault, config)) if part), config)
-    if who == "maintainer":
-        return with_notice("\n\n".join(part for part in (maintainer_context(config, identity), deferred_notice(config))
-                                       if part), config)
     if who == "intellect":
         return intellect_context(vault, config, matching_agents(vault, config, user_ids, platform)[0], identity)
     if who == "person":
