@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import fm, health, needs, nightly, schedule, state, triggers
+from brain import cli, fm, health, needs, schedule, state, triggers
 from brain.config import Config
 from brain.tasks import Task, write_archive
 from conftest import git, snapshot
@@ -254,12 +254,12 @@ def test_untracked_files_mark_git_dirty(repo):
 
 def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     monkeypatch.setattr(Config, "today", lambda config: TODAY)
-    nightly.main(["state", "--json", "--vault", str(work.vault_path)])
+    cli.main(["state", "--json", "--vault", str(work.vault_path)])
     output = capsys.readouterr().out
     parsed = json.loads(output)
     assert list(parsed) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities"]
     assert output == json.dumps(parsed, ensure_ascii=False, indent=2) + "\n"
-    nightly.main(["state", "--vault", str(work.vault_path)])
+    cli.main(["state", "--vault", str(work.vault_path)])
     summary = capsys.readouterr().out
     assert summary.count("\n") == 1
     assert summary == " · ".join(f"{len(parsed[key])} {key}" for key in KEYS[3:]) + "\n"

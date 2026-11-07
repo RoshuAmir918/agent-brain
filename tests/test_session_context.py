@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from brain import fm, nightly, session_context
+from brain import cli, fm, session_context
 from brain.vault import Vault
 
 
@@ -177,10 +177,10 @@ def test_absent_platform_and_ids_produce_no_context(people_vault, metadata):
 
 
 def test_cli_prints_unknown_context_and_nothing_without_identity(people_vault, capsys):
-    nightly.main(["session-context", "--vault", str(people_vault.root), "--platform", "slack", "--user-id", "NOPE"])
+    cli.main(["session-context", "--vault", str(people_vault.root), "--platform", "slack", "--user-id", "NOPE"])
     assert capsys.readouterr().out.startswith(
         "This session is with an unknown person (slack NOPE, name shown as not provided).")
-    nightly.main(["session-context", "--vault", str(people_vault.root)])
+    cli.main(["session-context", "--vault", str(people_vault.root)])
     assert capsys.readouterr().out == ""
 
 
@@ -407,5 +407,5 @@ def test_people_mentioned_line_and_card_forms(people_vault, capsys):
     card = session_context.mentioned(vault, vault.config, "Hope", form="card")
     assert card.startswith("People named in this message, from their profiles:\n### Hope Dobbelaere (memory/people/Hope_Dobbelaere)\n\n# Hope")
     assert "Newest history:\n2026-10-28 · Slack · asked whether Mira is free Thursday." in card and "older entry" not in card
-    nightly.main(["people-mentioned", "--vault", str(root), "--form", "line", "--", "hope?"])
+    cli.main(["people-mentioned", "--vault", str(root), "--form", "line", "--", "hope?"])
     assert capsys.readouterr().out.splitlines()[1].startswith("- Hope Dobbelaere: Mira's partner")

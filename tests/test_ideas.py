@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from brain import compile_context, fm, health, ideas, needs, nightly, state, validate
+from brain import cli, compile_context, fm, health, ideas, needs, state, validate
 from brain.config import Config
 from brain.tasks import Task, due, load_tasks, write_archive
 from brain.vault import Vault
@@ -286,22 +286,22 @@ def test_ideas_are_not_added_to_compiled_context(vault, monkeypatch):
 def test_cli_shown_all_json_add_refusal_and_response(vault, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
     argv = ["ideas", "--vault", str(vault)]
-    nightly.main(argv + ["--add", "Watch the inbox?", "--source", "agent/Channels", "--why", "Save time.",
+    cli.main(argv + ["--add", "Watch the inbox?", "--source", "agent/Channels", "--why", "Save time.",
                          "--needs", "Gmail access"])
     assert "added idea" in capsys.readouterr().out
     with pytest.raises(SystemExit, match="next idea can be added 2026-11-04"):
-        nightly.main(argv + ["--add", "Another?", "--source", "Topic"])
-    nightly.main(argv)
+        cli.main(argv + ["--add", "Another?", "--source", "Topic"])
+    cli.main(argv)
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 2 and "Watch the inbox?" in lines[0] and lines[1] == "1 open, 0 snoozed; new owner"
-    nightly.main(argv + ["--respond", "Watch the inbox?", "--answer", "not-now"])
+    cli.main(argv + ["--respond", "Watch the inbox?", "--answer", "not-now"])
     capsys.readouterr()
-    nightly.main(argv + ["--json"])
+    cli.main(argv + ["--json"])
     assert json.loads(capsys.readouterr().out) == {"shown": None, "open": 1, "snoozed": 1,
                                                "newOwner": True, "cooldownUntil": "2026-11-04"}
-    nightly.main(argv)
+    cli.main(argv)
     assert capsys.readouterr().out == "1 open, 1 snoozed; new owner; next idea can show 2026-11-04\n"
-    nightly.main(argv + ["--all"])
+    cli.main(argv + ["--all"])
     assert "Watch the inbox?" in capsys.readouterr().out
 
 
@@ -311,4 +311,4 @@ def test_cli_shown_all_json_add_refusal_and_response(vault, capsys, monkeypatch)
                                             (["--answer", "no"], "goes with --respond")])
 def test_cli_reports_invalid_options(vault, options, message):
     with pytest.raises(SystemExit, match=message):
-        nightly.main(["ideas", "--vault", str(vault), *options])
+        cli.main(["ideas", "--vault", str(vault), *options])

@@ -2,7 +2,7 @@
 import subprocess
 from datetime import date
 
-from brain import fm, health, nightly
+from brain import cli, fm, health
 from brain.config import Config
 from conftest import make_vault
 
@@ -56,15 +56,15 @@ def test_render_and_write_carry_no_note_contents(tmp_path, capsys):
     text = health.render(health.report(Config.load(root), date(2026, 10, 6)))
     assert text.startswith("# Health: Agent, 2026-10-06\n") and "PRIVATE" not in text and "Alice" not in text
     assert "Git:" in text
-    nightly.main(["health", "--vault", str(root), "--date", "2026-10-06", "--write"])
+    cli.main(["health", "--vault", str(root), "--date", "2026-10-06", "--write"])
     written = root / "Runtime/health.md"
     assert str(written) in capsys.readouterr().out
     saved = written.read_text()
     assert saved.startswith("---\nkind: log\n---\n# Health:") and "Git:" not in saved
     before = written.stat().st_mtime_ns
-    nightly.main(["health", "--vault", str(root), "--date", "2026-10-06", "--write"])
+    cli.main(["health", "--vault", str(root), "--date", "2026-10-06", "--write"])
     assert written.stat().st_mtime_ns == before
-    nightly.main(["health", "--vault", str(root), "--date", "2026-10-06", "--json"])
+    cli.main(["health", "--vault", str(root), "--date", "2026-10-06", "--json"])
     assert '"stages"' in capsys.readouterr().out
 
 

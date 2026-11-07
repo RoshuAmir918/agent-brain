@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from brain.config import Config
-from brain import nightly
+from brain import cli
 
 
 def test_defaults_without_config(tmp_path, monkeypatch):
@@ -60,7 +60,7 @@ def test_removed_config_key_names_its_replacement(tmp_path, setting):
     with pytest.raises(ValueError, match=r"brain\.hermes_dir.*set runtime_dir"):
         Config.load(cwd=tmp_path)
     with pytest.raises(SystemExit) as error:
-        nightly.main(["validate", "--vault", str(tmp_path)])
+        cli.main(["validate", "--vault", str(tmp_path)])
     assert error.value.code == 2
 
 
@@ -79,10 +79,10 @@ def test_paths_from_cwd_and_explicit_vault(vault, monkeypatch, capsys, name, tmp
     expected = {"soul": config.soul_path, "skills": config.skills_path,
                 "scripts": tmp_path / "agent-home/scripts",
                 "vault": vault, "repo": vault.parent}[name]
-    nightly.main(["paths", name])
+    cli.main(["paths", name])
     assert capsys.readouterr().out == str(expected) + "\n"
     monkeypatch.chdir(tmp_path)
-    nightly.main(["paths", name, "--vault", str(vault)])
+    cli.main(["paths", name, "--vault", str(vault)])
     assert capsys.readouterr().out == str(expected) + "\n"
 
 
@@ -136,9 +136,9 @@ def test_nested_configured_paths_preview_and_write(vault, monkeypatch):
     (root / "Source Hub.md").write_text("# Hub\n[[sources/Evidence]]\n")
     monkeypatch.chdir(root / "internal/agent")
     before = snapshot(repo)
-    nightly.main(["nightly", "--date", "2026-10-05"])
+    cli.main(["nightly", "--date", "2026-10-05"])
     assert snapshot(repo) == before
-    nightly.main(["nightly", "--date", "2026-10-05", "--write"])
+    cli.main(["nightly", "--date", "2026-10-05", "--write"])
     assert (repo / ".context.md").exists()
     assert "[[notes/wiki/internal/agent/Tasks Archive/T-001|" in (root / "internal/agent/Tasks.md").read_text()
     assert "## notes/wiki/internal/agent/Triggers.md" in (repo / ".context.md").read_text()

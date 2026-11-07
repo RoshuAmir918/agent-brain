@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from brain.config import Config
-from brain import fm, nightly, triggers, validate
+from brain import cli, fm, nightly, triggers, validate
 from brain.tasks import Task, archived_open_tasks, load_tasks, parse_register, read_archive_body, write_archive
 
 
@@ -63,7 +63,7 @@ def test_report_only_resolves_human_links_without_reading_human_contents(tmp_pat
         return original(path, *args, **kwargs)
 
     with patch.object(Path, "read_text", guarded_read):
-        nightly.main(nightly_argv(root, "2026-10-05"))
+        cli.main(nightly_argv(root, "2026-10-05"))
 
 
 @pytest.mark.parametrize("archived", [False, True])
@@ -74,12 +74,12 @@ def test_due_commitment_persists_and_reheats_before_current(tmp_path, archived):
     body = triggers.TEMPLATE.replace("| --- | --- | --- | --- | --- | --- | --- |",
         "| --- | --- | --- | --- | --- | --- | --- |\n| TR-001 | commitment | 2026-10-05 | revisit task | T-001 | active | 2026-10-04 |")
     fm.write(root / "agent/Triggers.md", {"tier": "hot", "pinned": True}, body)
-    nightly.main(nightly_argv(root, "2026-10-05", "--write"))
+    cli.main(nightly_argv(root, "2026-10-05", "--write"))
     _, tasks = parse_register(fm.read(root / "agent/Tasks.md")[1])
     assert "2026-10-05" in tasks[0].uses
     assert tasks[0].state["tier"] == "hot" and tasks[0].state["status"] == "open"
     assert "T-001" in (root / "CURRENT.md").read_text()
-    nightly.main(nightly_argv(root, "2026-10-06", "--write"))
+    cli.main(nightly_argv(root, "2026-10-06", "--write"))
     _, tasks = parse_register(fm.read(root / "agent/Tasks.md")[1])
     assert "2026-10-06" not in tasks[0].uses
     assert "fired 2026-10-05" in (root / "agent/Triggers.md").read_text()
@@ -97,7 +97,7 @@ def test_report_only_previews_all_transforms_without_writing(tmp_path, day, caps
          patch.object(nightly, "rebuild_current", wraps=nightly.rebuild_current) as current, \
          patch.object(triggers, "process", wraps=triggers.process) as trigger_processing, \
          patch.object(validate, "run", wraps=validate.run) as validation:
-        nightly.main(nightly_argv(root, day))
+        cli.main(nightly_argv(root, day))
     assert snapshot(root) == before
     assert old_log.read_text().startswith("# Sleep log — 2026-10\n\nOLD_REPORT_SENTINEL\n")
     assert tasks.call_count == current.call_count == trigger_processing.call_count == validation.call_count == 1
@@ -111,7 +111,7 @@ def test_report_only_returns_validation_failure_without_applying_changes(tmp_pat
     (root / "Broken.md").write_text("# Broken\n[[missing]]\n")
     before = snapshot(root)
     with pytest.raises(SystemExit) as caught:
-        nightly.main(nightly_argv(root, "2026-10-05"))
+        cli.main(nightly_argv(root, "2026-10-05"))
     assert caught.value.code == 1
     assert snapshot(root) == before
     assert "VALIDATION: Broken.md: unresolved wikilinks ['missing']" in capsys.readouterr().out
@@ -120,7 +120,7 @@ def test_report_only_returns_validation_failure_without_applying_changes(tmp_pat
 def test_write_returns_validation_failure_and_logs_problems(vault, capsys):
     (vault / "Broken.md").write_text("# Broken\n[[missing]]\n")
     with pytest.raises(SystemExit) as caught:
-        nightly.main(nightly_argv(vault, "2026-10-05", "--write"))
+        cli.main(nightly_argv(vault, "2026-10-05", "--write"))
     assert caught.value.code == 1
     problem = "VALIDATION: Broken.md: unresolved wikilinks ['missing']"
     assert problem in capsys.readouterr().out
@@ -146,7 +146,7 @@ def test_preview_skips_runtime_directories(vault, monkeypatch):
         return original(source, target, *args, **kwargs)
 
     monkeypatch.setattr(nightly.shutil, "copyfile", guarded_copy)
-    nightly.main(nightly_argv(vault, "2026-11-01"))
+    cli.main(nightly_argv(vault, "2026-11-01"))
     assert "agent/Tasks.md" in copied
     assert snapshot(vault) == before
 

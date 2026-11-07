@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from brain import health, install, nightly, schedule, validate
+from brain import cli, health, install, schedule, validate
 from brain.config import Config, SECTIONS
 from brain.vault import Vault
 
@@ -62,16 +62,16 @@ def test_enterprise_health_and_validation_do_not_expect_one_persons_stages_or_pr
 
 def test_schedule_init_adds_the_editions_routines_and_never_touches_one_already_there(vault, capsys):
     config = enterprise(vault)
-    nightly.main(["schedule", "set", "watch", "--cron", "0 9 * * 1-5", "--skills", "brain-watch", "--vault", str(vault)])
+    cli.main(["schedule", "set", "watch", "--cron", "0 9 * * 1-5", "--skills", "brain-watch", "--vault", str(vault)])
     capsys.readouterr()
-    nightly.main(["schedule", "init", "--vault", str(vault)])
+    cli.main(["schedule", "init", "--vault", str(vault)])
     assert "added" in capsys.readouterr().out
     routines = schedule.load(config)
     assert {"evening", "sleep1", "attribution"} <= set(routines)
     assert not {"continue", "continue-daily"} & set(routines)
     assert not {"morning", "people", "prime"} & set(routines)
     assert routines["watch"].cron == "0 9 * * 1-5"
-    nightly.main(["schedule", "init", "--vault", str(vault)])
+    cli.main(["schedule", "init", "--vault", str(vault)])
     assert "already scheduled" in capsys.readouterr().out
     assert {"morning", "people", "prime"} <= set(schedule.defaults(Config(repo=config.repo)))
     assert not {"continue", "continue-daily"} & set(schedule.defaults(Config(repo=config.repo)))

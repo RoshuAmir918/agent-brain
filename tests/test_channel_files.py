@@ -3,7 +3,7 @@ from datetime import datetime
 
 import pytest
 
-from brain import channel_files, channels, compile_context, fm, nightly
+from brain import channel_files, channels, cli, compile_context, fm
 from brain.config import Config
 from brain.vault import Vault
 
@@ -190,7 +190,7 @@ def test_mail_cli_text_json_cap_and_no_bodies(synced, capsys):
     for n in range(45):
         message(root, id=f"m{n:02}", date=f"2026-11-04T14:{n:02}:00-08:00", subject="Lunch\nchanged")
     argv = ["channels", "mail", "--since", "2026-11-04", "--vault", str(vault)]
-    nightly.main(argv + ["--json"])
+    cli.main(argv + ["--json"])
     raw = capsys.readouterr().out
     data = json.loads(raw)
     assert set(data) == {"coverage", "messages", "notices", "filtered", "omitted"}
@@ -198,7 +198,7 @@ def test_mail_cli_text_json_cap_and_no_bodies(synced, capsys):
     assert data["messages"][0]["date"] == "2026-11-04T14:44:00-08:00"
     assert set(data["messages"][0]) == {"date", "account", "whose", "from", "subject", "labels", "path"}
     assert "BODY_MUST_NEVER_APPEAR" not in raw
-    nightly.main(argv)
+    cli.main(argv)
     text = capsys.readouterr().out
     assert len(text.splitlines()) == 44 and "Lunch changed" in text
     assert "40 from people · 0 notices from 0 senders · filtered: 0 category, 0 sent, 0 before since, 0 invalid · 5 over cap" in text
@@ -209,7 +209,7 @@ def test_mail_cli_text_json_cap_and_no_bodies(synced, capsys):
 def test_mail_cli_requires_valid_since(synced, options, capsys):
     vault, _ = synced
     with pytest.raises(SystemExit):
-        nightly.main(["channels", "mail", "--vault", str(vault), *options])
+        cli.main(["channels", "mail", "--vault", str(vault), *options])
 
 
 @pytest.mark.parametrize("sender", ['"claude[bot]" <notifications@github.com>', "GitHub <noreply@github.com>",
@@ -240,7 +240,7 @@ def test_notices_are_kept_and_grouped_by_sender_with_the_newest_shown(synced, ca
     assert groups['"claude[bot]" <notifications@github.com>']["subject"] == "PR 4"
     assert groups["Ally Auto <email@alert.ally.com>"]["count"] == 1
     assert data["filtered"]["category"] == 1
-    nightly.main(["channels", "mail", "--since", "2026-11-04", "--vault", str(vault)])
+    cli.main(["channels", "mail", "--since", "2026-11-04", "--vault", str(vault)])
     text = capsys.readouterr().out
     assert "notifications@github.com> ×5 · PR 4" in text and "1 from people · 6 notices from 2 senders" in text
     assert "BODY_MUST_NEVER_APPEAR" not in text

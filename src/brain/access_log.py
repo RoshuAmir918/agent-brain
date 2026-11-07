@@ -71,7 +71,7 @@ def append(config: Config, entries: list | None, platform: str, at: datetime, *,
     profiles = session_context.matching_profiles(vault, config, user_ids, platform)
     person = (f"[[{config.link(profiles[0].rel)}]]" if len(profiles) == 1 else
               f"stranger ({_clean(platform) or 'platform unknown'} {_clean(user_id or user_id_alt) or 'id unavailable'})")
-    local = at.replace(tzinfo=config.zone) if at.tzinfo is None else at.astimezone(config.zone)
+    local = config.local(at)
     lines = []
     for entry in entries[:5]:
         if not isinstance(entry, dict):

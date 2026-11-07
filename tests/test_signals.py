@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from brain import install, loops, nightly, session_tools, signals, tasks, validate
+from brain import cli, install, loops, session_tools, signals, tasks, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -41,7 +41,7 @@ def session(home, sid="s1", source="demiurge", age=timedelta(minutes=11), role="
 
 
 def run(capsys, config, command):
-    nightly.main([command, "--vault", str(config.vault_path)])
+    cli.main([command, "--vault", str(config.vault_path)])
     return capsys.readouterr().out
 
 

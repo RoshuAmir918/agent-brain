@@ -146,16 +146,9 @@ def _cut(text: str, words: int) -> str:
 def _owner_lines(body: str) -> tuple[str | None, str]:
     """The owner-facing Ask and Why lines of a task or proposal, cut to their caps. Working notes (Blocker, Status,
     Gap, Change) are the agent's own records and are never shown to the owner."""
-    ask = _task_field(body, "Ask")
-    why = _task_field(body, "Why") or ""
+    ask = fm.field(body, "Ask")
+    why = fm.field(body, "Why") or ""
     return (_cut(ask, ASK_WORDS) if ask else None), _cut(why, WHY_WORDS)
-
-
-def _task_field(body: str, *names: str) -> str | None:
-    match = re.search(r"^[ \t]*(?:-[ \t]+)?\*\*(?:" + "|".join(re.escape(name) for name in names)
-                      + r"):\*\*[ \t]*([^\r\n]*)", body, re.M | re.I)
-    value = match[1].replace("**", "").strip() if match else ""
-    return value or None
 
 
 def _heading_date(text: str, today: date | None) -> str | None:

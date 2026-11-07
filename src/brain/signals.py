@@ -5,7 +5,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from . import channel_files, fm, loops, runtime, session_tools, state, tasks
+from . import channel_files, fm, loops, runtime, session_tools, tasks
 from .config import Config
 
 
@@ -115,7 +115,7 @@ def continue_(config: Config, daily: bool = False) -> str:
         if daily:
             lines.append(task.tid)
             continue
-        nxt = state._field(task.body, "Next", "Next action") or ""
+        nxt = fm.field(task.body, "Next", "Next action") or ""
         lines.append(f"{task.tid} · {task.task_state or 'open'} · {nxt}")
     if due and not daily and (failed := _last_failure(home, config.skill_prefix + "continue")):
         lines.append(f"last failure: {failed}")

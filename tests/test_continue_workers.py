@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from brain import continuation, fm, nightly, signals, tasks
+from brain import cli as brain_cli, continuation, fm, signals, tasks
 from brain.config import Config
 
 
@@ -23,7 +23,7 @@ def worker(vault, tmp_path, monkeypatch):
 
 
 def cli(config, capsys, *args):
-    nightly.main(["continue", *args, "--vault", str(config.vault_path)])
+    brain_cli.main(["continue", *args, "--vault", str(config.vault_path)])
     return capsys.readouterr().out.strip()
 
 

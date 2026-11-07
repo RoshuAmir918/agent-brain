@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from brain import fm, ideas, nightly, tasks
+from brain import cli as brain_cli, fm, ideas, tasks
 from brain.config import Config
 from conftest import snapshot
 
@@ -13,7 +13,7 @@ TODAY = date(2026, 11, 5)
 
 
 def cli(vault, capsys, *args):
-    nightly.main(["task", *args, "--vault", str(vault)])
+    brain_cli.main(["task", *args, "--vault", str(vault)])
     return capsys.readouterr().out.strip()
 
 
@@ -206,10 +206,10 @@ def test_cli_holds_nonreentrant_vault_lock_across_read_write(vault, monkeypatch,
             return original(*args, **kwargs)
         return call
 
-    monkeypatch.setattr(nightly, "vault_lock", lock)
+    monkeypatch.setattr(brain_cli, "vault_lock", lock)
     for name in ("load_tasks", "save_task", "next_id", "append_task"):
         monkeypatch.setattr(tasks, name, guarded(getattr(tasks, name)))
-    nightly.main([*command, "--vault", str(vault)])
+    brain_cli.main([*command, "--vault", str(vault)])
     capsys.readouterr()
     assert entered == 1 and not held
 
@@ -316,12 +316,12 @@ def test_brain_commit_stages_scoped_paths_under_the_repo_lock(vault, capsys, mon
         return real(config)
     monkeypatch.setattr(lock, "repo_lock", watching)
     (vault / "One.md").write_text("one\n"); (vault / "Two.md").write_text("two\n")
-    nightly.main(["commit", "-m", "test: one only", str(vault / "One.md"), "--vault", str(vault)])
+    brain_cli.main(["commit", "-m", "test: one only", str(vault / "One.md"), "--vault", str(vault)])
     assert capsys.readouterr().out.startswith("committed ")
     assert held == [repo]
     shown = git("show", "--name-only", "--format=%s", "HEAD")
     assert "test: one only" in shown and "One.md" in shown and "Two.md" not in shown
-    nightly.main(["commit", "-m", "nothing", str(vault / "One.md"), "--vault", str(vault)])
+    brain_cli.main(["commit", "-m", "nothing", str(vault / "One.md"), "--vault", str(vault)])
     assert capsys.readouterr().out.strip() == "nothing to commit"
 
 
@@ -341,7 +341,7 @@ def test_completed_lists_the_weeks_finished_tasks_newest_first(vault, capsys):
     old = cli(vault, capsys, "new", "Old work", "--source", "long ago").split()[0]
     tasks.complete(config, old, TODAY - timedelta(days=30), "done long ago")
     def completed(*args):
-        nightly.main(["completed", *args, "--vault", str(vault)])
+        brain_cli.main(["completed", *args, "--vault", str(vault)])
         return capsys.readouterr().out
     rows = json.loads(completed("--json"))
     assert [row["id"] for row in rows] == [tid]

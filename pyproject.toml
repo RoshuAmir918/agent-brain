@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-brain"
-version = "0.51.2"
+version = "0.51.3"
 description = "Configurable Markdown memory mechanics for a personal agent"
 readme = "README.md"
 license = {text = "MIT"}
@@ -18,7 +18,7 @@ Homepage = "https://github.com/RoshuAmir918/agent-brain"
 test = ["pytest"]
 
 [project.scripts]
-brain = "brain.nightly:main"
+brain = "brain.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

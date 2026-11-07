@@ -194,6 +194,11 @@ class Config:
     def today(self) -> date:
         return self.now().date()
 
+    def local(self, moment: datetime | None = None) -> datetime:
+        """`moment` (default: now) in the owner's zone; a naive one is taken as already local."""
+        moment = self.now() if moment is None else moment
+        return moment.replace(tzinfo=self.zone) if moment.tzinfo is None else moment.astimezone(self.zone)
+
     @cached_property
     def context(self) -> Context:
         path = self.repo / "brain.toml"

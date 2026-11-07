@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import fm, journal, ledger, loops, needs, nightly, state
+from brain import cli, fm, journal, ledger, loops, needs, nightly, state
 from brain.config import Config
 
 TODAY = date(2026, 10, 28)
@@ -90,17 +90,17 @@ def test_journal_is_not_a_routine_ledger_and_appears_in_state(config):
 
 def test_cli_journal_append_json_and_synthesis(config, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(record(loops=[{"kind": "owed", "text": "Send fares.", "with": "Pat"}]))))
-    nightly.main(["journal", "append", "--vault", str(config.vault_path), "--platform", "slack", "--at", "2026-10-28 14:05"])
+    cli.main(["journal", "append", "--vault", str(config.vault_path), "--platform", "slack", "--at", "2026-10-28 14:05"])
     monkeypatch.setattr("sys.stdin", io.StringIO("Caught up."))
-    nightly.main(["journal", "append", "--vault", str(config.vault_path), "--synthesis", "--at", "2026-10-28 15:00"])
-    nightly.main(["journal", "recent", "--vault", str(config.vault_path)])
+    cli.main(["journal", "append", "--vault", str(config.vault_path), "--synthesis", "--at", "2026-10-28 15:00"])
+    cli.main(["journal", "recent", "--vault", str(config.vault_path)])
     out = capsys.readouterr().out
     assert out.splitlines()[0].endswith("agent/Loops.md")
     assert out.splitlines()[-1].startswith("0 rows:")
     assert loops.open_loops(config)[0].text == "Send fares."
     monkeypatch.setattr("sys.stdin", io.StringIO("[]"))
     with pytest.raises(SystemExit, match="journal append"):
-        nightly.main(["journal", "append", "--vault", str(config.vault_path)])
+        cli.main(["journal", "append", "--vault", str(config.vault_path)])
 
 
 def test_ledger_append_by_skill_finds_the_routine_and_skips_night_stages(config, monkeypatch, capsys):
@@ -111,9 +111,9 @@ def test_ledger_append_by_skill_finds_the_routine_and_skips_night_stages(config,
     assert ledger.routine_for_skill(config, "unprefixed") == "unprefixed"
     payload = {"skill": "brain-watch", "outcome": "nothing", "account": "Checked.", "at": "2026-10-28 09:00"}
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
-    nightly.main(["ledger", "append", "--json", "--vault", str(config.vault_path)])
+    cli.main(["ledger", "append", "--json", "--vault", str(config.vault_path)])
     assert capsys.readouterr().out.strip().endswith("agent/Watch/2026-10.md")
-    nightly.main(["ledger", "append", "--vault", str(config.vault_path), "--skill", "brain-sleep1",
+    cli.main(["ledger", "append", "--vault", str(config.vault_path), "--skill", "brain-sleep1",
                   "--outcome", "done", "--account", "Consolidated."])
     assert "night stage" in capsys.readouterr().out
     assert not (config.vault_path / "agent/Sleep1").exists()
@@ -149,8 +149,8 @@ def test_a_private_note_is_never_named_as_touched_nor_as_an_asks_source(config):
 
 def test_the_nightly_pull_stashes_rows_written_after_the_agent_committed(vault, monkeypatch):
     calls = []
-    monkeypatch.setattr(nightly, "sh", lambda repo, *args: calls.append(args))
-    nightly.push(vault)
+    monkeypatch.setattr(cli, "sh", lambda repo, *args: calls.append(args))
+    cli.push(vault)
     assert calls[0][:3] == ("pull", "--rebase", "--autostash")
 
 
@@ -195,10 +195,10 @@ def test_a_noted_file_without_a_tier_gains_one_on_its_next_line(config):
 
 
 def test_recent_says_when_there_is_nothing_to_read_or_a_file_it_cannot_read(config, capsys):
-    from brain import nightly
+    from brain import cli
     path = journal.path_for(config, "2026-10")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("# Journal\n\n- 2026-10-29 01:23 demiurge · an older bullet row\n", encoding="utf-8")
-    nightly.cmd_journal_recent(type("A", (), {"config": config, "count": 30})())
+    cli.cmd_journal_recent(type("A", (), {"config": config, "count": 30})())
     out = capsys.readouterr().out
     assert out.startswith("0 rows:") and "1 line(s)" in out and "older format" in out

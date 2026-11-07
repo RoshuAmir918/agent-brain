@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from brain.vault import Vault
-from brain import compile_context, fm, nightly
+from brain import cli, compile_context, fm
 from brain.config import Config
 from brain.tasks import Task, write_archive
 from conftest import git, nightly_argv, snapshot
@@ -54,7 +54,7 @@ def test_context_contains_source_bodies_and_only_open_register_sections(context_
 def test_context_preview_does_not_write_even_with_out(context_vault, capsys):
     out = context_vault.parent / "custom.md"
     before = snapshot(context_vault.parent)
-    nightly.main(["compile-context", "--vault", str(context_vault), "--out", str(out)])
+    cli.main(["compile-context", "--vault", str(context_vault), "--out", str(out)])
     captured = capsys.readouterr()
     assert captured.out == compile_context.build(Vault(context_vault))
     assert captured.err == compile_context.summary(captured.out) + "\n"
@@ -62,7 +62,7 @@ def test_context_preview_does_not_write_even_with_out(context_vault, capsys):
 
 
 def test_context_write_defaults_to_parent_without_git(context_vault, capsys):
-    nightly.main(["compile-context", "--vault", str(context_vault), "--write"])
+    cli.main(["compile-context", "--vault", str(context_vault), "--write"])
     path = context_vault.parent / ".context.md"
     assert path.read_text() == compile_context.build(Vault(context_vault))
     assert not (context_vault / ".context.md").exists()
@@ -72,7 +72,7 @@ def test_context_write_defaults_to_parent_without_git(context_vault, capsys):
 def test_context_custom_out_and_word_warning(context_vault, capsys):
     (context_vault / "START.md").write_text("# Start\n" + "word " * 6001)
     out = context_vault.parent / "custom.md"
-    nightly.main(["compile-context", "--vault", str(context_vault), "--out", str(out), "--write"])
+    cli.main(["compile-context", "--vault", str(context_vault), "--out", str(out), "--write"])
     assert out.read_text().startswith("Generated nightly")
     assert "WARNING: over 6000 words" in capsys.readouterr().err
     assert not (context_vault.parent / ".context.md").exists()
@@ -88,7 +88,7 @@ def test_repo_root_detects_git_above_vault_parent(repo):
 def test_nightly_context_is_regenerated_and_committed_at_repo_root(repo):
     root, _ = repo
     (root.parent / ".context.md").write_text("STALE_CONTEXT\n")
-    nightly.main(nightly_argv(root, "2026-10-05", "--write", "--commit"))
+    cli.main(nightly_argv(root, "2026-10-05", "--write", "--commit"))
     context = root.parent / ".context.md"
     assert context.read_text() == compile_context.build(Vault(root))
     assert "STALE_CONTEXT" not in context.read_text()
@@ -102,7 +102,7 @@ def test_nightly_preview_keeps_real_context_untouched(repo):
     context = root.parent / ".context.md"
     context.write_text("ORIGINAL_CONTEXT\n")
     before = snapshot(root)
-    nightly.main(nightly_argv(root, "2026-10-05"))
+    cli.main(nightly_argv(root, "2026-10-05"))
     assert context.read_text() == "ORIGINAL_CONTEXT\n"
     assert snapshot(root) == before
 
@@ -256,7 +256,7 @@ def test_a_run_can_ask_for_only_some_sections_within_what_the_vault_allows(conte
     assert "# Current" in narrow and "# Triggers" in narrow
     assert all(absent not in narrow for absent in ("START_BODY", "### T-001", "Directory: what the vault knows", "Before answering"))
     assert len(narrow) < len(full)
-    nightly.main(["compile-context", "--vault", str(context_vault), "--sections", "current, triggers"])
+    cli.main(["compile-context", "--vault", str(context_vault), "--sections", "current, triggers"])
     assert capsys.readouterr().out == narrow
     monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start,current")
     within = compile_context.build(Vault(context_vault), ("current", "triggers"))
@@ -266,4 +266,4 @@ def test_a_run_can_ask_for_only_some_sections_within_what_the_vault_allows(conte
 def test_sections_are_checked_and_never_written(context_vault):
     for bad in (["--sections", "current,nonsense"], ["--sections", ","], ["--sections", "current", "--write"]):
         with pytest.raises(SystemExit):
-            nightly.main(["compile-context", "--vault", str(context_vault), *bad])
+            cli.main(["compile-context", "--vault", str(context_vault), *bad])
