@@ -8,7 +8,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import fm, goals, health, ideas, ledger, loops, needs, portrait, responsibilities, runtime, schedule, seed, tasks, views, works
+from . import fm, goals, health, ideas, ledger, loops, image, needs, portrait, responsibilities, runtime, schedule, seed, tasks, views, works
 from .config import Config
 from .vault import Vault
 
@@ -284,7 +284,7 @@ def build(config: Config, today: date) -> dict:
             "portrait": [line.public() for line in portrait.shown(portrait.load(config))]
             if config.edition == "enterprise" else None,
             # a person's portrait, guesses included, for their eyes only: the backend never serves it to anyone else
-            "ownerPortrait": portrait.owner_lines(config) if config.edition == "personal" else None,
+            "ownerPortrait": image.owner_lines(config) if config.edition == "personal" else None,
             # the owner's accounts a seed has read or is reading, so their app can say the first portrait is coming
             "seeds": seed.seeds(vault) if config.edition == "personal" else None}
 

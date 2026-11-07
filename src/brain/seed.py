@@ -529,9 +529,9 @@ STALE_DAYS = 90
 def coverage(vault, today: date) -> dict:
     """How much the portrait knows and from where: each section's lines, each kind of source's last reading (from the
     `source` and `read` keys of the Seeds notes), and the connected channels no seed has read yet."""
-    from . import channels, portrait
+    from . import channels, image, portrait
     config = vault.config
-    lines = portrait.image(config)
+    lines = image.lines(config)
     sections = [{"section": name, "lines": len(found := [line for line in lines if line.section == name]),
                  "said": sum(line.basis == "said" for line in found), "seen": sum(line.basis == "seen" for line in found),
                  "guess": sum(line.basis == "guess" for line in found),
@@ -566,7 +566,7 @@ def coverage(vault, today: date) -> dict:
     return {"sections": sections, "sources": sources, "unreadChannels": unread, "unreadBackfill": backfill,
             "attention": attention(config, portrait.load(config), today), "problems": problems,
             "facets": [{"facet": facet.name, "rank": facet.rank, "lines": len(facet.lines),
-                        "newest": max((line.evidence for line in facet.lines), default="")} for facet in portrait.facets(config)]}
+                        "newest": max((line.evidence for line in facet.lines), default="")} for facet in image.facets(config)]}
 
 
 def attention(config, lines, today: date, days: int = 7) -> list[dict]:

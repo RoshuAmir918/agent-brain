@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from brain import cli, fm, portrait, state, validate
+from brain import cli, fm, image, portrait, state, validate
 from brain.config import Config
 from brain.lock import vault_lock
 from brain.vault import Vault
@@ -35,7 +35,7 @@ def config(vault):
 
 def move(config, ident, facet):
     with vault_lock(config):
-        return portrait.move(config, ident, facet)
+        return image.move(config, ident, facet)
 
 
 def sort_into_facets(config):
@@ -50,16 +50,16 @@ def test_sorting_the_portrait_into_facets_keeps_every_line_and_id_and_then_compi
     assert "## After\n- Move to Lisbon within the year · said · high · 2026-10-30 · [[START]] ^3f2a\n  - horizon: year" in places[1]
     assert "Lisbon" not in (vault / "human/Portrait.md").read_text()   # moved, not copied
     with pytest.raises(ValueError, match="3 line"), vault_lock(config):
-        portrait.compile(config)   # half sorted: compiling now would drop the rest
+        image.compile(config)   # half sorted: compiling now would drop the rest
     for ident, facet in (("c1a0", "Play"), ("e55a", "Reading & ideas"), ("0bad", "Play")):
         move(config, ident, facet)
     data, body = fm.read(vault / "human/Portrait.md")
-    assert data["compiled"] == portrait.digest(body) and data["audience"] == "owner" and data["pinned"] is True
+    assert data["compiled"] == image.digest(body) and data["audience"] == "owner" and data["pinned"] is True
     assert "- Move to Lisbon within the year · said · high · 2026-10-30 · [[memory/human/Portrait/Places]] ^3f2a\n" \
            "  - horizon: year\n  - for: apartments, neighbourhoods, visas" in body
     assert "against" not in body and "test: hold a beginner gym" in body
     assert [line.id for line in portrait.load(config)] == ["3f2a", "c1a0", "e55a", "0bad"]
-    assert {line.id: line.facet for line in portrait.image(config)} == {"3f2a": "Places", "c1a0": "Play", "0bad": "Play",
+    assert {line.id: line.facet for line in image.lines(config)} == {"3f2a": "Places", "c1a0": "Play", "0bad": "Play",
                                                                          "e55a": "Reading & ideas"}
     play = fm.read(vault / "human/Portrait/Play.md")[1]
     assert play.index("## After") < play.index("## Not") and "against: hasn't mentioned it" in play
@@ -71,7 +71,7 @@ def test_the_compiled_portrait_takes_each_facets_best_lines_first_within_the_cap
     lines = "".join(f"- Aim {i} · seen · medium · 2026-11-01 · [[S]] ^a{i:03d}\n  - horizon: now\n" for i in range(8))
     fm.write(vault / "human/Portrait/Work.md", {"kind": "hub", "tier": "warm", "facet": "Work", "rank": 1}, "## After\n" + lines)
     with vault_lock(config):
-        assert portrait.compile(config) == 10
+        assert image.compile(config) == 10
     after = [line for line in portrait.load(config) if line.section == "After"]
     # each facet's first After line before any facet's second; among equals, facet rank, then confidence
     assert [line.id for line in after][:4] == ["3f2a", "a000", "c1a0", "a001"]
@@ -79,7 +79,7 @@ def test_the_compiled_portrait_takes_each_facets_best_lines_first_within_the_cap
     big = "".join(f"- {'word ' * 60}{i} · said · high · 2026-11-01 · [[S]] ^b{i:03d}\n" for i in range(8))
     fm.write(vault / "human/Portrait/Music.md", {"kind": "hub", "tier": "warm", "facet": "Music", "rank": 2}, "## Taste\n" + big)
     with vault_lock(config):
-        portrait.compile(config)
+        image.compile(config)
     assert len(fm.read(vault / "human/Portrait.md")[1].split()) <= portrait.WORDS
 
 
@@ -105,8 +105,8 @@ def test_new_facet_lines_get_ids_unique_across_the_folder_and_reach_the_portrait
     fm.write(path, {"kind": "hub", "tier": "warm", "facet": "Music", "rank": 3},
              "## Taste\n- Late-night electronic while working · seen · high · 2026-11-02 · [[S]]\n")
     tokens = iter(["3f2a", "0bad", "9a9a"])
-    monkeypatch.setattr(portrait.secrets, "token_hex", lambda n: next(tokens))
-    assert portrait.stamp(config) == 1
+    monkeypatch.setattr(image.secrets, "token_hex", lambda n: next(tokens))
+    assert image.stamp(config) == 1
     assert path.read_text().rstrip().endswith("^9a9a")
     assert "Late-night electronic while working · seen · high · 2026-11-02 · [[memory/human/Portrait/Music]] ^9a9a" \
         in (vault / "human/Portrait.md").read_text()
@@ -124,13 +124,13 @@ def test_validate_names_hand_edits_said_only_breaches_shared_ids_and_bad_ranks(c
     assert "Health.md: rank 'high'" in found
     assert "Energy · Sleeps badly before launches: a said-only facet takes only what was said, not guess" in found
     assert "id ^3f2a is also in human/Portrait/Health.md" in found or "id ^3f2a is also in human/Portrait/Places.md" in found
-    assert portrait.new_facet(config, "Money")["sensitivity"] == "said-only"
+    assert image.new_facet(config, "Money")["sensitivity"] == "said-only"
 
 
 def test_a_facet_holds_more_than_the_portrait_but_not_without_limit(config, vault):
     sections = ("After", "Cares about", "Taste", "How they decide", "Energy", "Not")
     body = "".join(f"## {s}\n" + "".join(f"- {s} {i} · said · high · 2026-11-01 · [[S]]\n" for i in range(7)) for s in sections)
-    found = portrait.facet_hygiene({"rank": 1}, body, date(2026, 11, 6), "F")
+    found = image.facet_hygiene({"rank": 1}, body, date(2026, 11, 6), "F")
     assert any("42 lines; at most 40" in p for p in found)
     assert not any("words" in p for p in found)
 
@@ -156,7 +156,7 @@ def test_the_owner_gets_the_whole_image_with_the_compiled_lines_marked(config, v
     lines = "".join(f"- Aim {i} · seen · medium · 2026-11-01 · [[S]] ^a{i:03d}\n  - horizon: now\n" for i in range(9))
     fm.write(vault / "human/Portrait/Work.md", {"kind": "hub", "tier": "warm", "facet": "Work", "rank": 4}, "## After\n" + lines)
     with vault_lock(config):
-        portrait.compile(config)
+        image.compile(config)
     data = state.build(Config.load(vault), date(2026, 11, 6))["ownerPortrait"]
     assert len(data) == 13 and all("against" not in line for line in data)
     by = {line["id"]: line for line in data}
@@ -199,12 +199,12 @@ def test_nothing_is_lost_to_unstamped_lines_letter_case_or_a_blank_line_before_d
     fm.write(vault / "human/Portrait/Work.md", {"kind": "hub", "tier": "warm", "facet": "Work", "rank": 1},
              "## Taste\n- Another unstamped line · seen · low · 2026-11-01 · [[S]]\n")
     with vault_lock(config), pytest.raises(ValueError, match="2 line"):
-        portrait.compile(config)
+        image.compile(config)
     move(config, "aaaa", "Work")
     with pytest.raises(ValueError, match="already in Work"):
         move(config, "aaaa", "work")
     assert "Stamped aim" in (vault / "human/Portrait/Work.md").read_text()
-    portrait.stamp(config)
+    image.stamp(config)
     ident = next(line.id for line in portrait.load(config) if line.text == "Unstamped aim")
     move(config, ident, "Places")
     places = (vault / "human/Portrait/Places.md").read_text()
@@ -223,18 +223,64 @@ def test_due_lists_facets_with_new_evidence_and_judged_moves_the_mark(config, va
         Evidence(date(2026, 11, 3), "shared", "Link to a bouldering gym", "other:Climbing crew", ("play", "places"), "imessage:link/2"),
         Evidence(date(2026, 11, 4), "shared", "Link to a clinic", "own", ("health",), "imessage:link/3"),
         Evidence(date(2026, 11, 5), "talks", "Group chat Climbing crew", "own", ("people",), "imessage:group/4")])
-    found = {entry["facet"]: entry for entry in portrait.due(config)}
+    found = {entry["facet"]: entry for entry in image.due(config)}
     assert set(found) == {"People", "Play", "Places"}   # health is said-only, never from evidence
     assert (found["People"]["exists"], found["People"]["new"], found["People"]["newest"]) == (False, 2, "2026-11-05")
     assert found["Play"]["exists"] and found["Play"]["since"] == "" and found["Play"]["sources"] == ["imessage"]
-    assert portrait.due(config)[0]["facet"] == "People"
+    assert image.due(config)[0]["facet"] == "People"
     cli.main(["portrait", "judged", "people", "--through", "2026-11-03", "--vault", str(vault)])
     assert capsys.readouterr().out.strip() == "People: judged through 2026-11-03"
     data = fm.read(vault / "human/Portrait/People.md")[0]
     assert data["judged"] == "2026-11-03" and data["facet"] == "People" and data["audience"] == "owner"
-    assert {entry["facet"]: entry["new"] for entry in portrait.due(config)}["People"] == 1
+    assert {entry["facet"]: entry["new"] for entry in image.due(config)}["People"] == 1
     cli.main(["portrait", "judged", "Play", "--vault", str(vault)])
     cli.main(["portrait", "due", "--vault", str(vault)])
     out = capsys.readouterr().out
     assert "Play" not in out.split("\n", 1)[1] and "People · 1 rows since 2026-11-03 · newest 2026-11-05 · imessage" in out
     assert validate.portrait_hygiene(Vault(vault)) == []
+
+
+def test_a_facet_that_claims_hints_takes_those_rows_from_the_broader_one(config, vault, tmp_path, monkeypatch, capsys):
+    from brain import evidence
+    from brain.evidence import Evidence
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
+    sort_into_facets(config)
+    fm.write(vault / "human/Portrait/Climbing.md", {"kind": "hub", "tier": "warm", "facet": "Climbing", "rank": 5,
+                                                     "hints": ["Boulder", "climb"]}, "# Climbing\n")
+    fm.write(vault / "human/Portrait/Health.md", {"kind": "hub", "tier": "warm", "facet": "Health", "rank": 6,
+                                                   "sensitivity": "said-only", "hints": ["physio"]}, "# Health\n")
+    evidence.append("calendar", [
+        Evidence(date(2026, 11, 1), "went", "Bouldering at the Barn, 4 times", "own", ("play",), "calendar:1"),
+        Evidence(date(2026, 11, 2), "went", "Tennis, twice", "own", ("play",), "calendar:2"),
+        Evidence(date(2026, 11, 3), "booked", "Climbing gym day pass", "own", ("places",), "calendar:3"),
+        Evidence(date(2026, 11, 4), "went", "Physio for the shoulder", "own", ("health",), "calendar:4")])
+    routed = image.route(evidence.read(), image.facets(config))
+    assert {name: [row.pointer for row in rows] for name, rows in routed.items()} == {
+        "Climbing": ["calendar:3", "calendar:1"], "Play": ["calendar:2"]}   # a fact's words claim too; health takes none
+    assert [entry["facet"] for entry in image.due(config)] == ["Climbing", "Play"]
+    cli.main(["portrait", "evidence", "climbing", "--vault", str(vault)])
+    assert capsys.readouterr().out.splitlines()[0].startswith("calendar: 2026-11-03 · booked · Climbing gym day pass")
+    cli.main(["portrait", "judged", "Climbing", "--through", "2026-11-03", "--vault", str(vault)])
+    capsys.readouterr()
+    cli.main(["portrait", "evidence", "Climbing", "--vault", str(vault)])
+    assert capsys.readouterr().out.strip() == "no new evidence for Climbing"
+    cli.main(["portrait", "evidence", "Climbing", "--all", "--json", "--vault", str(vault)])
+    assert len(__import__("json").loads(capsys.readouterr().out)) == 2
+    assert image.evidence_for(config, "Places") == []   # the day pass went to Climbing, not Places
+
+
+def test_claims_match_whole_words_never_open_a_said_only_row_and_names_ignore_case(config, vault, tmp_path, monkeypatch):
+    from brain import evidence
+    from brain.evidence import Evidence
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
+    sort_into_facets(config)
+    fm.write(vault / "human/Portrait/Climbing.md", {"kind": "hub", "tier": "warm", "facet": "Climbing", "rank": 5,
+                                                     "hints": ["climb", "run"]}, "# Climbing\n")
+    evidence.append("mail", [
+        Evidence(date(2026, 11, 1), "went", "Climbing injury treatment", "own", ("health",), "m:1"),
+        Evidence(date(2026, 11, 2), "received", "3 notices from runtime.example.com", "own", ("home & routine",), "m:2"),
+        Evidence(date(2026, 11, 3), "booked", "Table at a bistro", "own", ("food & drink",), "m:3")])
+    routed = image.route(evidence.read(), image.facets(config))
+    assert {name: [row.pointer for row in rows] for name, rows in routed.items()} == {
+        "Home & routine": ["m:2"], "Food & drink": ["m:3"]}
+    assert [row.pointer for row in image.evidence_for(config, "FOOD & DRINK")] == ["m:3"]

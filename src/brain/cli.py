@@ -13,7 +13,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, consults, digest, evidence, fm, health, identity, ideas, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
+from . import access, attribute, audit, compile_context, consults, digest, evidence, fm, health, identity, ideas, image, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
 from . import tasks as tasks_mod
 from . import goals
 from .tasks import load_tasks, quiet
@@ -787,24 +787,25 @@ def cmd_channels(args):
 def cmd_goals(args):
     config = args.config
     which, action = args.which, args.action
-    operations = ("edit", "evidence", "reached", "set-aside", "reopen", "nudge", "link", "keep", "not-a-goal", "to-task")
+    operations = ("edit", "evidence", "reached", "superseded-by", "set-aside", "reopen", "nudge", "asked-missed", "link", "keep", "not-a-goal", "to-task")
     if which in operations and action and goals.ID.fullmatch(action):
         which, action = action, which
     try:
         operation = action if goals.ID.fullmatch(which) else which
         if (args.dry_run or args.apply) and which != "migrate":
             raise ValueError("--dry-run and --apply go with migrate")
-        if args.json and which not in ("list", "show", "refused"):
-            raise ValueError("--json goes with list, show or refused")
-        if args.from_app and operation not in ("new", "edit", "reached", "set-aside", "reopen", "keep", "not-a-goal", "to-task"):
-            raise ValueError("--from-app goes with new, edit, reached, set-aside, reopen, keep, not-a-goal or to-task")
+        if args.json and which not in ("list", "show", "due", "refused"):
+            raise ValueError("--json goes with list, show, due or refused")
+        if args.from_app and operation not in ("new", "edit", "reached", "superseded-by", "set-aside", "reopen", "keep", "not-a-goal", "to-task"):
+            raise ValueError("--from-app goes with new, edit, reached, superseded-by, set-aside, reopen, keep, not-a-goal or to-task")
         allowed = {"new": {"words", "reach", "by", "said", "inferred", "evidence"}, "edit": {"title", "words", "kind", "by", "clear_by", "said"},
-                   "evidence": {"text"}, "link": {"text"}, "reached": {"why"}, "set-aside": {"why"}, "reopen": {"why"}, "not-a-goal": {"why"}}
+                   "evidence": {"text"}, "link": {"text"}, "reached": {"why", "evidence"},
+                   "superseded-by": {"text", "why", "evidence"}, "set-aside": {"why"}, "reopen": {"why"}, "not-a-goal": {"why"}}
         supplied = {name for name in ("words", "title", "why", "reach", "kind", "by", "clear_by", "said", "text", "inferred", "evidence")
                     if getattr(args, name) is not None and getattr(args, name) is not False}
         if supplied - allowed.get(operation, set()):
             raise ValueError(f"{operation} does not take " + ", ".join(sorted(supplied - allowed.get(operation, set()))))
-        if which in ("list", "asked", "migrate", "refused") and action is not None:
+        if which in ("list", "due", "asked", "migrate", "refused") and action is not None:
             raise ValueError(f"{which} takes no positional arguments")
         if which == "asked":
             print(goals.asked(config))
@@ -814,8 +815,8 @@ def cmd_goals(args):
             print(json.dumps(entries, ensure_ascii=False, indent=2) if args.json else
                   "\n".join(f"{entry['title']} — {entry['words']} ({entry['why']})" for entry in entries) or "no refused goals")
             return
-        if which in ("list", "show"):
-            entries = goals.load(config)
+        if which in ("list", "show", "due"):
+            entries = goals.due(config) if which == "due" else goals.load(config)
             if which == "show":
                 entries = [entry for entry in entries if entry.gid == action]
                 if not entries:
@@ -846,12 +847,13 @@ def cmd_goals(args):
                     print(f"{which} linked: {args.text}")
                     return
                 entry = goals.change(config, which, action, text=args.text, title=args.title, words=args.words,
-                                     by=args.by, clear_by=args.clear_by, kind=args.kind, why=args.why, said=args.said, from_app=args.from_app)
+                                     by=args.by, clear_by=args.clear_by, kind=args.kind, why=args.why, said=args.said,
+                                     evidence=args.evidence, from_app=args.from_app)
                 if action == "to-task":
                     print(f"{which} · became {entry.tid}")
                     return
             else:
-                raise ValueError("use new, list, show G-n, refused, asked, migrate, or G-n edit|evidence|reached|set-aside|reopen|nudge|link|keep|not-a-goal|to-task")
+                raise ValueError("use new, list, show G-n, due, refused, asked, migrate, or G-n edit|evidence|reached|superseded-by|set-aside|reopen|nudge|asked-missed|link|keep|not-a-goal|to-task")
         print(f"{entry.gid} · {entry.state['state']} · {entry.title}")
     except ValueError as error:
         raise SystemExit(f"brain goals: {error}")
@@ -1161,19 +1163,19 @@ def cmd_portrait(args):
                                   or args.hand_off):
         raise SystemExit("brain portrait: --reviews, --plans, --account, --days, --clear-backfill and --hand-off go with seed")
     if args.action == "stamp":
-        print(f"{portrait.stamp(args.config)} new line id(s)")
+        print(f"{image.stamp(args.config)} new line id(s)")
         return
     if args.action == "compile":
         try:
             with vault_lock(args.config):
-                count = portrait.compile(args.config)
+                count = image.compile(args.config)
         except ValueError as error:
             raise SystemExit(f"brain portrait compile: {error}")
         print("no facets yet; the portrait is written by hand until its lines are moved into facets" if count is None
-              else f"compiled {count} line(s) from {len(portrait.facets(args.config))} facet(s)")
+              else f"compiled {count} line(s) from {len(image.facets(args.config))} facet(s)")
         return
     if args.action == "facets":
-        found = portrait.facets(args.config)
+        found = image.facets(args.config)
         if args.json:
             print(json.dumps([{"facet": f.name, "rank": f.rank, "sensitivity": f.sensitivity, "note": f.rel,
                                "lines": [line.public() for line in f.lines]} for f in found], ensure_ascii=False, indent=2))
@@ -1185,7 +1187,7 @@ def cmd_portrait(args):
             print("no facets yet")
         return
     if args.action == "due":
-        found = portrait.due(args.config)
+        found = image.due(args.config)
         if args.json:
             print(json.dumps(found, ensure_ascii=False, indent=2))
             return
@@ -1195,12 +1197,24 @@ def cmd_portrait(args):
         if not found:
             print("no facet has new evidence")
         return
+    if args.action == "evidence":
+        if not args.id:
+            raise SystemExit("brain portrait evidence: FACET [--since YYYY-MM-DD | --all]")
+        rows = image.evidence_for(args.config, args.id, "" if args.all else args.since)
+        if args.json:
+            print(json.dumps([evidence.to_json(row) | {"source": row.source} for row in rows], ensure_ascii=False, indent=2))
+            return
+        for row in rows:
+            print(f"{row.source}: {evidence.render(row)[2:]}")
+        if not rows:
+            print(f"no new evidence for {args.id}")
+        return
     if args.action == "judged":
         if not args.id:
             raise SystemExit("brain portrait judged: FACET [--through YYYY-MM-DD]")
         try:
             with vault_lock(args.config):
-                path = portrait.judged(args.config, args.id, date.fromisoformat(args.through) if args.through
+                path = image.judged(args.config, args.id, date.fromisoformat(args.through) if args.through
                                        else args.config.today())
         except ValueError as error:
             raise SystemExit(f"brain portrait judged: {error}")
@@ -1211,7 +1225,7 @@ def cmd_portrait(args):
             raise SystemExit("brain portrait move: ID and FACET")
         try:
             with vault_lock(args.config):
-                line = portrait.move(args.config, args.id, args.verdict)
+                line = image.move(args.config, args.id, args.verdict)
         except ValueError as error:
             raise SystemExit(f"brain portrait move: {error}")
         print(f"^{line.id} {line.text} -> {line.facet}")
@@ -1221,7 +1235,7 @@ def cmd_portrait(args):
             raise SystemExit("brain portrait mark: ID and one of " + ", ".join(portrait.VERDICTS))
         try:
             with vault_lock(args.config):
-                line = portrait.mark(args.config, args.id, args.verdict, args.words or "", args.config.today())
+                line = image.mark(args.config, args.id, args.verdict, args.words or "", args.config.today())
         except ValueError as error:
             raise SystemExit(f"brain portrait mark: {error}")
         print(f"{args.verdict}: ^{line.id} {line.text}")
@@ -1665,12 +1679,12 @@ def main(argv=None):
     s.add_argument("--goal", metavar="G-n")
     s.set_defaults(fn=cmd_ideas)
     s = sub.add_parser("goals", help="the person's goals; only this command writes goal blocks", parents=[vault])
-    s.add_argument("which", help="new, list, show, refused, asked, migrate, or G-n")
+    s.add_argument("which", help="new, list, show, due, refused, asked, migrate, or G-n")
     s.add_argument("action", nargs="?", help="title with new; id with show; operation with G-n")
-    s.add_argument("text", nargs="?", help="dated evidence, or a note with link")
+    s.add_argument("text", nargs="?", help="dated evidence, a note with link, or the active goal with superseded-by")
     s.add_argument("--words"); s.add_argument("--title"); s.add_argument("--why")
     s.add_argument("--inferred", action="store_true")
-    s.add_argument("--evidence", action="append", help="dated evidence for a new goal; repeatable, required with --inferred")
+    s.add_argument("--evidence", action="append", help="dated evidence; repeatable, required with --inferred or intellect reached/superseded-by")
     s.add_argument("--said", help="YYYY-MM-DD: when the person said their words, if not today")
     s.add_argument("--reach", action="store_true"); s.add_argument("--kind", choices=goals.KINDS)
     by = s.add_mutually_exclusive_group()
@@ -1769,14 +1783,17 @@ def main(argv=None):
     s.add_argument("--reviews", metavar="DIR"); s.add_argument("--author", metavar="LOGIN")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_reception)
     s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
-    s.add_argument("action", nargs="?", choices=["seed", "coverage", "stamp", "mark", "compile", "facets", "move", "due", "judged"],
+    s.add_argument("action", nargs="?", choices=["seed", "coverage", "stamp", "mark", "compile", "facets", "move", "due", "evidence", "judged"],
                    help="seed: what to read to seed the portrait; coverage: what it knows and from where; "
                         "stamp: give new lines their ids now; mark ID right|wrong|not-this: the owner's answer to a line; "
                         "compile: write the portrait from its facets; facets: list them; move ID FACET: a line to a facet; "
-                        "due: facets with evidence newer than their last pass; judged FACET: record a facet's pass")
+                        "due: facets with evidence newer than their last pass; evidence FACET: the rows its pass reads; "
+                        "judged FACET: record a facet's pass")
     s.add_argument("id", nargs="?"); s.add_argument("verdict", nargs="?", metavar="VERDICT|FACET")
     s.add_argument("--words", metavar="TEXT", help="mark: the owner's own words, kept when a line is wrong")
     s.add_argument("--through", metavar="YYYY-MM-DD", help="judged: the newest evidence the pass read (default today)")
+    s.add_argument("--since", metavar="YYYY-MM-DD", help="evidence: rows after this date instead of after the facet's last pass")
+    s.add_argument("--all", action="store_true", help="evidence: every row routed to the facet")
     s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments, for Taste")
     s.add_argument("--plans", metavar="DIR", help="seed: one file per project with the issues done on it, for After and Energy")
     s.add_argument("--account", metavar="ADDRESS|all", help="seed: the owner's synced mail and calendar")
