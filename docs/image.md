@@ -120,7 +120,7 @@ Built in this order, each a release that stands alone:
 
 1. **Facets.** `Portrait/` and the facet note format; the engine reads, validates, stamps and marks lines across facets; `brain portrait compile` writes `Portrait.md` from them. Migration: each vault's existing portrait lines are sorted into starting facets by the agent, ids kept, and `Portrait.md` is compiled from the result, so nothing a person sees changes on day one.
 2. **Evidence and the source registry.** The evidence format, `brain evidence`, `brain source list|extract`, and the first sources moved onto it: `imessage` (new), then `mail` and `calendar` from the personal seed. The seed skill judges by facet from evidence.
-3. **The organisation's sources** (`reviews`, `plans`, `research`) moved onto evidence; `seed.py` shrinks to the registry. The consult evidence it carries today moves to the consults module it belongs to, with its owner.
+3. **The organisation's sources** moved onto evidence: `reviews` (each person's correction, hinted Engineering) and `plans` (each open project and where effort goes, hinted Direction) are extracted nightly from the files the seed writes; the public and internal kinds the agent reads itself are declarations; `seed.py` keeps only the personal seed. An organisation's facets are judged from evidence nightly in Sleep 2, as a person's are in the People review.
 4. **The owner's view of the image** in Demiurge: facets browsable from the compiled portrait, coverage by facet.
 
 Every step is shared work: the consults and seed-on-connect sessions use `seed.py` today, and each step is claimed in the work register before it starts.
