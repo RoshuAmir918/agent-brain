@@ -77,15 +77,20 @@ def test_cli_refuses_seed_without_a_folder_and_folder_without_seed(vault, review
         cli.main(["portrait", "--vault", str(vault), "--reviews", str(reviews)])
 
 
-def test_the_seed_skill_is_an_organisations_only(vault):
-    personal = Config.load(vault)
-    install.skills(personal)
-    assert not (personal.skills_path / "brain-seed").exists()
-    (vault.parent / "brain.toml").write_text(f'[brain]\nvault = "{vault.name}"\nedition = "enterprise"\n')
+@pytest.mark.parametrize("edition", ["personal", "enterprise"])
+def test_seed_skill_renders_only_this_editions_procedure(vault, edition):
+    (vault.parent / "brain.toml").write_text(f'[brain]\nvault = "{vault.name}"\nedition = "{edition}"\n')
     config = Config.load(vault)
     install.skills(config)
     text = (config.skills_path / "brain-seed" / "SKILL.md").read_text()
     assert "human/Portrait.md" in text and "{" not in text.split("---", 2)[2].replace("```", "")
+    assert "<!-- personal -->" not in text and "<!-- enterprise -->" not in text
+    assert ("# Learn the company" in text) == (edition == "enterprise")
+    assert ("brain portrait seed --account all --json" in text) == (edition == "personal")
+    assert ("brain people friends --json" in text) == (edition == "personal")
+    assert ("human/Tellable.md" in text) == (edition == "personal")
+    recall = (config.skills_path / "brain-recall" / "SKILL.md").read_text()
+    assert ("Then load `brain-seed` and run it scoped to that owner account." in recall) == (edition == "personal")
 
 
 def project(folder, name, state, target="", initiative="", lead="", *issues):
