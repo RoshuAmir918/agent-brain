@@ -73,7 +73,7 @@ def test_bad_add_writes_nothing(config, kwargs):
 @pytest.fixture
 def known_config(config):
     for rel, title, aliases in (
-        ("people/Kevin_Smith/Profile.md", "Kevin Jonathan Smith", ["Kev", "KJ"]),
+        ("people/Kevin_Smith/Profile.md", "Kevin Jonoah Smith", ["Kev", "KJ"]),
         ("agents/Ada-Logic/Profile.md", "Ada Lovelace", "Analyst"),
     ):
         path = config.vault_path / rel
@@ -112,7 +112,7 @@ def test_owner_people_profile_found_by_configured_platform_id_is_refused(known_c
         loops.add(config, AT, "waiting", "Ask for the date", "Trip", "Actual")
 
 
-@pytest.mark.parametrize("who", ["kevin-smith", "Kevin Jonathan Smith", "KEVIN", "kev", "KJ",
+@pytest.mark.parametrize("who", ["kevin-smith", "Kevin Jonoah Smith", "KEVIN", "kev", "KJ",
                                  "ada_logic", "Ada Lovelace", "ADA", "analyst"])
 def test_known_people_and_intellects_match_folder_title_first_name_or_alias(known_config, who):
     assert loops.add(known_config, AT, "owed", "Relay the answer", "Trip", who)

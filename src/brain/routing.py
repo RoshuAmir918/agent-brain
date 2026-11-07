@@ -109,6 +109,12 @@ class Decision:
     question: str
     overrules: list[tuple[str, str, str]]
     end: int
+    person: str = ""
+    superseded: dict | None = None
+
+    @property
+    def status(self) -> str:
+        return "superseded" if self.superseded else "overruled" if self.overrules else "stood"
 
 
 def decisions(body: str, area: str) -> list[Decision]:
@@ -120,16 +126,32 @@ def decisions(body: str, area: str) -> list[Decision]:
             date.fromisoformat(day)
         except ValueError:
             continue
+        person = re.search(r"^  - by: (\S+)$", details, re.M)
         source = re.search(r" · \[\[([^\[\]\n]+)\]\]$", text)
+        words, origin = (text[:source.start()], source[1]) if source else (text, "")
+        if person and not source and " · " in text:
+            words, origin = text.rsplit(" · ", 1)
         question = re.search(r"^  - asked: (.*)$", details, re.M)
         overrules = re.findall(r"^  - overruled (\d{4}-\d{2}-\d{2}) by (.+?): (.*)$", details, re.M)
-        out.append(Decision(area, day, author, text[:source.start()] if source else text, ident,
-                            source[1] if source else "", question[1] if question else "", overrules, match.end()))
+        replaced = re.findall(r"^  - superseded (\d{4}-\d{2}-\d{2}) by ([0-9a-f]{12}): (.+)$", details, re.M)
+        superseded = dict(zip(("date", "id", "name"), replaced[-1])) if replaced else None
+        out.append(Decision(area, day, author, words, ident, origin, question[1] if question else "",
+                            overrules, match.end(), person[1] if person else "", superseded))
     return out
 
 
+def decision_person(config: Config, decision: Decision, answerers: dict[str, str]) -> str:
+    """Resolve a recorded speaker without guessing from their words."""
+    if person := decision.person or answerers.get(decision.ident):
+        return person
+    matches = {identity for row in owners.load(config)
+               for identity, label in ((row.owner, row.owner_name), (row.backup, row.backup_name))
+               if identity and label == decision.name}
+    return next(iter(matches)) if len(matches) == 1 else decision.name if tasks.PERSON.fullmatch(decision.name) else ""
+
+
 def responses(config: Config) -> list[dict]:
-    """Read consult outcomes; redirect words stay beside their Answered entry."""
+    """Read consult events; redirect words stay beside their Answered entry."""
     out = []
     for path in sorted((config.vault_path / config.agent("Answered")).glob("*.md")):
         current = None
@@ -140,7 +162,8 @@ def responses(config: Config) -> list[dict]:
             current = None
             parts = line.removeprefix("- ").split(" · ")
             if len(parts) not in (7, 8) or parts[1] not in (
-                    "consult changed", "consult confirmed", "consult redirected", "consult overruled", "consult unanswered"):
+                    "consult changed", "consult confirmed", "consult redirected", "consult overruled", "consult unanswered",
+                    "consult asked", "consult cited"):
                 continue
             try:
                 date.fromisoformat(parts[0])
@@ -148,7 +171,8 @@ def responses(config: Config) -> list[dict]:
             except ValueError:
                 continue
             person = parts[3].removeprefix("by ")
-            if not tasks.PERSON.fullmatch(person) or not re.fullmatch(r"id:[0-9a-f]{12}", parts[-1]):
+            if (not tasks.PERSON.fullmatch(person) and not (parts[1] == "consult cited" and person)
+                    or not re.fullmatch(r"id:[0-9a-f]{12}", parts[-1])):
                 continue
             current = dict(date=parts[0], outcome=parts[1].removeprefix("consult "), text=parts[2],
                            person=person, area=parts[4], hours=hours, to=parts[6].removeprefix("to ") if len(parts) == 8 else "",
@@ -205,6 +229,8 @@ def relevance(config: Config, about: str, area: str = "") -> dict[str, float]:
             entry.question + " " + entry.text + " " + " ".join(words for _, _, words in entry.overrules)
             for entry in decisions(body, key))
     for response in responses(config):
+        if response["outcome"] in ("asked", "cited"):
+            continue
         key = response["area"]
         texts[key] = texts.get(key, key) + " " + response["text"] + " " + response["answer"]
     shared = {key: len(words & tokens(text.casefold())) for key, text in texts.items()}
@@ -264,14 +290,9 @@ def candidates(config: Config, about: str, area: str = "", limit: int | None = N
             continue
         link = config.agent(f"Areas/{key}.md")
         for decision in decisions(body, key):
-            person = answerers.get(decision.ident)
-            if not person:
-                matches = {identity for row in owners.load(config)
-                           for identity, label in ((row.owner, row.owner_name), (row.backup, row.backup_name))
-                           if identity and label == decision.name}
-                person = next(iter(matches)) if len(matches) == 1 else decision.name if tasks.PERSON.fullmatch(decision.name) else ""
+            person = decision_person(config, decision, answerers)
             if person:
-                if not decision.overrules:
+                if decision.status == "stood":
                     add(person, key, "answered", decision.day, decision.text, decision.source or link)
                 for day, _, words in decision.overrules:
                     add(person, key, "overruled", day, words, link)

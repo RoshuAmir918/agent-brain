@@ -18,7 +18,7 @@ from brain.vault import Vault
 from conftest import snapshot
 
 TODAY = date(2026, 11, 12)
-NATHAN = "slack:U01NATHAN"
+NOAH = "slack:U01NOAH"
 ROSHAN = "slack:U02ROSHAN"
 KIM = "slack:U03KIM"
 LEE = "slack:U04LEE"
@@ -27,9 +27,9 @@ DEFAULT = "Leave staging alone and test on a branch environment."
 WHY = "The release freeze may cover staging; a deploy there could break QA's run."
 TABLE = """| area | owner | backup | covers | wait | source |
 | --- | --- | --- | --- | --- | --- |
-| infrastructure | Nathan (slack:U01NATHAN) | Roshan (slack:U02ROSHAN) | terraform, AWS, CI, deploys | 4 | stated 2026-11-10 |
+| infrastructure | Noah (slack:U01NOAH) | Roshan (slack:U02ROSHAN) | terraform, AWS, CI, deploys | 4 | stated 2026-11-10 |
 | analytics | Roshan (slack:U02ROSHAN) | | dashboards, warehouse | | stated 2026-11-10 |
-| product direction | Nathan (slack:U01NATHAN) | | roadmap | 8 | proposed 2026-11-10 |
+| product direction | Noah (slack:U01NOAH) | | roadmap | 8 | proposed 2026-11-10 |
 """
 
 
@@ -49,8 +49,9 @@ def enterprise(vault, monkeypatch):
 
 
 def ask(config, **kwargs):
-    values = dict(to=NATHAN, area="infrastructure", text=QUESTION, default=DEFAULT, why=WHY)
+    values = dict(to=NOAH, area="infrastructure", text=QUESTION, default=DEFAULT, why=WHY)
     values.update(kwargs)
+    values.setdefault("not_covered", "This choice needs a fresh answer for a different scope.")
     return consults.ask(config, **values)
 
 
@@ -64,7 +65,7 @@ def rest(config):
 
 def test_owners_parse_list_and_all_rows_are_hints(enterprise, capsys):
     rows = owners.load(enterprise)
-    assert rows[0] == owners.Owner("infrastructure", NATHAN, "Nathan", ROSHAN, "Roshan",
+    assert rows[0] == owners.Owner("infrastructure", NOAH, "Noah", ROSHAN, "Roshan",
                                    "terraform, AWS, CI, deploys", 4, "stated 2026-11-10")
     assert rows[1].backup == rows[1].backup_name == ""
     assert rows[1].wait_hours == owners.WAIT_HOURS
@@ -74,11 +75,11 @@ def test_owners_parse_list_and_all_rows_are_hints(enterprise, capsys):
     cli.main(["owners", "--vault", str(enterprise.vault_path), "--json"])
     assert json.loads(capsys.readouterr().out) == [asdict(row) for row in rows]
     cli.main(["owners", "--vault", str(enterprise.vault_path)])
-    assert "Nathan (slack:U01NATHAN)" in capsys.readouterr().out
+    assert "Noah (slack:U01NOAH)" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("old,new,message", [
-    ("Nathan (slack:U01NATHAN)", "Nathan (U01NATHAN)", "Name"),
+    ("Noah (slack:U01NOAH)", "Noah (U01NOAH)", "Name"),
     ("Roshan (slack:U02ROSHAN)", "Roshan (slack:bad/id)", "Name"),
     ("| 4 |", "| four |", "integer"),
     ("| infrastructure |", "| ../outside |", "area must"),
@@ -113,7 +114,7 @@ def test_ask_any_person_without_map_and_proposed_rows_are_hints(enterprise):
     (enterprise.vault_path / "agent/Owners.md").unlink()
     assert owners.load(enterprise) == owners.problems(enterprise) == []
     entry = ask(enterprise, text="Use the new export pipeline for reporting?", area="")
-    assert entry.to == NATHAN and entry.area == "general"
+    assert entry.to == NOAH and entry.area == "general"
     assert entry.until == "2026-11-12 14:03"
 
 
@@ -125,11 +126,11 @@ def test_ask_any_person_without_map_and_proposed_rows_are_hints(enterprise):
     ("default", "word " * 41, "default must be at most 40"),
     ("why", "word " * 41, "why must be at most 40"),
     ("why", "", "give --why"),
-    ("to", "Nathan", "<platform>:<id>"),
+    ("to", "Noah", "<platform>:<id>"),
     ("task", "T-999", "not an open task"),
 ])
 def test_ask_refusals_are_read_only(enterprise, field, value, message):
-    values = {"to": NATHAN, "text": QUESTION, "default": DEFAULT, "why": WHY}
+    values = {"to": NOAH, "text": QUESTION, "default": DEFAULT, "why": WHY}
     values[field] = value
     before = snapshot(enterprise.vault_path)
     with pytest.raises(ValueError, match=message):
@@ -148,8 +149,8 @@ def test_ask_format_dedupe_and_optional_task(enterprise):
     data, body = fm.read(consults.path_for(enterprise))
     assert data == {"kind": "orientation", "tier": "warm", "pinned": False}
     assert f"- {TODAY} · infrastructure · {QUESTION} · [[agent/Tasks#T-001]]" in body
-    assert f"  - to: {NATHAN}\n  - asked: 2026-11-12 10:03\n  - until: 2026-11-12 14:03" in body
-    assert f"  - tried: {NATHAN}\n  - restricted: false" in body
+    assert f"  - to: {NOAH}\n  - asked: 2026-11-12 10:03\n  - until: 2026-11-12 14:03" in body
+    assert f"  - tried: {NOAH}\n  - restricted: false" in body
     assert f"  - default: {DEFAULT}\n  - why: {WHY}" in body
     before = snapshot(enterprise.vault_path)
     duplicate = ask(enterprise, area=" INFRASTRUCTURE ", text="  TOUCH the staging\ncluster during this release week? ",
@@ -190,8 +191,8 @@ def test_decision_filename_preserves_spaces_and_custom_wait(enterprise):
     path.write_text(TABLE.replace("proposed", "stated"))
     entry = ask(enterprise, area="Product Direction", text="Build the reporting service before migrating dashboards?")
     assert entry.until == "2026-11-13 10:03"
-    consults.answer(enterprise, entry.id, "confirmed", "Build it first.", NATHAN)
-    assert "Nathan · Build it first." in (enterprise.vault_path / "agent/Areas/product direction.md").read_text()
+    consults.answer(enterprise, entry.id, "confirmed", "Build it first.", NOAH)
+    assert "Noah · Build it first." in (enterprise.vault_path / "agent/Areas/product direction.md").read_text()
 
 
 def test_answer_decision_log_evidence_and_resume(enterprise, monkeypatch):
@@ -199,16 +200,16 @@ def test_answer_decision_log_evidence_and_resume(enterprise, monkeypatch):
     entry = ask(enterprise, task="T-001")
     clock(monkeypatch, "2026-11-12 12:33")
     words = "No staging changes during a release week."
-    consults.answer(enterprise, entry.id, "changed", words, NATHAN)
+    consults.answer(enterprise, entry.id, "changed", words, NOAH)
     assert consults.load(enterprise) == []
     decision = (enterprise.vault_path / "agent/Areas/infrastructure.md").read_text()
-    assert f"- {TODAY} · Nathan · {words} · [[agent/Tasks#T-001]] · id:{entry.id}\n  - asked: {QUESTION}" in decision
+    assert f"- {TODAY} · Noah · {words} · [[agent/Tasks#T-001]] · id:{entry.id}\n  - asked: {QUESTION}" in decision
     log = (enterprise.vault_path / "agent/Answered/2026-11.md").read_text()
-    assert f"- {TODAY} · consult changed · {QUESTION} · by {NATHAN} · infrastructure · 2.5h · id:{entry.id}" in log
-    assert fm.field(task(enterprise).body, "Latest evidence") == f"{TODAY} — Nathan answered the consult: {words}"
+    assert f"- {TODAY} · consult changed · {QUESTION} · by {NOAH} · infrastructure · 2.5h · id:{entry.id}" in log
+    assert fm.field(task(enterprise).body, "Latest evidence") == f"{TODAY} — Noah answered the consult: {words}"
     assert task(enterprise).resume is None
     with pytest.raises(ValueError, match="no open consult"):
-        consults.answer(enterprise, entry.id, "changed", words, NATHAN)
+        consults.answer(enterprise, entry.id, "changed", words, NOAH)
 
 
 def test_answer_text_matching_exact_words_and_unknown_person(enterprise):
@@ -223,10 +224,10 @@ def test_answer_refuses_bad_person_empty_words_and_ambiguous_match(enterprise):
     ask(enterprise)
     ask(enterprise, to=ROSHAN, area="analytics")
     for which, outcome, words, by, match in [
-        ("staging", "confirmed", "Yes.", "Nathan", "<platform>:<id>"),
-        ("staging", "confirmed", " ", NATHAN, "own words"),
-        ("staging", "inferred", "Yes.", NATHAN, "changed, confirmed or redirected"),
-        ("staging", "confirmed", "Yes.", NATHAN, "2 open consults match"),
+        ("staging", "confirmed", "Yes.", "Noah", "<platform>:<id>"),
+        ("staging", "confirmed", " ", NOAH, "own words"),
+        ("staging", "inferred", "Yes.", NOAH, "changed, confirmed or redirected"),
+        ("staging", "confirmed", "Yes.", NOAH, "2 open consults match"),
     ]:
         before = snapshot(enterprise.vault_path)
         with pytest.raises(ValueError, match=match):
@@ -255,7 +256,7 @@ def test_lapse_escalates_once_then_goes_ahead_and_wakes_task(enterprise, monkeyp
     assert snapshot(enterprise.vault_path) == before
     assert "went ahead" in consults.lapse(enterprise)[0]
     went, = consults.load(enterprise)
-    assert went.kind == "confirm" and went.to == NATHAN and went.default == DEFAULT
+    assert went.kind == "confirm" and went.to == NOAH and went.default == DEFAULT
     assert "No answer from Roshan; went ahead on the default: " + DEFAULT in task(enterprise).body
     assert not task(enterprise).resume
     assert f"consult unanswered · {QUESTION} · by {ROSHAN} · infrastructure · 20.0h · id:{entry.id}" in (
@@ -279,7 +280,7 @@ def test_stop_asking_records_person_and_refuses_future_asks(enterprise):
     entry = ask(enterprise, task="T-001")
     needs.dismiss(enterprise, entry.id, TODAY, "stop-asking")
     note = (enterprise.vault_path / "agent/Areas/infrastructure.md").read_text()
-    assert f"## Not asked\n\n- {TODAY} · {NATHAN} · stop-asking" in note
+    assert f"## Not asked\n\n- {TODAY} · {NOAH} · stop-asking" in note
     assert not task(enterprise).resume
     assert task(enterprise).task_state != "set_aside"
     assert [entry.kind for entry in consults.load(enterprise)] == ["confirm"]
@@ -318,22 +319,22 @@ def test_needs_surface_owner_default_area_and_state(enterprise, capsys):
     entry = ask(enterprise, task="T-001")
     item, = needs.items(enterprise, TODAY)
     assert (item.id, item.kind, item.origin, item.owner, item.context, item.detail, item.default, item.area) == (
-        entry.id, "ask", "consult", NATHAN, "infrastructure", WHY, DEFAULT, "infrastructure")
+        entry.id, "ask", "consult", NOAH, "infrastructure", WHY, DEFAULT, "infrastructure")
     assert item.task == "T-001" and task(enterprise).owner == ROSHAN
-    cli.main(["needs-you", "--vault", str(enterprise.vault_path), "--json", "--for", NATHAN])
+    cli.main(["needs-you", "--vault", str(enterprise.vault_path), "--json", "--for", NOAH])
     assert json.loads(capsys.readouterr().out) == [asdict(item)]
     exported = state.build(enterprise, TODAY)
     assert exported["needsYou"][0]["default"] == DEFAULT
-    assert exported["needsYou"][0]["owner"] == NATHAN
+    assert exported["needsYou"][0]["owner"] == NOAH
     needs.dismiss(enterprise, entry.id, TODAY)
     confirm, = needs.items(enterprise, TODAY)
-    assert confirm.kind == "confirm" and confirm.owner == NATHAN and confirm.default == DEFAULT
+    assert confirm.kind == "confirm" and confirm.owner == NOAH and confirm.default == DEFAULT
 
 
 def test_taskless_consult_state_and_cli_list(enterprise, capsys):
     entry = ask(enterprise)
     assert state.build(enterprise, TODAY)["needsYou"][0]["source"] == "agent/Consults.md"
-    cli.main(["consult", "list", "--vault", str(enterprise.vault_path), "--json", "--for", NATHAN])
+    cli.main(["consult", "list", "--vault", str(enterprise.vault_path), "--json", "--for", NOAH])
     listed, = json.loads(capsys.readouterr().out)
     assert listed["id"] == entry.id and listed["until"] == "2026-11-12 14:03"
     cli.main(["consult", "list", "--vault", str(enterprise.vault_path), "--json", "--for", ROSHAN])
@@ -364,12 +365,12 @@ def test_nightly_expires_went_ahead(enterprise):
 
 
 @pytest.mark.parametrize("arguments", [
-    ["ask", "--to", NATHAN, "--why", WHY, "--area", "infrastructure", "--ask", QUESTION, "--default", DEFAULT],
-    ["answer", "123", "--outcome", "confirmed", "--answer", "Yes.", "--by", NATHAN],
+    ["ask", "--to", NOAH, "--why", WHY, "--area", "infrastructure", "--ask", QUESTION, "--default", DEFAULT],
+    ["answer", "123", "--outcome", "confirmed", "--answer", "Yes.", "--by", NOAH],
     ["lapse"], ["list", "--json"], ["stats", "--json"],
     ["candidates", "--about", QUESTION],
     ["overrule", "123", "--answer", "Changed my mind.", "--by", KIM],
-    ["delegate", "--area", "infrastructure", "--to", KIM, "--by", NATHAN, "--words", "Ask Kim."],
+    ["delegate", "--area", "infrastructure", "--to", KIM, "--by", NOAH, "--words", "Ask Kim."],
 ])
 def test_personal_refuses_each_consult_command(vault, arguments):
     before = snapshot(vault)
@@ -381,16 +382,16 @@ def test_personal_refuses_each_consult_command(vault, arguments):
 def test_stats_numbers_and_cli(enterprise, monkeypatch, capsys):
     entry = ask(enterprise)
     clock(monkeypatch, "2026-11-12 11:03")
-    consults.answer(enterprise, entry.id, "changed", "Keep staging unchanged.", NATHAN)
+    consults.answer(enterprise, entry.id, "changed", "Keep staging unchanged.", NOAH)
     entry = ask(enterprise, text="Keep Terraform state in the infra account?")
     clock(monkeypatch, "2026-11-12 14:03")
-    consults.answer(enterprise, entry.id, "confirmed", "Yes, keep it there.", NATHAN)
+    consults.answer(enterprise, entry.id, "confirmed", "Yes, keep it there.", NOAH)
     entry = ask(enterprise)
     needs.dismiss(enterprise, entry.id, TODAY)
     result = consults.stats(enterprise)
     assert result["areas"]["infrastructure"] == {
         "asked": 3, "changed": 1, "confirmed": 1, "redirected": 0, "overruled": 0, "unanswered": 1, "changed_share": 0.5, "median_hours": 2.0}
-    assert result["people"][NATHAN] == {
+    assert result["people"][NOAH] == {
         "asked": 3, "changed": 1, "confirmed": 1, "redirected": 0, "overruled": 0, "unanswered": 1, "changed_share": 0.5, "median_hours": 2.0}
     cli.main(["consult", "stats", "--json", "--vault", str(enterprise.vault_path)])
     assert json.loads(capsys.readouterr().out) == result
@@ -399,11 +400,11 @@ def test_stats_numbers_and_cli(enterprise, monkeypatch, capsys):
 def test_cli_ask_answer_lapse_and_group_vault(enterprise, capsys, monkeypatch):
     root = str(enterprise.vault_path)
     cli.main(["consult", "--vault", root, "ask", "--area", "infrastructure", "--ask", QUESTION,
-              "--default", DEFAULT, "--to", NATHAN, "--why", WHY, "--task", "T-001"])
+              "--default", DEFAULT, "--to", NOAH, "--why", WHY, "--task", "T-001"])
     ident = capsys.readouterr().out.strip()
     assert ident == consults.load(enterprise)[0].id
     cli.main(["consult", "answer", ident, "--vault", root, "--outcome", "confirmed",
-              "--answer", "Yes, leave it alone.", "--by", NATHAN])
+              "--answer", "Yes, leave it alone.", "--by", NOAH])
     assert f"{ident}: confirmed; decision recorded" in capsys.readouterr().out
     cli.main(["consult", "ask", "--vault", root, "--area", "analytics", "--ask", "Move dashboards to the warehouse?",
               "--default", DEFAULT, "--to", ROSHAN, "--why", WHY])
@@ -422,17 +423,17 @@ def test_archived_task_wakes_and_keeps_decision(enterprise):
     entry = tasks.Task("T-002", "Archived work", "- **Resume:** 2026-11-16 13:00\n", {"state": "in_progress"})
     tasks.write_archive(enterprise, entry, "cold", TODAY)
     question = ask(enterprise, task="T-002")
-    consults.answer(enterprise, question.id, "confirmed", "Keep staging as it is.", NATHAN)
+    consults.answer(enterprise, question.id, "confirmed", "Keep staging as it is.", NOAH)
     archived = next(entry for entry in tasks.all_tasks(enterprise) if entry.tid == "T-002")
     assert archived.resume is None
-    assert "Nathan answered the consult: Keep staging as it is." in archived.body
+    assert "Noah answered the consult: Keep staging as it is." in archived.body
 
 
 def test_stop_asking_is_for_the_person_not_future_owners(enterprise):
     entry = ask(enterprise)
     needs.dismiss(enterprise, entry.id, TODAY, "stop-asking")
     path = enterprise.vault_path / "agent/Owners.md"
-    path.write_text(TABLE.replace("Nathan (slack:U01NATHAN)", "Kim (slack:U03KIM)"))
+    path.write_text(TABLE.replace("Noah (slack:U01NOAH)", "Kim (slack:U03KIM)"))
     new = ask(enterprise, to=KIM)
     assert new.kind == "ask" and new.to == KIM
 
@@ -480,18 +481,18 @@ def test_candidates_owners_matching_limit_names_and_read_only(enterprise, capsys
     monkeypatch.setattr(directory, "lookup", lambda config, person: {"kind": "person", "name": "Directory name"})
     before = snapshot(enterprise.repo)
     ranked = consults.candidates(enterprise, "Who reviews TERRAFORM deploys?")
-    assert [entry.person for entry in ranked] == [NATHAN, ROSHAN]
-    assert ranked[0].name == "Nathan" and ranked[0].score == routing.WEIGHTS["owner"]
+    assert [entry.person for entry in ranked] == [NOAH, ROSHAN]
+    assert ranked[0].name == "Noah" and ranked[0].score == routing.WEIGHTS["owner"]
     assert ranked[1].score == routing.WEIGHTS["backup"]
     assert ranked[0].evidence == [dict(area="infrastructure", kind="owner", date="",
                                      text="terraform, AWS, CI, deploys; stated 2026-11-10", link="agent/Owners.md")]
     assert consults.candidates(enterprise, "An unrelated topic", "infrastructure", 1) == ranked[:1]
     assert consults.candidates(enterprise, "who do I ask for CI?") == []
-    assert consults.candidates(enterprise, "roadmap")[0].person == NATHAN
+    assert consults.candidates(enterprise, "roadmap")[0].person == NOAH
     cli.main(["consult", "candidates", "--about", "deploys", "--json", "--vault", str(enterprise.vault_path)])
     assert json.loads(capsys.readouterr().out) == [asdict(entry) for entry in ranked]
     cli.main(["consult", "candidates", "--about", "deploys", "--limit", "1", "--vault", str(enterprise.vault_path)])
-    assert "Nathan · 12.00 · median - · infrastructure: owner" in capsys.readouterr().out
+    assert "Noah · 12.00 · median - · infrastructure: owner" in capsys.readouterr().out
     assert snapshot(enterprise.repo) == before
     with pytest.raises(ValueError, match="positive"):
         consults.candidates(enterprise, QUESTION, limit=0)
@@ -540,21 +541,21 @@ def test_redirect_moves_logs_evidence_and_wakes_task(enterprise, monkeypatch):
     entry = ask(enterprise, task="T-001")
     clock(monkeypatch, "2026-11-12 11:33")
     words = "Ask Kim · she reviews these deploys."
-    moved = consults.answer(enterprise, entry.id, "redirected", words, NATHAN, KIM)
-    assert moved.id == entry.id and moved.to == KIM and moved.tried == (NATHAN, KIM)
+    moved = consults.answer(enterprise, entry.id, "redirected", words, NOAH, KIM)
+    assert moved.id == entry.id and moved.to == KIM and moved.tried == (NOAH, KIM)
     assert moved.asked == "2026-11-12 11:33" and moved.until == "2026-11-12 15:33"
     assert consults.load(enterprise) == [moved]
     assert not (enterprise.vault_path / "agent/Areas").exists()
-    assert not task(enterprise).resume and f"Nathan redirected the consult to {KIM}: {words}" in task(enterprise).body
+    assert not task(enterprise).resume and f"Noah redirected the consult to {KIM}: {words}" in task(enterprise).body
     item, = needs.items(enterprise, TODAY)
     assert (item.id, item.owner, item.area, item.default, item.detail) == (entry.id, KIM, "infrastructure", DEFAULT, WHY)
-    response, = routing.responses(enterprise)
+    response, = [row for row in routing.responses(enterprise) if row["outcome"] == "redirected"]
     assert response["outcome"] == "redirected" and response["answer"] == words and response["to"] == KIM
     assert response["hours"] == 1.5
     ranked = {entry.person: entry for entry in consults.candidates(enterprise, "", "infrastructure")}
     assert ranked[KIM].score == routing.WEIGHTS["redirected-to"]
-    assert ranked[NATHAN].score == routing.WEIGHTS["owner"] + routing.WEIGHTS["redirected-away"]
-    assert ranked[NATHAN].median_hours == 1.5
+    assert ranked[NOAH].score == routing.WEIGHTS["owner"] + routing.WEIGHTS["redirected-away"]
+    assert ranked[NOAH].median_hours == 1.5
     assert ranked[KIM].evidence[0]["text"] == words
     assert consults.stats(enterprise)["weekly"] == []
     consults.answer(enterprise, entry.id, "confirmed", "Keep staging untouched.", KIM)
@@ -564,13 +565,13 @@ def test_redirect_moves_logs_evidence_and_wakes_task(enterprise, monkeypatch):
 @pytest.mark.parametrize("outcome,to,match", [
     ("redirected", "", "required for redirected"),
     ("confirmed", KIM, "only used"),
-    ("redirected", NATHAN, "already received"),
+    ("redirected", NOAH, "already received"),
 ])
 def test_bad_redirect_refusals_are_read_only(enterprise, outcome, to, match):
     entry = ask(enterprise)
     before = snapshot(enterprise.vault_path)
     with pytest.raises(ValueError, match=match):
-        consults.answer(enterprise, entry.id, outcome, "Ask Kim.", NATHAN, to)
+        consults.answer(enterprise, entry.id, outcome, "Ask Kim.", NOAH, to)
     assert snapshot(enterprise.vault_path) == before
 
 
@@ -631,7 +632,7 @@ def test_muted_candidates_last_area_specific_and_lapse_ignores(enterprise, monke
     entry = ask(enterprise)
     needs.dismiss(enterprise, entry.id, TODAY, "stop-asking")
     ranked = consults.candidates(enterprise, "", "infrastructure")
-    assert [entry.person for entry in ranked] == [ROSHAN, NATHAN]
+    assert [entry.person for entry in ranked] == [ROSHAN, NOAH]
     assert ranked[-1].muted and ranked[-1].score > ranked[0].score
     assert ranked[-1].evidence[0]["kind"] == "owner"
     assert any(item["kind"] == "stop-asking" for item in ranked[-1].evidence)
@@ -649,22 +650,22 @@ def test_unsafe_area_names_refused(enterprise, area):
     assert snapshot(enterprise.vault_path) == before
 
 
-@pytest.mark.parametrize("by", [NATHAN, ROSHAN])
+@pytest.mark.parametrize("by", [NOAH, ROSHAN])
 def test_delegate_owner_or_backup_in_their_exact_words(enterprise, by):
     words = "Ask Kim about deploys · she can decide while I'm away."
     consults.delegate(enterprise, "Infrastructure", KIM, by, words)
-    label = "Nathan" if by == NATHAN else "Roshan"
+    label = "Noah" if by == NOAH else "Roshan"
     body = (enterprise.vault_path / "agent/Areas/infrastructure.md").read_text()
     assert f"## Delegated\n\n- {TODAY} · {label} · to {KIM} · {words}" in body
     assert "## Decisions" not in body
-    assert routing.allowed(enterprise, "infrastructure") == {NATHAN, ROSHAN, KIM}
+    assert routing.allowed(enterprise, "infrastructure") == {NOAH, ROSHAN, KIM}
     ranked = consults.candidates(enterprise, "", "infrastructure")
     assert ranked[1].person == KIM and ranked[1].score == routing.WEIGHTS["delegated"]
     assert ranked[1].evidence[0]["text"] == words
     assert ask(enterprise, to=KIM, restricted=True).restricted
 
 
-@pytest.mark.parametrize("area,by", [("infrastructure", KIM), ("unknown", NATHAN)])
+@pytest.mark.parametrize("area,by", [("infrastructure", KIM), ("unknown", NOAH)])
 def test_delegate_refuses_non_owner(enterprise, area, by):
     before = snapshot(enterprise.vault_path)
     with pytest.raises(ValueError, match="owner or backup"):
@@ -673,7 +674,7 @@ def test_delegate_refuses_non_owner(enterprise, area, by):
 
 
 @pytest.mark.parametrize("listed", [False, True])
-@pytest.mark.parametrize("to", [NATHAN, ROSHAN, KIM])
+@pytest.mark.parametrize("to", [NOAH, ROSHAN, KIM])
 def test_restricted_flag_or_listed_area_gate(enterprise, listed, to):
     if listed:
         path = enterprise.vault_path / "agent/Owners.md"
@@ -681,7 +682,7 @@ def test_restricted_flag_or_listed_area_gate(enterprise, listed, to):
         assert owners.restricted(enterprise) == {"infrastructure"}
     before = snapshot(enterprise.vault_path)
     if to == KIM:
-        with pytest.raises(ValueError, match=f"may answer: {NATHAN}, {ROSHAN}"):
+        with pytest.raises(ValueError, match=f"may answer: {NOAH}, {ROSHAN}"):
             ask(enterprise, to=to, restricted=not listed)
         assert snapshot(enterprise.vault_path) == before
     else:
@@ -708,11 +709,11 @@ def test_restricted_redirect_delegates_for_that_consult_only(enterprise, monkeyp
         consults.answer(enterprise, entry.id, "redirected", "Ask Kim.", LEE, KIM)
     assert snapshot(enterprise.vault_path) == before
     words = "Ask Kim, she can decide about this staging change."
-    consults.answer(enterprise, entry.id, "redirected", words, NATHAN, KIM)
+    consults.answer(enterprise, entry.id, "redirected", words, NOAH, KIM)
     moved, = consults.load(enterprise)
     assert moved.restricted and moved.id == entry.id and moved.to == KIM
     body = (enterprise.vault_path / "agent/Areas/infrastructure.md").read_text()
-    assert f"- {TODAY} · Nathan · to {KIM} · {words}\n  - consult: {entry.id} · for: {QUESTION}" in body
+    assert f"- {TODAY} · Noah · to {KIM} · {words}\n  - consult: {entry.id} · for: {QUESTION}" in body
     assert KIM in routing.allowed(enterprise, "infrastructure", entry.id)
     assert KIM not in routing.allowed(enterprise, "infrastructure")
     before = snapshot(enterprise.vault_path)
@@ -738,7 +739,7 @@ def test_restricted_redirect_delegates_for_that_consult_only(enterprise, monkeyp
 
 def test_restricted_redirect_to_backup_needs_no_extra_delegation(enterprise):
     entry = ask(enterprise, restricted=True)
-    consults.answer(enterprise, entry.id, "redirected", "Ask Roshan.", NATHAN, ROSHAN)
+    consults.answer(enterprise, entry.id, "redirected", "Ask Roshan.", NOAH, ROSHAN)
     assert not (enterprise.vault_path / "agent/Areas").exists()
     assert consults.load(enterprise)[0].restricted
 
@@ -769,7 +770,7 @@ def test_lapse_ranks_next_candidate_and_stops_at_max_tries(enterprise, monkeypat
     clock(monkeypatch, "2026-11-13 10:03")
     assert consults.lapse(enterprise) == [f"{entry.id}: reassigned to {LEE}"]
     moved, = consults.load(enterprise)
-    assert moved.tried == (NATHAN, KIM, LEE) and len(moved.tried) == consults.MAX_TRIES
+    assert moved.tried == (NOAH, KIM, LEE) and len(moved.tried) == consults.MAX_TRIES
     before = snapshot(enterprise.vault_path)
     with pytest.raises(ValueError, match="already tried 3 people"):
         consults.answer(enterprise, entry.id, "redirected", "Ask Roshan.", LEE, ROSHAN)
@@ -777,7 +778,7 @@ def test_lapse_ranks_next_candidate_and_stops_at_max_tries(enterprise, monkeypat
     clock(monkeypatch, "2026-11-13 14:03")
     assert "went ahead" in consults.lapse(enterprise)[0]
     went, = consults.load(enterprise)
-    assert went.to == NATHAN and went.id == entry.id
+    assert went.to == NOAH and went.id == entry.id
     assert routing.responses(enterprise)[-1]["person"] == LEE
     assert consults.lapse(enterprise) == []
 
@@ -785,7 +786,7 @@ def test_lapse_ranks_next_candidate_and_stops_at_max_tries(enterprise, monkeypat
 def test_restricted_lapse_uses_only_eligible_candidates(enterprise, monkeypatch):
     for number in range(5):
         consults.add_evidence(enterprise, "infrastructure", TODAY, KIM, "deferred-to", f"Per Kim {number}.")
-    consults.delegate(enterprise, "infrastructure", LEE, NATHAN, "Lee can decide on deploys.")
+    consults.delegate(enterprise, "infrastructure", LEE, NOAH, "Lee can decide on deploys.")
     entry = ask(enterprise, restricted=True)
     clock(monkeypatch, "2026-11-12 14:03")
     assert consults.lapse(enterprise) == [f"{entry.id}: reassigned to {LEE}"]
@@ -793,9 +794,9 @@ def test_restricted_lapse_uses_only_eligible_candidates(enterprise, monkeypatch)
     clock(monkeypatch, "2026-11-13 10:03")
     assert consults.lapse(enterprise) == [f"{entry.id}: reassigned to {ROSHAN}"]
     clock(monkeypatch, "2026-11-13 14:03")
-    assert consults.lapse(enterprise) == [f"{entry.id}: restricted, held for {NATHAN} without taking the default"]
+    assert consults.lapse(enterprise) == [f"{entry.id}: restricted, held for {NOAH} without taking the default"]
     held, = consults.load(enterprise)
-    assert held.kind == "ask" and held.to == NATHAN and held.until == "" and held.restricted
+    assert held.kind == "ask" and held.to == NOAH and held.until == "" and held.restricted
     clock(monkeypatch, "2026-11-20 14:03")
     assert consults.lapse(enterprise) == []
 
@@ -841,9 +842,9 @@ def test_repeat_questions_have_distinct_ids_and_confirms_can_be_removed_separate
     needs.dismiss(enterprise, second.id, TODAY, "done")
     assert [entry.id for entry in consults.load(enterprise)] == [first.id]
     third = ask(enterprise)
-    consults.answer(enterprise, third.id, "changed", "Leave staging unchanged.", NATHAN)
+    consults.answer(enterprise, third.id, "changed", "Leave staging unchanged.", NOAH)
     fourth = ask(enterprise)
-    consults.answer(enterprise, fourth.id, "changed", "Leave staging unchanged.", NATHAN)
+    consults.answer(enterprise, fourth.id, "changed", "Leave staging unchanged.", NOAH)
     consults.overrule(enterprise, third.id, "Freeze deploys entirely.", KIM)
     decisions = routing.decisions(fm.read(enterprise.vault_path / "agent/Areas/infrastructure.md")[1], "infrastructure")
     assert len(decisions[0].overrules) == 1 and not decisions[1].overrules
@@ -853,20 +854,20 @@ def test_stats_weekly_redirect_rate_uses_final_resolution_week(enterprise, monke
     clock(monkeypatch, "2026-11-06 10:00")
     redirected = ask(enterprise)
     clock(monkeypatch, "2026-11-06 11:00")
-    consults.answer(enterprise, redirected.id, "redirected", "Ask Kim.", NATHAN, KIM)
+    consults.answer(enterprise, redirected.id, "redirected", "Ask Kim.", NOAH, KIM)
     clock(monkeypatch, "2026-11-09 10:00")
     consults.answer(enterprise, redirected.id, "redirected", "Ask Lee.", KIM, LEE)
     clock(monkeypatch, "2026-11-09 12:00")
     consults.answer(enterprise, redirected.id, "changed", "Freeze deploys.", LEE)
     direct = ask(enterprise)
     clock(monkeypatch, "2026-11-09 13:00")
-    consults.answer(enterprise, direct.id, "confirmed", "Leave staging unchanged.", NATHAN)
+    consults.answer(enterprise, direct.id, "confirmed", "Leave staging unchanged.", NOAH)
     clock(monkeypatch, "2026-11-16 10:00")
     unanswered = ask(enterprise)
     needs.dismiss(enterprise, unanswered.id, date(2026, 11, 16))
     consults.overrule(enterprise, direct.id, "Freeze all deployments this month.", KIM)
     pending = ask(enterprise)
-    consults.answer(enterprise, pending.id, "redirected", "Ask Kim again.", NATHAN, KIM)
+    consults.answer(enterprise, pending.id, "redirected", "Ask Kim again.", NOAH, KIM)
     result = consults.stats(enterprise)
     assert result["weekly"] == [dict(week="2026-W46", resolved=2, redirected=1, rate=0.5),
                                 dict(week="2026-W47", resolved=1, redirected=0, rate=0.0)]
@@ -902,9 +903,9 @@ def test_consult_writes_hold_the_vault_lock(enterprise, monkeypatch):
     monkeypatch.setattr(consults, "vault_lock", checked_lock)
     monkeypatch.setattr(fm, "write", write)
     consults.add_evidence(enterprise, "infrastructure", TODAY, KIM, "approved", "Approved deploy changes.")
-    consults.delegate(enterprise, "infrastructure", KIM, NATHAN, "Ask Kim about deploys.")
+    consults.delegate(enterprise, "infrastructure", KIM, NOAH, "Ask Kim about deploys.")
     entry = ask(enterprise)
-    consults.answer(enterprise, entry.id, "redirected", "Ask Kim.", NATHAN, KIM)
+    consults.answer(enterprise, entry.id, "redirected", "Ask Kim.", NOAH, KIM)
     consults.answer(enterprise, entry.id, "changed", "Keep staging as it is.", KIM)
     consults.overrule(enterprise, entry.id, "Freeze deploys entirely.", LEE)
     ask(enterprise, area="unowned")
@@ -922,10 +923,10 @@ def test_personal_add_evidence_refused(vault):
 def test_cli_delegation_restricted_redirect_answer_and_overrule(enterprise, capsys):
     root = str(enterprise.vault_path)
     cli.main(["consult", "delegate", "--vault", root, "--area", "infrastructure", "--to", KIM,
-              "--by", NATHAN, "--words", "Kim can decide about deploys."])
+              "--by", NOAH, "--words", "Kim can decide about deploys."])
     assert "delegation recorded" in capsys.readouterr().out
     cli.main(["consult", "ask", "--vault", root, "--to", KIM, "--area", "infrastructure", "--restricted",
-              "--why", "Nathan delegated deploy questions to you.", "--ask", QUESTION, "--default", DEFAULT])
+              "--why", "Noah delegated deploy questions to you.", "--ask", QUESTION, "--default", DEFAULT])
     ident = capsys.readouterr().out.strip()
     cli.main(["consult", "answer", ident, "--vault", root, "--by", KIM, "--outcome", "redirected",
               "--to", LEE, "--answer", "Ask Lee about this staging deploy."])
@@ -950,10 +951,10 @@ def test_evidence_counts_by_how_well_its_area_matches(enterprise):
     assert 0 < weights["infrastructure"] < 1
     ranked = {entry.person: entry.score for entry in consults.candidates(enterprise, about)}
     assert ranked[KIM] == routing.WEIGHTS["owner"]
-    assert ranked[NATHAN] == pytest.approx(routing.WEIGHTS["owner"] * weights["infrastructure"])
-    assert ranked[KIM] > ranked[NATHAN]
+    assert ranked[NOAH] == pytest.approx(routing.WEIGHTS["owner"] * weights["infrastructure"])
+    assert ranked[KIM] > ranked[NOAH]
     named = {entry.person: entry.score for entry in consults.candidates(enterprise, about, "infrastructure")}
-    assert named[NATHAN] == routing.WEIGHTS["owner"]
+    assert named[NOAH] == routing.WEIGHTS["owner"]
 
 
 @pytest.mark.parametrize("by,acts", [(LEE, False), (ROSHAN, True)])
@@ -961,7 +962,7 @@ def test_overrule_in_restricted_area_needs_a_permitted_word_to_act(enterprise, b
     path = enterprise.vault_path / "agent/Owners.md"
     path.write_text(TABLE + "\n## Restricted\n- infrastructure\n")
     entry = ask(enterprise, task="T-001")
-    consults.answer(enterprise, entry.id, "confirmed", "Go ahead with staging.", NATHAN)
+    consults.answer(enterprise, entry.id, "confirmed", "Go ahead with staging.", NOAH)
     consults.overrule(enterprise, entry.id, "Leave staging alone.", by)
     body = task(enterprise).body
     assert "overruled the consult: Leave staging alone." in body
@@ -975,4 +976,4 @@ def test_seeded_volume_counts_with_diminishing_returns(enterprise):
     ranked = {entry.person: entry.score for entry in consults.candidates(enterprise, "terraform deploys")}
     assert ranked[KIM] == pytest.approx(routing.WEIGHTS["approved"] * math.log2(41))
     assert routing.WEIGHTS["owner"] < ranked[KIM] < 2 * routing.WEIGHTS["owner"]
-    assert ranked[NATHAN] == routing.WEIGHTS["owner"]
+    assert ranked[NOAH] == routing.WEIGHTS["owner"]

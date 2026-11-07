@@ -12,7 +12,7 @@ Usage:
   brain retrieve [--vault <path>] <query> [--limit 12] [--json [--form names|snippet|full]]
   brain needs-you [--vault <path>] [--json]
   brain owners [--vault <path>] [--json]
-  brain consult <candidates|seed|ask|answer|overrule|delegate|lapse|list|stats> [--vault <path>]
+  brain consult <decisions|cite|decide|candidates|seed|ask|answer|overrule|delegate|lapse|list|stats> [--vault <path>]
   brain ideas [--vault <path>] [--all] [--json]
   brain loops [--vault <path>] [--json | --due] [--quiet]
   brain watch-signal [--vault <path>]
@@ -425,8 +425,31 @@ def cmd_consult(args):
     try:
         consults.require_enterprise(config)
         if args.consult_cmd == "ask":
-            entry = consults.ask(config, args.to, args.ask, args.default, args.why, args.area or "", args.task or "", args.restricted)
+            entry = consults.ask(config, args.to, args.ask, args.default, args.why, args.area or "", args.task or "",
+                                 args.restricted, args.not_covered)
             print(entry.id)
+        elif args.consult_cmd == "decisions":
+            entries = consults.decisions(config, args.about, args.area or "", args.limit)
+            if args.json:
+                print(json.dumps(entries, ensure_ascii=False, indent=2))
+            else:
+                for entry in entries:
+                    print(f"{entry['id']} · {entry['area']} · {entry['date']} · {entry['name']} · {entry['status']}\n"
+                          f"  {entry['words']}")
+                    if entry["question"]:
+                        print(f"  asked: {entry['question']}")
+                    if entry["source"]:
+                        print(f"  source: {entry['source']}")
+                    for overrule in entry["overrules"]:
+                        print(f"  overruled {overrule['date']} by {overrule['name']}: {overrule['words']}")
+                    if replacement := entry["superseded"]:
+                        print(f"  superseded {replacement['date']} by {replacement['id']}: {replacement['name']}")
+                    print(f"  [[{entry['link']}]]\n")
+        elif args.consult_cmd == "cite":
+            consults.cite(config, args.which, args.for_, args.task or "")
+            print(f"{args.which}: citation recorded")
+        elif args.consult_cmd == "decide":
+            print(consults.decide(config, args.area, args.by, args.words, args.source, args.supersedes or ""))
         elif args.consult_cmd == "answer":
             entry = consults.answer(config, args.which, args.outcome, args.answer, args.by, args.to or "")
             result = f"moved to {entry.to}" if args.outcome == "redirected" else "decision recorded"
@@ -520,6 +543,8 @@ def cmd_consult(args):
                               f"changed share {share} · median {hours}")
                 for week in result["weekly"]:
                     print(f"{week['week']} · resolved {week['resolved']} · redirected {week['redirected']} · {week['rate']:.0%}")
+                for week in result["record_weekly"]:
+                    print(f"{week['week']} · cited {week['cited']} · asked {week['asked']} · record share {week['record_share']:.0%}")
     except ValueError as error:
         raise SystemExit(f"brain consult: {error}")
 
@@ -1035,6 +1060,19 @@ def cmd_tellable(args):
 def cmd_portrait(args):
     if args.action != "seed" and (args.reviews or args.plans or args.account or args.days is not None or args.clear_backfill):
         raise SystemExit("brain portrait: --reviews, --plans, --account, --days and --clear-backfill go with seed")
+    if args.action == "stamp":
+        print(f"{portrait.stamp(args.config)} new line id(s)")
+        return
+    if args.action == "mark":
+        if not (args.id and args.verdict):
+            raise SystemExit("brain portrait mark: ID and one of " + ", ".join(portrait.VERDICTS))
+        try:
+            with vault_lock(args.config):
+                line = portrait.mark(args.config, args.id, args.verdict, args.words or "", args.config.today())
+        except ValueError as error:
+            raise SystemExit(f"brain portrait mark: {error}")
+        print(f"{args.verdict}: ^{line.id} {line.text}")
+        return
     if args.action == "coverage":
         data = seed.coverage(Vault(args.config.vault_path), args.config.today())
         print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else seed.render_coverage(data))
@@ -1371,14 +1409,25 @@ def main(argv=None):
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_owners)
     s = sub.add_parser("consult", help="consult a colleague and keep their words by area (enterprise)", parents=[vault])
     actions = s.add_subparsers(dest="consult_cmd", required=True)
-    for action in ("candidates", "seed", "ask", "answer", "overrule", "delegate", "lapse", "list", "stats"):
+    for action in ("decisions", "cite", "decide", "candidates", "seed", "ask", "answer", "overrule", "delegate", "lapse", "list", "stats"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_consult)
         p.add_argument("--vault", default=argparse.SUPPRESS)
         if action == "ask":
             for field in ("to", "why", "ask", "default"):
                 p.add_argument("--" + field, required=True, metavar="PERSON" if field == "to" else "TEXT")
             p.add_argument("--area", metavar="AREA"); p.add_argument("--task", metavar="T-nnn")
+            p.add_argument("--not-covered", metavar="TEXT", help="why matching decisions do not answer this question (at most 40 words)")
             p.add_argument("--restricted", action="store_true", help="the answer would authorize production, money or another restricted action")
+        elif action == "cite":
+            p.add_argument("which", metavar="ID")
+            p.add_argument("--task", metavar="T-nnn")
+            p.add_argument("--for", dest="for_", required=True, metavar="TEXT", help="what you are going ahead with (at most 40 words)")
+        elif action == "decide":
+            p.add_argument("--area", required=True, metavar="AREA")
+            p.add_argument("--by", required=True, metavar="PERSON", help="<platform>:<id> of the person speaking")
+            p.add_argument("--words", required=True, metavar="TEXT", help="the person's exact words; never the intellect's inference")
+            p.add_argument("--source", required=True, metavar="TEXT", help="where it was said: a vault note, link, or channel and date")
+            p.add_argument("--supersedes", metavar="ID")
         elif action in ("answer", "overrule"):
             p.add_argument("which", metavar="ID_OR_TEXT" if action == "answer" else "ID")
             if action == "answer":
@@ -1405,7 +1454,7 @@ def main(argv=None):
             p.add_argument("--json", action="store_true")
             if action == "list":
                 p.add_argument("--for", dest="for_", metavar="PERSON")
-            elif action == "candidates":
+            elif action in ("candidates", "decisions"):
                 p.add_argument("--about", required=True, metavar="TEXT")
                 p.add_argument("--area", metavar="AREA"); p.add_argument("--limit", type=int, metavar="N")
     s = sub.add_parser("ideas", help="proposals for new ways to help, shown one at a time", parents=[vault])
@@ -1520,8 +1569,11 @@ def main(argv=None):
     s.add_argument("--reviews", metavar="DIR"); s.add_argument("--author", metavar="LOGIN")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_reception)
     s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
-    s.add_argument("action", nargs="?", choices=["seed", "coverage"],
-                   help="seed: what to read to seed the portrait; coverage: what it knows and from where")
+    s.add_argument("action", nargs="?", choices=["seed", "coverage", "stamp", "mark"],
+                   help="seed: what to read to seed the portrait; coverage: what it knows and from where; "
+                        "stamp: give new lines their ids now; mark ID right|wrong|not-this: the owner's answer to a line")
+    s.add_argument("id", nargs="?"); s.add_argument("verdict", nargs="?", choices=portrait.VERDICTS)
+    s.add_argument("--words", metavar="TEXT", help="mark: the owner's own words, kept when a line is wrong")
     s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments, for Taste")
     s.add_argument("--plans", metavar="DIR", help="seed: one file per project with the issues done on it, for After and Energy")
     s.add_argument("--account", metavar="ADDRESS|all", help="seed: the owner's synced mail and calendar")

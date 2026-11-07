@@ -154,8 +154,8 @@ def test_context_includes_primed_after_current_once_the_night_wrote_it(context_v
 
 def test_upcoming_lists_dates_in_the_next_week_from_hubs_and_histories_only(context_vault, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-30")
-    fm.write(context_vault / "Harbor.md", {"kind": "hub", "tier": "warm"},
-             "# Harbor\nBenefits enrollment is due October 30. The offsite is November 4.\n"
+    fm.write(context_vault / "Acme.md", {"kind": "hub", "tier": "warm"},
+             "# Acme\nBenefits enrollment is due October 30. The offsite is November 4.\n"
              "The old deadline was October 2. Planning starts 2026-11-20.\n")
     (context_vault / "people/Faisal").mkdir(parents=True)
     fm.write(context_vault / "people/Faisal/History.md", {"kind": "log", "tier": "cold"},
@@ -168,8 +168,8 @@ def test_upcoming_lists_dates_in_the_next_week_from_hubs_and_histories_only(cont
              "He mentioned November 1 in passing.\n")
     text = compile_context.build(Vault(context_vault))
     block = text.split("## Upcoming: the next 7 days", 1)[1].split("\n## ", 1)[0]
-    assert "- Fri Oct 30 · Benefits enrollment is due October 30. · [[Harbor]]" in block
-    assert "- Wed Nov 4 · Benefits enrollment is due October 30. The offsite is November 4. · [[Harbor]]" in block
+    assert "- Fri Oct 30 · Benefits enrollment is due October 30. · [[Acme]]" in block
+    assert "- Wed Nov 4 · Benefits enrollment is due October 30. The offsite is November 4. · [[Acme]]" in block
     assert block.count("Fri Oct 30") == 1
     assert "- Mon Nov 2 · 2026-10-28 · said he is in Madison until November 2. · [[people/Faisal/History]]" in block
     assert "October 2" not in block and "November 20" not in block

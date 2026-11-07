@@ -12,10 +12,12 @@ from uuid import uuid4
 from . import fm, needs, owners, routing, seed, tasks
 from .config import Config
 from .lock import vault_lock
+from .vault import Vault
 
 WORK_START = 9   # local opening, Monday to Friday
 WORK_END = 17    # local closing; waits count only working hours
 MAX_TRIES = 3   # no question visits more than three people
+RECORD_SHARED_WORDS = 2   # matching prompts a reading; only the intellect judges whether the record covers a question
 OUTCOMES = ("changed", "confirmed", "redirected")   # what the person's answer did to the stated direction
 TEMPLATE = """---
 kind: orientation
@@ -31,7 +33,7 @@ Questions for colleagues, with the default taken when nobody answers.
 ## Went ahead
 
 """
-DETAIL = re.compile(r"^[ \t]+-[ \t]+(id|to|asked|until|tried|restricted|default|why):[ \t]*(.*?)[ \t]*$")   # a consult's indented fields
+DETAIL = re.compile(r"^[ \t]+-[ \t]+(id|to|asked|until|tried|restricted|default|why|not-covered):[ \t]*(.*?)[ \t]*$")   # a consult's indented fields
 WENT_AHEAD = "Went ahead without an answer: "   # the confirm's text, followed by its default
 
 
@@ -50,6 +52,7 @@ class Consult:
     why: str = ""
     kind: str = "ask"
     id: str = ""
+    not_covered: str = ""
 
     def item(self) -> needs.Item:
         item = needs.Item(self.kind, self.text, "consult", self.since, self.source,
@@ -99,7 +102,7 @@ def parse_section(body: str, title: str = "Open") -> list[Consult]:
             elif field == "restricted":
                 current.restricted = value == "true"
             else:
-                setattr(current, field, value)
+                setattr(current, field.replace("-", "_"), value)
         elif not line[:1].isspace():
             current = _bullet(line)
             if current:
@@ -136,6 +139,8 @@ def _render(consult: Consult) -> str:
                    f"\n  - default: {consult.default}")
     if consult.why:
         bullet += f"\n  - why: {consult.why}"
+    if consult.not_covered:
+        bullet += f"\n  - not-covered: {consult.not_covered}"
     bullet += f"\n  - id: {consult.id}"
     return bullet
 
@@ -187,6 +192,85 @@ def _area_note(config: Config, area: str, title: str, bullet: str) -> None:
 def candidates(config: Config, about: str, area: str = "", limit: int | None = None) -> list[routing.Candidate]:
     require_enterprise(config)
     return routing.candidates(config, about, area, limit)
+
+
+def decisions(config: Config, about: str, area: str = "", limit: int | None = None) -> list[dict]:
+    """Search relevant area decisions by shared words, then newest first, without writing."""
+    require_enterprise(config)
+    if limit is not None and limit < 1:
+        raise ValueError("limit must be positive")
+    areas = routing.relevance(config, about, area)
+    words = routing.tokens(about)
+    found = [entry for key, body in routing.area_bodies(config).items() if key in areas
+             for entry in routing.decisions(body, key)]
+    found.sort(key=lambda entry: (-len(words & routing.tokens(entry.text + " " + entry.question)),
+                                 -date.fromisoformat(entry.day).toordinal(), entry.area, entry.ident))
+    return [dict(id=entry.ident, area=entry.area, date=entry.day, name=entry.name, words=entry.text,
+                 question=entry.question, source=entry.source, status=entry.status,
+                 overrules=[dict(date=day, name=name, words=text) for day, name, text in entry.overrules],
+                 superseded=entry.superseded, link=config.agent(f"Areas/{entry.area}.md"))
+            for entry in (found[:limit] if limit is not None else found)]
+
+
+def _decision(config: Config, ident: str) -> tuple[str, routing.Decision]:
+    found = [(body, entry) for area, body in routing.area_bodies(config).items()
+             for entry in routing.decisions(body, area) if entry.ident == ident]
+    if len(found) != 1:
+        raise ValueError("no unique recorded decision matches " + repr(ident))
+    return found[0]
+
+
+def _brief(label: str, text: str) -> str:
+    text = tasks.single_line(label, text)
+    if not text or len(text.split()) > needs.WHY_WORDS:
+        raise ValueError(f"--{label} must be nonempty and at most {needs.WHY_WORDS} words")
+    return text
+
+
+def cite(config: Config, ident: str, for_: str, task: str = "") -> None:
+    """Log acting on a decision that still stands and wake its named task."""
+    require_enterprise(config)
+    for_ = _brief("for", for_)
+    with vault_lock(config):
+        _, entry = _decision(config, ident)
+        if entry.status != "stood":
+            replacement = (f"{entry.superseded['id']} by {entry.superseded['name']}" if entry.superseded else
+                           "; ".join(f"{day} by {name}: {words}" for day, name, words in entry.overrules))
+            raise ValueError(f"{ident} is {entry.status}; replaced by {replacement}")
+        if task and not any(row.tid == task and tasks.is_open(row) for row in tasks.all_tasks(config)):
+            raise ValueError(f"{task} is not an open task (unknown or closed); choose an open task")
+        answerers = {row["id"]: row["person"] for row in routing.responses(config)
+                     if row["outcome"] in ("changed", "confirmed")}
+        person = routing.decision_person(config, entry, answerers) or entry.name
+        consult = Consult(entry.day, entry.area, for_, config.agent("Tasks") + "#" + task if task else "", id=ident)
+        now = config.local()
+        day = date.fromisoformat(entry.day)
+        _wake(config, consult, now.date(), f"Per {entry.name}'s decision of {day:%B} {day.day}: {entry.text}")
+        _log(config, consult, now, "cited", person)
+
+
+def decide(config: Config, area: str, by: str, words: str, source: str, supersedes: str = "") -> str:
+    """File a person's stated words and source, marking any decision they replace."""
+    require_enterprise(config)
+    area = routing.area_name(area)
+    _person(by, "--by")
+    words = _words("words", words)
+    source = tasks.single_line("source", source)
+    if not source or " · " in source or any(char in source for char in "[]"):
+        raise ValueError("--source must name where it was said, without brackets or the field separator")
+    base = source.split("#", 1)[0]
+    if not re.match(r"[a-z]+://", source, re.I) and (base.endswith(".md") or Vault(config.vault_path).resolve(base)):
+        source = f"[[{source}]]"
+    with vault_lock(config):
+        old = _decision(config, supersedes) if supersedes else None
+        ident, name, today = uuid4().hex[:12], routing.name(config, by), config.today()
+        if old:
+            body, entry = old
+            annotation = f"\n  - superseded {today} by {ident}: {name}"
+            path = routing.area_path(config, entry.area)
+            fm.write(path, fm.read(path)[0], body[:entry.end] + annotation + body[entry.end:])
+        _area_note(config, area, "Decisions", f"- {today} · {name} · {words} · {source} · id:{ident}\n  - by: {by}")
+        return ident
 
 
 def _person(person: str, flag: str) -> None:
@@ -282,7 +366,7 @@ def _wake(config: Config, consult: Consult, today: date, evidence: str) -> None:
 def _log(config: Config, consult: Consult, now: datetime, outcome: str, person: str,
          to: str = "", answer: str = "") -> None:
     asked = config.local(datetime.fromisoformat(consult.asked)) if consult.asked else now
-    hours = "-" if outcome == "overruled" else f"{(now.timestamp() - asked.timestamp()) / 3600:.1f}h"
+    hours = "-" if outcome in ("overruled", "asked", "cited") else f"{(now.timestamp() - asked.timestamp()) / 3600:.1f}h"
     text = consult.text.replace("·", "-")
     bullet = (f"- {now.date()} · consult {outcome} · {text} · by {person} · {consult.area} · {hours}"
               + (f" · to {to}" if to else "") + f" · id:{consult.id}")
@@ -296,14 +380,15 @@ def _go_ahead(config: Config, consult: Consult, now: datetime, owner: str) -> Co
     _wake(config, consult, now.date(), f"No answer from {name}; went ahead on the default: {consult.default}")
     _remove(config, consult)
     went = Consult(now.date().isoformat(), consult.area, WENT_AHEAD + consult.default, consult.source,
-                   to=owner, default=consult.default, why=consult.why, kind="confirm", id=consult.id)
+                   to=owner, default=consult.default, why=consult.why, kind="confirm", id=consult.id,
+                   not_covered=consult.not_covered)
     _append(path_for(config), "Went ahead", _render(went), TEMPLATE)
     _log(config, consult, now, "unanswered", consult.to)
     return went
 
 
 def ask(config: Config, to: str, text: str, default: str, why: str, area: str = "", task: str = "",
-        restricted: bool = False) -> Consult:
+        restricted: bool = False, not_covered: str | None = None) -> Consult:
     """Ask any colleague, recording the evidence for choosing them and the stated default."""
     require_enterprise(config)
     _person(to, "--to")
@@ -318,8 +403,18 @@ def ask(config: Config, to: str, text: str, default: str, why: str, area: str = 
         raise ValueError("give a default: --default TEXT says what you will do without an answer")
     if not why:
         raise ValueError("give --why TEXT: why this person is likely to answer right and fast")
+    if not_covered is not None:
+        not_covered = _brief("not-covered", not_covered)
     with vault_lock(config):
         area = routing.area_name(area) if area else next(iter(routing.relevant(config, text)), "general")
+        matches = [entry for entry in decisions(config, text, area)
+                   if len(routing.tokens(text) & routing.tokens(entry["words"] + " " + entry["question"])) >= RECORD_SHARED_WORDS]
+        if matches and not not_covered:
+            listing = "\n".join(f"{entry['id']} · {entry['date']} · {entry['name']} · {entry['words']}"
+                                + ("" if entry["status"] == "stood" else f" ({entry['status']})") for entry in matches)
+            raise ValueError("read the matching decisions before asking:\n" + listing
+                             + '\nCite one with `brain consult cite` if it covers the question, or pass '
+                             '--not-covered "<why the record does not answer this>"')
         _unmuted(config, area, to, text)
         existing = next((entry for entry in load(config) if entry.kind == "ask" and entry.area == area
                          and needs._plain(entry.text) == needs._plain(text)), None)
@@ -339,9 +434,10 @@ def ask(config: Config, to: str, text: str, default: str, why: str, area: str = 
         now = config.local().replace(second=0, microsecond=0)
         consult = Consult(now.date().isoformat(), area, text,
                           config.agent("Tasks") + "#" + task if task else "", to=to, tried=(to,),
-                          restricted=restricted, default=default, why=why, id=uuid4().hex[:12])
+                          restricted=restricted, default=default, why=why, id=uuid4().hex[:12], not_covered=not_covered or "")
         _wait(config, consult, now)
         _append(path_for(config), "Open", _render(consult), TEMPLATE)
+        _log(config, consult, now, "asked", to)
         return consult
 
 
@@ -507,13 +603,19 @@ def expire_confirms(config: Config, today: date) -> list[str]:
 
 
 def stats(config: Config) -> dict:
-    """Count outcomes by area and person, with weekly routing corrections."""
+    """Count recipient outcomes, weekly routing corrections and the record's share."""
     require_enterprise(config)
     groups = {"areas": {}, "people": {}}
     weeks = {}
+    record_weeks = {}
     responses = routing.responses(config)
     redirected = {entry["id"] for entry in responses if entry["outcome"] == "redirected"}
     for entry in responses:
+        if entry["outcome"] in ("asked", "cited"):
+            year, week, _ = date.fromisoformat(entry["date"]).isocalendar()
+            record = record_weeks.setdefault(f"{year}-W{week:02}", dict(asked=0, cited=0))
+            record[entry["outcome"]] += 1
+            continue
         for dimension, key in (("areas", entry["area"]), ("people", entry["person"])):
             groups[dimension].setdefault(key, []).append(entry)
         if entry["outcome"] in ("changed", "confirmed", "unanswered"):
@@ -533,4 +635,6 @@ def stats(config: Config) -> dict:
                               "median_hours": median(hours) if hours else None}
     groups["weekly"] = [dict(week=week, resolved=len(rows["resolved"]), redirected=len(rows["redirected"]),
                              rate=len(rows["redirected"]) / len(rows["resolved"])) for week, rows in sorted(weeks.items())]
+    groups["record_weekly"] = [dict(week=week, **counts, record_share=counts["cited"] / (counts["cited"] + counts["asked"]))
+                               for week, counts in sorted(record_weeks.items())]
     return groups

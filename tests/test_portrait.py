@@ -1,3 +1,4 @@
+import pytest
 import json
 from datetime import date
 
@@ -114,14 +115,14 @@ COMPANY = """# Portrait
 
 
 def enterprise(vault):
-    (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nedition = "enterprise"\nhuman_name = "Harbor"\n')
+    (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nedition = "enterprise"\nhuman_name = "Acme"\n')
 
 
 def test_an_organisation_has_a_portrait_in_its_context_with_the_team_rule(vault):
     enterprise(vault)
     write_portrait(vault, COMPANY)
     text = compile_context.build(Vault(vault))
-    assert "What you understand of Harbor" in text and "Ship the EDC migration tooling" in text
+    assert "What you understand of Acme" in text and "Ship the EDC migration tooling" in text
     assert "A guess about direction is never stated to the team" in text
     assert "never told to anyone else" not in text
     assert text.index("# Current") < text.index("Ship the EDC") < text.index("# Triggers")
@@ -257,3 +258,67 @@ def test_only_said_and_seen_lines_are_shown():
     body = "## Taste\n" + "".join(f"- Line {basis} · {basis} · low · 2026-11-01 · [[S]]\n"
                                   for basis in ("said", "seen", "guess", "Guess", "guessed", "sed"))
     assert [line.basis for line in portrait.shown(portrait.parse(body)[0])] == ["said", "seen"]
+
+
+def test_the_owner_marks_lines_right_wrong_or_not_this(vault, capsys):
+    path = write_portrait(vault, BODY.replace("· [[START]]\n  - horizon: now", "· [[START]] ^91c0\n  - horizon: now")
+                          .replace("Short essays over long books · seen · medium · 2026-11-01 · [[START]]",
+                                   "Short essays over long books · seen · medium · 2026-11-01 · [[START]] ^5e55"))
+    cli.main(["portrait", "mark", "91c0", "right", "--vault", str(vault)])
+    assert capsys.readouterr().out.startswith("right: ^91c0 Wants to start climbing")
+    text = path.read_text()
+    assert "- Wants to start climbing · said · high · " in text and "^91c0\n  - horizon: now\n  - against:" in text
+    assert "test: hold a beginner gym" not in text
+    cli.main(["portrait", "mark", "^3f2a", "wrong", "--words", "I'm staying put; Lisbon was a holiday idea", "--vault", str(vault)])
+    cli.main(["portrait", "mark", "5e55", "not-this", "--vault", str(vault)])
+    text = path.read_text()
+    assert "Move to Lisbon" not in text and "Short essays" not in text.split("## Not")[0]
+    not_section = text.split("## Not", 1)[1]
+    assert "- I'm staying put; Lisbon was a holiday idea · said · high · " in not_section
+    assert "- Not to draw on: Short essays over long books · said · high · " in not_section
+    history = (vault / "human/History.md").read_text()
+    assert "portrait line marked wrong by the owner · their words: I'm staying put; Lisbon was a holiday idea" in history
+    assert "Move to Lisbon within the year · said · high · 2026-10-30 · [[START]] ^3f2a" in history
+    assert "portrait line marked not-this by the owner" in history
+    lines, problems = portrait.parse(text)
+    assert problems == []
+    with pytest.raises(SystemExit, match="no portrait line \\^ffff"):
+        cli.main(["portrait", "mark", "ffff", "right", "--vault", str(vault)])
+
+
+def test_stamp_gives_ids_at_once_for_a_same_day_reveal(vault, capsys):
+    write_portrait(vault)
+    cli.main(["portrait", "stamp", "--vault", str(vault)])
+    assert capsys.readouterr().out.strip() == "3 new line id(s)"
+
+
+def test_a_persons_portrait_goes_out_only_as_the_owners_and_their_notes_are_marked_for_them(vault):
+    from brain import nightly, state
+    (vault / "human").mkdir(exist_ok=True)
+    fm.write(vault / "human/Profile.md", {"kind": "profile", "tier": "hot"}, "# Human\n## Working together\nx\n")
+    write_portrait(vault)
+    data = state.build(Config.load(vault), date(2026, 11, 6))
+    assert data["portrait"] is None and [line["text"] for line in data["ownerPortrait"]][1] == "Wants to start climbing"
+    assert all("against" not in line for line in data["ownerPortrait"])
+    report, loaded = [], Vault(vault)
+    changed = nightly.ensure_frontmatter(loaded, date(2026, 11, 6), report)
+    assert {"human/Profile.md", "human/Portrait.md"} <= changed
+    assert loaded.notes["human/Profile.md"].data["audience"] == "owner"
+    assert loaded.notes["human/Portrait.md"].data["audience"] == "owner"
+    enterprise(vault)
+    assert state.build(Config.load(vault), date(2026, 11, 6))["ownerPortrait"] is None
+
+
+def test_the_night_writes_the_owner_audience_to_disk(vault):
+    (vault / "human").mkdir(exist_ok=True)
+    fm.write(vault / "human/Profile.md", {"kind": "profile", "tier": "hot"}, "# Human\n")
+    write_portrait(vault)
+    cli.main(["nightly", "--vault", str(vault), "--date", "2026-11-06", "--write"])
+    for rel in ("human/Profile.md", "human/Portrait.md"):
+        assert fm.read(vault / rel)[0]["audience"] == "owner"
+
+
+def test_mark_takes_words_as_one_argument_even_when_they_start_with_dashes(vault):
+    write_portrait(vault)
+    cli.main(["portrait", "mark", "3f2a", "wrong", "--words=-- not Lisbon, Porto", "--vault", str(vault)])
+    assert "- -- not Lisbon, Porto · said · high · " in (vault / "human/Portrait.md").read_text().split("## Not", 1)[1]
