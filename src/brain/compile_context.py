@@ -29,8 +29,9 @@ PORTRAIT = ("Who you think {human} is, ranked within each section: `said` they t
 COMPANY_PORTRAIT = ("What you understand of {human}, ranked within each section: where it is heading, what it holds to, how "
                     "it likes work done, how it decides, where effort goes and what it has decided against. `said` its "
                     "leadership stated it or the roadmap, goals or initiatives say it; `seen` a pattern across its decisions "
-                    "and reviews; `guess` your inference. Let it aim your work: follow the Taste lines before anyone has to "
-                    "correct you, and say when a task serves none of the After lines. Cite `said` and `seen` lines to "
+                    "and reviews; `guess` your inference. Let it aim your work: each After line's `for:` is where you can help "
+                    "the company get there, so look for that work; follow the Taste lines before anyone has to correct "
+                    "you, and say when a task serves none of the After lines. Cite `said` and `seen` lines to "
                     "anyone. A guess about direction is never stated to the team: it goes to the operator as a confirm.")
 UPCOMING_DAYS = 7
 UPCOMING_ITEMS = 12

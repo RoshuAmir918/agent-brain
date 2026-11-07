@@ -99,8 +99,10 @@ COMPANY = """# Portrait
 ## After
 - Ship the EDC migration tooling this quarter · said · high · 2026-11-01 · [[START]] ^a001
   - horizon: now
+  - for: importer edge cases, migration runbooks
 - Moving upmarket to larger sponsors · guess · low · 2026-11-03 · [[START]] ^a002
   - horizon: year
+  - for: enterprise security questionnaires
 
 ## Taste
 - Service layer owns queries; routers stay thin · seen · medium · 2026-11-04 · [[START]] ^a003
@@ -188,3 +190,14 @@ def test_nightly_stamps_new_lines(vault, capsys):
     assert "portrait: 3 new line id(s)" in capsys.readouterr().out
     assert all(line.id for line in portrait.load(Config.load(vault)))
     assert path.read_text().count(" ^") == 4
+
+
+def test_a_company_after_line_says_where_the_intellect_can_help(vault):
+    enterprise(vault)
+    write_portrait(vault, "## After\n- Win larger sponsors · said · high · 2026-11-01 · [[START]]\n  - horizon: year\n")
+    assert any("Win larger sponsors: no for line" in p for p in validate.portrait_hygiene(Vault(vault)))
+    write_portrait(vault, "## After\n- Win larger sponsors · said · high · 2026-11-01 · [[START]]\n  - horizon: year\n"
+                          "  - for: sponsor-facing reports, the audit trail, case studies\n")
+    assert validate.portrait_hygiene(Vault(vault)) == []
+    assert portrait.hygiene("## After\n- Run a marathon · said · high · 2026-11-01 · [[START]]\n  - horizon: year\n",
+                            date(2026, 11, 6), "P") == []

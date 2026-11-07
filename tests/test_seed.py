@@ -40,7 +40,8 @@ def test_reading_counts_corrections_by_others_inside_the_window(reviews):
                                  {"who": "review-bot", "comments": 1, "bot": True}]
     assert data["areas"] == [{"area": "apps/api", "comments": 3, "prs": 2}, {"area": "apps/web", "comments": 1, "prs": 1},
                              {"area": "(whole PR)", "comments": 1, "prs": 1}]
-    assert [item["pr"] for item in data["read"]] == [101, 102]
+    assert [item["pr"] for item in data["read"]] == [101, 102] and data["byPeople"] == 4
+    assert [item["byPeople"] for item in data["read"]] == [2, 2]
     assert data["problems"] == []
 
 
@@ -62,9 +63,9 @@ def test_cli_prints_the_reading_list_and_its_json(vault, reviews, capsys, monkey
     monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
     cli.main(["portrait", "seed", "--vault", str(vault), "--reviews", str(reviews)])
     out = capsys.readouterr().out
-    assert "3 merged PRs, 2 with review comments, 5 comments" in out
+    assert "3 merged PRs, 2 with review comments, 5 comments by someone other than the PR's author, 4 of them by people" in out
     assert "Reviewers: nathan 2, roshan 2, review-bot 1 (bot)" in out
-    assert "- #101 A change · 3 · " in out and out.index("#101") < out.index("#102")
+    assert "- #101 A change · 2 by people, 3 in all · " in out and out.index("#101") < out.index("#102")
     cli.main(["portrait", "seed", "--vault", str(vault), "--reviews", str(reviews), "--days", "7", "--json"])
     assert [item["pr"] for item in json.loads(capsys.readouterr().out)["read"]] == []
 
@@ -177,12 +178,22 @@ def test_coverage_shows_what_the_portrait_knows_and_what_was_never_read(vault, c
     assert taste["seen"] == 1 and cares["lines"] == 0
     status = {s["source"]: (s["read"], s["status"]) for s in data["sources"]}
     assert status["site"] == ("2026-11-06", "fresh") and status["reviews"] == ("2026-07-01", "stale")
-    assert status["founders"] == ("", "never") and len(status) == 14
+    assert status["founders"] == ("", "never") and status["goals"] == ("", "never") and len(status) == 15
     assert data["unreadChannels"] == ["Slack"]
     assert data["problems"] == ["agent/Seeds/odd.md: needs frontmatter source (one of site, writing, founders, press, jobs, "
-                                "customers, market, reviews, plans, chat, mail, docs, meetings, crm) and read (YYYY-MM-DD)"]
+                                "customers, market, goals, meetings, docs, plans, chat, mail, crm, reviews) and read (YYYY-MM-DD)"]
     cli.main(["portrait", "coverage", "--vault", str(vault)])
     out = capsys.readouterr().out
     assert "- After: 2 lines (1 said, 0 seen, 1 guess), newest 2026-11-02" in out and "- Cares about: empty" in out
     assert "- site: read 2026-11-06" in out and "- reviews: read 2026-07-01, stale" in out and "- jobs: never read" in out
     assert "Connected and never read for the portrait: Slack" in out
+
+
+def test_a_persons_correction_ranks_above_a_pile_of_bot_comments(tmp_path):
+    folder = tmp_path / "reviews"
+    folder.mkdir()
+    review(folder, 1, "kim", "2026-11-01", *[f"2026-11-01 · codex-connector[bot] · a/b/c.ts · Nit {i}." for i in range(9)])
+    review(folder, 2, "kim", "2026-11-02", "2026-11-02 · nathan · a/b/c.ts · Use the service.")
+    data = seed.reading(folder, TODAY)
+    assert [item["pr"] for item in data["read"]] == [2, 1]
+    assert data["byPeople"] == 1 and data["reviewers"][0] == {"who": "codex-connector[bot]", "comments": 9, "bot": True}

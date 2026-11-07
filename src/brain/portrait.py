@@ -109,7 +109,7 @@ def top(lines: list[Line], n: int) -> list[Line]:
     return [line for line in lines if line.section == "After"][:n]
 
 
-def hygiene(body: str, today: date, where: str) -> list[str]:
+def hygiene(body: str, today: date, where: str, company: bool = False) -> list[str]:
     lines, problems = parse(body)
     out = [f"{where}: {problem}" for problem in problems]
     words = len(body.split())
@@ -128,6 +128,8 @@ def hygiene(body: str, today: date, where: str) -> list[str]:
         seen.add(line.id)
         if line.section == "After" and not line.horizon:
             out.append(f"{at}: no horizon line; one of {', '.join(HORIZONS)}")
+        if company and line.section == "After" and not line.for_:
+            out.append(f"{at}: no for line; say where you can help the company get there")
         if line.basis == "guess" and line.evidence < floor:
             out.append(f"{at}: a guess with no evidence since {line.evidence}; retire it to History.md")
     return out

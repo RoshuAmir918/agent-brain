@@ -347,3 +347,15 @@ def test_completed_lists_the_weeks_finished_tasks_newest_first(vault, capsys):
     assert [row["id"] for row in rows] == [tid]
     assert rows[0]["evidence"] == "the résumé is assembled" and rows[0]["source"] == '"help Hope with her résumé"'
     assert completed("--days", "60").count("· completed") == 2
+
+
+def test_brain_commit_works_before_the_vault_has_a_compiled_context(vault, capsys):
+    import subprocess
+    repo = Config.load(vault).repo
+    git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout
+    git("init", "-q"); git("config", "user.email", "t@e.x"); git("config", "user.name", "t")
+    assert not (repo / ".context.md").exists()
+    (vault / "One.md").write_text("one\n")
+    brain_cli.main(["commit", "-m", "seed(first)", "--vault", str(vault)])
+    assert capsys.readouterr().out.startswith("committed ")
+    assert "One.md" in git("show", "--name-only", "--format=%s", "HEAD")
