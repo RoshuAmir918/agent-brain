@@ -2,6 +2,9 @@
 
 *Draft, 2026-11-06; amended the same day, when the build began (section 9). How an intellect comes to know its owner well enough to work on their behalf, the way a good agent works for a client: always thinking about what it can do for them, and doing it from an understanding of who they are. Read with `docs/engine.md` (Goals, Needs you, Ideas, Follow-ons) and `docs/access.md` (the owner's profile and the impression).*
 
+
+*Being reworked: `docs/image.md` moves the portrait's lines into facets (an image, one note per area of a life), fed by source modules through one evidence format, with `Portrait.md` compiled from them. What this document says about a line itself still holds.*
+
 ## 1. Why
 
 An audit of Orphan's vault and of this engine, on November 6, found that the intellect knows facts about its owner accurately and does not know them.
