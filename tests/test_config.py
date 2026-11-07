@@ -42,26 +42,13 @@ def test_environment_names_override_toml_at_each_load(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("setting", [
     'vault = "../outside"', 'agent_dir = "/absolute"', 'people_dir = ""',
-    'human_profile = "../source.md"', 'skill_prefix = "../"',
+    'human_profile = "../source.md"', 'human_profile = "Profile.md"', 'skill_prefix = "../"',
     'agent_name = 1', 'unknown = "value"',
 ])
 def test_invalid_config_fails_before_writing(tmp_path, setting):
     (tmp_path / "brain.toml").write_text("[brain]\n" + setting + "\n")
     with pytest.raises(ValueError):
         Config.load(cwd=tmp_path)
-
-
-@pytest.mark.parametrize("setting", [
-    'hermes_dir = "old"',
-    '"hermes_dir" = "old"\nruntime_dir = "Runtime"',
-])
-def test_removed_config_key_names_its_replacement(tmp_path, setting):
-    (tmp_path / "brain.toml").write_text("[brain]\n" + setting + "\n")
-    with pytest.raises(ValueError, match=r"brain\.hermes_dir.*set runtime_dir"):
-        Config.load(cwd=tmp_path)
-    with pytest.raises(SystemExit) as error:
-        cli.main(["validate", "--vault", str(tmp_path)])
-    assert error.value.code == 2
 
 
 def test_template_values_have_only_current_keys(tmp_path):

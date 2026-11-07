@@ -1,6 +1,7 @@
 """Cheap, stable cron monitor output. Only the heartbeat carries the check time."""
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -61,24 +62,25 @@ def watch(config: Config) -> str:
             directory = account / kind
             if not directory.is_dir():
                 continue
-            files = [path for path in directory.rglob("*") if path.is_file()]
             if kind == "mail":
                 # New mail is a new file in a date folder; the sync rewrites old mail (labels, read state), so
                 # mtimes would wake watch for nothing. Every message counts, from a person or a bot (a reminder, an
                 # alert, a receipt): a quiet wake is cheaper than a missed one. Only mail nobody needs (promotions,
                 # social, forums, spam, the account's own sent mail) leaves the signal unchanged.
-                names = sorted(path.relative_to(directory).as_posix() for path in files)
-                folders = sorted({name.split("/", 1)[0] for name in names if "/" in name})[-2:]
+                folders = sorted(path for path in directory.iterdir() if path.is_dir())[-2:]
                 worth = []
-                for rel in (name for name in names if name.split("/", 1)[0] in folders):
+                for path in sorted(path for folder in folders for path in folder.rglob("*") if path.is_file()):
                     try:
-                        data, _ = fm.read(directory / rel)
+                        data, _ = fm.read(path)
                     except (OSError, ValueError):
                         continue
                     if channel_files.worth_a_look(data, own):
-                        worth.append(rel)
-                name = f"{len(worth)} worth a look" + (f", newest {worth[-1]}" if worth else "")
+                        worth.append(path.relative_to(directory).as_posix())
+                # The digest catches a message that left while another, sorting lower, arrived in the same tick.
+                digest = hashlib.sha1("\n".join(worth).encode()).hexdigest()[:12]
+                name = f"{len(worth)} worth a look" + (f", newest {worth[-1]}, {digest}" if worth else "")
             else:
+                files = [path for path in directory.rglob("*") if path.is_file()]
                 newest = max(files, key=lambda path: (path.stat().st_mtime_ns, path.relative_to(directory).as_posix()),
                              default=None)
                 # The calendar sync rewrites only changed days, so the newest mtime moves only when something did.

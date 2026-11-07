@@ -115,6 +115,15 @@ def test_invalid_set_does_not_write(vault, capsys, args, message):
     assert snapshot(vault) == before
 
 
+@pytest.mark.parametrize("flag", ["--title", "--report", "--reviewed"])
+def test_task_new_refuses_set_only_flags(vault, capsys, flag):
+    before = snapshot(vault)
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "new", "A new task", "--source", "START", flag, "x")
+    assert "go with task T-nnn set" in capsys.readouterr().err
+    assert snapshot(vault) == before
+
+
 def test_word_limit_boundaries(vault, capsys):
     cli(vault, capsys, "T-001", "set", "--ask", "word " * 16, "--why", "word " * 40)
     task = entry(Config.load(vault))[0]
@@ -152,7 +161,7 @@ def test_new_parses_appends_sources_json_and_shared_id_allocation(vault, capsys)
     task = next(task for task in entry(config) if task.tid == "T-043")
     assert task.task_state == "ready" and "- **Source:** [[START]]" in task.body
     # Accepted ideas use precisely the same allocator and append path.
-    assert ideas.add(config, TODAY, "Organize notes?", "START", "Save time")
+    ideas.add(config, TODAY, "Organize notes?", "START", "Save time")
     ideas.respond(config, "Organize notes?", TODAY, "yes")
     assert next(task for task in entry(config) if task.tid == "T-044").handoff == (TODAY.isoformat(), "Home")
 

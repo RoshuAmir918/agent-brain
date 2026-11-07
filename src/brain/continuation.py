@@ -21,8 +21,12 @@ def _work_commit(work: str | None) -> tuple[str, str] | None:
         return None
     try:
         saved = json.loads((runtime.home() / "records" / "works" / "state.json").read_text(encoding="utf-8"))[work]
-        commit, at = (saved.get("lastCommit") or {}).get("hash", ""), saved["lastPush"]
-        return (commit, at) if isinstance(commit, str) and isinstance(at, str) else None
+        last, at = saved.get("lastCommit") or {}, saved["lastPush"]
+        if not isinstance(at, str):
+            return None
+        # A commit made after the last push is not on the remote yet: the push stands without a hash.
+        commit = last.get("hash", "") if str(last.get("when", "")) <= at else ""
+        return (commit, at) if isinstance(commit, str) else None
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
 
@@ -115,10 +119,11 @@ def engaged_at(config: Config) -> dict[str, str]:
         return {}
 
 
-def mark_engaged(config: Config, tid: str, instruction: str | None = None, by: str | None = None) -> bool:
+def mark_engaged(config: Config, tid: str, instruction: str | None = None, by: str | None = None, *,
+                 fresh: bool = False) -> bool:
     """The owner engaged: restore the budget and restart the direction check; the caller holds the vault lock. A task's
     budget follows its own owner's engagement: in an organisation, someone else (`by`) asking about it is interest, not
-    the owner steering it, and nothing is written."""
+    the owner steering it, and nothing is written. A `fresh` handoff also forgets the earlier quiet chunks."""
     task = tasks.find(config, tid) if by else None
     if task is not None and task.owner and by != task.owner:
         return False
@@ -137,12 +142,14 @@ def mark_engaged(config: Config, tid: str, instruction: str | None = None, by: s
         row["chunks_since_review"] = 0
         row.pop("circling", None)
         row.pop("budget_cap", None)
+        if fresh:
+            row["quiet"] = 0
         if instruction:
             row["instruction"] = {"at": config.local().isoformat(), "text": instruction}
     return True
 
 
-def budget_for(config: Config, task, engaged: dict[str, str] | None = None) -> int:
+def budget_for(config: Config, task, engaged: dict[str, str] | None = None, caps: dict[str, int] | None = None) -> int:
     """Today's chunk budget: whole on a day the owner engaged with the task (or handed it off), then halved for each
     day without engagement, down to one. A task nobody is following slows down by itself instead of circling."""
     engaged = engaged_at(config) if engaged is None else engaged
@@ -154,12 +161,12 @@ def budget_for(config: Config, task, engaged: dict[str, str] | None = None) -> i
     except ValueError:
         days = 0
     limit = config.daily_chunks if days <= 0 else max(1, config.daily_chunks >> days)
-    return min(limit, budget_caps(config).get(task.tid, limit))
+    return min(limit, (budget_caps(config) if caps is None else caps).get(task.tid, limit))
 
 
-def budgets(config: Config, task_list) -> dict[str, int]:
-    engaged = engaged_at(config)
-    return {task.tid: budget_for(config, task, engaged) for task in task_list}
+def budgets(config: Config, task_list, caps: dict[str, int] | None = None) -> dict[str, int]:
+    engaged, caps = engaged_at(config), budget_caps(config) if caps is None else caps
+    return {task.tid: budget_for(config, task, engaged, caps) for task in task_list}
 
 
 def budget_caps(config: Config) -> dict[str, int]:
@@ -197,7 +204,7 @@ def finish_lines(config: Config) -> list[tasks.Task]:
                 tasks.save_task(config, task, config.today())
             elif waiting:
                 continue
-            elif not task.delivers and not task.state.get("finish_asked"):
+            elif not task.delivers and task.state.get("finish_asked") != "pending":   # Delivers cleared after an answer
                 journal.add_ask(config, config.today(),
                                 f"What would done look like for {task.title}? Until then {config.agent_name} "
                                 "won't keep working on it in the background.",

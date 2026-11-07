@@ -7,6 +7,7 @@ import sys
 from datetime import date, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from . import digest, index, session_tools, sessions
 from .config import Config
@@ -92,9 +93,9 @@ def skills(config: Config) -> dict:
     return {"own_routines": own}
 
 
-def routines(directory: Path, today: date, days: int) -> list[dict]:
+def routines(directory: Path, today: date, days: int, zone: ZoneInfo) -> list[dict]:
     """Each cron job's runs in the window, from the session store's own counters: the cost of a routine, not its words."""
-    since = datetime.combine(today - timedelta(days=days), datetime.min.time()).timestamp()
+    since = datetime.combine(today - timedelta(days=days), datetime.min.time(), tzinfo=zone).timestamp()
     jobs: dict[str, list[dict]] = {}
     for path in digest.json_sources(directory) if directory.is_dir() else []:
         try:
@@ -104,7 +105,7 @@ def routines(directory: Path, today: date, days: int) -> list[dict]:
             continue
         if session_tools.session_kind(record) != "routine":
             continue
-        started = digest.parse_timestamp(record["startedAt"])
+        started = digest.parse_timestamp(record["startedAt"], zone)
         if started is None or started.timestamp() < since:
             continue
         jobs.setdefault(record["speaker"].get("userName") or "unnamed", []).append(record)
@@ -114,17 +115,17 @@ def routines(directory: Path, today: date, days: int) -> list[dict]:
             return sum(entry["item"]["type"] == kind for entry in run["entries"])
         minutes = []
         for run in runs:
-            start = digest.parse_timestamp(run["startedAt"])
-            end = digest.parse_timestamp(run["entries"][-1]["at"]) if run["entries"] else start
+            start = digest.parse_timestamp(run["startedAt"], zone)
+            end = digest.parse_timestamp(run["entries"][-1]["at"], zone) if run["entries"] else start
             if start and end:
                 minutes.append((end - start).total_seconds() / 60)
         out.append({"job": job, "runs": len(runs),
-                    "last": max(digest.parse_timestamp(run["startedAt"]).date() for run in runs).isoformat(),
+                    "last": max(digest.parse_timestamp(run["startedAt"], zone).date() for run in runs).isoformat(),
                     "mean_messages": mean([count(run, "message") for run in runs]),
                     "mean_tool_calls": mean([count(run, "tool_call") for run in runs]),
                     "mean_input_tokens": mean([run.get("usage", {}).get("inputTokens", 0) for run in runs]),
                     "mean_output_tokens": mean([run.get("usage", {}).get("outputTokens", 0) for run in runs]),
-                    "mean_minutes": mean(minutes), "end_reasons": {"unknown": len(runs)}})
+                    "mean_minutes": mean(minutes)})
 
     return out
 
@@ -145,7 +146,7 @@ def report(config: Config, today: date | None = None, days: int = 14, sessions_d
     return {"agent": config.agent_name, "date": today.isoformat(), "days": days,
             "notes": notes_by_kind(vault), "folders": folders(vault, config), "ledgers": ledgers(vault),
             "episodes": episodes(vault, today, days), "context": context(vault, config), "skills": skills(config),
-            "routines": routines(directory, today, days), "commits": commits(config.repo, days, config.now())}
+            "routines": routines(directory, today, days, config.zone), "commits": commits(config.repo, days, config.now())}
 
 
 def render(data: dict) -> str:
@@ -162,9 +163,8 @@ def render(data: dict) -> str:
     lines.append(f"Skills: own: {', '.join(sk['own_routines']) or 'none'}")
     lines.append("Routines:")
     for job in data["routines"]:
-        reasons = ", ".join(f"{reason} {count}" for reason, count in job["end_reasons"].items())
         lines.append(f"- {job['job']}: {job['runs']} runs, last {job['last']}, {job['mean_messages']} messages, {job['mean_tool_calls']} tool calls, "
-                     f"{job['mean_input_tokens']:.0f} in / {job['mean_output_tokens']:.0f} out tokens, {job['mean_minutes']} min; ends: {reasons}")
+                     f"{job['mean_input_tokens']:.0f} in / {job['mean_output_tokens']:.0f} out tokens, {job['mean_minutes']} min")
     if not data["routines"]:
         lines.append("- none recorded")
     lines.append("Commits: " + ", ".join(f"{key} {count}" for key, count in data["commits"].items()))

@@ -79,6 +79,19 @@ def test_missing_delivers_raises_one_standing_ask_and_returns_when_set(worker, c
     assert needs.items(config, config.today()) == []
 
 
+def test_clearing_delivers_after_an_answered_finish_line_asks_again(worker, capsys):
+    config, _ = worker
+    tasks.set_fields(config, "T-001", config.today(), clear=["delivers", "work"])
+    due(config, capsys)
+    tasks.set_fields(config, "T-001", config.today(), values={"delivers": "a published shortlist"})
+    due(config, capsys)
+    assert task(config).state["finish_asked"] == "answered"
+    tasks.set_fields(config, "T-001", config.today(), clear=["delivers"])
+    due(config, capsys)
+    assert [item.text for item in needs.items(config, config.today())] == [
+        "What would done look like for Sample? Until then Agent won't keep working on it in the background."]
+
+
 def test_a_task_waiting_on_its_owner_is_not_asked_its_finish_line_until_it_moves(worker, capsys):
     config, _ = worker
     tasks.set_fields(config, "T-001", config.today(), clear=["delivers", "work"])

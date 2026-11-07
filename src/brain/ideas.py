@@ -125,10 +125,10 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
 def new_owner(config: Config, today: date) -> bool:
     """The vault's first NEW_DAYS days, by its first commit: the time to show what the agent can be. By age alone, so an
     owner who simply wants little is not offered ideas at the new-owner pace forever."""
-    history = health.git(config.repo, "log", "--reverse", "--format=%cs")
-    if not history:
+    roots = (health.git(config.repo, "log", "--max-parents=0", "--format=%cs") or "").split()
+    if not roots:
         return True   # without a first commit, the vault has not established its age
-    return (today - date.fromisoformat(history.splitlines()[0])).days < NEW_DAYS
+    return (today - date.fromisoformat(min(roots))).days < NEW_DAYS
 
 
 def cooldown_until(config: Config, today: date) -> date | None:
@@ -163,12 +163,12 @@ def add_refusal(config: Config, today: date, text: str) -> str | None:
     return None
 
 
-def add(config: Config, today: date, text: str, source: str, why: str = "", needs: str = "", goal: str | None = None) -> bool:
+def add(config: Config, today: date, text: str, source: str, why: str = "", needs: str = "", goal: str | None = None) -> None:
     with vault_lock(config):
         from .goals import guard
         guard(config, goal, source)
-        if add_refusal(config, today, text):
-            return False
+        if refusal := add_refusal(config, today, text):
+            raise ValueError(refusal)
         source = source.strip()
         if not source or any(char in source for char in "[]\r\n"):
             raise ValueError("source must name a note, without wikilink brackets or newlines")
@@ -189,7 +189,6 @@ def add(config: Config, today: date, text: str, source: str, why: str = "", need
         fm.write(path, data, body)
         from . import reception
         reception.record(config, "idea", text, source)
-        return True
 
 
 def respond(config: Config, which: str, today: date, answer: str) -> Item:
@@ -208,7 +207,7 @@ def respond(config: Config, which: str, today: date, answer: str) -> Item:
         tid = None
         if answer == "yes":
             tid = tasks.next_id(config)
-            body = f"- **Status:** {item.detail}\n"
+            body = f"- **Status:** {item.detail}\n" if item.detail else ""
             if item.needs:
                 body += f"- **Needs:** {item.needs}\n"
             reference = item.source if item.source.startswith('"') else f"[[{item.source}]]"
@@ -216,6 +215,7 @@ def respond(config: Config, which: str, today: date, answer: str) -> Item:
             if item.goal:
                 body += f"- **Goal:** {item.goal}\n"
             task = tasks.Task(tid, item.text, tasks.with_handoff(body, today, "Home"), {"state": "ready"})
+            task.add_use(today.isoformat())
             tasks.append_task(config, task)
         if answer != "not-now":
             if item.origin == "ideas":

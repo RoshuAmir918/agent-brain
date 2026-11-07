@@ -89,6 +89,14 @@ def test_baseline_and_three_quiet_chunks_demote_then_stay_daily(work, capsys):
     assert run(config, capsys, "--chunk", "T-001") == "T-001 no progress: 4 quiet chunks; pace daily"
 
 
+def test_a_fresh_handoff_forgets_earlier_quiet_chunks(work, capsys):
+    config, home, clock = work
+    demote(config, capsys)
+    cli.main(["handoff", "T-001", "--vault", str(config.vault_path)])
+    capsys.readouterr()
+    assert fingerprint(config, home)["quiet"] == 0 and tasks.pace(task(config)) == "regular"
+
+
 def work_state(config, home, saved):
     tasks.hand_off(config, "T-001", AT.date(), work="trip-plan")
     path = home / "records/works/state.json"
@@ -125,6 +133,20 @@ def test_work_saved_progress_requires_push_since_previous_chunk(work, capsys, sa
     assert fingerprint(config, home)["quiet"] == (0 if progress else 1)
     clock[0] += timedelta(minutes=30)
     assert "no progress" in run(config, capsys, "--chunk", "T-001")
+
+
+def test_a_commit_whose_push_failed_is_not_taken_as_pushed(work, capsys):
+    config, home, clock = work
+    path = work_state(config, home, {})
+    assert "baseline stored" in run(config, capsys, "--chunk", "T-001")
+    path.write_text(json.dumps({"trip-plan": {"lastPush": "2026-11-04T12:15:00Z",
+                                              "lastCommit": {"hash": "late", "when": "2026-11-04T12:20:00Z"}}}))
+    clock[0] += timedelta(minutes=30)
+    assert "progress: work saved" in run(config, capsys, "--chunk", "T-001")
+    path.write_text(json.dumps({"trip-plan": {"lastPush": "2026-11-04T12:45:00Z",
+                                              "lastCommit": {"hash": "late", "when": "2026-11-04T12:20:00Z"}}}))
+    clock[0] += timedelta(minutes=30)
+    assert "progress: work saved" in run(config, capsys, "--chunk", "T-001")
 
 
 def test_work_saved_promotes_daily_to_regular(work, capsys):

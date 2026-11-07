@@ -5,12 +5,15 @@ import json
 import re
 import shlex
 from datetime import datetime
+from itertools import takewhile
 from pathlib import Path
 
 from .config import Config
 from .runtime import ROUTINE_PLATFORMS
 EVALUATION_RE = re.compile(r"evaluation fixture|retrieval[- ](check|test)|\bRC-\d{2}\b", re.I)
 ROUTINE_RE = re.compile(r"^cron\b|^cron_", re.I)
+SHELL_OPERATORS = (";", "&&", "||", "|", "&", "<", ">", ">>")
+WRITERS = ("write_file", "patch", "computer_write_file")   # a path in what they write is not a read
 
 
 def _harness_unanswered(folder: Path, now: datetime) -> list[tuple[str, str]]:
@@ -77,14 +80,14 @@ def retrieval_query(command: str) -> str | None:
         tokens = iter(lexer)
         query = []
         for token in tokens:
-            if token in (";", "&&", "||", "|", "&", "<", ">", ">>"):
+            if token in SHELL_OPERATORS:
                 break
-            if token in ("--vault", "--limit"):
+            if token in ("--vault", "--limit", "--form"):
                 next(tokens, None)
             elif token == "--":
-                query.extend(tokens)
+                query.extend(takewhile(lambda rest: rest not in SHELL_OPERATORS, tokens))
                 break
-            elif token != "--json" and not token.startswith(("--vault=", "--limit=")):
+            elif token != "--json" and not token.startswith(("--vault=", "--limit=", "--form=")):
                 query.append(token)
         return " ".join(query)
     except ValueError:
@@ -92,7 +95,7 @@ def retrieval_query(command: str) -> str | None:
 
 
 def activity(item: dict, config: Config) -> tuple[list[str], list[str]]:
-    if item["type"] != "tool_call":
+    if item["type"] != "tool_call" or item["name"] in WRITERS or item["name"].startswith("demiurge_"):
         return [], []
     strings = list(argument_strings(item["arguments"]))
     queries = [retrieval_query(text) for text in strings] if item["name"] in ("terminal", "exec_command") else []

@@ -15,7 +15,7 @@ What {agent_name} is responsible for and what it knows. Method is in [[{vault}/{
 What this work is for and what good performance looks like, in {human_name}'s words where possible, with the date.
 
 ## Serves
-Which of {human_name}'s goals in [[{vault}/{human_goals_link}|Goals]] this work advances, or the duty they gave, with the date. Link an active goal with `brain goals G-n link <hub>`; it writes the `- **Goal:** G-n` line. An unasked proposal needs one.
+Which of {human_name}'s goals{goals_where} this work advances, or the duty they gave, with the date. Link an active goal with `brain goals G-n link <hub>`; it writes the `- **Goal:** G-n` line. An unasked proposal needs one.
 
 ## Permission
 Where {human_name} granted this work and its limits: the dated note under `Conversations/` and the Standing coordination state entry in Tasks.

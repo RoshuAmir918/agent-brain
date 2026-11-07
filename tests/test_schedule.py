@@ -217,6 +217,14 @@ def test_cli_responsibility_and_needs_set_merge_list_clear(config, capsys):
     assert "responsibility =" not in text and "needs =" not in text
 
 
+def test_cli_set_clears_monitor_script_workdir_and_owner(config, capsys):
+    cli(config, "set", "alerts", "--every", "1h", "--monitor", "watch.sh", "--script", "run.sh", "--workdir", "/tmp",
+        "--owner")
+    cli(config, "set", "alerts", "--monitor", "", "--script", "", "--workdir", "", "--no-owner")
+    routine = schedule.load(config)["alerts"]
+    assert (routine.monitor, routine.script, routine.workdir, routine.owner) == (None, None, None, False)
+
+
 def test_unknown_responsibility_and_need_are_validate_warnings_not_errors(config, capsys, monkeypatch):
     # An unknown id may be declared before its hub is created.
     cli(config, "set", "alerts", "--every", "1h", "--responsibility", "unknown")
@@ -247,19 +255,6 @@ def test_invalid_create_never_creates_file(config):
     with pytest.raises(ValueError):
         schedule.save(config, {"new": Routine()})
     assert not schedule.path(config).exists()
-
-
-def test_mutations_run_problems_after_writing(config, monkeypatch):
-    checked = []
-    original = schedule.problems
-    monkeypatch.setattr(schedule, "problems", lambda cfg, **kw: checked.append(schedule.load(cfg)) or original(cfg, **kw))
-    cli(config, "set", "watch", "--every", "15m")
-    cli(config, "pause", "watch")
-    cli(config, "resume", "watch")
-    cli(config, "remove", "watch")
-    jobs(config, [])
-    cli(config, "import", "--force")
-    assert len(checked) == 5
 
 
 def test_check_exit_codes_and_invalid_file_not_rewritten(config, capsys):

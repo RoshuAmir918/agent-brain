@@ -130,8 +130,6 @@ class Config:
                     text=True, stderr=subprocess.DEVNULL).strip())
             except (OSError, subprocess.CalledProcessError):
                 repo = explicit.parent if explicit else start
-        if isinstance(values, dict) and "hermes_dir" in values:
-            raise ValueError("brain.toml: brain.hermes_dir is no longer supported; set runtime_dir instead")
         allowed = {item.name for item in fields(cls) if item.name not in ("repo", "_vault_path")}
         if not isinstance(values, dict) or set(values) - allowed:
             raise ValueError("brain.toml [brain] must contain only supported config keys")
@@ -153,6 +151,8 @@ class Config:
                 path = Path(value)
                 if path.is_absolute() or ".." in path.parts or path == Path("."):
                     raise ValueError(f"brain.{name} must be a relative path without '..'")
+                if name == "human_profile" and path.parent == Path("."):
+                    raise ValueError("brain.human_profile must be inside a folder, which holds the owner's notes")
                 paths[name] = path.as_posix()
         if config.edition not in EDITIONS:
             raise ValueError(f"brain.edition must be one of {', '.join(EDITIONS)}")
@@ -205,8 +205,10 @@ class Config:
         if not path.is_file():
             return Context.load({})
         with path.open("rb") as stream:
-            context = Context.load(tomllib.load(stream).get("context", {}))
-        if self.edition == "enterprise" and context.sections == SECTIONS:
+            values = tomllib.load(stream).get("context", {})
+        context = Context.load(values)
+        chosen = isinstance(values, dict) and "sections" in values or Context.ENV["sections"] in os.environ
+        if self.edition == "enterprise" and not chosen:
             # Unless the vault chose its sections, an enterprise context has no one person's day or goals in it.
             context = replace(context, sections=tuple(s for s in SECTIONS if s not in PERSONAL_SECTIONS))
         return context

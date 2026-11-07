@@ -19,3 +19,11 @@ def test_undeclared_kind_never_gates_the_nightly_but_brain_validate_reports_it(v
     except SystemExit:
         pass
     assert "Evidence.md: undeclared kind 'evidence'" in capsys.readouterr().out
+
+
+def test_a_declared_draft_or_reflection_is_one_wherever_it_lives(vault):
+    fm.write(vault / "Draft.md", {"kind": "draft"}, "# Draft\n")
+    fm.write(vault / "Thought.md", {"kind": "reflection"}, "# Thought\n")
+    fm.write(vault / "Plan.md", {"kind": "hub"}, "# Plan\n")
+    v = Vault(vault)
+    assert [v.kind_for(rel) for rel in ("Draft.md", "Thought.md", "Plan.md")] == ["draft", "reflection", "hub"]

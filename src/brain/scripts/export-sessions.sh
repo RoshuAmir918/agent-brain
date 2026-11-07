@@ -10,7 +10,7 @@ brain migrate-check || echo "export-sessions: migrate-check failed" >&2
 VAULT="$(brain paths vault)"
 OUT="$VAULT/Conversations/Sessions"
 RECORDS="$(brain paths records)/sessions"
-ZONE="${BRAIN_TZ:-$(brain timezone)}"   # the owner's zone from brain.toml: "yesterday" is theirs, whatever the host clock says
+ZONE="$(brain timezone)"   # the owner's zone from brain.toml: "yesterday" is theirs, whatever the host clock says
 if [ -n "${BRAIN_TODAY:-}" ]; then   # a pinned today, as the engine reads it
   DATE="$(date -j -v-1d -f %F "$BRAIN_TODAY" +%F 2>/dev/null || date -d "$BRAIN_TODAY -1 day" +%F)"
 else

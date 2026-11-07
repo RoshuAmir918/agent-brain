@@ -8,7 +8,7 @@ from dataclasses import InitVar, dataclass, field
 from datetime import date
 from pathlib import PurePosixPath
 
-from . import access, access_log, fm
+from . import access, access_log, fm, tasks as task_mod
 from .config import Config
 from .tasks import archive_path, load_tasks
 from .vault import Vault
@@ -358,19 +358,15 @@ def answered(config: Config, today: date, line: str) -> None:
     fm.write(log, {}, body + line + "\n")
 
 
-TASK_SOURCE = re.compile(r"#(T-\d{3})$")
-
-
 def dismiss(config: Config, which: str, today: date, reason: str = "no", *, by: str = "") -> Item:
     """The owner closed an item without answering it, and chose why. The item leaves the list and is never raised
     again; what happens to its source depends on the reason, never on a guess:
-    - `no`: nothing is done. An ask's or a waiting task's task is set aside, a proposal is dropped, an access request is
+    - `no`: nothing is done. An ask's or a waiting task's task is set aside, an access request is
       declined with no grant written, a confirm is accepted (an autonomous act's confirm is reversed).
     - `done`: the owner did it themselves. Its task is completed, with that as evidence.
     - `stop-asking`: as `no`, and the owner wants no questions like it; the People review turns it into a dated line in
       Working together. For ordinary items, only this reason changes future suggestions.
     Each is logged in Answered with its reason."""
-    from . import tasks as task_mod
     if reason not in REASONS:
         raise ValueError(f"reason must be one of {', '.join(REASONS)}")
     item = _pick(config, which, today)
@@ -378,15 +374,9 @@ def dismiss(config: Config, which: str, today: date, reason: str = "no", *, by: 
         from . import consults
         consults.dismiss(config, item, today, reason, by)
         return item
-    tid = None
     if item.origin == "current":
         _remove_bullet(config, item)
-        source_task = TASK_SOURCE.search(item.source)
-        tid = source_task[1] if item.kind == "ask" and source_task else None
-    elif item.origin == "task":
-        tid = item.source.rsplit("#", 1)[-1] if "#" in item.source else pathlib_stem(item.source)
-    elif item.origin == "improvement":
-        _drop_proposal(config, item, today)
+    tid = item.task if item.origin == "task" or (item.origin == "current" and item.kind == "ask") else None
     if tid:
         try:
             if reason == "done":
@@ -404,26 +394,6 @@ def dismiss(config: Config, which: str, today: date, reason: str = "no", *, by: 
     return item
 
 
-def pathlib_stem(source: str) -> str:
-    return source.rsplit("/", 1)[-1].removesuffix(".md")
-
-
-def _drop_proposal(config: Config, item: Item, today: date) -> None:
-    rel, _, anchor = item.source.partition("#")
-    path = config.vault_path / rel
-    body = path.read_text(encoding="utf-8")
-    heading = body.find("### " + anchor)
-    if heading < 0:
-        return
-    following = re.compile(r"^#{2,3} ", re.M).search(body, heading + 4)
-    end = following.start() if following else len(body)
-    entry = body[heading:end]
-    changed = STATUS_FIELD.sub(lambda m: m[0].replace(m[1], f"`dropped`, dismissed by the owner {today.isoformat()}"), entry, count=1)
-    if changed == entry:
-        changed = entry.rstrip("\n") + f"\n- **Status:** `dropped`, dismissed by the owner {today.isoformat()}\n\n"
-    fm.write_text(path, body[:heading] + changed + body[end:])
-
-
 def resolve(config: Config, which: str, because: str, today: date, *, record_answer: bool = True,
             owner_engaged: bool = False, by: str | None = None) -> Item:
     """Remove one item from CURRENT's Needs you because something answered it, and record what did, in
@@ -436,8 +406,7 @@ def resolve(config: Config, which: str, because: str, today: date, *, record_ans
     if item.origin == "consult":
         raise ValueError("answer it with brain consult answer")
     if item.origin != "current":
-        where = {"task": "change the task's state", "improvement": "set the proposal's status in its hub",
-                 "access": "write or decline the grant (setup)"}[item.origin]
+        where = {"task": "change the task's state", "access": "write or decline the grant (setup)"}[item.origin]
         raise ValueError(f"this item lives elsewhere: {where}")
     _remove_bullet(config, item)
     answered(config, today, _answered_line(today, item, because))

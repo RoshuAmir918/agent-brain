@@ -4,6 +4,7 @@ import subprocess
 import sys
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -32,7 +33,7 @@ def test_jsonl_preview_filters_roles_preserves_text_and_counts(vault, digest_ses
     cli.main(["digest", "--vault", str(vault), "--date", str(DAY)])
     captured = capsys.readouterr()
     text = captured.out
-    generated = datetime.now(digest.PACIFIC).date()
+    generated = datetime.now(Config.load(vault).zone).date()
     assert f"Digest for {DAY}, generated {generated} by brain from 2 sessions, 22 words" in text
     assert text.startswith(digest.FRONTMATTER)
     assert fm.split(text)[0] == {"kind": "log", "tier": "cold", "pinned": False, "uses": [], "uses_inferred": []}
@@ -114,14 +115,14 @@ def test_sessions_directory_override(vault, digest_sessions, tmp_path, capsys):
 
 @pytest.mark.parametrize("value", ["2026-10-20T07:01:00Z", "2026-10-20T00:01:00-0700",
                                   "2026-10-20 00:01", 1792479660, 1792479660000, "1792479660000"])
-def test_iso_epoch_seconds_milliseconds_and_naive_pacific(value):
-    assert digest.parse_timestamp(value).isoformat() == "2026-10-20T00:01:00-07:00"
+def test_iso_epoch_seconds_milliseconds_and_naive_in_the_given_zone(value):
+    assert digest.parse_timestamp(value, ZoneInfo("America/Los_Angeles")).isoformat() == "2026-10-20T00:01:00-07:00"
 
 
 @pytest.mark.parametrize("value", [True, False, None, {}, [], "", "bad", "NaN", "inf", 10**99,
                                   "2026-02-30T00:00:00Z"])
 def test_invalid_timestamps_are_unusable(value):
-    assert digest.parse_timestamp(value) is None
+    assert digest.parse_timestamp(value, ZoneInfo("America/Los_Angeles")) is None
 
 
 def test_dst_fold_sorts_by_instant_not_repeated_wall_clock(template_config):

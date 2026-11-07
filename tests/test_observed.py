@@ -131,6 +131,10 @@ def test_observed_reads_follow_enabled_directory_selection(vault, observed_sessi
     ("search_files", {"paths": [ACME, PROFILE, ACME]}, [ACME, PROFILE], []),
     ("mcp__vault__read", {"nested": [json.dumps({"path": PROFILE})]}, [PROFILE], []),
     ("exec_command", {"cmd": 'brain retrieve --json "' + ACME + '"', "path": PROFILE}, [], [ACME]),
+    ("terminal", "brain retrieve lisbon --json --form snippet", [], ["lisbon"]),
+    ("terminal", 'brain retrieve -- lisbon trip && cat "' + ACME + '"', [], ["lisbon trip"]),
+    ("write_file", {"path": ACME, "content": PROFILE}, [], []),
+    ("demiurge_message", {"text": "see " + PROFILE}, [], []),
 ])
 def test_harness_tool_arguments(name, arguments, reads, retrievals, template_config):
     assert session_tools.activity(tool(name, arguments)["item"], template_config) == (reads, retrievals)
