@@ -42,6 +42,8 @@ class Item:
     label: InitVar[str | None] = None   # what the id is keyed on, when the text is built from changing fields
     task: str = field(init=False)       # the task it stands for (T-nnn), when its source names one; else ""
     owner: str = field(init=False, default="")   # who it is for: its task's owner, in an organisation's intellect; else ""
+    default: str = ""   # a consult's stated default when nobody answers
+    area: str = ""    # the ownership area a consult concerns
 
     def __post_init__(self, label: str | None) -> None:
         key = json.dumps([self.origin, self.source, label if label is not None else self.text], ensure_ascii=False)
@@ -255,6 +257,8 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     owners = {task.tid: task.owner for task in tasks + archived if task.owner} if (config.vault_path / register).exists() else {}
     for item in out:
         item.owner = owners.get(item.task, "")
+    from . import consults
+    out.extend(consults.items(config))
     gone = dismissed_ids(config)
     return sorted((item for item in out if item.id not in gone), key=lambda item: rank(item, config, today))
 
@@ -280,7 +284,7 @@ def rank(item: Item, config: Config, today: date) -> tuple:
         return (1, 0, "")
     soon = any((when := mentioned(m, today)) and today <= when <= date.fromordinal(today.toordinal() + 7)
                for m in DATE.finditer(item.text))
-    blocking = item.origin == "task" or bool(item.task) or item.source.startswith(config.agents_dir + "/")
+    blocking = item.origin in ("task", "consult") or bool(item.task) or item.source.startswith(config.agents_dir + "/")
     newest_first = "".join(chr(0x10FFFF - ord(c)) for c in (item.since or "0000-00-00"))
     return (0, 0 if soon else 1 if blocking else 2, newest_first)
 
@@ -394,6 +398,10 @@ def dismiss(config: Config, which: str, today: date, reason: str = "no") -> Item
     if reason not in REASONS:
         raise ValueError(f"reason must be one of {', '.join(REASONS)}")
     item = _pick(config, which, today)
+    if item.origin == "consult":
+        from . import consults
+        consults.dismiss(config, item, today, reason)
+        return item
     tid = None
     if item.origin == "current":
         _remove_bullet(config, item)
@@ -446,6 +454,8 @@ def resolve(config: Config, which: str, because: str, today: date, *, record_ans
     if not because:
         raise ValueError("say what answered it: --because \"<the evidence>\"")
     item = _pick(config, which, today, prefer_current=True)
+    if item.origin == "consult":
+        raise ValueError("answer it with brain consult answer")
     if item.origin != "current":
         where = {"task": "change the task's state", "improvement": "set the proposal's status in its hub",
                  "access": "write or decline the grant (setup)"}[item.origin]

@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from importlib.resources import files
 
-from . import access, fm, responsibilities as responsibility_ids, works
+from . import access, fm, owners, responsibilities as responsibility_ids, works
 from .vault import Vault
 from .tasks import TASK_STATES, parse_register
 
@@ -248,7 +248,8 @@ def hygiene(vault: Vault) -> list[str]:
             + channels(vault) + identity_duplicates(vault) + needs_ceiling(vault) + needs_hygiene(vault)
             + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
-            + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault))
+            + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault)
+            + owners.problems(vault.config))
 
 
 def schedule_hygiene(vault: Vault) -> list[str]:
