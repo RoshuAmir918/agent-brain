@@ -10,6 +10,7 @@ from .session_context import matching_profiles, table_cells, has_id_line
 from .vault import Note, Vault, WIKILINK_RE
 
 SUBJECTS = {
+    "experiences": "places, services, products and people for hire the owner has used, and how it went",
     "schedule": "calendar, availability, plans with times",
     "whereabouts": "where the owner is or will be",
     "plans": "projects, trips, work in progress, what the owner is up to",

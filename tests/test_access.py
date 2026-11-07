@@ -58,7 +58,7 @@ def test_vocabulary_and_vault_subjects(access_vault):
 - secret: not a subject declaration
 """)
     vocabulary = access.subjects(access_vault, access_vault.config)
-    assert list(access.SUBJECTS) == ["schedule", "whereabouts", "plans", "work", "health", "finances",
+    assert list(access.SUBJECTS) == ["experiences", "schedule", "whereabouts", "plans", "work", "health", "finances",
                                      "contacts", "people", "opinions", "setup", "anything"]
     assert access.TELL_LEVELS == ("none", "gist", "details")
     assert access.DO_LEVELS == ("no", "ask", "yes")

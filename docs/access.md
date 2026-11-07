@@ -151,16 +151,9 @@ allows: that is an engine rule, not a default.
 
 ## Defaults
 
-New vaults start generous to friends and discreet with everyone else, as starter rows the owner edits (the friend row is
-added once the owner names their close friends):
-
-| audience | schedule | whereabouts | plans | work | everything else |
-| --- | --- | --- | --- | --- | --- |
-| Close friends | details | gist | gist | gist | none |
-| known | gist | none | gist | none | none |
-| anyone | none | none | none | none | none |
-
-`do` is `no` everywhere except `ask` for close friends' `schedule`.
+Since 0.63.0 new vaults start with the generous defaults in `docs/sharing.md`, as starter rows the owner edits (the
+friend rows are added once the owner names their close friends), and existing vaults are offered them once. What any
+rule lets an audience hear is drawn only from the owner's tellable note (`docs/sharing.md`).
 
 ## Migration (0.14.0)
 

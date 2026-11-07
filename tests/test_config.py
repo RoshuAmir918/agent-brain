@@ -67,7 +67,7 @@ def test_removed_config_key_names_its_replacement(tmp_path, setting):
 def test_template_values_have_only_current_keys(tmp_path):
     assert set(Config(tmp_path).template_values()) == {
         "vault", "agent_dir", "people_dir", "agents_dir", "human_profile",
-        "sources_dir", "runtime_dir", "human_name", "agent_name", "prefix", "human_goals", "human_portrait",
+        "sources_dir", "runtime_dir", "human_name", "agent_name", "prefix", "human_goals", "human_portrait", "human_tellable",
     }
 
 

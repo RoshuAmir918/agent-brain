@@ -150,6 +150,13 @@ def portrait_hygiene(vault: Vault) -> list[str]:
     return portrait.hygiene(note.body, vault.config.today(), rel, vault.config.edition == "enterprise") if note else []
 
 
+def tellable_hygiene(vault: Vault) -> list[str]:
+    from . import tellable
+    rel = vault.config.human_tellable
+    note = vault.notes.get(rel)
+    return tellable.hygiene(note.body, rel, access.subjects(vault, vault.config)) if note else []
+
+
 def responsibilities(vault: Vault) -> list[str]:
     """Every own skill is a responsibility: a hub at the vault root names it and its records folder. On demand only; the nightly write is never blocked on it."""
     problems = []
@@ -249,7 +256,7 @@ def hygiene(vault: Vault) -> list[str]:
             + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
             + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault)
-            + owners.problems(vault.config))
+            + owners.problems(vault.config) + tellable_hygiene(vault))
 
 
 def schedule_hygiene(vault: Vault) -> list[str]:

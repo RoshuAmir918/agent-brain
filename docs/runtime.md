@@ -107,6 +107,8 @@ Handed-off tasks run through background workers, outside the routine schedule. T
 
 At the start of a conversation, in parallel: `brain paths soul`, `brain paths skills`, `brain compile-context --write` (then reads `.context.md`), `brain timezone`, `brain session-context --platform --user-id [--user-id-alt] [--user-name] [--chat-id]`.
 
+`brain tellable <person|known|anyone> [--json]` resolves the owner's tellable note for an audience; JSON is `{person, groups, subjects: {subject: {level, lines}}}`. Outside sessions (including intellects, resolved for their owners) carry those lines under `What you may tell <name> about <owner>, and nothing else:`, the format in `brain.session_context.TELLABLE_HEADING`. The runtime keys on that heading: such a session gets only its session context, no compiled context, prefetched notes or vault tools (`read_file`, `search_files`, `terminal`, `write_file`, `patch`). Tools that reach the owner remain available. The resolved lines are capped at 600 words, dropping oldest evidence first, and say `Nothing yet.` when empty. Owner, maintainer, enterprise member and routine sessions have no such block; enterprise intellect sessions do. Legacy and missing disclosure notes still produce the block, resolved as `anyone`.
+
 Before each owner message, in parallel: `brain people-mentioned --form <f> -- <message>` and `brain retrieve --json --limit <n> [--form <f>] -- <message>`.
 
 After a conversation goes quiet: `brain record-spec --json` (the record call's system prompt, instructions, JSON schema and transcript cap), `brain needs-you --json` and `brain loops --json` for the record's context, then the model call, then `brain journal append` with the record on stdin, and `brain ledger append --json` after a routine.
@@ -121,6 +123,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.63.0: the tellable note. `brain tellable <person|known|anyone> [--json]` returns only the owner's sourced facts at the resolved gist/detail level. Outside session contexts carry the fixed `TELLABLE_HEADING` block; the runtime uses it to withhold compiled context, prefetch and vault tools, keeping tools that reach the owner.
 - 0.49.1: every open task keeps a view. A task whose result has no shape shows its own plan (steps or a checklist from its Delivers, Next and blockers, and links to its work); the recall skill asks for one at creation, and a migration fills in the open tasks that have none.
 - 0.49.0: background workers take daily tasks too. Default text and JSON continue due lists and `continue-signal` include daily tasks from noon local until their first counted chunk that day, with existing gates and ordering. `--daily` stays compatible. Default schedules drop `continue` and `continue-daily`; an unattended migration removes both routines and refreshes skills. Validate and health no longer check their monitor heartbeats.
 

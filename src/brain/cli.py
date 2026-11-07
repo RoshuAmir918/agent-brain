@@ -18,6 +18,7 @@ Usage:
   brain watch-signal [--vault <path>]
   brain continue-signal [--vault <path>]
   brain access <who> [--vault <path>] [--json]
+  brain tellable <who> [--vault <path>] [--json]
   brain state [--vault <path>] [--json]
   brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
   brain simulate [--h 7 --w 28]
@@ -39,7 +40,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, consults, digest, fm, health, ideas, journal, ledger, loops, needs, owners, portrait, retrieve, seed, session_context, state, validate, views, works
+from . import access, attribute, audit, compile_context, consults, digest, fm, health, ideas, journal, ledger, loops, needs, owners, portrait, retrieve, seed, session_context, state, tellable, validate, views, works
 from . import tasks as tasks_mod
 from .tasks import load_tasks, quiet
 from .vault import Vault
@@ -877,6 +878,25 @@ def cmd_state(args):
                          ("tasks", "hubs", "routines", "triggers", "ledger", "journal", "needsYou", "outputs", "loops", "loopsClosed")))
 
 
+def cmd_tellable(args):
+    config = args.config
+    vault = Vault(config.vault_path)
+    try:
+        result = tellable.resolve(vault, config, args.who)
+    except ValueError as error:
+        raise SystemExit(f"brain tellable: {error}")
+    audience = args.who in ("known", "anyone")
+    if args.json:
+        if not audience and result["person"] is None:
+            print(f"brain tellable: no profile matches {args.who!r}; resolving as stranger.", file=sys.stderr)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+    person = config.link(result["person"]) if result["person"] else (
+        args.who if audience else f"stranger (no profile matches {args.who!r})")
+    print(f"Person: {person} · Groups: {', '.join(config.link(rel) for rel in result['groups']) or 'none'}")
+    print(tellable.render(result))
+
+
 def cmd_portrait(args):
     if args.action == "coverage":
         data = seed.coverage(Vault(args.config.vault_path), args.config.today())
@@ -1140,6 +1160,8 @@ def main(argv=None):
     s = sub.add_parser("validate", parents=[vault]); s.set_defaults(fn=cmd_validate)
     s = sub.add_parser("access", parents=[vault]); s.add_argument("who")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_access)
+    s = sub.add_parser("tellable", parents=[vault]); s.add_argument("who")
+    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_tellable)
     s = sub.add_parser("attribute", parents=[vault])
     source = s.add_mutually_exclusive_group()
     source.add_argument("--file"); source.add_argument("--sessions-dir", help="default: $AGENT_HOME/records/sessions")
