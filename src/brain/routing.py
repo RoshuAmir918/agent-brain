@@ -76,7 +76,16 @@ def name(config: Config, person: str) -> str:
         if person == row.backup:
             return row.backup_name
     entry = directory.lookup(config, person)
-    return (entry.get("name") or person) if entry and entry.get("kind") == "person" else person
+    if entry and entry.get("kind") == "person" and entry.get("name"):
+        return entry["name"]
+    for path in sorted((config.vault_path / config.people_dir).rglob("Profile.md")):   # a colleague outside Owners.md
+        try:
+            data, body = fm.read(path)
+        except fm.Malformed:
+            continue
+        if data.get("kind") != "log" and person in identity.profile_ids(body):
+            return path.parent.name.replace("_", " ")
+    return person
 
 
 def area_bodies(config: Config) -> dict[str, str]:
