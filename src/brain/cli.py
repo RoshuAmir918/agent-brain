@@ -428,6 +428,47 @@ def cmd_evidence(args):
             print(f"{row.source}: {evidence.render(row)[2:]}")
 
 
+def cmd_source(args):
+    from . import sources
+    registry = sources.registry()
+    if args.target == "list":
+        counts: dict[str, tuple[int, str]] = {}
+        for row in evidence.read():
+            n, newest = counts.get(row.source, (0, ""))
+            counts[row.source] = (n + 1, max(newest, row.date.isoformat()))
+        names = sorted(set(registry) | set(counts))
+        listed = [{"id": name, "registered": name in registry, "rows": counts.get(name, (0, ""))[0],
+                   "newest": counts.get(name, (0, ""))[1],
+                   **({"runs": registry[name].SOURCE.runs, "editions": list(registry[name].SOURCE.editions),
+                       "facets": list(registry[name].SOURCE.facets), "sensitive": registry[name].SOURCE.sensitive,
+                       "about": registry[name].SOURCE.about} if name in registry else {})} for name in names]
+        if args.json:
+            print(json.dumps(listed, ensure_ascii=False, indent=2))
+            return
+        for entry in listed:
+            how = (f"{entry['runs']}{', sensitive' if entry['sensitive'] else ''} · {entry['about']}" if entry["registered"]
+                   else "written as it happens")
+            print(f"{entry['id']} · {entry['rows']} rows" + (f", newest {entry['newest']}" if entry["rows"] else "") + f" · {how}")
+        return
+    if args.target not in registry:
+        raise SystemExit(f"brain source: no source {args.target!r}; `brain source list` shows them")
+    if args.action != "extract":
+        raise SystemExit(f"brain source {args.target}: say extract")
+    home = Path(args.home).expanduser() if args.home else runtime.configured()
+    if home is None:
+        raise SystemExit("brain source: AGENT_HOME is not set; pass --home DIR to keep this evidence somewhere")
+    config = getattr(args, "config", None)
+    today = config.today() if config else date.today()
+    ctx = sources.Context(today, date.fromisoformat(args.since) if args.since else None,
+                          Path(args.input).expanduser() if args.input else None, config)
+    try:
+        rows = registry[args.target].extract(ctx)
+    except ValueError as error:
+        raise SystemExit(f"brain source {args.target}: {error}")
+    added = evidence.append(args.target, rows, home)
+    print(f"{args.target}: {len(rows)} rows read, {added} new → {evidence.folder(home) / args.target}")
+
+
 def cmd_consult(args):
     config = args.config
     try:
@@ -1516,6 +1557,12 @@ def main(argv=None):
     s.add_argument("--source"); s.add_argument("--hint", help="a portrait facet or a knowledge area")
     s.add_argument("--since", metavar="YYYY-MM-DD"); s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_evidence)
+    s = sub.add_parser("source", help="the evidence sources: list them, or extract one", parents=[vault])
+    s.add_argument("target", metavar="list|ID"); s.add_argument("action", nargs="?", choices=["extract"])
+    s.add_argument("--since", metavar="YYYY-MM-DD", help="extract: only what is this recent")
+    s.add_argument("--input", metavar="PATH", help="extract: where the raw input is, when not the source's default")
+    s.add_argument("--home", metavar="DIR", help="extract: the agent workspace to keep evidence in (default AGENT_HOME)")
+    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_source)
     s = sub.add_parser("consult", help="consult a colleague and keep their words by area (enterprise)", parents=[vault])
     actions = s.add_subparsers(dest="consult_cmd", required=True)
     for action in ("autonomy", "act", "reverse", "lower", "ceiling", "decisions", "cite", "decide", "candidates", "seed", "ask", "answer", "overrule", "delegate", "lapse", "list", "stats"):
@@ -1756,7 +1803,9 @@ def main(argv=None):
     try:
         a.config = Config.load(a.vault)
     except (OSError, ValueError) as error:
-        ap.error(str(error))
+        if a.cmd != "source":   # a source can run on the owner's own Mac, where there is no vault
+            ap.error(str(error))
+        a.config = None
     a.fn(a)
 
 
