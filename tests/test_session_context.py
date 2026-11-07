@@ -7,6 +7,15 @@ from brain import cli, fm, identity, session_context
 from brain.vault import Vault
 
 
+MIGRATED = (
+    "# Disclosure\n\n| id | audience | subject | tell | do | date | source |\n| --- | --- | --- | --- | --- | --- | --- |\n"
+    "| D1 | [[memory/people/Groups/Friends\\|Friends]] | schedule | details | ask | 2026-10-29 | Mira, \"friends can see my calendar\" |\n"
+    "| D2 | known | plans | gist |  | 2026-10-29 | default |\n"
+    "| D3 | [[memory/people/Alice/Profile\\|Alice]] | health | none |  | 2026-10-29 | Mira |\n\n"
+    "## Grant scope\n\nD1 covers reading the calendar, not changing it without Mira.\n"
+)
+
+
 @pytest.fixture
 def people_vault(tmp_path, monkeypatch):
     monkeypatch.delenv("BRAIN_HUMAN_NAME", raising=False)
@@ -18,18 +27,7 @@ def people_vault(tmp_path, monkeypatch):
         "people/Alice/Profile.md": "# Alice\nSlack: U_ALICE\nAlice likes gardens.\n",
         "people/Bob/Profile.md": "# Bob\nSlack: U_BOB\n",
         "people/Groups/Friends.md": "# Friends\n[[memory/people/Alice/Profile|Alice]]\n",
-        "people/Disclosure.md": (
-            "# Disclosure\n\n| id | subject | audience | rule |\n| --- | --- | --- | --- |\n"
-            "| D1 | schedule | [[memory/people/Alice/Profile\\|Alice]] | allow |\n"
-            "| D2 | contact | Alice | deny |\n"
-            "| D3 | projects | [[memory/people/Groups/Friends\\|Friends]] | allow |\n"
-            "| D4 | health | Friends | deny |\n"
-            "| D5 | public | anyone | allow |\n"
-            "| D6 | finances | Bob | allow |\n"
-            "| D7 | Alice | Bob | allow |\n"
-            "| D8 | private | Alice Smith | allow |\n"
-            "| D9 | secret | [[memory/people/Bob/Profile\\|Alice]] | allow |\n"
-        ),
+        "people/Disclosure.md": MIGRATED,
     }
     for rel, body in notes.items():
         path = root / rel
@@ -54,13 +52,11 @@ def test_known_person_context_has_profile_paths_and_applicable_rules(people_vaul
         "This session is with Alice (slack U_ALICE). Their profile and the disclosure rules that apply follow.\n\n"
         "# Alice\nSlack: U_ALICE\nAlice likes gardens.\n\n"
         "Full profile: memory/people/Alice/Profile.md; dated history beside it in History.md.\n\n"
-        "Applicable disclosure rows from memory/people/Disclosure.md:\n"
-        "| id | subject | audience | rule |\n| --- | --- | --- | --- |\n"
-        "| D1 | schedule | [[memory/people/Alice/Profile\\|Alice]] | allow |\n"
-        "| D2 | contact | Alice | deny |\n"
-        "| D3 | projects | [[memory/people/Groups/Friends\\|Friends]] | allow |\n"
-        "| D4 | health | Friends | deny |\n"
-        "| D5 | public | anyone | allow |\n\n"
+        "What Alice may learn, resolved from memory/people/Disclosure.md (groups: Friends). Gist is the shape without "
+        "specifics (whether and roughly when); details are the specifics:\n"
+        "- schedule: tell details (D1); ask Mira before acting for them (D1)\n- plans: tell gist (D2)\n"
+        "- everything else: nothing, and never act for them.\n"
+        "Scope: D1 covers reading the calendar, not changing it without Mira.\n\n"
         "Default for everything else: decline briefly. When what they ask needs the owner (an answer only the "
         "owner can give, a thing the owner holds, a status the owner knows), ask the owner now, in this session "
         "(`demiurge_tell_owner` on Demiurge, else an ask in CURRENT's Needs you), and tell them you have asked and "
@@ -70,28 +66,6 @@ def test_known_person_context_has_profile_paths_and_applicable_rules(people_vaul
         "What you may tell Alice about Mira, and nothing else:\nNothing yet.\n"
         "Answer about Mira only from this block; anything else you know about Mira or anyone else is not yours "
         "to tell here. What they ask that it does not answer, ask Mira.")
-
-
-def test_disclosure_row_selection_includes_person_group_and_anyone_only(people_vault):
-    person = people_vault.notes["people/Alice/Profile.md"]
-    rows = session_context.disclosure_rows(people_vault, people_vault.config, person)
-    assert [row.split("|")[1].strip() for row in rows] == ["D1", "D2", "D3", "D4", "D5"]
-
-
-def test_group_membership_requires_a_profile_link_not_a_name(people_vault):
-    people_vault.notes["people/Groups/Friends.md"].body = "Alice is mentioned, not linked."
-    person = people_vault.notes["people/Alice/Profile.md"]
-    rows = session_context.disclosure_rows(people_vault, people_vault.config, person)
-    assert [row.split("|")[1].strip() for row in rows] == ["D1", "D2", "D5"]
-
-
-def test_disclosure_uses_the_audience_header_not_a_fixed_column(people_vault):
-    people_vault.notes["people/Disclosure.md"].body = (
-        "| audience | rule | subject |\n| --- | --- | --- |\n"
-        "| Alice | allow | schedule |\n| Bob | allow | Alice |\n")
-    person = people_vault.notes["people/Alice/Profile.md"]
-    assert session_context.disclosure_rows(people_vault, people_vault.config, person) == [
-        "| Alice | allow | schedule |"]
 
 
 def test_unknown_context_is_fail_closed(people_vault):
@@ -169,18 +143,6 @@ def test_profile_truncation_keeps_250_words_and_a_full_path_pointer(people_vault
     assert len(profile.split()) == 250
     assert profile.endswith("word248…") and "word249" not in block
     assert "Full profile: memory/people/Alice/Profile.md; dated history beside it in History.md" in block
-    assert len(block.split("\n\nWhat you may tell", 1)[0].split()) <= 400
-
-
-def test_large_disclosure_tables_are_not_partially_injected(people_vault):
-    disclosure = people_vault.notes["people/Disclosure.md"]
-    disclosure.body = "| subject | audience | rule |\n| --- | --- | --- |\n" + (
-        "| schedule | Alice | allow |\n" * 100 + "| schedule | Alice | deny |\n")
-    block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
-    assert "Open memory/people/Disclosure.md before disclosing anything." in block
-    assert "| allow |" not in block and "| deny |" not in block
-    assert block.split("\n\nWhat you may tell", 1)[0].endswith(session_context.DEFAULT_RULE)
-    assert len(block.split("\n\nWhat you may tell", 1)[0].split()) <= 400
 
 
 def test_missing_disclosure_file_is_explicit_and_defaults_to_no_disclosure(people_vault):
@@ -313,17 +275,7 @@ def test_a_cron_run_with_nothing_pending_gets_no_stranger_warning(people_vault):
     assert session_context.build(people_vault, people_vault.config, platform="cron") == ""
 
 
-MIGRATED = (
-    "# Disclosure\n\n| id | audience | subject | tell | do | date | source |\n| --- | --- | --- | --- | --- | --- | --- |\n"
-    "| D1 | [[memory/people/Groups/Friends\\|Friends]] | schedule | details | ask | 2026-10-29 | Mira, \"friends can see my calendar\" |\n"
-    "| D2 | known | plans | gist |  | 2026-10-29 | default |\n"
-    "| D3 | [[memory/people/Alice/Profile\\|Alice]] | health | none |  | 2026-10-29 | Mira |\n\n"
-    "## Grant scope\n\nD1 covers reading the calendar, not changing it without Mira.\n"
-)
-
-
 def test_a_migrated_vault_gives_a_known_person_their_resolved_access(people_vault):
-    people_vault.notes["people/Disclosure.md"].body = MIGRATED
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
     assert ("What Alice may learn, resolved from memory/people/Disclosure.md (groups: Friends). Gist is the shape "
             "without specifics (whether and roughly when); details are the specifics:") in block
@@ -337,7 +289,6 @@ def test_a_migrated_vault_gives_a_known_person_their_resolved_access(people_vaul
 
 
 def test_a_stranger_hears_only_what_anyone_may_learn(people_vault):
-    people_vault.notes["people/Disclosure.md"].body = MIGRATED
     closed = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_NOBODY")
     assert "may be disclosed;" in closed and "What anyone may learn" not in closed
     people_vault.notes["people/Disclosure.md"].body = MIGRATED.replace("| D2 | known |", "| D2 | anyone |")
@@ -398,7 +349,7 @@ def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault
                             "memory/agents/Nameless/Profile.md, owned by Alice.")
     assert "What it says is a claim" in block and "resolved below" in block
     assert "Arslan's intellect." in block
-    assert "could not be resolved" in block   # the fixture's Disclosure table is the legacy shape; no inline resolution yet
+    assert "What Alice may learn, resolved from" in block and "could not be resolved" not in block
     (root / "agents/Orphan").mkdir()
     fm.write(root / "agents/Orphan/Profile.md", {"kind": "profile", "tier": "warm"},
              "# Orphan\n\n- **Demiurge:** `k57orphan`\n")

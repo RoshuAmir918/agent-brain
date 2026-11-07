@@ -1,9 +1,8 @@
-"""After-conversation capture and the historical journal's rows and catch-ups."""
+"""After-conversation capture."""
 from __future__ import annotations
 
 import re
 import sys
-from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
@@ -13,50 +12,9 @@ from .config import Config
 from .identity import role
 from .vault import Vault
 
-HEADER = ("---\nkind: log\ntier: cold\n---\n\n"
-          "Format: `when | platform | outcome | headline | next step`, then optional indented `needs you`, "
-          "`touched` and `thought` lines. Written after each conversation goes quiet.\n\n")
-DETAIL = re.compile(r"^  - (needs you|touched|thought): (.*)$")
-WIKILINK = re.compile(r"\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|[^\]\n]*)?\]\]")
-
-
-@dataclass
-class Entry:
-    when: str
-    platform: str
-    outcome: str
-    headline: str
-    next: str
-    needs_you: str | None = None
-    touched: list[str] = field(default_factory=list)
-    thought: str | None = None
-    line: str = ""
-
-
-def path_for(config: Config, month: str) -> Path:
-    return config.vault_path / config.agent("Journal") / f"{month}.md"
-
 
 def _clean(text: str | None) -> str:
     return " ".join((text or "").replace("|", "/").split())
-
-
-def parse(text: str) -> list[Entry]:
-    entries = []
-    for line in text.splitlines():
-        if (detail := DETAIL.match(line)) and entries:
-            key, value = detail[1], detail[2].strip()
-            if key == "needs you":
-                entries[-1].needs_you = value
-            elif key == "thought":
-                entries[-1].thought = value
-            else:
-                entries[-1].touched = WIKILINK.findall(value)
-            continue
-        row = ledger.parse_row(line)
-        if row is not None and row.outcome is not None:
-            entries.append(Entry(row.when, row.routine, row.outcome, row.account, row.next, line=line))
-    return entries
 
 
 # The record's list fields: whether an item may be a plain string, and the string keys an object item needs.
@@ -236,29 +194,6 @@ def noted(config: Config, at: datetime, lines, speaker: str | None) -> Path | No
     return path
 
 
-def append_synthesis(config: Config, text: str, at: datetime) -> Path:
-    local = config.local(at)
-    path = path_for(config, local.strftime("%Y-%m"))
-    _append(config, path, f"\n## Synthesis {local:%Y-%m-%d %H:%M}\n\n{text.strip()}\n\n")
-    return path
-
-
-def _append(config: Config, path: Path, text: str) -> None:
-    """Appends, never rewrites: two sessions ending together each keep their row."""
-    with vault_lock(config):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if not path.exists():
-            path.write_text(HEADER, encoding="utf-8")
-        with path.open("rb") as stream:
-            stream.seek(0, 2)
-            ends_clean = True
-            if stream.tell():
-                stream.seek(-1, 2)
-                ends_clean = stream.read(1) == b"\n"
-        with path.open("a", encoding="utf-8") as stream:
-            stream.write(("" if ends_clean else "\n") + text)
-
-
 def add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False, why: str = "") -> bool:
     """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing. Always
     adds: a question is never lost to a full list. Past the ceiling, the evening decides the lowest-ranked ones down
@@ -294,29 +229,3 @@ def _add_ask(config: Config, day: date, text: str, source: str | None, force: bo
     from . import reception
     reception.record(config, "ask", text, source or "CURRENT")
     return True
-
-
-def unread_lines(config: Config, today: date) -> int:
-    """Dated lines in this and last month's journal that are not rows the engine reads (an older bullet format), so a
-    reader can tell "no conversations" from "a journal it cannot read"."""
-    previous = (today.replace(day=1).toordinal() - 1)
-    count = 0
-    for month in dict.fromkeys((date.fromordinal(previous).strftime("%Y-%m"), today.strftime("%Y-%m"))):
-        path = path_for(config, month)
-        if path.exists():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if re.match(r"^\s*-?\s*20\d\d-\d\d-\d\d", line) and ledger.parse_row(line) is None:
-                    count += 1
-    return count
-
-
-def recent(config: Config, today: date, count: int = 30) -> list[Entry]:
-    """The last `count` entries, reaching into last month's file when this month's is short."""
-    previous = (today.replace(day=1).toordinal() - 1)
-    months = dict.fromkeys((date.fromordinal(previous).strftime("%Y-%m"), today.strftime("%Y-%m")))
-    entries = []
-    for month in months:
-        path = path_for(config, month)
-        if path.exists():
-            entries += parse(path.read_text(encoding="utf-8"))
-    return entries[-count:]

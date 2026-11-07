@@ -71,7 +71,7 @@ def test_signal_and_install_paths_use_agent_home_only(vault, tmp_path, monkeypat
 
     home = tmp_path / "agent-home"
     monkeypatch.setenv("AGENT_HOME", str(home))
-    assert signals._home() == home
+    assert runtime.home() == home
     signals.watch(Config.load(vault))
     assert (home / "records/watch/signal.json").is_file()
     assert install.scripts_path() == home / "scripts"

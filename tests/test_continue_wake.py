@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from brain import cli as brain_cli, continuation, fm, state, tasks, validate
+from brain import cli as brain_cli, continuation, fm, signals, state, tasks, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -51,7 +51,7 @@ def test_computer_rest_is_never_due_until_woken(resting, capsys, daily, task_sta
         cli(config, capsys, "--due", *options)
     assert error.value.code == 1
     capsys.readouterr()
-    assert continuation.signals.continue_(config, daily=daily) == "date: none"
+    assert signals.continue_(config, daily=daily) == "date: none"
     assert current(config).task_state == task_state
     assert cli(config, capsys, "--wake", "computer") == "T-001 woken: Sample"
     assert current(config).resume is None
@@ -59,7 +59,7 @@ def test_computer_rest_is_never_due_until_woken(resting, capsys, daily, task_sta
     assert current(config).body == tasks._replace_field(before, "resume", None)
     assert [row["id"] for row in json.loads(cli(config, capsys, "--due", "--json", *options))] == ["T-001"]
     assert "T-001" in cli(config, capsys, "--due", *options)
-    assert "T-001" in continuation.signals.continue_(config, daily=daily)
+    assert "T-001" in signals.continue_(config, daily=daily)
 
 
 @pytest.mark.parametrize("location", ["register", "warm", "archive"])
@@ -167,6 +167,6 @@ def test_state_json_preserves_computer_and_lists_only_open_waits(resting, capsys
         tasks.append_task(config, tasks.Task(tid, "Other", f"- **Resume:** {resume}\n", {"state": task_state}))
     brain_cli.main(["state", "--json", "--vault", str(config.vault_path)])
     data = json.loads(capsys.readouterr().out)
-    assert data["schema"] == 1
+    assert data["schema"] == 2
     assert data["waitingOnComputer"] == ["T-001", "T-002"]
     assert [row["resume"] for row in data["tasks"]] == ["computer", "computer", "2026-11-07", "computer"]

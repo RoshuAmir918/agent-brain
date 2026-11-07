@@ -67,7 +67,6 @@ def coverage(vault: Vault) -> dict | None:
     if not named:
         found["problem"] = "no mail or calendar account is connected"
         return found
-    job = None
     job = next((j for j in runtime.jobs(Path(home)) if j.get("name") == "demiurge-sync"
                 or "demiurge-sync" in str(j.get("script") or "")), None)
     if job is None:
@@ -82,7 +81,6 @@ def coverage(vault: Vault) -> dict | None:
         found["problem"] = "the mail and calendar sync has not run yet"
         return found
     now = vault.config.now()
-    now = now.replace(tzinfo=vault.config.zone) if now.tzinfo is None else now
     if job.get("last_status") not in (None, "ok"):
         found["problem"] = f"the last mail and calendar sync failed ({' '.join(str(job.get('last_error') or job.get('last_status')).split())[:120]})"
     elif now - when > SYNC_STALE:

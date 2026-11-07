@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
 
-from . import digest, index, install, session_tools, sessions
+from . import digest, index, session_tools, sessions
 from .config import Config
 from .health import STAGE_RE, git
 from .vault import Vault
@@ -81,29 +81,15 @@ def context(vault: Vault, config: Config) -> dict:
 
 
 def skills(config: Config) -> dict:
-    """Which day routines the agent has changed from the package defaults, by name only."""
-    drifted, own, day = [], [], 0
-    rendered = {}
-    for routine in files("brain").joinpath("skills").iterdir():
-        template = routine.joinpath("SKILL.md")
-        if template.is_file():
-            text = template.read_text(encoding="utf-8")
-            for token, value in config.template_values().items():
-                text = text.replace("{" + token + "}", value)
-            rendered[routine.name] = text
+    """The agent's own routines, by name only: skills the package does not ship."""
+    packaged = {routine.name for routine in files("brain").joinpath("skills").iterdir() if routine.joinpath("SKILL.md").is_file()}
+    own = []
     if config.skills_path.is_dir():
         for folder in sorted(config.skills_path.iterdir()):
-            skill = folder / "SKILL.md"
-            if not skill.is_file():
-                continue
             name = folder.name[len(config.skill_prefix):] if folder.name.startswith(config.skill_prefix) else folder.name
-            if name not in rendered:
+            if (folder / "SKILL.md").is_file() and name not in packaged:
                 own.append(name)
-            elif name not in install.CORE:
-                day += 1
-                if skill.read_text(encoding="utf-8") != rendered[name]:
-                    drifted.append(name)
-    return {"day_routines": day, "changed_from_default": drifted, "own_routines": own}
+    return {"own_routines": own}
 
 
 def routines(directory: Path, today: date, days: int) -> list[dict]:
@@ -173,8 +159,7 @@ def render(data: dict) -> str:
     cx = data["context"]
     lines.append(f"Context: directory {cx['active_notes']} most active notes ({cx['active_note_words']} body words), compiled context {cx['compiled_context_words']} words")
     sk = data["skills"]
-    lines.append(f"Skills: {sk['day_routines']} day routines, changed from default: {', '.join(sk['changed_from_default']) or 'none'}; "
-                 f"own: {', '.join(sk['own_routines']) or 'none'}")
+    lines.append(f"Skills: own: {', '.join(sk['own_routines']) or 'none'}")
     lines.append("Routines:")
     for job in data["routines"]:
         reasons = ", ".join(f"{reason} {count}" for reason, count in job["end_reasons"].items())

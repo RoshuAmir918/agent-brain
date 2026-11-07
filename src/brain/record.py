@@ -1,4 +1,6 @@
 """The runtime-independent specification for recording conversations and routine runs."""
+from . import access_log
+from .ledger import NIGHT_STAGES, OUTCOMES
 
 TRANSCRIPT_CAP = 40000
 RECORD_SCHEMA = {
@@ -7,14 +9,10 @@ RECORD_SCHEMA = {
     "additionalProperties": False,
     "properties": {
         "headline": {"type": "string", "maxLength": 90},
-        "outcome": {"enum": ["done", "progress", "waiting", "blocked", "failed", "nothing"]},
+        "outcome": {"enum": list(OUTCOMES)},
         "touched": {"type": ["array", "null"], "items": {"type": "string"}},
-        "progress": {"type": ["array", "null"], "items": {"type": "object", "required": ["note", "did"],
-                                                "properties": {"note": {"type": "string"},
-                                                               "did": {"type": "string", "maxLength": 120}}}},
         "needsYou": {"type": ["string", "null"], "maxLength": 160},
         "next": {"type": ["string", "null"], "maxLength": 120},
-        "thought": {"type": ["string", "null"], "maxLength": 280},
         "loops": {"type": "array", "maxItems": 5, "items": {
             "type": "object", "required": ["kind", "text", "with", "due"], "additionalProperties": False,
             "properties": {"kind": {"enum": ["promised", "owed", "waiting"]},
@@ -31,12 +29,11 @@ RECORD_SCHEMA = {
         "access": {"type": "array", "maxItems": 5, "items": {
             "type": "object", "required": ["subject", "asked", "outcome", "rule"], "additionalProperties": False,
             "properties": {"subject": {"type": "string"}, "asked": {"type": "string", "maxLength": 120},
-                           "outcome": {"enum": ["told gist", "told details", "declined", "asked owner", "did"]},
+                           "outcome": {"enum": list(access_log.OUTCOMES)},
                            "rule": {"type": ["string", "null"]}}}},
     },
 }
-ROUTINE_SCHEMA = {**RECORD_SCHEMA, "properties": {key: value for key, value in RECORD_SCHEMA["properties"].items()
-                                               if key not in ("access", "workingTogether", "noted", "loops", "closed", "resolved", "ready")}}
+ROUTINE_SCHEMA = {**RECORD_SCHEMA, "properties": {key: RECORD_SCHEMA["properties"][key] for key in ("headline", "outcome", "next")}}
 SYSTEM = ("You are the agent whose session this was, keeping your own records. Answer only with the JSON object "
           "the schema describes.")
 CONVERSATION = (
@@ -79,8 +76,5 @@ ROUTINE = (
     "- headline: what the run found or did, under 90 characters; for a quiet run, say what was checked.\n"
     "- outcome: done, progress, waiting, blocked, failed (the run could not do its job), or nothing "
     "(it ran and there was nothing to act on).\n"
-    "- next: the next step it leaves, or null.\n"
-    "Leave touched, progress, needsYou and thought out, or null, unless the run produced something the owner must "
-    "decide.")
-NIGHT_STAGES = {"attribute", "sleep1", "rem", "sleep2"}   # one commit each: git is their ledger
+    "- next: the next step it leaves, or null.")
 

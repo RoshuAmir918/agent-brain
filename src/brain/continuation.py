@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import fm, journal, needs, runtime, signals, tasks
+from . import fm, journal, needs, runtime, tasks
 from .config import DAILY_CHUNKS, Config
 from .lock import vault_lock
 
@@ -58,7 +58,7 @@ def _progress(config: Config) -> dict[str, dict]:
     if runtime.configured() is None:
         return {}
     try:
-        records = json.loads((signals._home() / "records" / "continue" / "progress.json").read_text(encoding="utf-8"))
+        records = json.loads((runtime.home() / "records" / "continue" / "progress.json").read_text(encoding="utf-8"))
         return {tid: row for tid, row in records.get(str(config.vault_path.resolve()), {}).items() if isinstance(row, dict)}
     except (OSError, ValueError, AttributeError):
         return {}
@@ -67,7 +67,7 @@ def _progress(config: Config) -> dict[str, dict]:
 @contextmanager
 def _progress_records(config: Config):
     """Caller holds the vault lock; the second lock protects records shared by vaults."""
-    folder = signals._home() / "records" / "continue"
+    folder = runtime.home() / "records" / "continue"
     folder.mkdir(parents=True, exist_ok=True)
     with (folder / "progress.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -106,7 +106,7 @@ def chunks_today(config: Config) -> dict[str, int]:
 
 
 def _engaged_path() -> Path:
-    return signals._home() / "records" / "continue" / "engaged.json"
+    return runtime.home() / "records" / "continue" / "engaged.json"
 
 
 def engaged_at(config: Config) -> dict[str, str]:
@@ -391,7 +391,7 @@ def review(config: Config, tid: str, verdict: str, reason: str, *, ask: str | No
             row["circling"] = verdict == "circling"
             row["chunks_since_review"] = 0
             row["last_review"] = last
-            row.setdefault("reviews", []).append(last)
+            row.pop("reviews", None)
             if verdict == "met":
                 row["close_out"] = last
         return last

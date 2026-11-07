@@ -29,13 +29,9 @@ def sessions_records_path() -> Path:
     return records_path() / "sessions"
 
 
-CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall", "improve", "people", "explore", "watch", "continue",
-                  "prime", "setup", "morning", "evening", "seed"})
 # Day routines that were the vault's own until 0.18: the first render keeps the vault's copy beside the new one, as
 # previous.md, so its own steps can be moved under `## Local` and nothing the owner asked for is lost.
 ADOPTED = frozenset({"morning", "evening"})
-# the memory mechanism and the engine's own passes: always overwritten, keeping the vault's `## Local` section
-# everything else is a default the vault owns after first install
 
 LOCAL_HEADING = re.compile(r"^## Local[ \t]*$", re.M)
 EDITIONS_LINE = re.compile(r"^\s+editions:\s*\[([^\]]*)\]\s*$", re.M)
@@ -56,14 +52,14 @@ def for_edition(text: str, edition: str) -> str:
 
 
 def local_section(text: str) -> str:
-    """The vault's own additions to a core skill: from a `## Local` heading to the end of the file."""
+    """The vault's own additions to a skill: from a `## Local` heading to the end of the file."""
     match = LOCAL_HEADING.search(text)
     return text[match.start():].rstrip("\n") + "\n" if match else ""
 
 
 def render_skill(config: Config, name: str) -> str:
-    """The package's current text of one routine, rendered for this vault: what `install-skills` would write for a core
-    routine, and what a vault-owned day routine (morning, midday, evening) can adopt by hand, keeping its own steps."""
+    """The package's current text of one routine, rendered for this vault: what `install-skills` writes before keeping the
+    vault's `## Local` section."""
     template = files("brain").joinpath("skills", name, "SKILL.md")
     if not template.is_file():
         raise ValueError(f"no such routine: {name}; the package has " + ", ".join(
@@ -74,7 +70,7 @@ def render_skill(config: Config, name: str) -> str:
     return text
 
 
-def skills(config: Config, force: bool = False) -> Path:
+def skills(config: Config) -> Path:
     """Skills and the Memory Spec keep the vault's own `## Local` sections, read and rewritten under the vault lock."""
     with vault_lock(config):
         for routine in sorted(files("brain").joinpath("skills").iterdir(), key=lambda path: path.name):
@@ -85,10 +81,8 @@ def skills(config: Config, force: bool = False) -> Path:
             text = template.read_text(encoding="utf-8")
             if config.edition not in editions(text):
                 # Not this edition's: an earlier render (before the vault changed edition) is removed with its folder.
-                if target.exists() and routine.name in CORE:
+                if target.exists():
                     shutil.rmtree(target.parent)
-                continue
-            if target.exists() and routine.name not in CORE and not force:
                 continue
             text = for_edition(text, config.edition)
             for token, value in config.template_values().items():

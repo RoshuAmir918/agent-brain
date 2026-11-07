@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from brain import cli as brain_cli, continuation, journal, needs, tasks
+from brain import cli as brain_cli, continuation, journal, needs, signals, tasks
 from brain.config import Config
 
 
@@ -65,7 +65,7 @@ def test_missing_delivers_raises_one_standing_ask_and_returns_when_set(worker, c
     before = (config.vault_path / "agent/Tasks.md").read_text()
     for _ in range(3):
         assert due(config, capsys, *options) == []
-        assert continuation.signals.continue_(config, daily=daily) == "date: none"
+        assert signals.continue_(config, daily=daily) == "date: none"
     questions = needs.items(config, config.today())
     assert len(questions) == 1
     assert questions[0].text == "What would done look like for Sample? Until then Agent won't keep working on it in the background."

@@ -1,11 +1,11 @@
-"""The journal's structured rows, the asks they raise, and the ledger rows cron runs leave."""
+"""After-conversation capture, the asks it raises, and the ledger rows cron runs leave."""
 import io
 import json
 from datetime import date, datetime
 
 import pytest
 
-from brain import cli, fm, journal, ledger, loops, needs, nightly, state
+from brain import cli, fm, journal, ledger, loops, needs, nightly
 from brain.config import Config
 
 TODAY = date(2026, 10, 28)
@@ -23,15 +23,6 @@ def record(**overrides):
             **overrides}
 
 
-def old_entry(config, at, headline="Compared March fares to Lisbon."):
-    # Old diary files remain readable after conversation capture stops writing rows.
-    path = journal.path_for(config, at.strftime("%Y-%m"))
-    journal._append(config, path, ledger.render_row(ledger.Row(at.strftime("%Y-%m-%d %H:%M"), "demiurge",
-                                                             "progress", headline, "Check garden rooms."))
-                    + "\n  - touched: [[Lisbon trip]]\n")
-    return path
-
-
 def test_entry_captures_loops_instead_of_a_diary_row(config):
     path = journal.append_entry(config, record(touched=["Lisbon trip", "Nowhere"], thought="Unsure | worth it.",
                                                needsYou="Book the 16th?", loops=[
@@ -39,7 +30,7 @@ def test_entry_captures_loops_instead_of_a_diary_row(config):
     assert path == config.vault_path / "agent/Loops.md"
     [item] = loops.open_loops(config)
     assert (item.kind, item.text, item.source) == ("promised", "Check garden rooms.", "Lisbon trip")
-    assert not journal.path_for(config, "2026-10").exists()
+    assert not (config.vault_path / "agent/Journal").exists()
 
 
 def test_needs_you_becomes_an_ask_in_current_with_the_first_touched_note(config):
@@ -67,36 +58,10 @@ def test_append_rejects_bad_records_without_writing(config, bad):
     assert not (config.vault_path / "agent/Journal").exists()
 
 
-def test_synthesis_sections_are_not_entries_and_recent_reaches_last_month(config):
-    old_entry(config, datetime(2026, 9, 30, 9, 0), "September work.")
-    journal.append_synthesis(config, "A paragraph about the month.", datetime(2026, 9, 30, 10, 0))
-    old_entry(config, AT)
-    assert [entry.headline for entry in journal.recent(config, TODAY)] == ["September work.",
-                                                                           "Compared March fares to Lisbon."]
-    assert "## Synthesis 2026-09-30 10:00" in (config.vault_path / "agent/Journal/2026-09.md").read_text()
-
-
-def test_journal_is_not_a_routine_ledger_and_appears_in_state(config):
-    old_entry(config, AT)
-    assert all("Journal" not in path.parts for path in ledger.discover(config))
-    snapshot = state.build(config, TODAY)
-    assert snapshot["routines"] == [] and snapshot["ledger"] == []
-    [entry] = snapshot["journal"]
-    assert {key: entry[key] for key in ("at", "platform", "outcome", "headline", "touched")} == {
-        "at": "2026-10-28T14:05", "platform": "demiurge", "outcome": "progress",
-        "headline": "Compared March fares to Lisbon.", "touched": ["Lisbon trip"]}
-    assert list(snapshot).index("journal") == list(snapshot).index("ledger") + 1
-
-
-def test_cli_journal_append_json_and_synthesis(config, monkeypatch, capsys):
+def test_cli_journal_append_json(config, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(record(loops=[{"kind": "owed", "text": "Send fares.", "with": "Pat"}]))))
     cli.main(["journal", "append", "--vault", str(config.vault_path), "--platform", "slack", "--at", "2026-10-28 14:05"])
-    monkeypatch.setattr("sys.stdin", io.StringIO("Caught up."))
-    cli.main(["journal", "append", "--vault", str(config.vault_path), "--synthesis", "--at", "2026-10-28 15:00"])
-    cli.main(["journal", "recent", "--vault", str(config.vault_path)])
-    out = capsys.readouterr().out
-    assert out.splitlines()[0].endswith("agent/Loops.md")
-    assert out.splitlines()[-1].startswith("0 rows:")
+    assert capsys.readouterr().out.strip().endswith("agent/Loops.md")
     assert loops.open_loops(config)[0].text == "Send fares."
     monkeypatch.setattr("sys.stdin", io.StringIO("[]"))
     with pytest.raises(SystemExit, match="journal append"):
@@ -192,16 +157,6 @@ def test_a_noted_file_without_a_tier_gains_one_on_its_next_line(config):
     fm.write(note, {"kind": "conversation", "created": "2026-10-28"}, "# Noted 2026-10-28\n")
     journal.append_entry(config, record(outcome="nothing", noted=["Back on Friday"]), "cli", AT)
     assert fm.read(note)[0]["tier"] == "warm"
-
-
-def test_recent_says_when_there_is_nothing_to_read_or_a_file_it_cannot_read(config, capsys):
-    from brain import cli
-    path = journal.path_for(config, "2026-10")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("# Journal\n\n- 2026-10-29 01:23 demiurge · an older bullet row\n", encoding="utf-8")
-    cli.cmd_journal_recent(type("A", (), {"config": config, "count": 30})())
-    out = capsys.readouterr().out
-    assert out.startswith("0 rows:") and "1 line(s)" in out and "older format" in out
 
 
 def test_a_correction_that_reverses_an_earlier_line_is_kept(config):

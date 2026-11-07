@@ -43,7 +43,6 @@ class Rule:
     tell: str | None
     do: str | None
     fields: dict[str, str]
-    legacy: bool
     line: str
 
 
@@ -112,15 +111,6 @@ def subjects(vault: Vault, config: Config) -> dict[str, str]:
     return vocabulary
 
 
-def hub_subject(vault: Vault, config: Config, rel: str) -> str:
-    """Use a hub's declared subject when known, otherwise its directory default."""
-    note = vault.notes.get(rel)
-    subject = note.data.get("subject") if note else None
-    if isinstance(subject, str) and subject in subjects(vault, config):
-        return subject
-    return "people" if PurePosixPath(rel).is_relative_to(config.people_dir) else "plans"
-
-
 def groups(vault: Vault, config: Config) -> dict[str, list[str]]:
     """Group note paths and their linked profile members, including empty groups."""
     profiles = {note.rel for note in identity.profiles(vault, "person")}
@@ -145,7 +135,7 @@ def _audience(vault: Vault, text: str, profiles: set[str], group_rels: set[str])
 
 
 def rules(vault: Vault, config: Config) -> list[Rule]:
-    """Parse current and legacy tables without changing the disclosure note."""
+    """Parse the disclosure tables without changing the note."""
     profiles = {note.rel for note in identity.profiles(vault, "person")}
     group_rels = {note.rel for note in _group_notes(vault, config)}
     result = []
@@ -156,21 +146,16 @@ def rules(vault: Vault, config: Config) -> list[Rule]:
             continue
         cells = table_cells(line)
         names = [_word(cell) for cell in cells]
-        if {"id", "audience", "subject"}.issubset(names) and (
-                {"tell", "do"}.issubset(names) or "rule" in names):
+        if {"id", "audience", "subject", "tell", "do"}.issubset(names):
             headings = names
             continue
         if not headings or all(re.fullmatch(r":?-+:?", cell) for cell in cells):
             continue
         row = dict(zip(headings, cells + [""] * len(headings)))
-        legacy = not {"tell", "do"}.issubset(headings)
-        tell = ({"allow": "details", "deny": "none"}.get(_word(row["rule"]), _word(row["rule"]))
-                if legacy else _word(row["tell"]))
-        do = "no" if legacy else _word(row["do"])
-        core = {"id", "audience", "subject"} | ({"rule"} if legacy else {"tell", "do"})
-        fields = {key: value for key, value in row.items() if key not in core}
+        tell, do = _word(row["tell"]), _word(row["do"])
+        fields = {key: value for key, value in row.items() if key not in ("id", "audience", "subject", "tell", "do")}
         result.append(Rule(row["id"].strip("`"), _audience(vault, row["audience"], profiles, group_rels),
-                           _word(row["subject"]), tell or None, do or None, fields, legacy, line))
+                           _word(row["subject"]), tell or None, do or None, fields, line))
     return result
 
 

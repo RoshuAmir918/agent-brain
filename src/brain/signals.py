@@ -7,10 +7,7 @@ from pathlib import Path
 
 from . import channel_files, fm, loops, runtime, session_tools, tasks
 from .config import Config
-
-
-def _home() -> Path:
-    return runtime.home()
+from .vault import Vault
 
 
 def _heartbeat(home: Path, routine: str, now: datetime, **counts: int) -> None:
@@ -41,20 +38,14 @@ def _last_failure(home: Path, skill: str) -> str:
     return ""
 
 
-def config_vault(config: Config):
-    from .vault import Vault
-    return Vault(config.vault_path)
-
-
 def _check(config: Config) -> datetime:
     if not config.vault_path.is_dir():
         raise FileNotFoundError(f"vault not found: {config.vault_path}")
-    now = config.now()
-    return now.replace(tzinfo=config.zone) if now.tzinfo is None else now
+    return config.now()
 
 
 def watch(config: Config) -> str:
-    now, home = _check(config), _home()
+    now, home = _check(config), runtime.home()
     due = loops.due(config, now)
     unanswered = session_tools.unanswered(home, now)
     lines = ["due:"]
@@ -64,7 +55,7 @@ def watch(config: Config) -> str:
         lines.append(f"last failure: {failed}")
     lines.append("channels:")
     # Only live registry rows: a pending, revoked or unregistered account's leftover files are never read or reported.
-    synced = channel_files.synced_accounts(config_vault(config), owner_only=False)
+    synced = channel_files.synced_accounts(Vault(config.vault_path), owner_only=False)
     own = {name for name, _ in synced}
     rows = []
     for _, account in synced:
@@ -104,7 +95,7 @@ def watch(config: Config) -> str:
 
 def continue_(config: Config, daily: bool = False) -> str:
     from . import continuation
-    now, home = _check(config), _home()
+    now, home = _check(config), runtime.home()
     task_list = continuation.finish_lines(config)
     due = tasks.due(task_list, pace="daily" if daily else None,
                     chunks=continuation.chunks_today(config), daily_chunks=config.daily_chunks,

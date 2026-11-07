@@ -41,8 +41,6 @@ def night_vault(repo):
         attribute.Use("2026-10-05T01:00Z", "Hot Hub.md", "fixture reliance", "explicit"),
         attribute.Use("2026-10-04T01:00Z", "T-001", "fixture task reliance", "explicit"),
     ])
-    (root / "Hot Set.md").write_text("STALE_HOT_VIEW\n")
-    (root / "Warm Index.md").write_text("STALE_WARM_VIEW\n")
     current = root / "CURRENT.md"
     current.write_text(current.read_text().replace(nightly.MARK_START, nightly.MARK_START + "\nSTALE_THREAD"))
     log = root / "agent/Sleep Log/2026-10.md"
@@ -56,26 +54,6 @@ def cli(root, *extra):
     return subprocess.run(
         [sys.executable, "-m", "brain", *nightly_argv(root, DAY, *extra)],
         cwd=root.parent, env=env, capture_output=True, text=True)
-
-
-@pytest.mark.parametrize("stale", [("Hot Set.md",), ("Warm Index.md",), ("Hot Set.md", "Warm Index.md")])
-def test_nightly_removes_retired_views_and_reports_only_existing_files(vault, capsys, stale):
-    for name in stale:
-        (vault / name).write_text("STALE_GENERATED_VIEW\n")
-    before = snapshot(vault.parent)
-    brain_cli.main(nightly_argv(vault, DAY))
-    preview = capsys.readouterr().out
-    assert snapshot(vault.parent) == before
-    for name in stale:
-        assert f"index: removed generated {name}" in preview
-    brain_cli.main(nightly_argv(vault, DAY, "--write"))
-    report = capsys.readouterr().out
-    for name in ("Hot Set.md", "Warm Index.md"):
-        assert not (vault / name).exists()
-        assert (f"index: removed generated {name}" in report) == (name in stale)
-    assert "STALE_GENERATED_VIEW" not in (vault.parent / ".context.md").read_text()
-    brain_cli.main(nightly_argv(vault, DAY, "--write"))
-    assert "index: removed generated" not in capsys.readouterr().out
 
 
 def test_full_night_commits_only_agent_notes_and_pushes_one_commit(night_vault):
@@ -102,9 +80,6 @@ def test_full_night_commits_only_agent_notes_and_pushes_one_commit(night_vault):
     assert {".context.md", "memory/CURRENT.md", "memory/agent/Sleep Log/2026-10.md"} <= set(paths)
     assert "memory/Hot Hub|" in (root.parent / ".context.md").read_text()
     assert "Warm Hub" in compile_context.directory(Vault(root)).split("- Hubs and topics: ")[1]
-    for name in ("Hot Set.md", "Warm Index.md"):
-        assert not (root / name).exists()
-        assert f"index: removed generated {name}" in result.stdout
     current = (root / "CURRENT.md").read_text()
     assert "STALE_THREAD" not in current and "T-001 — Ship thing" in current
     assert "T-002" not in current

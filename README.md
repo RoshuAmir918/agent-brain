@@ -44,7 +44,7 @@ docs/                 engine reference and the example config
 tests/                pytest; a whole night against fixture vaults, in both layouts
 ```
 
-Core routines (attribute, sleep1, sleep2, rem, recall) are re-rendered into every vault on each refresh; the day routines (morning, watch, midday, evening, people, explore) are written once and then belong to the vault. To change a core routine, fork this repo and point your vault's `update_source` at the fork.
+Every routine is re-rendered into every vault on each refresh. A vault's own additions go in a `## Local` section at the end of a rendered skill, which is carried over verbatim; that is the only customization point. To change a routine itself, fork this repo and point your vault's `update_source` at the fork.
 
 ## Development
 

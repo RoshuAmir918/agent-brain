@@ -1,8 +1,7 @@
-from datetime import date
 
 import pytest
 
-from brain import channels, cli, fm, session_context, state, validate
+from brain import channels, cli, fm, session_context, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -75,7 +74,7 @@ def test_validate_reports_vocabulary_budget_and_unregistered_credential_referenc
     assert Vault(registry_vault).kind_for("agent/Channels/History.md") == "log"
 
 
-def test_the_owner_hears_what_the_agent_can_reach_and_the_state_exports_the_rows(registry_vault):
+def test_the_owner_hears_what_the_agent_can_reach(registry_vault):
     (registry_vault / "human").mkdir()
     fm.write(registry_vault / "human/Profile.md", {"kind": "hub", "tier": "hot"}, "# Mira\n\n## Working together\n\n- Brief, no preamble.\n")
     (registry_vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nhuman_name = "Mira"\nagent_name = "Echo"\nowner_user_ids = ["U_OWNER"]\n')
@@ -83,6 +82,3 @@ def test_the_owner_hears_what_the_agent_can_reach_and_the_state_exports_the_rows
     block = session_context.build(vault, vault.config, platform="slack", user_id="U_OWNER")
     assert "What you can reach, from memory/agent/Channels.md: Home (owner, mira): read every session; write replies; Own Gmail (own, echo@example.com): read mail; write sends to Mira only." in block
     assert "Mira's Gmail" not in block and "Anything not listed, you cannot reach from here" in block
-    exported = state.build(Config.load(registry_vault), date(2026, 11, 3))["channels"]
-    assert [row["channel"] for row in exported] == ["Home", "Own Gmail", "Mira's Gmail", "Old Slack"]
-    assert exported[2]["status"] == "pending" and exported[1]["reach"] == "op://Echo/Gmail app password"

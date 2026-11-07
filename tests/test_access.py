@@ -81,26 +81,18 @@ def test_new_tables_parse_columns_links_fields_and_blank_opinions(access_vault):
     assert len(parsed) == 2
     assert parsed[0] == access.Rule("D-001", access.Audience("person", ALICE), "schedule", "details", None,
                                     {"source": "a quote", "granted by": "Owner", "date": "2026-10-29",
-                                     "rule": "prose"}, False, line)
+                                     "rule": "prose"}, line)
     assert parsed[1].audience == access.Audience("group", FRIENDS)
     assert parsed[1].tell is None and parsed[1].do == "ask"
     assert validate.access_problems(access_vault) == []
 
 
-def test_legacy_rules_are_read_only_and_not_validation_problems(access_vault):
+def test_an_old_allow_deny_table_grants_nothing(access_vault):
     disclosure(access_vault, "| ID | subject | audience | rule |\n| --- | --- | --- | --- |\n"
-               f"| D-001 | schedule | [[{ALICE}]] | Allow |\n"
-               "| D-002 | health | Anyone | deny |\n"
-               "| D-004 | fantasy banter | Verified current opponent, private conversation only | allow |\n\n" + HEADER
+               f"| D-001 | schedule | [[{ALICE}]] | Allow |\n\n" + HEADER
                + "| D-003 | known | plans | gist | ask | 2026-10-29 | test |\n")
-    before = access_vault.notes["people/Disclosure.md"].path.read_bytes()
-    parsed = access.rules(access_vault, access_vault.config)
-    assert [(rule.tell, rule.do, rule.legacy) for rule in parsed] == [
-        ("details", "no", True), ("none", "no", True), ("details", "no", True), ("gist", "ask", False)]
-    result = access.resolve(access_vault, access_vault.config, ALICE)
-    assert result.subjects["schedule"] == access.SubjectAccess("details", "D-001", "no", "D-001")
-    assert validate.access_problems(access_vault) == []
-    assert access_vault.notes["people/Disclosure.md"].path.read_bytes() == before
+    assert [rule.id for rule in access.rules(access_vault, access_vault.config)] == ["D-003"]
+    assert access.resolve(access_vault, access_vault.config, ALICE).subjects["schedule"].tell == "none"
 
 
 @pytest.mark.parametrize("heading", ["## Members", "## Members, October 5, 2026"])

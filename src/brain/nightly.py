@@ -376,11 +376,6 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
     report: list[str] = []
     vault = Vault(root)
     config = vault.config
-    for name in ("Hot Set.md", "Warm Index.md"):
-        path = root / name
-        if path.exists():
-            path.unlink()
-            report.append(f"index: removed generated {name}")
     rollover(config, today, report)
     vault.load()
     changed = ensure_frontmatter(vault, today, report)

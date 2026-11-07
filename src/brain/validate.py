@@ -131,8 +131,6 @@ def access_problems(vault: Vault) -> list[str]:
     problems = []
     seen = set()
     for rule in access.rules(vault, config):
-        if rule.legacy:
-            continue   # the old allow/deny rows are read as they are until the 0.14 migration rewrites them
         prefix = f"{config.people_dir}/Disclosure.md: {rule.id}"
         if rule.id in seen:
             problems.append(f"{prefix}: duplicate id")
