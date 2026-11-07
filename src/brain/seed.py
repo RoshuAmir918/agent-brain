@@ -13,7 +13,7 @@ from . import fm
 DAYS = 90
 PLAN_DAYS = 30   # effort is about now: a month of finished work
 COMMENT = re.compile(r"^- (?P<at>\d{4}-\d{2}-\d{2}) · (?P<by>[^·]+?) · (?P<path>[^·]*?) · (?P<text>.+?)\s*$")
-BOT = re.compile(r"\[bot\]$|-bot$|^bot-", re.I)
+BOT = re.compile(r"\[bot\]$|-bot$|^bot-", re.I)   # GitHub's REST API marks app accounts `<name>[bot]`
 
 
 @dataclass
@@ -59,15 +59,18 @@ def reading(folder: Path, today: date, days: int = DAYS) -> dict:
     comments = [(review, *comment) for review in reviews for comment in review.comments]
     reviewers = Counter(by for _, _, by, _, _ in comments)
     areas = Counter(area(path) for _, _, _, path, _ in comments)
-    ranked = sorted((review for review in reviews if review.comments), key=lambda r: (-len(r.comments), -r.number))
+    people = lambda review: sum(not BOT.search(by) for _, by, _, _ in review.comments)
+    # a person's correction is the strongest evidence of taste; where review bots write most comments, they would bury it
+    ranked = sorted((review for review in reviews if review.comments), key=lambda r: (-people(r), -len(r.comments), -r.number))
     return {
         "window": {"from": (today - timedelta(days=days)).isoformat(), "to": today.isoformat()},
         "prs": len(reviews), "withComments": len(ranked), "comments": len(comments),
+        "byPeople": sum(not BOT.search(by) for _, _, by, _, _ in comments),
         "reviewers": [{"who": who, "comments": n, "bot": bool(BOT.search(who))} for who, n in reviewers.most_common()],
         "areas": [{"area": name, "comments": n,
                    "prs": len({review.number for review, _, _, path, _ in comments if area(path) == name})}
                   for name, n in areas.most_common()],
-        "read": [{"pr": review.number, "title": review.title, "comments": len(review.comments),
+        "read": [{"pr": review.number, "title": review.title, "comments": len(review.comments), "byPeople": people(review),
                   "file": review.file.as_posix()} for review in ranked],
         "problems": problems,
     }
@@ -75,13 +78,14 @@ def reading(folder: Path, today: date, days: int = DAYS) -> dict:
 
 def render(data: dict) -> str:
     out = [f"{data['window']['from']} to {data['window']['to']}: {data['prs']} merged PRs, {data['withComments']} with "
-           f"review comments, {data['comments']} comments by someone other than the PR's author", ""]
+           f"review comments, {data['comments']} comments by someone other than the PR's author, {data['byPeople']} of them "
+           f"by people", ""]
     if data["reviewers"]:
         out.append("Reviewers: " + ", ".join(f"{r['who']} {r['comments']}" + (" (bot)" if r["bot"] else "")
                                              for r in data["reviewers"]))
         out.append("Areas: " + ", ".join(f"{a['area']} {a['comments']} in {a['prs']} PRs" for a in data["areas"]))
-        out += ["", "Read, most corrected first:"]
-        out += [f"- #{r['pr']} {r['title']} · {r['comments']} · {r['file']}" for r in data["read"]]
+        out += ["", "Read, most corrected by people first:"]
+        out += [f"- #{r['pr']} {r['title']} · {r['byPeople']} by people, {r['comments']} in all · {r['file']}" for r in data["read"]]
     out += [f"problem: {problem}" for problem in data["problems"]]
     return "\n".join(out)
 
@@ -177,7 +181,7 @@ def render_direction(data: dict) -> str:
 
 
 PUBLIC = ("site", "writing", "founders", "press", "jobs", "customers", "market")
-INTERNAL = ("reviews", "plans", "chat", "mail", "docs", "meetings", "crm")
+INTERNAL = ("goals", "meetings", "docs", "plans", "chat", "mail", "crm", "reviews")   # the company's own statements of direction first
 STALE_DAYS = 90
 
 

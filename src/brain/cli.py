@@ -68,7 +68,8 @@ def commit(root: Path, message: str, paths: list[str] | None = None) -> str:
             sh(repo, "add", "-A", "--", *[str(Path(p).resolve()) for p in paths])
         else:
             tree = root.relative_to(repo).as_posix()
-            sh(repo, "add", "-A", "--", tree, f":(exclude){tree}/.brain", ".context.md")
+            context = [".context.md"] if (repo / ".context.md").exists() else []   # a fresh vault has none until compiled
+            sh(repo, "add", "-A", "--", tree, f":(exclude){tree}/.brain", *context)
         if not sh(repo, "diff", "--cached", "--name-only"):
             return ""
         sh(repo, "commit", "-q", "-m", message)
