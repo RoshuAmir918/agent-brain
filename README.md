@@ -40,13 +40,13 @@ Goals are inferred from repeated, dated evidence as well as stated by the person
 ```
 src/brain/            the package: one module per concern, stdlib plus PyYAML
 src/brain/skills/     the routine templates, rendered into a vault by install-skills
-src/brain/scripts/    the two cron scripts, installed by install-scripts
+src/brain/scripts/    the cron and signal scripts, installed by install-scripts
 src/brain/migrations/ per-version prompts for the agent when an upgrade needs one
 docs/                 engine reference and the example config
 tests/                pytest; a whole night against fixture vaults, in both layouts
 ```
 
-Every routine is re-rendered into every vault on each refresh. A vault's own additions go in a `## Local` section at the end of a rendered skill, which is carried over verbatim; that is the only customization point. To change a routine itself, fork this repo and point your vault's `update_source` at the fork.
+Every routine, and the Memory Spec, is the engine's: each refresh re-renders it into the vault and overwrites any edit to its body. A vault's own additions go in a `## Local` section at the end of a rendered skill, which is carried over verbatim; that is the only customization point. Morning and evening were the vault's own until 0.18, so their first render kept the vault's copy once as `previous.md` beside the new skill, for its steps to be moved under Local. To change a routine itself, fork this repo and point the vault's `update_source` at the fork.
 
 ## Development
 

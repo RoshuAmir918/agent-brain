@@ -1,33 +1,4 @@
-"""The `brain` command line: argparse and one cmd_* function per subcommand.
-
-Usage:
-  brain nightly [--vault <path>] [--date YYYY-MM-DD] [--write] [--commit] [--push]
-  brain validate [--vault <path>]
-  brain attribute [--vault <path>] --file <record.md> --ts <iso> [--reason <text>] [--write]
-  brain attribute [--vault <path>] [--sessions-dir <dir>] [--write]
-  brain digest [--vault <path>] --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]
-  (sessions default to $AGENT_HOME/records/sessions, the profile's own export)
-  brain audit [--vault <path>] [--date YYYY-MM-DD] [--days 14] [--sessions-dir <dir>] [--json]
-  brain compile-context [--vault <path>] [--out <path>] [--write] [--sections start,current,...]
-  brain retrieve [--vault <path>] <query> [--limit 12] [--json [--form names|snippet|full]]
-  brain needs-you [--vault <path>] [--json]
-  brain owners [--vault <path>] [--json]
-  brain consult <autonomy|act|reverse|lower|ceiling|decisions|cite|decide|candidates|seed|ask|answer|overrule|delegate|lapse|list|stats> [--vault <path>]
-  brain ideas [--vault <path>] [--all] [--json]
-  brain loops [--vault <path>] [--json | --due] [--quiet]
-  brain watch-signal [--vault <path>]
-  brain continue-signal [--vault <path>]
-  brain access <who> [--vault <path>] [--json]
-  brain tellable <who> [--vault <path>] [--json]
-  brain state [--vault <path>] [--json]
-  brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>] [--json]
-  brain simulate [--h 7 --w 28]
-  brain install-skills [--vault <path>]
-  brain install-scripts
-  brain export-sessions [--date YYYY-MM-DD]
-  brain version
-  brain paths <soul|skills|scripts|vault|repo|agent> [--vault <path>]
-"""
+"""The `brain` command line: argparse and one cmd_* function per subcommand."""
 from __future__ import annotations
 
 import argparse
@@ -301,8 +272,10 @@ def in_conversation() -> bool:
 
 
 def cmd_needs_you(args):
-    if args.source and not (args.ask or args.confirm):
-        raise SystemExit("brain needs-you: --source goes with --ask or --confirm")
+    if (args.source or args.why) and not (args.ask or args.confirm):
+        raise SystemExit("brain needs-you: --source and --why go with --ask or --confirm")
+    if args.because and not args.resolve:
+        raise SystemExit("brain needs-you: --because goes with --resolve")
     if args.confirm:
         with vault_lock(args.config):
             journal.add_ask(args.config, args.config.today(), args.confirm, args.source, why=args.why or "", kind="confirm")
@@ -609,8 +582,7 @@ def cmd_ideas(args):
             if not args.source:
                 goals.guard(config, args.goal, "")
                 raise ValueError("--add needs --source NOTE")
-            if not ideas.add(config, today, args.add, args.source, args.why or "", args.needs or "", args.goal):
-                raise ValueError(ideas.add_refusal(config, today, args.add) or "idea could not be added")
+            ideas.add(config, today, args.add, args.source, args.why or "", args.needs or "", args.goal)
             print(f"added idea: {args.add}")
             return
         if args.respond is not None:
@@ -621,10 +593,10 @@ def cmd_ideas(args):
             return
     except ValueError as error:
         raise SystemExit(f"brain ideas: {error}")
-    opened = ideas._open(config, today)
+    opened = ideas._open(Vault(config.vault_path), today)
     snoozed = ideas._snoozed(config, today)
-    item = ideas.shown(config, today)
     until = ideas.cooldown_until(config, today)
+    item = None if until else next((idea for idea in opened if idea.id not in snoozed), None)
     result = {"shown": asdict(item) if item else None, "open": len(opened),
               "snoozed": sum(idea.id in snoozed for idea in opened), "newOwner": ideas.new_owner(config, today),
               "cooldownUntil": until.isoformat() if until else None}
@@ -830,8 +802,8 @@ def cmd_task(args):
             if not args.source:
                 goals.guard(args.config, args.goal, "")
                 raise ValueError("task new needs --source")
-            if args.clear:
-                raise ValueError("--clear goes with task T-nnn set")
+            if args.clear or args.title is not None or args.reviewed is not None or args.report is not None:
+                raise ValueError("--clear, --title, --reviewed and --report go with task T-nnn set")
         elif args.action not in ("done", "drop", "yours", "set", "reopen", "view"):
             raise ValueError("task ACTION must be done, drop, yours, reopen, set or view")
         elif args.source is not None or args.json:
@@ -929,7 +901,7 @@ def cmd_handoff(args):
         with vault_lock(args.config):
             task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work, owner=owner)
             from . import continuation
-            continuation.mark_engaged(args.config, task.tid, by=speaker())
+            continuation.mark_engaged(args.config, task.tid, by=speaker(), fresh=True)
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -1004,8 +976,8 @@ def cmd_continue(args):
         task_list = continuation.finish_lines(args.config)
         worked = continuation.last_worked(args.config)
         chunks = continuation.chunks_today(args.config)
-        limits = continuation.budgets(args.config, task_list)
         caps = continuation.budget_caps(args.config)
+        limits = continuation.budgets(args.config, task_list, caps)
         if args.tid:
             task = next((t for t in task_list if t.tid == args.tid and t.handoff and tasks_mod.is_open(t)), None)
             if task is None or not task.delivers:
@@ -1367,8 +1339,9 @@ def cmd_schedule(args):
             if action == "init":
                 # Adds what this edition starts with; a routine the vault already has is never touched.
                 routines = schedule.load(config)
-                added = [name for name in schedule.defaults(config) if name not in routines]
-                routines |= {name: schedule.defaults(config)[name] for name in added}
+                defaults = schedule.defaults(config)
+                added = [name for name in defaults if name not in routines]
+                routines |= {name: defaults[name] for name in added}
                 changed = (f"added {len(added)} {config.edition} routine(s): {', '.join(added)}" if added
                            else f"every {config.edition} routine is already scheduled")
             elif action == "import":
@@ -1385,8 +1358,9 @@ def cmd_schedule(args):
                     for key in ("skills", "needs"):
                         if key in changes:
                             changes[key] = [value.strip() for value in changes[key].split(",") if value.strip()]
-                    if changes.get("responsibility") == "":
-                        changes["responsibility"] = None
+                    for key in ("responsibility", "monitor", "script", "workdir"):
+                        if key in changes and not changes[key].strip():
+                            changes[key] = None   # an empty value removes the field
                     if unknown := [need for need in changes.get("needs", []) if need != "computer"]:
                         raise ValueError(f"unknown need {unknown[0]!r}; only computer is supported")
                     if any(key in changes for key in schedule.TIMING):
@@ -1404,9 +1378,6 @@ def cmd_schedule(args):
                     verb = {"remove": "removed", "pause": "paused", "resume": "resumed"}[action]
                     changed = f"{verb} routine {name} in {schedule.path(config)}"
             schedule.save(config, routines)
-            errors = schedule.problems(config, known_needs=False)
-            if errors:
-                raise ValueError("; ".join(errors))
         print(changed)
     except (OSError, ValueError) as error:
         sys.exit(f"schedule {action}: {error}")
@@ -1455,7 +1426,9 @@ def main(argv=None):
             enabled = s.add_mutually_exclusive_group()
             enabled.add_argument("--enabled", action="store_true", default=None)
             enabled.add_argument("--disabled", dest="enabled", action="store_false")
-            s.add_argument("--owner", action="store_true", default=None)
+            owner = s.add_mutually_exclusive_group()
+            owner.add_argument("--owner", action="store_true", default=None)
+            owner.add_argument("--no-owner", dest="owner", action="store_false")
     s = sub.add_parser("pull", help="bring the vault's repository up to date under the repository lock", parents=[vault])
     s.set_defaults(fn=cmd_pull)
     s = sub.add_parser("commit", help="commit the vault under the repository lock (scoped to PATHs when given), optionally pushing", parents=[vault])

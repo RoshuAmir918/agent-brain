@@ -147,11 +147,11 @@ def automatic_notes(vault: Vault) -> set[str]:
     return vault.config.orientation | active
 
 
-def json_session_rows(vault: Vault, path: Path) -> list[Use]:
-    from . import digest
+def json_session_rows(vault: Vault, path: Path, automatic: set[str]) -> list[Use]:
+    """`automatic` is `automatic_notes(vault)`: notes every session already carries, so a read of one is no signal."""
+    from . import digest, sessions
 
-    automatic, uses = automatic_notes(vault), []
-    from . import sessions
+    uses = []
     record = sessions.read(path)
     kind = session_tools.session_kind(record)
     if kind == "evaluation":
@@ -192,8 +192,9 @@ def sessions(vault: Vault, directory: Path, write: bool = False) -> list[Use]:
     from . import digest
     shards = set(digest.json_sources(directory))
     paths = sorted(shards) if shards else sorted(directory.rglob("*.md"))
+    automatic = automatic_notes(vault) if shards else set()
     for path in paths:
-        rows = json_session_rows(vault, path) if path in shards else session_rows(vault, path)
+        rows = json_session_rows(vault, path, automatic) if path in shards else session_rows(vault, path)
         for use in rows:
             month = use.ts[:7]
             log = vault.root / vault.config.agent("Use Log") / f"{month}.md"

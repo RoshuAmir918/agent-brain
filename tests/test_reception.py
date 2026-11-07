@@ -38,8 +38,8 @@ def test_a_row_is_recorded_pending_and_its_outcome_can_be_set(config):
 
 
 def test_ideas_are_recorded_when_offered_and_settled_by_the_answer(config):
-    assert ideas.add(config, date(2026, 11, 3), "Track sponsor questions", "START", "so the sales notes stay current")
-    assert ideas.add(config, TODAY, "Draft the onboarding guide", "START", "new hires ask the same things")
+    ideas.add(config, date(2026, 11, 3), "Track sponsor questions", "START", "so the sales notes stay current")
+    ideas.add(config, TODAY, "Draft the onboarding guide", "START", "new hires ask the same things")
     rows = {row.what: row for _, row in reception.rows(config)}
     assert rows["Track sponsor questions"].kind == "idea" and rows["Track sponsor questions"].outcome == "pending"
     opened = {item.text: item.id for item in ideas._open(config, TODAY)}

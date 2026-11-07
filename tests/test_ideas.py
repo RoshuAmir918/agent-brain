@@ -28,7 +28,7 @@ def bullet(text, day=TODAY, source="Topic", why="A useful result.", needs=""):
 
 def owner(vault, monkeypatch, age=100, hubs=3):
     monkeypatch.setattr(health, "git", lambda repo, *args: (TODAY - timedelta(days=age)).isoformat()
-                        if args == ("log", "--reverse", "--format=%cs") else None)
+                        if args == ("log", "--max-parents=0", "--format=%cs") else None)
     for number in range(hubs):
         fm.write(vault / f"Hub {number}.md", {"skill": f"own-{number}", "records": f"records-{number}"}, "# Hub\n")
     return Config.load(vault)
@@ -82,7 +82,7 @@ def test_new_owner_uses_first_commit_and_handles_no_history(vault, monkeypatch):
         return "2026-10-01\n2026-11-02"
     monkeypatch.setattr(health, "git", history)
     assert not ideas.new_owner(config, TODAY)
-    assert calls == [(config.repo, ("log", "--reverse", "--format=%cs"))]
+    assert calls == [(config.repo, ("log", "--max-parents=0", "--format=%cs"))]
     monkeypatch.setattr(health, "git", lambda *args: None)
     assert ideas.new_owner(config, TODAY)
 
@@ -114,24 +114,25 @@ def test_cooldown_uses_latest_idea_response_across_months(vault):
 @pytest.mark.parametrize("age,days", [(5, 1), (100, 7)])
 def test_add_spacing_and_duplicate_refusal(vault, monkeypatch, age, days):
     config = owner(vault, monkeypatch, age)
-    assert ideas.add(config, TODAY, "Watch the inbox?", "agent/Channels", "Save the owner time.", "Gmail access")
+    ideas.add(config, TODAY, "Watch the inbox?", "agent/Channels", "Save the owner time.", "Gmail access")
     data, body = fm.read(vault / "agent/Ideas.md")
     assert data == {"kind": "orientation", "tier": "warm", "pinned": False}
     assert Vault(vault).kind_for("agent/Ideas.md") == "orientation"
     assert "## Open" in body and "  - needs: Gmail access" in body
-    assert not ideas.add(config, TODAY + timedelta(days=days - 1), "Another idea?", "Topic")
-    assert "next idea can be added" in ideas.add_refusal(config, TODAY, "Another idea?")
-    assert ideas.add(config, TODAY + timedelta(days=days), "Another idea?", "Topic")
-    assert not ideas.add(config, TODAY + timedelta(days=30), "  WATCH   the\ninbox?  ", "Different source")
-    assert "already open" in ideas.add_refusal(config, TODAY + timedelta(days=30), "watch the inbox?")
+    with pytest.raises(ValueError, match="next idea can be added"):
+        ideas.add(config, TODAY + timedelta(days=days - 1), "Another idea?", "Topic")
+    ideas.add(config, TODAY + timedelta(days=days), "Another idea?", "Topic")
+    with pytest.raises(ValueError, match="already open"):
+        ideas.add(config, TODAY + timedelta(days=30), "  WATCH   the\ninbox?  ", "Different source")
 
 
 def test_add_uses_newest_bullet_date_and_preserves_other_sections(vault):
     path = write_ideas(vault, bullet("Newer?", TODAY) + bullet("Older?", TODAY - timedelta(days=4))
                        + "\n## Notes\nPreserve me.\n")
     config = Config.load(vault)
-    assert not ideas.add(config, TODAY, "Fresh?", "Topic")
-    assert ideas.add(config, TODAY + timedelta(days=1), "Fresh?", "Topic")
+    with pytest.raises(ValueError):
+        ideas.add(config, TODAY, "Fresh?", "Topic")
+    ideas.add(config, TODAY + timedelta(days=1), "Fresh?", "Topic")
     assert path.read_text().endswith("## Notes\nPreserve me.\n")
     assert len(ideas.items(config, TODAY + timedelta(days=1))) == 3
 
@@ -140,10 +141,11 @@ def test_add_creates_missing_open_section_and_rejects_empty_input(vault):
     path = write_ideas(vault, "")
     path.write_text(path.read_text().replace("## Open", "## Notes"))
     config = Config.load(vault)
-    assert not ideas.add(config, TODAY, " \n ", "Topic")
+    with pytest.raises(ValueError):
+        ideas.add(config, TODAY, " \n ", "Topic")
     with pytest.raises(ValueError, match="source must name a note"):
         ideas.add(config, TODAY, "Fresh?", "[[Topic]]")
-    assert ideas.add(config, TODAY, "Fresh?", "Topic")
+    ideas.add(config, TODAY, "Fresh?", "Topic")
     assert "## Notes" in path.read_text()
     assert ideas.items(config, TODAY)[0].text == "Fresh?"
 
@@ -164,6 +166,10 @@ def test_yes_creates_ready_handoff_using_ids_from_closed_archives(vault):
     assert "Gmail access" not in path.read_text()
     assert "Keep its explanation." in path.read_text()
     assert "· idea · Want me to watch your inbox? · yes · T-042" in (vault / "agent/Answered/2026-11.md").read_text()
+    assert task.state["uses"] == "2026-11-03"
+    write_ideas(vault, bullet("No reason given?", why=""))
+    ideas.respond(config, "No reason given?", TODAY, "yes")
+    assert "**Status:**" not in [task for task in load_tasks(config)[0] if task.tid == "T-043"][0].body
 
 
 def test_not_now_snoozes_fourteen_days_and_remains_reachable(vault):
@@ -176,7 +182,8 @@ def test_not_now_snoozes_fourteen_days_and_remains_reachable(vault):
     assert ideas.items(config, TODAY + timedelta(days=13)) == []
     assert ideas.shown(config, TODAY + timedelta(days=13)) is None
     assert ideas.items(config, TODAY + timedelta(days=14)) == [item]
-    assert not ideas.add(config, TODAY + timedelta(days=1), "later?", "Topic")
+    with pytest.raises(ValueError):
+        ideas.add(config, TODAY + timedelta(days=1), "later?", "Topic")
     ideas.respond(config, item.text, TODAY + timedelta(days=1), "yes")
     assert ideas._open(config, TODAY) == []
 
@@ -190,7 +197,8 @@ def test_rejection_removes_details_and_permanently_blocks_text(vault, answer):
     assert ideas.items(config, TODAY) == []
     assert "a password" not in path.read_text() and "A useful result." not in path.read_text()
     assert item.id in needs.dismissed_ids(config)
-    assert not ideas.add(config, TODAY + timedelta(days=100), " WATCH   THE inbox? ", "Another source")
+    with pytest.raises(ValueError):
+        ideas.add(config, TODAY + timedelta(days=100), " WATCH   THE inbox? ", "Another source")
     assert "already dismissed" in ideas.add_refusal(config, TODAY, "Watch the inbox?")
     with path.open("a") as stream:
         stream.write(bullet("Watch the inbox?", source="Another source"))
@@ -226,7 +234,8 @@ def test_improvements_are_only_ideas_and_respond_in_their_hub(vault, answer, sta
         assert any(task.title == item.text and task.handoff for task in load_tasks(config)[0])
         assert due(load_tasks(config)[0]) == []   # no background chunks before Delivers is specified
     if answer in ("no", "stop-asking"):
-        assert not ideas.add(config, TODAY + timedelta(days=100), item.text.upper(), "Topic")
+        with pytest.raises(ValueError):
+            ideas.add(config, TODAY + timedelta(days=100), item.text.upper(), "Topic")
 
 
 def test_response_matching_errors_do_not_write(vault):

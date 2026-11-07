@@ -14,6 +14,11 @@ FORWARDED = re.compile(r"^\s*(?:>\s*)*(?:-+\s*Forwarded message\s*-+|Begin forwa
 PERSONAL_CAPS = {"sent": 100, "transactional": 150, "events": 100, "person": 100}
 
 
+def _mail(folder: Path) -> list[Path]:
+    """An account's synced mail, the rolling copy first, then the one-time twelve-month backfill."""
+    return sorted((folder / "mail").glob("*/*.md")) + sorted((folder / "backfill/mail").glob("*/*.md"))
+
+
 def personal(vault, today: date, account: str = "all", days: int | None = None) -> dict:
     """Classify the owner's synced headers and calendar, without exposing mail bodies."""
     if days is not None and days < 0:
@@ -24,10 +29,10 @@ def personal(vault, today: date, account: str = "all", days: int | None = None) 
         raise SystemExit(f"brain portrait seed: {account} is not an owner account")
     folders = [(name, folder) for name, folder in channel_files.synced_accounts(vault)
                if account == "all" or account == name]
-    backfill = {name: (sorted((folder / "backfill/mail").glob("*/*.md")),
-                       sorted((folder / "backfill/calendar").glob("*.md"))) for name, folder in folders}
-    files = [(name, sorted((folder / "mail").glob("*/*.md")) + backfill[name][0],
-              sorted((folder / "calendar").glob("*.md")) + backfill[name][1])
+    backfill = [name for name, folder in folders
+                if any((folder / "backfill").glob("mail/*/*.md")) or any((folder / "backfill").glob("calendar/*.md"))]
+    files = [(name, _mail(folder),
+              sorted((folder / "calendar").glob("*.md")) + sorted((folder / "backfill/calendar").glob("*.md")))
              for name, folder in folders]
     files = [(name, mail, calendar) for name, mail, calendar in files if mail or calendar]
     if not files:
@@ -136,7 +141,7 @@ def personal(vault, today: date, account: str = "all", days: int | None = None) 
     return {"window": {"from": floor.isoformat() if floor else min(dates, default=today.isoformat()),
                        "to": today.isoformat() if floor else max(dates, default=today.isoformat())},
             "accounts": [name for name, _, _ in files],
-            "backfillAccounts": [name for name, (mail, calendar) in backfill.items() if mail or calendar],
+            "backfillAccounts": backfill,
             "own": {kind: lists[kind] for kind in ("sent", "transactional", "events")},
             "other": other | {"person": lists["person"]}, "omitted": omitted, "problems": problems}
 
@@ -271,8 +276,8 @@ def deference_reading(vault, today: date, account: str = "all", days: int = DAYS
     account = account.casefold()
     if account != "all" and account not in channel_files.owner_accounts(vault):
         raise SystemExit(f"brain consult seed: {account} is not an owner account")
-    files = [(name, sorted((folder / "mail").glob("*/*.md")) + sorted((folder / "backfill/mail").glob("*/*.md")))
-             for name, folder in channel_files.synced_accounts(vault) if account == "all" or account == name]
+    files = [(name, _mail(folder)) for name, folder in channel_files.synced_accounts(vault)
+             if account == "all" or account == name]
     files = [(name, mail) for name, mail in files if mail]
     if not files:
         raise SystemExit("brain consult seed: no owner account has synced mail files"

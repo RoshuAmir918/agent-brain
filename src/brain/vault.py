@@ -95,10 +95,11 @@ class Vault:
         self.notes: dict[str, Note] = {}
         self.malformed: dict[str, str] = {}
         self._by_stem: dict[str, list[str]] = {}
+        self._sources: dict[str, str] | None = None   # file name to vault-relative path in sources_dir, on first need
         self.load()
 
     def load(self) -> None:
-        self.notes.clear(); self.malformed.clear(); self._by_stem.clear(); self._paths = set()
+        self.notes.clear(); self.malformed.clear(); self._by_stem.clear(); self._paths = set(); self._sources = None
         for p in sorted(self.root.rglob("*.md")):
             if any(part in SKIP_DIRS for part in p.relative_to(self.root).parts):
                 continue
@@ -118,8 +119,8 @@ class Vault:
         if rel in self.config.orientation:
             return "orientation"
         note = self.notes.get(rel)
-        if note is not None and note.data.get("kind") == "log":
-            return "log"   # a note may declare itself a record wherever it lives
+        if note is not None and note.data.get("kind") in ("log", "draft", "reflection"):
+            return note.data["kind"]   # a note may declare itself a record, a draft or a reflection wherever it lives
         if rel.startswith(("Conversations/Sessions/", "Conversations/Digests/")):
             return "log"   # Session export: cold, never indexed
         if rel.startswith(self.config.runtime_dir + "/") and rel != f"{self.config.runtime_dir}/README.md":
@@ -164,10 +165,11 @@ class Vault:
             return hits[0]
         if hits:
             return min(hits, key=lambda r: (r.count("/"), r))
-        for q in (parent / self.config.sources_dir).rglob("*.md"):
-            if q.name == stem + ".md":
-                return Path(os.path.relpath(q, self.root)).as_posix()
-        return None
+        if self._sources is None:
+            self._sources = {}
+            for q in (parent / self.config.sources_dir).rglob("*.md"):
+                self._sources.setdefault(q.name, Path(os.path.relpath(q, self.root)).as_posix())
+        return self._sources.get(stem + ".md")
 
     def links_in(self, text: str) -> list[str]:
         out = []

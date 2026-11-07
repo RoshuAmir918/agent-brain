@@ -544,6 +544,12 @@ def test_resolve_refuses_what_it_cannot_settle(vault, capsys, which, because, me
     assert "Book the dinner" in fm.read(vault / "CURRENT.md")[1]
 
 
+@pytest.mark.parametrize("args", [["--why", "a reason"], ["--because", "evidence"]])
+def test_needs_you_refuses_a_flag_without_its_mode(vault, args):
+    with pytest.raises(SystemExit, match="go(?:es)? with"):
+        cli.main(["needs-you", "--vault", str(vault), *args])
+
+
 def test_dismiss_no_sets_the_task_aside_and_the_item_never_returns(vault, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
     write_tasks(vault, Task("T-011", "Hands share", "- **Status:** waiting\n", {"state": "ready"}))
@@ -565,6 +571,15 @@ def test_dismiss_done_completes_a_waiting_task(vault, capsys, monkeypatch):
     task, = [t for t in load_tasks(Config.load(vault))[0] if t.tid == "T-012"]
     assert task.task_state == "completed" and "the owner said they did it, in their app" in task.body
     assert needs.items(Config.load(vault), date(2026, 11, 3)) == []
+
+
+def test_dismiss_an_ask_sourced_from_a_task_archive_sets_that_task_aside(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
+    write_tasks(vault, Task("T-013", "Hands share", "- **Status:** waiting\n", {"state": "ready"}))
+    write_current(vault, "- 2026-10-28 · ask · Accept the share? · [[agent/Tasks Archive/T-013]]\n")
+    needs.dismiss(Config.load(vault), "Accept the share?", date(2026, 11, 3))
+    task, = [t for t in load_tasks(Config.load(vault))[0] if t.tid == "T-013"]
+    assert task.task_state == "set_aside"
 
 
 def test_ideas_declines_a_proposal_and_stop_asking_is_logged_for_the_people_review(vault, monkeypatch):

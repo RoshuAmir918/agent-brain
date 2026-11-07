@@ -57,7 +57,7 @@ def test_context_preview_does_not_write_even_with_out(context_vault, capsys):
     cli.main(["compile-context", "--vault", str(context_vault), "--out", str(out)])
     captured = capsys.readouterr()
     assert captured.out == compile_context.build(Vault(context_vault))
-    assert captured.err == compile_context.summary(captured.out) + "\n"
+    assert captured.err == compile_context.summary(captured.out, Config.load(context_vault).context.hot_words) + "\n"
     assert snapshot(context_vault.parent) == before
 
 
@@ -82,7 +82,7 @@ def test_repo_root_detects_git_above_vault_parent(repo):
     root, _ = repo
     nested = root.parent / "nested/memory"
     nested.mkdir(parents=True)
-    assert compile_context.repo_root(Config.load(nested)) == root.parent
+    assert Config.load(nested).repo == root.parent
 
 
 def test_nightly_context_is_regenerated_and_committed_at_repo_root(repo):

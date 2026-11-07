@@ -592,19 +592,26 @@ def due(tasks: list[Task], pace: str | None = "regular", worked: dict[str, str] 
     with daily tasks due from noon local until their first counted chunk. Explicit paces keep the legacy lists."""
     worked = worked or {}
     chunks = chunks or {}
-    return sorted((t for t in tasks if is_open(t) and t.handoff and t.delivers
-                   # Computer rests end only on an explicit wake, regardless of time or pace.
-                   and t.resume != "computer"
-                   and (t.task_state not in RESTING or (t.task_state == "blocked" and t.resume and now
-                                                       and (t.resume if " " in t.resume else t.resume + " 00:00") <= now))
-                   and (pace is None or _pace(t.body) == pace)
-                   and (_pace(t.body) == "daily" or chunks.get(t.tid, 0) < (budgets or {}).get(t.tid, daily_chunks))
-                   and (pace is not None or _pace(t.body) != "daily"
-                        or (now and now[11:] >= "12:00" and chunks.get(t.tid, 0) == 0))
-                   and (t.tid not in (caps or {}) or chunks.get(t.tid, 0) < caps[t.tid])
-                   # A task resting until a time (`now` is the owner's local "YYYY-MM-DD HH:MM") waits for it.
-                   and not (now and t.resume and (t.resume if " " in t.resume else t.resume + " 00:00") > now)),
-                  key=lambda t: (worked.get(t.tid, ""), t.handoff[0], t.tid))
+
+    def eligible(t: Task) -> bool:
+        if not (is_open(t) and t.handoff and t.delivers) or t.resume == "computer":
+            return False   # computer rests end only on an explicit wake, regardless of time or pace
+        # A task resting until a time (`now` is the owner's local "YYYY-MM-DD HH:MM") waits for it.
+        resume_at = (t.resume if " " in t.resume else t.resume + " 00:00") if t.resume else None
+        if resume_at and now and resume_at > now:
+            return False
+        if t.task_state in RESTING and not (t.task_state == "blocked" and resume_at and now):
+            return False
+        done = chunks.get(t.tid, 0)
+        if t.tid in (caps or {}) and done >= caps[t.tid]:
+            return False
+        own = _pace(t.body)
+        under_budget = done < (budgets or {}).get(t.tid, daily_chunks)
+        if pace is not None:   # an explicit pace keeps the legacy lists
+            return own == pace and (own == "daily" or under_budget)
+        return bool(now and now[11:] >= "12:00" and done == 0) if own == "daily" else under_budget
+
+    return sorted(filter(eligible, tasks), key=lambda t: (worked.get(t.tid, ""), t.handoff[0], t.tid))
 
 
 def local_now(config: Config) -> str:
@@ -677,19 +684,15 @@ def _partition(t: Task, config: Config) -> tuple[list[list[str]], list[list[str]
             chunks[-1].append(line)
         else:
             chunks.append([line])
-    label = _chunk_label
-    def direct_pointer(chunk):
-        return _direct_pointer(t, config, chunk)
-
     # Only an explicitly labeled direct latest pointer permits older Evidence
     # to be omitted. Otherwise retain every Evidence block in full, or fail.
-    latest = any(label(chunk) == "latest evidence" and direct_pointer(chunk) for chunk in chunks)
-    newest_review = max((i for i, chunk in enumerate(chunks) if label(chunk) == "reviewed"), default=-1)
+    latest = any(_chunk_label(chunk) == "latest evidence" and _direct_pointer(t, config, chunk) for chunk in chunks)
+    newest_review = max((i for i, chunk in enumerate(chunks) if _chunk_label(chunk) == "reviewed"), default=-1)
     required, optional = [], []
     for i, chunk in enumerate(chunks):
         if "\n".join(chunk).strip() == pointer:
             continue
-        name = label(chunk)
+        name = _chunk_label(chunk)
         current = (name != "earlier evidence" and (name != "evidence" or not latest)
                    and (name != "reviewed" or i == newest_review))
         (required if current else optional).append(chunk)
@@ -710,12 +713,9 @@ def bounded_hot_body(t: Task, config: Config) -> str:
     if t.word_count() <= MAX_WORDS:
         return t.body
     required, optional, pointer = _partition(t, config)
-    label = _chunk_label
-    def direct_pointer(chunk):
-        return _direct_pointer(t, config, chunk)
-    if not any(label(chunk) not in (None, "evidence", "earlier evidence") for chunk in required):
+    if not any(_chunk_label(chunk) not in (None, "evidence", "earlier evidence") for chunk in required):
         raise ValueError(f"{t.tid}: parent judgment required: no labeled current fields; cannot create a useful task summary")
-    if not any(label(chunk) in ("latest evidence", "evidence") and direct_pointer(chunk) for chunk in required):
+    if not any(_chunk_label(chunk) in ("latest evidence", "evidence") and _direct_pointer(t, config, chunk) for chunk in required):
         raise ValueError(f"{t.tid}: parent judgment required: latest direct evidence pointer is not identified; no evidence dropped")
     budget = MAX_WORDS - len(pointer.split())
     words = sum(len("\n".join(chunk).split()) for chunk in required)

@@ -1,7 +1,9 @@
 """Checks run after every nightly write and on demand."""
 from __future__ import annotations
 
+import json
 import re
+from datetime import date, datetime, timedelta
 from importlib.resources import files
 
 from . import access, fm, owners, responsibilities as responsibility_ids, works
@@ -333,8 +335,6 @@ def schedule_warnings(vault: Vault) -> list[str]:
 
 def watch_signal_hygiene(vault: Vault) -> list[str]:
     """Watch still owes a daily clean monitor check, even when it never wakes the model."""
-    import json
-    from datetime import datetime, timedelta
     from . import runtime
     home = runtime.configured()
     if not home:
@@ -343,9 +343,8 @@ def watch_signal_hygiene(vault: Vault) -> list[str]:
     if not jobs:
         return []
     now = vault.config.now()
-    now = now.replace(tzinfo=vault.config.zone) if now.tzinfo is None else now
     def owns(job):
-        if not isinstance(job, dict) or not job.get("monitor_script"):
+        if not job.get("monitor_script"):
             return False
         skills = job.get("skills", [])
         if isinstance(skills, str):
@@ -366,7 +365,6 @@ def watch_signal_hygiene(vault: Vault) -> list[str]:
 
 
 def loops_hygiene(vault: Vault) -> list[str]:
-    from datetime import date, timedelta
     from . import loops
     rel = vault.config.agent("Loops.md")
     note = vault.notes.get(rel)
@@ -518,7 +516,6 @@ def stale_current(vault: Vault) -> list[str]:
     """Items in CURRENT whose newest date is more than two weeks old: what happened belongs in a History, a standing
     direction in its owning note, and anything still true is rewritten for now with today's date. Needs you, history
     sections and the generated active-threads block are not checked."""
-    from datetime import timedelta
     from .compile_context import DATE, mentioned
     note = vault.notes.get("CURRENT.md")
     if note is None:

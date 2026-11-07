@@ -196,7 +196,8 @@ D-0010 is not D-001.
 ## Other
 D-002 is outside Grant scope.
 """)
-    scopes = access.grant_scope(access_vault, access_vault.config)
+    scopes = access.grant_scope(access_vault, access_vault.config,
+                                {rule.id for rule in access.rules(access_vault, access_vault.config)})
     assert scopes == {
         "D-001": "D-001 permits planning a visit,\nnot sharing in a room.\n\nD-001 excludes appointments of other kinds.",
         "D-002": "D-002 permits calendar changes only.",

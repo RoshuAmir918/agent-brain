@@ -121,8 +121,9 @@ def memory_spec(config: Config) -> Path:
 
 def responsibility(config: Config, name: str, skill: str, records: str) -> list[Path]:
     """Build the three homes of a responsibility: hub at the vault root, own skill, records folder. Existing files are kept."""
-    values = config.template_values() | {"name": name, "skill": skill, "records": records,
-                                         "human_goals_link": config.human_goals.removesuffix(".md")}
+    goals = f" in [[{config.vault}/{config.human_goals.removesuffix('.md')}|Goals]]" \
+        if (config.vault_path / config.human_goals).exists() else ""   # an organisation's vault has no Goals note
+    values = config.template_values() | {"name": name, "skill": skill, "records": records, "goals_where": goals}
     written = []
     for template, target in (("hub.md", config.vault_path / f"{name}.md"),
                              ("skill.md", config.skills_path / skill / "SKILL.md")):
@@ -184,7 +185,7 @@ def pending_migrations(config: Config) -> list[tuple[str, str]]:
             continue
         tag = entry.name[:-3]
         if low < version_tuple(tag) <= high:
-            found.append((tag, entry.read_text(encoding="utf-8")))
+            found.append((tag, render(entry.read_text(encoding="utf-8"), config.template_values())))
     return sorted(found, key=lambda item: version_tuple(item[0]))
 
 
@@ -192,10 +193,11 @@ def migrate_check(config: Config) -> Path | None:
     """Record the installed version, or write the pending migration prompt and leave the version alone."""
     current = installed_version("agent-brain")
     pending = pending_migrations(config)
+    target = config.vault_path / config.runtime_dir / "pending-migration.md"
     if not pending:
         record_version(config, current)
+        target.unlink(missing_ok=True)   # left by a migrate-done interrupted after recording the version
         return None
-    target = config.vault_path / config.runtime_dir / "pending-migration.md"
     body = ["---", "kind: log", "---", f"# Engine migration: {recorded_version(config)} to {current}", "",
             "Perform each section in order, then run `brain migrate-done`. Sections without `unattended: true` need the owner present.", ""]
     for tag, prompt in pending:
@@ -203,7 +205,13 @@ def migrate_check(config: Config) -> Path | None:
     text = "\n".join(body)
     fresh = not target.exists() or target.read_text(encoding="utf-8") != text
     target.write_text(text, encoding="utf-8")
-    if fresh:
+    from . import schedule
+    try:   # an earlier start that failed is retried
+        unscheduled = schedule.path(config).exists() and not any(
+            name.startswith(MIGRATION_ROUTINE) for name in schedule.load(config))
+    except (OSError, ValueError):
+        unscheduled = False
+    if fresh or unscheduled:
         start_migration(config)
     return target
 

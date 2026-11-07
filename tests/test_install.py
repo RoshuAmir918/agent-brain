@@ -135,6 +135,11 @@ def test_responsibility_builds_three_homes_and_keeps_existing_files(tmp_path, mo
     text = hub.read_text(encoding="utf-8")
     assert text.startswith("---\nkind: hub\nskill: brain-housekeeping\nrecords: housekeeping\n")
     assert "[[memory/Runtime/skills/brain-housekeeping/SKILL|the skill]]" in text and "Mira" in text
+    assert "Which of Mira's goals this work advances" in text   # no Goals note, so no link to one
+    (tmp_path / "memory/human").mkdir()
+    fm.write(tmp_path / "memory/human/Goals.md", {}, "# Goals\n")
+    install.responsibility(Config.load(tmp_path / "memory"), "Chess", "brain-chess", "chess")
+    assert "goals in [[memory/human/Goals|Goals]] this work" in (tmp_path / "memory/Chess.md").read_text()
     assert "[[memory/Fantasy GM|Fantasy GM]]" in skill.read_text(encoding="utf-8")
     skill.write_text("mine", encoding="utf-8")
     config = Config.load(tmp_path / "memory")
@@ -295,6 +300,33 @@ def test_a_new_migration_starts_once_and_a_repeat_check_does_not_start_it_again(
     monkeypatch.setattr(install, "pending_migrations", lambda config: [("1.1.0", "Do the thing."), ("1.2.0", "And more.")])
     install.migrate_check(config)
     assert len(migration_runs) == 2
+
+
+def test_an_unscheduled_migration_is_retried_and_a_stale_pending_file_goes(tmp_path, monkeypatch, migration_runs):
+    from brain import install, schedule
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    install.record_version(config, "1.0.0")
+    monkeypatch.setattr(install, "installed_version", lambda name: "1.1.0")
+    monkeypatch.setattr(install, "pending_migrations", lambda config: [("1.1.0", "Do the thing.")])
+    install.migrate_check(config)
+    schedule.save(config, {"watch": schedule.Routine(every="1h")})
+    install.migrate_check(config)
+    assert len(migration_runs) == 2
+    monkeypatch.setattr(install, "pending_migrations", lambda config: [])
+    install.migrate_check(config)
+    assert not (config.vault_path / config.runtime_dir / "pending-migration.md").exists()
+
+
+def test_a_migration_prompt_has_its_tokens_rendered(vault, monkeypatch):
+    from brain import install
+    from brain.config import Config
+    config = Config.load(vault)
+    install.record_version(config, "0.51.0")
+    monkeypatch.setattr(install, "installed_version", lambda name: "0.51.1")
+    (tag, prompt), = install.pending_migrations(config)
+    assert tag == "0.51.1" and "{agent_dir}" not in prompt and f"{config.agent_dir}/Primed.md" in prompt
 
 
 def test_show_skill_renders_one_routine_for_this_vault(vault, capsys):

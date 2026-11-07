@@ -10,7 +10,6 @@ from .config import SECTIONS, Config
 from .tasks import is_open, load_tasks, parse_register
 from .vault import Vault
 
-WORD_LIMIT = 6000
 PRIMED_WORDS = 300   # Primed loads in every session; the prime routine writes the most important first
 LIBRARY_WORKS = 40   # bound the listing, never the runtime's refusal, conflict or error notices
 BEFORE = ("## Before answering\n\n"
@@ -40,10 +39,6 @@ MONTHS = ("january", "february", "march", "april", "may", "june", "july", "augus
           "december")
 DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b|\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
                   r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.? (\d{1,2})(?:st|nd|rd|th)?\b(?:,? (\d{4}))?", re.I)
-
-
-def repo_root(config: Config) -> Path:
-    return config.repo
 
 
 def open_register(vault: Vault, body: str) -> str:
@@ -155,8 +150,7 @@ def upcoming(vault: Vault, days: int = UPCOMING_DAYS) -> str:
         if kind in ("episode", "reflection", "dream", "primed") or rel.startswith(config.log_paths) \
                 or (kind == "log" and not history) or f"/{config.agent('Journal/')}" in f"/{rel}":
             continue
-        _, body = fm.read(note.path)
-        for line in body.splitlines():
+        for line in note.body.splitlines():
             sentences = re.split(r"(?<=[.!?])\s+", line.strip(" -*>#|"))
             for i, sentence in enumerate(sentences):
                 shown = f"{sentences[i - 1]} {sentence}" if i and len(sentence) < 80 else sentence   # a short sentence leans on the one before for its subject
@@ -223,7 +217,7 @@ def directory(vault: Vault) -> str:
     return "\n".join(lines)
 
 
-def summary(text: str, limit: int = WORD_LIMIT) -> str:
+def summary(text: str, limit: int) -> str:
     words = len(text.split())
     warning = f"; WARNING: over {limit} words" if words > limit else ""
     return f"context: {words} words{warning}"
@@ -231,5 +225,5 @@ def summary(text: str, limit: int = WORD_LIMIT) -> str:
 
 def write(vault: Vault, out: Path | None = None) -> str:
     text = build(vault, app_changes=False)
-    fm.write_text(out if out is not None else repo_root(vault.config) / ".context.md", text)
+    fm.write_text(out if out is not None else vault.config.repo / ".context.md", text)
     return summary(text, vault.config.context.hot_words)

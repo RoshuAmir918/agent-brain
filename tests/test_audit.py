@@ -55,7 +55,7 @@ def test_audit_counts_folders_ledgers_episodes_and_routines_without_contents(aud
     [job] = data["routines"]
     assert job["job"] == "explore" and job["runs"] == 2 and job["mean_tool_calls"] == 32.0 and job["mean_minutes"] == 7.5
     assert job["mean_messages"] == 50 and job["mean_input_tokens"] == 60000 and job["mean_output_tokens"] == 5000
-    assert job["end_reasons"] == {"unknown": 2}
+    assert "end_reasons" not in job
     text = audit.render(data)
     assert "explore: 2 runs" in text and "Results 2 files, 2 dated" in text
     assert "Secret" not in text and "Alice" not in text and "Acme" not in text

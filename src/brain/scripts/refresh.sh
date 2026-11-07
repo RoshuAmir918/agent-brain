@@ -25,4 +25,4 @@ if [ -n "$LAPSED" ]; then
   done
 fi
 # Pushes every run, so a commit an earlier failed push left behind is published now.
-brain commit --push -m "context(${BRAIN_TODAY:-$(date +%F)}): refresh context and skills" -- "${PATHS[@]}" >/dev/null
+brain commit --push -m "context(${BRAIN_TODAY:-$(TZ="$(brain timezone)" date +%F)}): refresh context and skills" -- "${PATHS[@]}" >/dev/null

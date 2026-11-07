@@ -99,6 +99,7 @@ The People skill's limit of two confirms a week stays for single points. The rev
 The fields are time, kind, what, outcome, source, and the portrait line it served when there is one. Kind is one of `message`, `brief`, `idea`, `draft`, `gesture`, `letter`, `work` or `ask`. Outcome is one of:
 
 - `pending`: offered, nothing heard yet.
+- `delivered`: seen to reach a surface that reports opens, nothing heard yet.
 - `opened`: seen, with nothing further.
 - `used`: replied to substantively, acted on, kept, reopened, or turned into a task.
 - `liked`: an explicit positive.
@@ -108,9 +109,11 @@ The fields are time, kind, what, outcome, source, and the portrait line it serve
 
 "Silence is unknown" stays true where the surface cannot see. Where it can, silence is a signal.
 
-**Who writes it.** The engine writes the `pending` row whenever an offer passes through it: `brain ideas --add`, `brain needs-you --ask`, a drafted or delivered explore output, the briefing's items, a letter sent. The runtime reports what it sees with `brain reception set <id> <outcome>`, as it already reports engagement with `brain continue --engaged`: Demiurge reports opens of works, Today cards and threads, and replies. `ideas.respond` and `needs.dismiss` write their answers through it. `brain nightly --write` settles `pending` rows older than seven days to `ignored` or `unknown`.
+**Who writes it.** The engine writes a `pending` row for each idea (`brain ideas --add`) and each Needs you ask, and explore adds one with `brain reception add` for each thing it makes or finds that will reach the owner. Answering an idea or an ask settles its row: yes, or an ask resolved, is `used`; no, not-now or stop-asking is `declined:<answer>`. `brain reception set <id> <outcome>` sets any row. `brain nightly --write` settles rows with nothing heard for seven days: `delivered` to `ignored`, `pending` to `unknown`.
 
-**Who reads it.** `brain reception --summary [--days 30] [--json]` gives rates by kind and by portrait line: offered, used, ignored, declined. The People pass reads it daily for Taste and for promoting or retiring guesses. Explore reads it before choosing a form (no more letters if letters go unopened). The improve routine reads it weekly to propose changes to what the agent offers.
+**Dormant: `delivered` and `opened`.** They are for a runtime that sees an offer reach a surface that reports opens, and Demiurge reports neither yet. Until it does, an unanswered row settles to `unknown`, never `ignored`, and the People pass's promotion of a guess after two `used` or `liked` offers fires only from answered ideas and asks, or rows the agent sets itself.
+
+**Who reads it.** `brain reception summary [--days 30] [--json]` gives rates by kind and by portrait line: offered, used, ignored, declined. The People pass reads it daily for Taste and for promoting or retiring guesses. Explore reads it before choosing a form (no more letters if letters go unopened). The improve routine reads it weekly to propose changes to what the agent offers.
 
 ## 5. Cold start: the first portrait
 
@@ -161,12 +164,12 @@ Signup says it plainly: the intellect reads your mail, your calendar and whateve
 - `brain portrait [--json]` prints the portrait with line ids, basis, confidence and last evidence.
 - `brain portrait --top N` prints the top After lines with their `for:` lists, for explore and prime.
 - `brain portrait seed --reviews DIR` runs an organisation's seed arithmetic over merged pull requests' review comments (which to read, in what window, what repeats where) and prints the reading list; the judgment is in the `seed` skill. `brain portrait seed --plans DIR` does the same over the tracker's projects and finished issues, for After and Energy. `brain portrait seed --account <address|all> [--days N] [--json]` reads a person's synced owner mail and calendar, classifying whose each item is; without `--days` it reads everything synced.
-- `brain reception set <id> <outcome>`, `brain reception --summary`.
+- `brain reception add --kind K --what TEXT --source NOTE [--portrait ID] [--at TIME]`, `brain reception set <id> <outcome>`, `brain reception summary [--days N] [--json]`, `brain reception burden` (correction burden on the intellect's own pull requests).
 - `brain state --json` gains `portrait` (lines with ids, no `against:` text) and `reception` (the last 30 days), with the Demiurge reveal card that reads them. Demiurge shows them to the owner only: a maintainer's read-only view of the brain never includes the portrait.
 
 ## 8. Skills
 
-- **People**: step 5 maintains the portrait instead of the profile's last two sections. It reads `brain reception --summary` and the day's answered items, promotes, demotes and retires lines, and rewrites rather than appends.
+- **People**: step 5 maintains the portrait instead of the profile's last two sections. It reads `brain reception summary` and the day's answered items, promotes, demotes and retires lines, and rewrites rather than appends.
 - **Explore**: candidates start from `brain portrait --top 3` and testable guesses; the account names `portrait:<id>`; the form is chosen with reception rates in view.
 - **Prime**: Today's single nudge may come from a top After line.
 - **Sleep 2**: a weekly portrait pass. It re-ranks After, retires stale guesses, checks the caps, and reports **coverage**: which of the top three After lines got no attention that week.
@@ -174,27 +177,31 @@ Signup says it plainly: the intellect reads your mail, your calendar and whateve
 
 ## 9. Releases
 
-Built in this order, each its own engine release, so that the moment that wins (an owner shown who they are, and correcting it) arrives as early as possible:
+What shipped, each its own engine release:
 
-1. **0.55.0, the note.** The format, `brain portrait [--top N] [--json]`, line ids stamped by the night, `brain validate`'s checks, and the portrait in `.context.md` after CURRENT. Nothing writes the note yet, and an owner may.
+1. **0.55.0, the note.** The format, `brain portrait [--top N] [--json]`, line ids stamped by the night, `brain validate`'s checks, and the portrait in `.context.md` after CURRENT.
 2. **0.56.0, the company portrait.** The same note in an enterprise vault, in its context with the team's rule, and its stated and seen lines in the state export for the stage.
-3. **0.57.0, seeding an organisation's Taste from corrections.** Taste from its review rules and the comments on its recent merged pull requests, with the evidence kept and one confirm to the operator. Confirmation by each reviewer whose comments a line rests on waits for consults, which route a question to a person. A person's mail seed and reveal follow as their own release.
+3. **0.57.0, seeding an organisation's Taste from corrections.** Taste from its review rules and the comments on its recent merged pull requests, with the evidence kept and one confirm to the operator.
 4. **0.58.0, seeding an organisation's direction.** After from the tracker's projects and initiatives, ranked by horizon from their target dates; Energy from the issues finished on each, with the gap between where it says it is heading and where effort goes.
 5. **0.59.0, learning the company.** The seed skill researches the organisation from everything public and everything connected, details into `Company/` hubs and conclusions into the portrait, with confidential material kept out of what the team sees; `brain portrait coverage` shows what each section holds and which sources are never read or stale.
-6. **0.63.0, reception in the engine.** The ledger with row ids and a `delivered` outcome for surfaces that report opens, rows written and settled by ideas and asks, the night's settling, `brain reception summary`, and correction burden on the intellect's own pull requests. The runtime reporting opens and the Demiurge card follow.
-7. **Demiurge, reception and the reveal.** The reveal card and the standing portrait surface; the runtime reporting opens and replies; the reception ledger, its pending rows, nightly settlement and `--summary`. They ship together because without the runtime's reports nearly every row settles to `unknown` and the ledger teaches nothing.
-8. **0.69.0, rewiring beside goals.** Goals (0.66.0) became the only reason for unasked work, so the portrait does not hold them: an After line names its goal (`goal: G-n`) and adds horizon and where to help, and other After lines are guesses tested by asking. People keeps the portrait and the profile shrinks to four sections, explore records each offer, Sleep 2 reviews it weekly, the owner card drops the Impression, and existing vaults migrate, as below (Goals stays its own note).
+6. **0.63.0, reception in the engine.** The ledger with row ids, rows written and settled by ideas and asks, the night's settling, `brain reception summary`, and correction burden on the intellect's own pull requests. The runtime does not report `delivered` or `opened` yet (section 4).
+7. **0.64.0, the tellable note.** The owner's own facts, the only thing anyone else hears about them ([`docs/sharing.md`](sharing.md)).
+8. **0.65.0 and 0.67.0, the person's seed.** The seed pass and the two-item reveal of section 5; 0.67.0 adds the sync's one-time twelve-month backfill, seeded by the daily people pass as each account's lands.
+9. **0.69.0, rewiring beside goals.** Goals (0.66.0) became the only reason for unasked work, so the portrait does not hold them: an After line names its goal (`goal: G-n`) and adds horizon and where to help, and other After lines are guesses tested by asking. People keeps the portrait, explore records each offer, Sleep 2 reviews it weekly, and the owner card drops the Impression.
+10. **0.75.0, the owner's answers.** `brain portrait stamp` and `brain portrait mark <id> right|wrong|not-this [--words TEXT]`, which Demiurge's portrait card sends; the person's portrait goes out only for them, as `ownerPortrait`, with their profile and portrait marked `audience: owner`.
+11. **0.78.0, a new connection's seed.** `brain portrait seed --account <address> --hand-off` hands off one seed task for a newly connected account, and the state export's `seeds` says which accounts are read or being read.
 
-The migration, unattended, in the owner's existing vault:
+The 0.69.0 migration (`migrations/0.69.0.md`), unattended, in the owner's existing vault:
 
-- Build `Portrait.md` from the profile's What they're about and Impression, `Goals.md`, and the owner-topic hubs. Impression points become `seen`; goals become `said` with horizons; anything the agent inferred from the hubs becomes `guess`.
-- Remove the two sections from the profile and leave a link to the portrait. Leave `Goals.md` as a stub pointing to After for one release, then retire it.
-- Write reception rows backward from `Answered/`, the letter log and the Library's open records, where the outcome is known, so the summary starts with history.
-- One batched `confirm`: the portrait as built, with the guesses marked, for the owner to mark right or wrong. It is the reveal for an owner who already has a vault.
+- An organisation's intellect with no portrait gets one ask to learn the company, and skips the rest.
+- Fold the profile's What they're about and Impression (or its own such sections) into `Portrait.md`: Impression points become `seen`, the owner's own statements `said`, the agent's inferences `guess` with a `test:`; sensitive subjects only as `said`. Existing lines and ids are kept.
+- Link goals: one After line for each active goal, naming it, with a `horizon:` and a `for:`. No goal is restated any other way, and none is created.
+- Rewrite the profile to Who, Working together, Their people and On my own, ending with a link to the portrait; dated detail goes to `History.md` beside it.
+- Write reception rows backward from this and last month's ideas and asks in `Answered/`, then, unless one is already open, one portrait confirm in Needs you.
 
 ## 10. Measuring it
 
-The point is a better agent, not a longer note. Three numbers, from `brain reception --summary` and Sleep 2's report, tracked weekly:
+The point is a better agent, not a longer note. Three numbers, from `brain reception summary` and Sleep 2's report, tracked weekly:
 
 - **Hit rate:** used and liked over offered, by kind. Rising means the portrait is pointing attention at the right things.
 - **Reveal accuracy:** right over marked, on the first portrait and on each later batch.

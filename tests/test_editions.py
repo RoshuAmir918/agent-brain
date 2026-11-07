@@ -49,6 +49,8 @@ def test_an_enterprise_context_leaves_out_goals_and_primed_unless_the_vault_chos
     assert "goals" not in config.context.sections and "primed" not in config.context.sections
     chosen = enterprise(vault, '\n[context]\nsections = ["start", "goals", "tasks"]\n')
     assert chosen.context.sections == ("start", "goals", "tasks")
+    listed = ", ".join(f'"{section}"' for section in SECTIONS)
+    assert enterprise(vault, f'\n[context]\nsections = [{listed}]\n').context.sections == SECTIONS
     (vault.parent / "brain.toml").write_text(f'[brain]\nvault = "{vault.name}"\n')
     assert Config.load(vault).context.sections == SECTIONS
 

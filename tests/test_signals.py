@@ -93,7 +93,7 @@ def test_watch_changes_for_new_channel_files_and_sorts_rows(monitor):
     result = signals.watch(config)
     assert result != initial
     assert result == ("due:\nchannels:\na-account/calendar: 2026-10-28.md @500\n"
-                      "z-account/mail: 1 worth a look, newest 2026-10-28/first.md\nunanswered:")
+                      "z-account/mail: 1 worth a look, newest 2026-10-28/first.md, d21806a4b064\nunanswered:")
     (mail / "second.md").write_text("New mail")
     os.utime(mail / "second.md", (2000, 2000))
     changed = signals.watch(config)
@@ -360,6 +360,9 @@ def test_watch_wakes_for_people_and_bots_but_not_promotions_or_sent_mail(monitor
     fm.write(mail / "promo.md", {"from": "Shop <deals@shop.com>", "labels": ["CATEGORY_PROMOTIONS"]}, "body")
     fm.write(mail / "sent.md", {"from": "Owner <owner@example.com>", "labels": ["SENT"]}, "body")
     assert signals.watch(config) == third
+    (mail / "c.md").unlink()
+    fm.write(mail / "a2.md", {"from": "Alex <alex@example.com>", "labels": ["INBOX"]}, "body")
+    assert signals.watch(config) != third   # same count and newest name, a different message
 
 
 def test_watch_reads_only_live_registry_rows(monitor):

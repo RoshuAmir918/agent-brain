@@ -14,7 +14,6 @@ from .attribute import ROLE_RE, fallback_date, last_timestamp
 from .config import Config
 from .vault import fence_after
 
-PACIFIC = ZoneInfo("America/Los_Angeles")
 WORD_LIMIT = 25000
 FRONTMATTER = "---\nkind: log\ntier: cold\npinned: false\nuses: []\nuses_inferred: []\n---\n"
 
@@ -37,7 +36,7 @@ class Session:
     note: str = ""
 
 
-def parse_timestamp(value, zone: ZoneInfo = PACIFIC) -> datetime | None:
+def parse_timestamp(value, zone: ZoneInfo) -> datetime | None:
     if isinstance(value, bool) or not isinstance(value, (str, int, float)):
         return None
     try:

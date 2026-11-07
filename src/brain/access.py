@@ -159,9 +159,8 @@ def rules(vault: Vault, config: Config) -> list[Rule]:
     return result
 
 
-def grant_scope(vault: Vault, config: Config) -> dict[str, str]:
-    """Scope paragraphs beginning with a rule id, preserved as prose."""
-    ids = {rule.id for rule in rules(vault, config)}
+def grant_scope(vault: Vault, config: Config, ids: set[str]) -> dict[str, str]:
+    """Scope paragraphs beginning with one of these rule ids, preserved as prose."""
     result = {}
     section = _section(_disclosure(vault, config), "Grant scope") or ""
     for paragraph in re.split(r"\n\s*\n", section):
@@ -225,8 +224,7 @@ def resolve(vault: Vault, config: Config, person: str | None = None, *, audience
         effective[subject] = SubjectAccess(tell, tell_rule, do, do_rule)
     deciding = {rule_id for value in effective.values() for rule_id in (value.tell_rule, value.do_rule)
                 if rule_id is not None}
-    scope = {rule_id: text for rule_id, text in grant_scope(vault, config).items() if rule_id in deciding}
-    return Access(person, group_rels, effective, scope)
+    return Access(person, group_rels, effective, grant_scope(vault, config, deciding))
 
 
 def matching_people(vault: Vault, config: Config, who: str) -> list[Note]:
