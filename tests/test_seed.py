@@ -19,15 +19,15 @@ def reviews(tmp_path):
     folder = tmp_path / "reviews"
     folder.mkdir()
     review(folder, 101, "kim", "2026-10-20",
-           "2026-10-19 · nathan · apps/api/src/routers/study.ts · Move this query into the service layer.",
+           "2026-10-19 · noah · apps/api/src/routers/study.ts · Move this query into the service layer.",
            "2026-10-19 · kim · apps/api/src/routers/study.ts · Done.",
            "2026-10-19 · review-bot · apps/api/src/routers/study.ts · Router performs a query directly.",
            "2026-10-19 · roshan · apps/web/src/study.tsx · Use the shared table component.")
     review(folder, 102, "sam", "2026-10-28",
-           "2026-10-27 · nathan · apps/api/src/routers/site.ts · Same here: queries belong in the service.",
+           "2026-10-27 · noah · apps/api/src/routers/site.ts · Same here: queries belong in the service.",
            "2026-10-27 · roshan ·  · Please split the migration into its own PR.", title="Sites")
     review(folder, 103, "kim", "2026-11-01")
-    review(folder, 90, "sam", "2026-06-01", "2026-06-01 · nathan · infra/main.tf · Too old to count.")
+    review(folder, 90, "sam", "2026-06-01", "2026-06-01 · noah · infra/main.tf · Too old to count.")
     return folder
 
 
@@ -35,7 +35,7 @@ def test_reading_counts_corrections_by_others_inside_the_window(reviews):
     data = seed.reading(reviews, TODAY)
     assert data["window"] == {"from": "2026-08-08", "to": "2026-11-06"}
     assert (data["prs"], data["withComments"], data["comments"]) == (3, 2, 5)
-    assert data["reviewers"] == [{"who": "nathan", "comments": 2, "bot": False},
+    assert data["reviewers"] == [{"who": "noah", "comments": 2, "bot": False},
                                  {"who": "roshan", "comments": 2, "bot": False},
                                  {"who": "review-bot", "comments": 1, "bot": True}]
     assert data["areas"] == [{"area": "apps/api", "comments": 3, "prs": 2}, {"area": "apps/web", "comments": 1, "prs": 1},
@@ -47,7 +47,7 @@ def test_reading_counts_corrections_by_others_inside_the_window(reviews):
 
 def test_unreadable_files_and_comments_are_named_not_fatal(reviews):
     (reviews / "bad.md").write_text("---\ntitle: no number\n---\n")
-    review(reviews, 104, "kim", "2026-11-02", "nathan said this without a date")
+    review(reviews, 104, "kim", "2026-11-02", "noah said this without a date")
     problems = seed.reading(reviews, TODAY)["problems"]
     assert "bad.md: needs frontmatter pr, author and merged (YYYY-MM-DD)" in problems
     assert any(p.startswith("104.md: malformed comment") for p in problems)
@@ -64,7 +64,7 @@ def test_cli_prints_the_reading_list_and_its_json(vault, reviews, capsys, monkey
     cli.main(["portrait", "seed", "--vault", str(vault), "--reviews", str(reviews)])
     out = capsys.readouterr().out
     assert "3 merged PRs, 2 with review comments, 5 comments by someone other than the PR's author, 4 of them by people" in out
-    assert "Reviewers: nathan 2, roshan 2, review-bot 1 (bot)" in out
+    assert "Reviewers: noah 2, roshan 2, review-bot 1 (bot)" in out
     assert "- #101 A change · 2 by people, 3 in all · " in out and out.index("#101") < out.index("#102")
     cli.main(["portrait", "seed", "--vault", str(vault), "--reviews", str(reviews), "--days", "7", "--json"])
     assert [item["pr"] for item in json.loads(capsys.readouterr().out)["read"]] == []
@@ -103,7 +103,7 @@ def project(folder, name, state, target="", initiative="", lead="", *issues):
 def plans(tmp_path):
     folder = tmp_path / "plans"
     folder.mkdir()
-    project(folder, "Migration tooling", "started", "2026-12-15", "Win larger sponsors", "nathan",
+    project(folder, "Migration tooling", "started", "2026-12-15", "Win larger sponsors", "noah",
             "2026-10-20 · done · ENG-1 · Import CSV")
     project(folder, "Sponsor portal", "planned", "2027-06-30", "Win larger sponsors", "priya")
     project(folder, "Audit trail v2", "started", "2026-12-01", "", "kim")
@@ -148,7 +148,7 @@ def test_cli_seeds_from_plans_and_takes_one_source_at_a_time(vault, plans, revie
     cli.main(["portrait", "seed", "--vault", str(vault), "--plans", str(plans)])
     out = capsys.readouterr().out
     assert "6 open projects, 3 issues done" in out
-    assert "- Migration tooling (Win larger sponsors) · started · target 2026-12-15 · now · lead nathan" in out
+    assert "- Migration tooling (Win larger sponsors) · started · target 2026-12-15 · now · lead noah" in out
     assert "- Mobile app · backlog · no target" in out
     assert "- (no project) · 2 done · 67%" in out
     assert "Due this quarter with nothing done in the window: Audit trail v2" in out
@@ -198,7 +198,7 @@ def test_a_persons_correction_ranks_above_a_pile_of_bot_comments(tmp_path):
     folder = tmp_path / "reviews"
     folder.mkdir()
     review(folder, 1, "kim", "2026-11-01", *[f"2026-11-01 · codex-connector[bot] · a/b/c.ts · Nit {i}." for i in range(9)])
-    review(folder, 2, "kim", "2026-11-02", "2026-11-02 · nathan · a/b/c.ts · Use the service.")
+    review(folder, 2, "kim", "2026-11-02", "2026-11-02 · noah · a/b/c.ts · Use the service.")
     data = seed.reading(folder, TODAY)
     assert [item["pr"] for item in data["read"]] == [2, 1]
     assert data["byPeople"] == 1 and data["reviewers"][0] == {"who": "codex-connector[bot]", "comments": 9, "bot": True}

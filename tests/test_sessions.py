@@ -12,8 +12,8 @@ from conftest import nightly_argv, snapshot, harness_session, message, tool, wri
 
 @pytest.fixture
 def exported_sessions(vault, tmp_path):
-    fm.write(vault / "Harbor Context.md", {"uses": ["2026-01-01"], "tier": "cold"},
-             "# Harbor\nDeployment context.\n")
+    fm.write(vault / "Acme Context.md", {"uses": ["2026-01-01"], "tier": "cold"},
+             "# Acme\nDeployment context.\n")
     profile = vault / "people/Alice_Example/Profile.md"
     profile.parent.mkdir(parents=True)
     fm.write(profile, {"tier": "warm"}, "# Contact\nFixture contact.\n")
@@ -23,14 +23,14 @@ def exported_sessions(vault, tmp_path):
     (nested / "marked.md").write_text(
         "Sources: T-998\n## user\n2026-10-04T12:00:00Z\nSources: T-999\n"
         "## assistant\n2026-10-05T01:02:03Z\n"
-        "Sources: [[Harbor Context]] T-001 TR-002 memory/people/Alice_Example/Profile.md\n"
-        "**Assistant**\n2026-10-05T02:03:04Z\nSources: [[Harbor Context]] T-001\n"
+        "Sources: [[Acme Context]] T-001 TR-002 memory/people/Alice_Example/Profile.md\n"
+        "**Assistant**\n2026-10-05T02:03:04Z\nSources: [[Acme Context]] T-001\n"
         "assistant:\n2026-10-05T03:04:05-07:00\nSources: T-001\n"
         "role: user\nSources: T-997\n"
         "role: assistant\n2026-11-01T04:05:06+00:00\nSources: T-001\n")
     (sessions / "session_2026-10-06.md").write_text(
         "# Export without role markers\nAn answer.\n"
-        "Sources: [[Harbor Context]] TR-002\nSources: [[Harbor Context]]\n")
+        "Sources: [[Acme Context]] TR-002\nSources: [[Acme Context]]\n")
     (sessions / "manifest.jsonl").write_text('{"path":"nested/marked.md","sha256":"fixture"}\n')
     return sessions
 
@@ -39,12 +39,12 @@ def test_two_session_exports_produce_expected_rows_without_writing(vault, export
     before = snapshot(vault)
     rows = attribute.sessions(Vault(vault), exported_sessions)
     assert {(row.ts, row.target, row.reason, row.source) for row in rows} == {
-        ("2026-10-05T01:02:03Z", "Harbor Context.md", "cited in session marked", "explicit"),
+        ("2026-10-05T01:02:03Z", "Acme Context.md", "cited in session marked", "explicit"),
         ("2026-10-05T01:02:03Z", "people/Alice_Example/Profile.md", "cited in session marked", "explicit"),
         ("2026-10-05T01:02:03Z", "T-001", "cited in session marked", "explicit"),
         ("2026-10-05T01:02:03Z", "TR-002", "cited in session marked", "explicit"),
         ("2026-11-01T04:05:06+00:00", "T-001", "cited in session marked", "explicit"),
-        ("2026-10-06", "Harbor Context.md", "cited in session session_2026-10-06", "explicit"),
+        ("2026-10-06", "Acme Context.md", "cited in session session_2026-10-06", "explicit"),
         ("2026-10-06", "TR-002", "cited in session session_2026-10-06", "explicit"),
     }
     assert len(rows) == 7
@@ -115,13 +115,13 @@ def test_session_date_falls_back_to_filename_parent_then_mtime(vault, tmp_path, 
 def test_nightly_attributes_before_folding_and_compiling(vault, exported_sessions):
     args = nightly_argv(vault, "2026-10-06", "--sessions-dir", str(exported_sessions), "--write")
     cli.main(args)
-    data, _ = fm.read(vault / "Harbor Context.md")
+    data, _ = fm.read(vault / "Acme Context.md")
     assert data["uses"] == ["2026-10-06", "2026-10-05", "2026-01-01"]
     assert data["tier"] == "hot"
     task = load_tasks(Config.load(vault))[0][0]
     assert task.uses == ["2026-10-05", "2026-09-20"] and task.state["tier"] == "hot"
     context = (vault.parent / ".context.md").read_text()
-    assert "ORIGINAL_FULL_BODY" in context and "memory/Harbor Context|" in context
+    assert "ORIGINAL_FULL_BODY" in context and "memory/Acme Context|" in context
     log = vault / "agent/Use Log/2026-10.md"
     before = log.read_bytes()
     cli.main(args)
@@ -157,11 +157,11 @@ def test_attribution_ignores_evaluation_sessions_and_routine_opens(tmp_path):
     from brain.vault import Vault
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     vault = tmp_path / "memory"; (vault / "agent").mkdir(parents=True)
-    fm.write(vault / "Harbor.md", {"kind": "hub", "tier": "warm"}, "# Harbor\nbody\n")
+    fm.write(vault / "Acme.md", {"kind": "hub", "tier": "warm"}, "# Acme\nbody\n")
     sessions = vault / "Conversations" / "Sessions"; sessions.mkdir(parents=True)
     stamp = "2026-10-21T10:00:00-07:00"
-    call = tool("read_file", {"path": "memory/Harbor.md"}, stamp)
-    cite = message("assistant", "Sources: [[memory/Harbor]]", stamp)
+    call = tool("read_file", {"path": "memory/Acme.md"}, stamp)
+    cite = message("assistant", "Sources: [[memory/Acme]]", stamp)
     write_shards(sessions,
         harness_session("conv", [call]),
         harness_session("cron_sleep1", [call, cite], platform="cron"),
@@ -179,12 +179,12 @@ def test_attribute_defaults_to_the_profile_records_folder(tmp_path, monkeypatch,
     from brain import cli, fm
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     vault = tmp_path / "memory"; (vault / "agent").mkdir(parents=True)
-    fm.write(vault / "Harbor.md", {"kind": "hub", "tier": "warm"}, "# Harbor\nbody\n")
+    fm.write(vault / "Acme.md", {"kind": "hub", "tier": "warm"}, "# Acme\nbody\n")
     home = tmp_path / "agent-home"
     monkeypatch.setenv("AGENT_HOME", str(home))
     sessions = home / "records" / "sessions" / "jsonl"; sessions.mkdir(parents=True)
-    call = tool("read_file", {"path": "memory/Harbor.md"}, "2026-10-21T10:00:00-07:00")
+    call = tool("read_file", {"path": "memory/Acme.md"}, "2026-10-21T10:00:00-07:00")
     write_shards(sessions.parent, harness_session("conv", [call]))
     cli.main(["attribute", "--vault", str(vault)])
-    assert "Harbor" in capsys.readouterr().out
+    assert "Acme" in capsys.readouterr().out
     assert not (vault / "Conversations").exists()

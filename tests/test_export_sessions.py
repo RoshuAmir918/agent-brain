@@ -62,23 +62,23 @@ def test_export_date_includes_cross_midnight_sessions_and_default_exports_all(ha
 def test_said_and_native_tool_paths_reach_digest_and_attribution(harness, monkeypatch):
     config, home, source = harness
     monkeypatch.setenv("BRAIN_HOT_WORDS", "0")
-    fm.write(config.vault_path / "Harbor Context.md", {"kind": "hub", "tier": "warm"}, '# Harbor\n')
+    fm.write(config.vault_path / "Acme Context.md", {"kind": "hub", "tier": "warm"}, '# Acme\n')
     record = harness_session("said", [message("user", "SYSTEM CONTEXT\nQuestion", said="Question"),
-        tool("read_file", {"path": str(config.vault_path / "Harbor Context.md")}),
-        tool("terminal", {"command": 'brain retrieve --json "harbor CI"'}),
-        message("assistant", "Answer.\nSources: [[Harbor Context]]")])
+        tool("read_file", {"path": str(config.vault_path / "Acme Context.md")}),
+        tool("terminal", {"command": 'brain retrieve --json "acme CI"'}),
+        message("assistant", "Answer.\nSources: [[Acme Context]]")])
     (source / "said.json").write_text(json.dumps(record))
     sessions.export(config)
     text, _ = digest.build(config, date(2026, 10, 20))
     assert 'SYSTEM CONTEXT' not in text and '**Human** 00:01\nQuestion' in text
-    assert 'reads: memory/Harbor Context.md' in text and 'retrieve: "harbor CI"' in text
+    assert 'reads: memory/Acme Context.md' in text and 'retrieve: "acme CI"' in text
     uses = attribute.sessions(Vault(config.vault_path), home / "records/sessions")
-    assert any(row.source == 'observed' and row.target == 'Harbor Context.md' for row in uses)
+    assert any(row.source == 'observed' and row.target == 'Acme Context.md' for row in uses)
     assert any(row.source == 'explicit' and row.reason == 'cited in session said' for row in uses)
     md = config.vault_path / 'Conversations/Sessions/said.md'
     legacy = digest.markdown_session(md, md.parent, date(2026, 10, 20), config)
     assert legacy.turns[0].text.strip() == 'Question'
-    assert any(use.target == 'Harbor Context.md' for use in attribute.session_rows(Vault(config.vault_path), md))
+    assert any(use.target == 'Acme Context.md' for use in attribute.session_rows(Vault(config.vault_path), md))
 
 
 def test_digest_coverage_routines_evaluations_and_owner_timezone(vault, tmp_path):
