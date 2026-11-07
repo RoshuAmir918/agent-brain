@@ -149,11 +149,20 @@ def test_the_night_compiles_marks_facets_for_the_owner_and_says_why_when_it_cann
     assert "Move to Porto" in (vault / "human/Portrait.md").read_text()
 
 
-def test_the_state_export_still_carries_the_compiled_portrait_with_facet_ids(config, vault):
+def test_the_owner_gets_the_whole_image_with_the_compiled_lines_marked(config, vault):
+    before = state.build(Config.load(vault), date(2026, 11, 6))["ownerPortrait"]
+    assert [(line["id"], line["inPortrait"]) for line in before][:2] == [("3f2a", True), ("c1a0", True)]
     sort_into_facets(config)
-    data = state.build(Config.load(vault), date(2026, 11, 6))
-    assert [(line["id"], line["facet"]) for line in data["ownerPortrait"]][:2] == [("3f2a", ""), ("c1a0", "")]
-    assert all("against" not in line for line in data["ownerPortrait"])
+    lines = "".join(f"- Aim {i} · seen · medium · 2026-11-01 · [[S]] ^a{i:03d}\n  - horizon: now\n" for i in range(9))
+    fm.write(vault / "human/Portrait/Work.md", {"kind": "hub", "tier": "warm", "facet": "Work", "rank": 4}, "## After\n" + lines)
+    with vault_lock(config):
+        portrait.compile(config)
+    data = state.build(Config.load(vault), date(2026, 11, 6))["ownerPortrait"]
+    assert len(data) == 13 and all("against" not in line for line in data)
+    by = {line["id"]: line for line in data}
+    assert (by["3f2a"]["facet"], by["3f2a"]["inPortrait"], by["3f2a"]["rank"], by["3f2a"]["facetRank"]) == ("Places", True, 1, 1)
+    assert by["a008"]["inPortrait"] is False and by["a008"]["facetRank"] == 9
+    assert [line["facet"] for line in data][0] == "Places"   # most central facet first
 
 
 def test_cli_lists_moves_and_compiles(config, vault, capsys):
