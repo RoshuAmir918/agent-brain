@@ -111,6 +111,7 @@ def test_closing_a_task_also_settles_an_ask_sourced_to_it(vault, capsys):
     data, body = fm.read(current)
     fm.write(current, data, body + "\n## Needs you\n- 2026-11-05 · ask · Which venue? · [[agent/Tasks#T-001]]\n")
     cli(vault, capsys, "T-001", "drop", "--why", "the owner went elsewhere")
+    assert "Which venue?" not in fm.read(current)[1]   # at once, not only at night
     report = []
     nightly.rollover(config, TODAY, report)
     nightly.process_tasks(config, TODAY, *tasks.load_tasks(config), report)
@@ -216,3 +217,120 @@ def test_a_new_task_is_in_the_register_after_its_first_night(vault, capsys):
     tid = cli(vault, capsys, "new", "Move Ledger into the Library", "--source", "owner words").split()[0]
     nightly.process_tasks(config, TODAY, *tasks.load_tasks(config), [])
     assert f"### {tid} — Move Ledger into the Library" in register(vault)
+
+
+def add_ask(vault, line):
+    current = vault / "CURRENT.md"
+    data, body = fm.read(current)
+    fm.write(current, data, body.rstrip("\n") + ("\n" if "## Needs you" in body else "\n## Needs you\n") + line + "\n")
+    return current
+
+
+def test_a_handoff_or_set_aside_settles_the_asks_a_waiting_task_stood_for(vault, capsys):
+    config = Config.load(vault)
+    cli(vault, capsys, "T-001", "set", "--state", "waiting_for_owner", "--ask", "Want me to book the 7pm table?",
+        "--why", "It is the last one free.")
+    current = add_ask(vault, "- 2026-11-05 · ask · Which venue? · [[agent/Tasks#T-001]]")
+    tasks.hand_off(config, "T-001", TODAY, "Home")
+    assert "Which venue?" not in fm.read(current)[1]
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner", values={"ask": "Want me to book the 7pm table?"})
+    add_ask(vault, "- 2026-11-05 · ask · Which date? · [[agent/Tasks#T-001]]")
+    tasks.set_aside(config, "T-001", TODAY, "dismissed by the owner in their app")
+    assert "Which date?" not in fm.read(current)[1]
+    assert "because T-001 is set aside" in (vault / "agent/Answered/2026-11.md").read_text()
+
+
+def test_a_waiting_task_keeps_its_ask(vault, capsys):
+    cli(vault, capsys, "T-001", "set", "--state", "waiting_for_owner", "--ask", "Want me to book the 7pm table?")
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "T-001", "set", "--clear", "ask")
+    assert "needs the question" in capsys.readouterr().err
+    assert find(Config.load(vault), "T-001").task_state == "waiting_for_owner"
+
+
+@pytest.mark.parametrize("call", [
+    lambda config: tasks.complete(config, "T-001", TODAY, "done\n### T-002 — Phantom"),
+    lambda config: tasks.close(config, "T-001", TODAY, False, "moot\nmore"),
+    lambda config: tasks.set_aside(config, "T-001", TODAY, " "),
+    lambda config: tasks.hand_off(config, "T-001", TODAY, "Home\n### T-002 — Phantom"),
+])
+def test_reasons_and_report_targets_are_single_line_and_reasons_are_required(vault, call):
+    config = Config.load(vault)
+    before = register(vault)
+    with pytest.raises(ValueError):
+        call(config)
+    assert register(vault) == before
+
+
+def test_closing_a_hot_excerpt_keeps_the_full_body_in_the_archive(vault):
+    config = Config.load(vault)
+    task = find(config, "T-001")
+    task.body += "- **Latest evidence:** 2026-11-04 [[Receipt]]\n" + "".join(
+        f"- **Reviewed:** 2026-10-{day:02d} — kept: FULL_ONLY_{day} still waiting on the venue to confirm the date\n"
+        for day in range(1, 13))
+    tasks.save_task(config, task, TODAY)
+    tasks.write_archive(config, task, "hot", TODAY)
+    task.body = tasks.bounded_hot_body(task, config)
+    shed = next(f"FULL_ONLY_{day} " for day in range(1, 13) if f"FULL_ONLY_{day} " not in task.body)
+    assert tasks.archive_pointer(config, "T-001") in task.body
+    tasks.save_task(config, task, TODAY)
+    tasks.complete(config, "T-001", TODAY, "booked")
+    assert shed in tasks.archive_path(config, "T-001").read_text()
+
+
+def test_completed_reads_the_latest_closing_and_the_register_wins(vault):
+    config = Config.load(vault)
+    tasks.complete(config, "T-001", date(2026, 10, 1), "first try")
+    tasks.write_archive(config, find_any(config, "T-001"), "cold", date(2026, 10, 1))
+    tasks.reopen(config, "T-001", TODAY, "one more page")
+    assert tasks.completed(config, TODAY, 60) == []   # the archive's completed copy is stale
+    tasks.complete(config, "T-001", TODAY, "second try")
+    row, = tasks.completed(config, TODAY)
+    assert (row["completed"], row["evidence"]) == ("2026-11-05", "second try")
+
+
+def find_any(config, tid):
+    return next(t for t in tasks.all_tasks(config) if t.tid == tid)
+
+
+def test_a_hand_archived_legacy_task_can_be_reopened(vault, capsys):
+    config = Config.load(vault)
+    path = vault / "agent/Tasks.md"
+    data, _ = fm.read(path)
+    fm.write(path, data, "# Tasks\n## Active work\n")
+    legacy = tasks.archive_path(config, "T-001")
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(legacy, {"tier": "cold"}, "# T-001 — Sample\n<!-- brain: status=completed -->\n- **Status:** LEGACY_BODY\n")
+    assert cli(vault, capsys, "T-001", "reopen", "--why", "back on") == "T-001 ready: Sample"
+    task = find(config, "T-001")
+    assert tasks.is_open(task) and "LEGACY_BODY" in task.body
+
+
+def test_a_legacy_waiting_task_without_an_ask_stays_editable(vault, capsys):
+    config = Config.load(vault)
+    task = find(config, "T-001")
+    task.state = {**task.state, "state": "waiting_for_owner"}
+    task.state.pop("status", None)
+    tasks.save_task(config, task, TODAY)
+    cli(vault, capsys, "T-001", "set", "--next", "LEGACY_NEXT")
+    assert "LEGACY_NEXT" in find(config, "T-001").body
+    cli(vault, capsys, "T-001", "set", "--state", "ready")
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "T-001", "set", "--state", "waiting_for_owner")
+    assert "needs the question" in capsys.readouterr().err
+
+
+def test_a_hand_archived_task_without_state_is_history_not_open_work(vault, capsys):
+    config = Config.load(vault)
+    path = vault / "agent/Tasks.md"
+    data, _ = fm.read(path)
+    fm.write(path, data, "# Tasks\n## Active work\n")
+    legacy = tasks.archive_path(config, "T-001")
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(legacy, {"tier": "cold"}, "# T-001 — Sample\n- **Status:** LEGACY_BODY\n")
+    assert tasks.load_tasks(config) == ([], [])
+    assert [t.tid for t in tasks.all_tasks(config)] == ["T-001"]
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "T-001", "set", "--next", "x")
+    nightly.process_tasks(config, TODAY, *tasks.load_tasks(config), [])
+    assert "T-001" not in register(vault)

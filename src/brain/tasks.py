@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act, fm, works
@@ -209,8 +209,14 @@ def _field_value(config: Config, name: str, value: str) -> str:
     if name == "goal":
         from .goals import require_active
         require_active(config, value)
-    if name == "resume" and not RESUME.fullmatch(value):
-        raise ValueError("resume must be computer, YYYY-MM-DD or YYYY-MM-DD HH:MM, in the owner's local time")
+    if name == "resume":
+        try:
+            if not RESUME.fullmatch(value):
+                raise ValueError
+            if value != "computer":
+                datetime.strptime(value, "%Y-%m-%d %H:%M") if " " in value else date.fromisoformat(value)
+        except ValueError:
+            raise ValueError("resume must be computer, YYYY-MM-DD or YYYY-MM-DD HH:MM, in the owner's local time") from None
     if name == "ask":
         if (reason := vague_ask(value)):
             raise ValueError(f"ask refused: {reason}")
@@ -291,8 +297,7 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         raise ValueError(f"{tid} is not an open task (unknown or closed); a closed one comes back with task {tid} reopen")
     if "after" in values:
         validate_after(config, tid, values["after"])
-    if state == "waiting_for_owner" and "ask" not in values and ("ask" in clear or not _owner_ask(task.body)):
-        raise ValueError("waiting_for_owner needs the question: --ask \"…\" --why \"…\"")
+    previous = replace(task, state=dict(task.state))
     before = current_words(task, config)
     if state is not None:
         task.state["state"] = state
@@ -317,13 +322,16 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
             raise ValueError(f"{tid} was not handed off; there is no report line to change")
         line = handoff_line(task.handoff[0], task.owner, report)
         task.body = HANDOFF_LINE.sub(line + "\n", task.body, count=1)
+    if (task.task_state == "waiting_for_owner" and not _owner_ask(task.body)
+            and (previous.task_state != "waiting_for_owner" or _owner_ask(previous.body))):
+        raise ValueError("waiting_for_owner needs the question: --ask \"…\" --why \"…\"")
     after = current_words(task, config)
     # A field written long stays long: past the limit only a person can cut the entry down, so it is refused here,
     # where the writer still has what it meant. A write that does not grow the entry is always taken.
     if values and after > MAX_WORDS and after > before:
         raise ValueError(f"{tid} would hold {after} words of current fields; the limit is {MAX_WORDS}. Say it shorter: "
                          "a sentence or two per field, the detail in a note linked with --evidence")
-    save_task(config, task, today)
+    save_task(config, task, today, previous)
     return task
 
 
@@ -458,10 +466,12 @@ def hand_off(config: Config, tid: str, today: date, report_to: str = "", work: s
         raise ValueError("work slug must match [a-z0-9-]+")
     if owner is not None and not PERSON.fullmatch(owner):
         raise ValueError("--for names a person as <platform>:<id>, e.g. slack:U0123ABC")
+    report_to = single_line("report", report_to)
     registered, archived = load_tasks(config)
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
         raise ValueError(f"{tid} is not an open task")
+    before = replace(task, state=dict(task.state))
     # A fresh handoff names who it is for now; one that names nobody keeps the task's owner.
     task.body = with_handoff(task.body, today, report_to, owner or task.owner)
     if work is not None:
@@ -469,20 +479,29 @@ def hand_off(config: Config, tid: str, today: date, report_to: str = "", work: s
     if task.task_state in (None, "ready", *RESTING):
         task.state["state"] = "in_progress"
         task.state.pop("status", None)
-    save_task(config, task, today)
+    save_task(config, task, today, before)
     return task
+
+
+def _reason(name: str, value: str) -> str:
+    value = single_line(name, value)
+    if not value:
+        raise ValueError(f"{name} must not be empty")
+    return value
 
 
 def set_aside(config: Config, tid: str, today: date, why: str) -> Task:
     """Park an open task, with a dated Reviewed line saying why; it is never asked about until it comes up again."""
+    why = _reason("why", why)
     registered, archived = load_tasks(config)
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
         raise ValueError(f"{tid} is not an open task")
+    before = replace(task, state=dict(task.state))
     task.state["state"] = "set_aside"
     task.state.pop("status", None)
     task.body = task.body.rstrip("\n") + f"\n- **Reviewed:** {today.isoformat()} — set aside: {why}\n"
-    save_task(config, task, today)
+    save_task(config, task, today, before)
     return task
 
 
@@ -494,6 +513,7 @@ def complete(config: Config, tid: str, today: date, evidence: str, left: str | N
              then: list[str] | tuple[str, ...] = ()) -> Task:
     """Close an open task as completed, with its evidence on a dated line, what it left undone (`Left`) and up to three
     next stages the owner could start (`Then`), so the finished task says what is done, what is left and what is next."""
+    evidence = _reason("evidence", evidence)
     left = single_line("left", left) if left else None
     then = [single_line("then", step) for step in then if step.strip()]
     if len(then) > MAX_THEN:
@@ -504,11 +524,12 @@ def complete(config: Config, tid: str, today: date, evidence: str, left: str | N
         raise ValueError(f"{tid} is not an open task")
     from . import continuation
     continuation.clear_close_out(config, tid)
+    before = replace(task, state=dict(task.state))
     task.state["state"] = "completed"
     task.state.pop("status", None)
     lines = [f"- **Completed:** {today.isoformat()} — {evidence}"] + ([f"- **Left:** {left}"] if left else []) + [f"- **Then:** {step}" for step in then]
     task.body = CLOSE_OUT.sub("", task.body).rstrip("\n") + "\n" + "\n".join(lines) + "\n"
-    save_task(config, task, today)
+    save_task(config, task, today, before)
     _work_history(task, today, evidence)
     return task
 
@@ -525,16 +546,18 @@ def close(config: Config, tid: str, today: date, done: bool, why: str, left: str
     carries what was left and what could come next."""
     if done:
         return complete(config, tid, today, why, left, then)
+    why = _reason("why", why)
     registered, archived = load_tasks(config)
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
         raise ValueError(f"{tid} is not an open task")
     from . import continuation
     continuation.clear_close_out(config, tid)
+    before = replace(task, state=dict(task.state))
     task.state["state"] = "cancelled"
     task.state.pop("status", None)
     task.body = task.body.rstrip("\n") + f"\n- **Dropped:** {today.isoformat()} — {why}\n"
-    save_task(config, task, today)
+    save_task(config, task, today, before)
     _work_history(task, today, why)
     return task
 
@@ -542,6 +565,7 @@ def close(config: Config, tid: str, today: date, done: bool, why: str, left: str
 def reopen(config: Config, tid: str, today: date, why: str) -> Task:
     """Bring a completed or cancelled task back as ready, wherever its entry is, with a dated line saying why; its
     earlier evidence stays. The night puts it back in the register."""
+    why = _reason("why", why)
     registered, _ = load_tasks(config)
     task = next((t for t in registered if t.tid == tid), None)
     if task is None and archive_path(config, tid).exists():
@@ -559,9 +583,12 @@ def reopen(config: Config, tid: str, today: date, why: str) -> Task:
     return task
 
 
-def save_task(config: Config, task: Task, today: date) -> None:
-    """Write a changed task where its full entry lives: the register, or the archive when the register holds a warm line."""
+def save_task(config: Config, task: Task, today: date, before: Task | None = None) -> None:
+    """Write a changed task where its full entry lives: the register, or the archive when the register holds a warm line.
+    `before` is the entry as it was: a task leaving waiting_for_owner, or closing, takes the Needs you asks that stood
+    for it with it."""
     tid = task.tid
+    whole = archive_pointer(config, tid) not in task.body
     reg = config.vault_path / config.agent("Tasks.md")
     data, body = fm.read(reg)
     spans, parsed = parse_register(body)
@@ -571,14 +598,18 @@ def save_task(config: Config, task: Task, today: date) -> None:
         fm.write(reg, data, body[:s] + task.render() + ("\n" if body[e:] and not body[e:].startswith("\n") else "") + body[e:])
         if not is_open(task) and archive_path(config, tid).exists():
             # An older archive copy still marked open would bring the task back once the register stops listing it.
-            write_archive(config, task, task.state.get("tier", "warm"), today, whole=True)
+            write_archive(config, task, task.state.get("tier", "warm"), today, whole=whole)
     else:
-        write_archive(config, task, task.state.get("tier", "warm"), today, whole=True)
+        write_archive(config, task, task.state.get("tier", "warm"), today, whole=whole)
         # The register's warm line carries the state too; left alone, a closed task would still read as open.
         line = next(((s, e) for (t, s, e), entry in zip(spans, parsed) if t == tid), None)
         if line:
             s, e = line
             fm.write(reg, data, body[:s] + task.render_line(config) + ("\n" if body[e:] and not body[e:].startswith("\n") else "") + body[e:])
+    if before is not None and (not is_open(task) or (before.task_state == "waiting_for_owner"
+                                                      and task.task_state != "waiting_for_owner")):
+        from . import needs
+        needs.settle_tasks(config, today, [(tid, before.body)], f"{tid} is {(task.task_state or 'open').replace('_', ' ')}")
 
 
 def due(tasks: list[Task], pace: str | None = "regular", worked: dict[str, str] | None = None, *,
@@ -640,6 +671,11 @@ def archive_path(config: Config, tid: str) -> Path:
     return config.vault_path / config.agent("Tasks Archive") / f"{tid}.md"
 
 
+def archive_pointer(config: Config, tid: str) -> str:
+    """The line a bounded hot entry ends with, standing for the full entry in the archive."""
+    return f"- **Earlier evidence:** [[{config.link(config.agent('Tasks Archive/' + tid))}|{tid} archive]]"
+
+
 def _chunk_label(chunk: list[str]) -> str | None:
     match = re.match(r"^\s*-\s+\*\*([^*]+?)(?:\s*:\s*\*\*|\*\*\s*:)", chunk[0])
     return match[1].strip().casefold() if match else None
@@ -661,7 +697,7 @@ def _direct_pointer(t: Task, config: Config, chunk: list[str]) -> bool:
 def _partition(t: Task, config: Config) -> tuple[list[list[str]], list[list[str]], str]:
     """The entry's fields as chunks of lines: those a hot entry must keep whole (its current fields, the newest Reviewed,
     and the evidence that is current) and those it may leave to the archive; and the archive pointer line."""
-    pointer = f"- **Earlier evidence:** [[{config.link(config.agent('Tasks Archive/' + t.tid))}|{t.tid} archive]]"
+    pointer = archive_pointer(config, t.tid)
     chunks = []
     for line in t.body.splitlines():
         field = re.match(r"^\s*-\s+\*\*([^*]+?)(?:\s*:\s*\*\*|\*\*\s*:)", line)
@@ -753,7 +789,7 @@ def write_archive(config: Config, t: Task, reason: str, today: date, whole: bool
             # A derived register view must never replace the recoverable body.
             body = old_body
         elif old_body:
-            pointer = f"- **Earlier evidence:** [[{config.link(config.agent('Tasks Archive/' + t.tid))}|{t.tid} archive]]"
+            pointer = archive_pointer(config, t.tid)
             unchanged = False
             if pointer in body:
                 try:
@@ -771,10 +807,15 @@ def write_archive(config: Config, t: Task, reason: str, today: date, whole: bool
 
 
 def read_archived_task(config: Config, path: Path) -> Task | None:
+    """The full entry an archive file keeps: one the night wrote, or an older one archived by hand."""
     text = path.read_text(encoding="utf-8")
     m = re.match(r"# (T-\d{3}) — (.+)", text)
     if not m or "State is still open" not in text:
-        return None
+        try:
+            parsed = parse_register(re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M))[1]
+        except fm.Malformed:
+            return None   # skipped as the vault skips it; validate names it
+        return parsed[0] if parsed else None
     sm = STATE_RE.search(text)
     state = parse_state(sm.group(1)) if sm else {}
     body = read_archive_body(config, m.group(1)) or ""
@@ -787,7 +828,8 @@ def archived_open_tasks(config: Config) -> list[Task]:
         return []
     out = []
     for p in sorted(d.glob("T-*.md")):
-        t = read_archived_task(config, p)
+        # One archived by hand, without the night's header, is finished work: history, never open again by itself.
+        t = read_archived_task(config, p) if "State is still open" in p.read_text(encoding="utf-8") else None
         if t and is_open(t):
             out.append(t)
     return out
@@ -848,14 +890,6 @@ def all_tasks(config: Config) -> list[Task]:
     seen = {task.tid for task in entries}
     for path in sorted((config.vault_path / config.agent("Tasks Archive")).glob("T-*.md")):
         task = read_archived_task(config, path)
-        if task is None:
-            # Older hand-archived entries have no nightly provenance header.
-            try:
-                body = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
-            except fm.Malformed:
-                continue   # skipped as the vault skips it; validate names it
-            parsed = parse_register(body)[1]
-            task = parsed[0] if parsed else None
         if task is not None and task.tid not in seen:
             seen.add(task.tid)
             entries.append(task)
@@ -878,40 +912,31 @@ def validate_after(config: Config, tid: str, after: str) -> None:
         after = task.after if task else None
 
 
-COMPLETED_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Completed:\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*[—-][ \t]*(.*))?$", re.M)
+CLOSING_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*(Completed|Dropped):\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*[—-][ \t]*(.*?))?[ \t]*$", re.M)
+
+
+def closing(task: Task) -> tuple[str | None, str | None]:
+    """The day the task last closed and what it said then: its latest Completed or Dropped line."""
+    matches = [*CLOSING_LINE.finditer(task.body)]
+    return (matches[-1][2], (matches[-1][3] or "").strip() or None) if matches else (None, None)
 
 
 def completed(config: Config, today: date, days: int = 7) -> list[dict]:
     """Tasks completed in the last `days` local days, newest first, from the register and every archive file: what a
     follow-on check reads (is the goal a finished task served still open? is there an extension worth offering?)."""
-    sources = []
-    register = config.vault_path / config.agent("Tasks.md")
-    if register.exists():
-        sources.append(fm.read(register)[1])
-    archive = config.vault_path / config.agent("Tasks Archive")
-    if archive.is_dir():
-        for path in sorted(archive.glob("*.md")):
-            try:
-                sources.append(re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M))
-            except fm.Malformed:
-                continue   # skipped as the vault skips it; validate names it
-    seen, out = set(), []
-    for text in sources:
-        for task in parse_register(text)[1]:
-            if task.tid in seen or task.task_state != "completed":
-                continue
-            match = COMPLETED_LINE.search(task.body)
-            if not match:
-                continue
-            try:
-                when = date.fromisoformat(match[1])
-            except ValueError:
-                continue
-            if (today - when).days > days or when > today:
-                continue
-            seen.add(task.tid)
-            source = re.search(r"^[ \t]*-[ \t]+\*\*Source:\*\*[ \t]*(.+?)[ \t]*$", task.body, re.M)
-            out.append({"id": task.tid, "title": task.title, "completed": match[1], "evidence": (match[2] or "").strip(),
-                        "hub": task.hub, "work": task.work, "delivers": task.delivers,
-                        "source": source[1] if source else None})
+    out = []
+    for task in all_tasks(config):
+        if task.task_state != "completed":
+            continue
+        day, evidence = closing(task)
+        try:
+            when = date.fromisoformat(day or "")
+        except ValueError:
+            continue
+        if (today - when).days > days or when > today:
+            continue
+        source = re.search(r"^[ \t]*-[ \t]+\*\*Source:\*\*[ \t]*(.+?)[ \t]*$", task.body, re.M)
+        out.append({"id": task.tid, "title": task.title, "completed": day, "evidence": evidence or "",
+                    "hub": task.hub, "work": task.work, "delivers": task.delivers,
+                    "source": source[1] if source else None})
     return sorted(out, key=lambda row: (row["completed"], row["id"]), reverse=True)

@@ -265,7 +265,8 @@ def test_resume_computer_round_trips_through_task_cli(location, vault, capsys):
     assert entry(config)[0].resume is None
 
 
-@pytest.mark.parametrize("resume", ["tomorrow", "Computer", "network", "computer online", ""])
+@pytest.mark.parametrize("resume", ["tomorrow", "Computer", "network", "computer online", "", "2026-99-99 29:90",
+                                    "2026-02-30", "2026-11-06 24:00"])
 def test_invalid_resume_words_refused_without_writes(vault, capsys, resume):
     before = snapshot(vault)
     with pytest.raises(SystemExit) as error:

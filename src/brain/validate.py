@@ -293,7 +293,16 @@ def hygiene(vault: Vault) -> list[str]:
             + needs_ceiling(vault) + needs_hygiene(vault) + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
             + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault)
-            + owners.problems(vault.config) + tellable_hygiene(vault))
+            + trigger_dates(vault) + owners.problems(vault.config) + tellable_hygiene(vault))
+
+
+def trigger_dates(vault: Vault) -> list[str]:
+    """A dated trigger whose day the calendar does not have never fires."""
+    from . import triggers
+    rel = vault.config.agent("Triggers.md")
+    note = vault.notes.get(rel)
+    return [f"{rel} · {trigger.id}: {trigger.when} is not a real date; it never fires" for trigger in
+            (triggers.parse(note.body) if note else []) if triggers.DATE_RE.match(trigger.when) and triggers.date_of(trigger.when) is None]
 
 
 def schedule_hygiene(vault: Vault) -> list[str]:

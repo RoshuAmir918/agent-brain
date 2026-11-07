@@ -6,6 +6,7 @@ A view is checked here against the kit, so whatever reaches the app can be drawn
 as `<agent>/Task Views/T-nnn.json`; `brain state --json` carries them. Work summaries live in the work's `view.json`.
 """
 import json
+import math
 import re
 
 from .config import Config
@@ -56,7 +57,7 @@ def write(config: Config, tid: str, text: str) -> dict | None:
     if clean is None:
         p.unlink(missing_ok=True)
         return None
-    out = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+    out = json.dumps(clean, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(out + "\n", encoding="utf-8")
     return clean
@@ -70,13 +71,13 @@ def validate(text: str) -> dict | None:
         raise ValueError(f"the view is not JSON: {e}") from None
     if not isinstance(view, dict) or set(view) - {"pieces"}:
         raise ValueError('a view is {"pieces": [...]}\n' + KIT)
-    pieces = view.get("pieces") or []
-    if not pieces:
+    pieces = view.get("pieces", [])
+    if isinstance(pieces, list) and not pieces:
         return None
     if not isinstance(pieces, list) or len(pieces) > MAX_PIECES:
         raise ValueError(f"pieces must be a list of at most {MAX_PIECES}\n" + KIT)
     clean = {"pieces": [_piece(i, piece) for i, piece in enumerate(pieces)]}
-    out = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+    out = json.dumps(clean, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     if len(out.encode()) > MAX_BYTES:
         raise ValueError(f"the view is {len(out.encode())} bytes; the limit is {MAX_BYTES}: show less, link the rest")
     return clean
@@ -85,7 +86,7 @@ def validate(text: str) -> dict | None:
 def _text(where: str, value, required: bool = True) -> str | None:
     if value is None and not required:
         return None
-    if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+    if not isinstance(value, (str, int, float)) or isinstance(value, bool) or (isinstance(value, float) and not math.isfinite(value)):
         raise ValueError(f"{where} must be text")
     value = re.sub(r"\s+", " ", str(value)).strip()
     if required and not value:
@@ -151,7 +152,7 @@ def _kind(at: str, piece: dict) -> dict:
                 raise ValueError(f"{at} items are {{\"label\", \"value\", \"detail\"?, \"trend\"?, \"since\"?}}")
             trend = x.get("trend")
             if trend is not None and not (isinstance(trend, list) and 2 <= len(trend) <= 30
-                                          and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in trend)):
+                                          and all(isinstance(n, (int, float)) and not isinstance(n, bool) and math.isfinite(n) for n in trend)):
                 raise ValueError(f"{at} trend must be 2 to 30 numbers, oldest first")
             items.append(_drop_none({"label": _text(f"{at} label", x.get("label")), "value": _text(f"{at} value", x.get("value")),
                                      "detail": _text(f"{at} detail", x.get("detail"), False), "trend": trend,
@@ -213,7 +214,7 @@ def _kind(at: str, piece: dict) -> dict:
     if kind == "checklist":
         items = []
         for x in _list(f"{at} items", piece.get("items"), 1, 20):
-            if not isinstance(x, dict):
+            if not isinstance(x, dict) or set(x) - {"text", "state", "detail"}:
                 raise ValueError(f"{at} items are {{\"text\", \"state\", \"detail\"?}}")
             items.append(_drop_none({"text": _text(f"{at} item", x.get("text")),
                                      "state": _state(f"{at} item state", x.get("state"), ITEM_STATES, True),
@@ -231,7 +232,7 @@ def _kind(at: str, piece: dict) -> dict:
         return {"kind": kind, "title": title, "items": items}
     items = []
     for x in _list(f"{at} items", piece.get("items"), 1, 10):
-        if not isinstance(x, dict):
+        if not isinstance(x, dict) or set(x) - {"label", "href"}:
             raise ValueError(f"{at} items are {{\"label\", \"href\"}}")
         items.append({"label": _text(f"{at} label", x.get("label")), "href": _href(f"{at} href", x.get("href"))})
     return _drop_none({"kind": kind, "title": title, "items": items})

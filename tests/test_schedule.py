@@ -117,7 +117,6 @@ skills = []
     ('[routines.x]\nevery="1h"\nskills=[1]', 'list of strings'),
     ('[routines.x]\nevery="1h"\nneeds="computer"', 'list of strings'),
     ('[routines.x]\nevery="1h"\nneeds=[1]', 'list of strings'),
-    ('[routines.x]\nevery="1h"\nneeds=["phone"]', 'unknown need'),
     ('[routines.x]\nevery="1h"\nresponsibility=1', 'must be a string'),
     *[(f'[routines.x]\nevery="1h"\nresponsibility="{value}"', 'must match')
       for value in ('', 'Bad_ID', '-bad', 'a' * 64)],
@@ -136,6 +135,14 @@ def test_validation_problems(config, source, expected):
     assert expected in "\n".join(schedule.problems(config))
     with pytest.raises(ValueError):
         schedule.load(config)
+
+
+def test_unknown_need_is_strict_only_in_check_and_set(config):
+    write(config, '[routines.x]\nevery="1h"\nneeds=["phone"]\n[routines.y]\nevery="1h"\n')
+    assert "unknown need" in "\n".join(schedule.problems(config))
+    assert schedule.load(config)["x"].needs == ["phone"]
+    cli(config, "pause", "y")
+    assert not schedule.load(config)["y"].enabled
 
 
 def test_all_problems_are_reported(config):
@@ -241,7 +248,7 @@ def test_invalid_create_never_creates_file(config):
 def test_mutations_run_problems_after_writing(config, monkeypatch):
     checked = []
     original = schedule.problems
-    monkeypatch.setattr(schedule, "problems", lambda cfg: checked.append(schedule.load(cfg)) or original(cfg))
+    monkeypatch.setattr(schedule, "problems", lambda cfg, **kw: checked.append(schedule.load(cfg)) or original(cfg, **kw))
     cli(config, "set", "watch", "--every", "15m")
     cli(config, "pause", "watch")
     cli(config, "resume", "watch")

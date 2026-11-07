@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import fm, journal, needs, runtime, signals, state, tasks
+from . import fm, journal, needs, runtime, signals, tasks
 from .config import DAILY_CHUNKS, Config
 from .lock import vault_lock
 
@@ -248,7 +248,7 @@ def stages(config: Config, task: tasks.Task, entries: list[tasks.Task] | None = 
     # IDs are allocated in creation order; use them rather than last-use or closure dates.
     out = []
     for stage in sorted(earlier.values(), key=lambda entry: entry.tid)[-5:]:
-        closed, outcome = state._closing(stage)
+        closed, outcome = tasks.closing(stage)
         out.append({"id": stage.tid, "title": stage.title, "state": stage.task_state, "closed": closed,
                     "delivers": stage.delivers, "outcome": outcome or fm.field(stage.body, "Why"),
                     "verified": fm.field(stage.body, "Verified"), "next": fm.field(stage.body, "Next", "Next action")})

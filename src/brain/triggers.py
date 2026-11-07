@@ -52,8 +52,12 @@ def parse(text: str) -> list[Trigger]:
 
 
 def date_of(when: str) -> date | None:
+    """The day a dated trigger fires, or None: not a date, or one the calendar does not have."""
     m = DATE_RE.match(when.strip())
-    return date.fromisoformat(m.group(1)) if m else None
+    try:
+        return date.fromisoformat(m.group(1)) if m else None
+    except ValueError:
+        return None
 
 
 def source_rel(trig: Trigger) -> str:
