@@ -16,7 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from . import activation as act
-from . import attribute, compile_context, fm, journal, ledger, needs, triggers, validate
+from . import attribute, compile_context, fm, journal, ledger, needs, portrait, triggers, validate
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import Config
@@ -413,6 +413,9 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
         rel = path.relative_to(config.vault_path).as_posix()
         changed.add(rel)
         report.append(f"ledger: collapsed nothing rows in {rel}")
+    if stamped := portrait.stamp(config):
+        changed.add(config.human_portrait)
+        report.append(f"portrait: {stamped} new line id(s)")
     vault.load()
     report.append(compile_context.write(vault))
     vault.load()

@@ -10,14 +10,14 @@ from functools import cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-SECTIONS = ("before", "start", "current", "primed", "goals", "triggers", "upcoming", "tasks", "library", "directory")   # the parts of .context.md, in order
+SECTIONS = ("before", "start", "current", "portrait", "primed", "goals", "triggers", "upcoming", "tasks", "library", "directory")   # the parts of .context.md, in order
 PEOPLE_FORMS = ("off", "line", "card")   # the people pointer prefetch adds for a person named in a message
 FORMS = ("names", "snippet", "full")
 DAILY_CHUNKS = 16
 # An intellect is one person's (personal) or an organisation's, getting its work done (enterprise): the same engine,
 # installing the routines and skill sections its edition is for. See docs/engine.md, Editions.
 EDITIONS = ("personal", "enterprise")
-PERSONAL_SECTIONS = ("primed", "goals")   # context about one person's day and aims, left out of an enterprise context
+PERSONAL_SECTIONS = ("portrait", "primed", "goals")   # context about one person, their day and aims, left out of an enterprise context
 
 
 def pinned_today() -> date | None:
@@ -240,14 +240,19 @@ class Config:
         return (Path(self.human_profile).parent / "Goals.md").as_posix()
 
     @property
+    def human_portrait(self) -> str:
+        """The agent's understanding of the owner, beside their profile: ranked, sourced claims, guesses labelled."""
+        return (Path(self.human_profile).parent / "Portrait.md").as_posix()
+
+    @property
     def orientation(self) -> set[str]:
-        return {"START.md", "CURRENT.md", self.human_goals,
+        return {"START.md", "CURRENT.md", self.human_goals, self.human_portrait,
                 f"{self.runtime_dir}/README.md", *(self.agent(name) for name in
                 ("SOUL.md", "Triggers.md", "Tasks.md", "Channels.md", "Ideas.md", "Memory Spec.md", "Retrieval Checks.md"))}
 
     @property
     def context_sources(self) -> tuple[str, ...]:
-        return ("START.md", "CURRENT.md", self.agent("Primed.md"), self.human_goals, self.agent("Triggers.md"),
+        return ("START.md", "CURRENT.md", self.human_portrait, self.agent("Primed.md"), self.human_goals, self.agent("Triggers.md"),
                 self.agent("Tasks.md"))
 
     @property
@@ -284,4 +289,5 @@ class Config:
     def template_values(self) -> dict[str, str]:
         return {name: getattr(self, name) for name in
                 ("vault", "agent_dir", "people_dir", "agents_dir", "human_profile",
-                 "sources_dir", "runtime_dir", "human_name", "agent_name")} | {"prefix": self.skill_prefix, "human_goals": self.human_goals}
+                 "sources_dir", "runtime_dir", "human_name", "agent_name")} | {"prefix": self.skill_prefix, "human_goals": self.human_goals,
+                                                                       "human_portrait": self.human_portrait}

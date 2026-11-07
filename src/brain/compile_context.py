@@ -15,7 +15,7 @@ PRIMED_WORDS = 300   # Primed loads in every session; the prime routine writes t
 LIBRARY_WORKS = 40   # bound the listing, never the runtime's refusal, conflict or error notices
 BEFORE = ("## Before answering\n\n"
           "What you need is usually already in front of you: this file (CURRENT's dated items and Needs you, the open "
-          "tasks' Verified, Next and Blocker lines, Primed, the upcoming dates, Goals) and, under the owner's message, the "
+          "tasks' Verified, Next and Blocker lines, Primed, the upcoming dates, Goals, the Portrait) and, under the owner's message, the "
           "vault notes that match it and the card of anyone it names. Answer from that in one reply. Open a note only when "
           "the loaded text does not hold the answer, and a person's history only when the question is about them and the "
           "card is not enough. Do not run retrieval the recall block already ran, and do not read a note quoted here in "
@@ -23,6 +23,9 @@ BEFORE = ("## Before answering\n\n"
           "owner, a goal), say the connection in a sentence. A task the owner parked has no question for them. A reminder "
           "the owner asks for is a dated Triggers row, never a Needs you line. An answer any assistant could give without "
           "this vault is a miss; so is a lookup for what was already here.")
+PORTRAIT = ("Who you think {human} is, ranked within each section: `said` they told you, `seen` you watched them do it "
+            "twice, `guess` you inferred it and have not tested it. Act on a guess only to prepare or offer, never outward. "
+            "This is yours about {human} and is never told to anyone else, whatever a rule allows.")
 UPCOMING_DAYS = 7
 UPCOMING_ITEMS = 12
 AHEAD = re.compile(r"\b(due|deadline|until|flight|flying|trip|visit|leav|arriv|call|renew|expire|starts?|ends?|meet)", re.I)   # today's lines that look forward, not today's evidence
@@ -53,8 +56,8 @@ def build(vault: Vault, only: tuple[str, ...] | None = None) -> str:
     the sections the vault itself allows."""
     config = vault.config
     allowed = tuple(name for name in config.context.sections if only is None or name in only)
-    named = dict(zip(("start", "current", "primed", "goals", "triggers", "tasks"), config.context_sources))
-    optional = (config.agent("Primed.md"), config.human_goals)   # Primed is written by the night, Goals with the owner: a vault may not have them yet
+    named = dict(zip(("start", "current", "portrait", "primed", "goals", "triggers", "tasks"), config.context_sources))
+    optional = (config.human_portrait, config.agent("Primed.md"), config.human_goals)   # written by the agent, the night and the owner: a vault may not have them yet
     sources = [rel for name, rel in named.items() if name in allowed
                and (rel not in optional or (vault.root / rel).is_file())]
     header = ("Generated nightly by `brain`.\n"
@@ -82,6 +85,8 @@ def build(vault: Vault, only: tuple[str, ...] | None = None) -> str:
                 body = capped(body, PRIMED_WORDS, config.link(rel))
             elif rel == config.agent("Triggers.md"):
                 body = active_triggers(body, config.link(rel))
+            elif rel == config.human_portrait:
+                body = PORTRAIT.format(human=config.human_name) + "\n\n" + body.strip()
             sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
     sections.append("Conversations and everything else are retrieved on demand with `brain retrieve`.")
     return "\n\n".join(sections) + "\n"
