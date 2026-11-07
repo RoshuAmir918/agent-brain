@@ -607,26 +607,6 @@ def quiet(tasks: list[Task], today: date, worked: dict[str, str] | None = None) 
     return sorted(out, key=lambda pair: pair[1])
 
 
-def seed_uses_from_body(t: Task, today: date, config: Config) -> None:
-    """Credit dated evidence fields, never arbitrary dates or deadlines.
-
-    Ambiguous historical prose is left for source-backed attribution, not
-    guessed from a date occurring somewhere in the task.
-    """
-    evidence = re.compile(
-        r"^\s*-\s+\*\*(?:Latest evidence|Verified progress|Completion evidence|Evidence):\*\*\s+"
-        r"(?:\[\[(?:" + re.escape(config.vault) + r"/)?Conversations/)?(20\d{2}-\d{2}-\d{2})\b", re.I)
-    for line in t.body.splitlines():
-        match = evidence.match(line)
-        if match:
-            try:
-                day = date.fromisoformat(match[1])
-            except ValueError:
-                continue
-            if day <= today:
-                t.add_use(day.isoformat())
-
-
 def archive_path(config: Config, tid: str) -> Path:
     return config.vault_path / config.agent("Tasks Archive") / f"{tid}.md"
 

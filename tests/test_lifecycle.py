@@ -7,7 +7,7 @@ import pytest
 
 from brain.config import Config
 from brain import fm, nightly, triggers, validate
-from brain.tasks import Task, archived_open_tasks, load_tasks, parse_register, read_archive_body, seed_uses_from_body, write_archive
+from brain.tasks import Task, archived_open_tasks, load_tasks, parse_register, read_archive_body, write_archive
 
 
 def test_full_body_survives_repeated_warm_cold_hot_cycles(tmp_path):
@@ -64,19 +64,6 @@ def test_report_only_resolves_human_links_without_reading_human_contents(tmp_pat
 
     with patch.object(Path, "read_text", guarded_read):
         nightly.main(nightly_argv(root, "2026-10-05"))
-
-
-def test_task_uses_only_past_dated_evidence(template_config):
-    today = date(2026, 10, 5)
-    task = Task("T-001", "Sample", """- **Deadline:** 2030-01-01
-- **Status:** mentions 2020-01-01
-- **Latest evidence:** 2026-10-04 owner statement
-- **Evidence:** 2026-10-05 receipt
-- **Verified progress:** 2030-01-02 future
-- **Evidence:** 2026-02-30 invalid
-""")
-    seed_uses_from_body(task, today, template_config)
-    assert task.uses == ["2026-10-05", "2026-10-04"]
 
 
 @pytest.mark.parametrize("archived", [False, True])
