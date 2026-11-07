@@ -410,6 +410,7 @@ brain nightly --date 2026-10-10 --sessions-dir "$AGENT_HOME/records/sessions" --
 brain validate
 brain portrait [--top N] [--json]
 brain portrait seed --account <address|all> [--days N] [--json]
+brain portrait seed --account <address|all> --clear-backfill [--json]
 brain portrait seed --reviews DIR [--days 90] [--json]
 brain portrait seed --plans DIR [--days 30] [--json]
 brain portrait coverage [--json]

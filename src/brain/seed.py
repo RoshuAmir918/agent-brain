@@ -24,7 +24,10 @@ def personal(vault, today: date, account: str = "all", days: int | None = None) 
         raise SystemExit(f"brain portrait seed: {account} is not an owner account")
     folders = [(name, folder) for name, folder in channel_files.synced_accounts(vault)
                if account == "all" or account == name]
-    files = [(name, sorted((folder / "mail").glob("*/*.md")), sorted((folder / "calendar").glob("*.md")))
+    backfill = {name: (sorted((folder / "backfill/mail").glob("*/*.md")),
+                       sorted((folder / "backfill/calendar").glob("*.md"))) for name, folder in folders}
+    files = [(name, sorted((folder / "mail").glob("*/*.md")) + backfill[name][0],
+              sorted((folder / "calendar").glob("*.md")) + backfill[name][1])
              for name, folder in folders]
     files = [(name, mail, calendar) for name, mail, calendar in files if mail or calendar]
     if not files:
@@ -42,7 +45,11 @@ def personal(vault, today: date, account: str = "all", days: int | None = None) 
         return floor is None or floor <= day <= today
 
     for name, mail, calendar in files:
+        seen = set()
         for path in mail:
+            if path.stem in seen:
+                continue
+            seen.add(path.stem)   # the filename is the mail id; the rolling copy comes first
             try:
                 data, body = fm.read(path)
                 raw = str(data.get("date", ""))
@@ -128,7 +135,9 @@ def personal(vault, today: date, account: str = "all", days: int | None = None) 
         lists[kind] = items[:PERSONAL_CAPS[kind]]
     return {"window": {"from": floor.isoformat() if floor else min(dates, default=today.isoformat()),
                        "to": today.isoformat() if floor else max(dates, default=today.isoformat())},
-            "accounts": [name for name, _, _ in files], "own": {kind: lists[kind] for kind in ("sent", "transactional", "events")},
+            "accounts": [name for name, _, _ in files],
+            "backfillAccounts": [name for name, (mail, calendar) in backfill.items() if mail or calendar],
+            "own": {kind: lists[kind] for kind in ("sent", "transactional", "events")},
             "other": other | {"person": lists["person"]}, "omitted": omitted, "problems": problems}
 
 
@@ -136,6 +145,8 @@ def render_personal(data: dict) -> str:
     def line(value):
         return " ".join(str(value).split())
     out = [f"{data['window']['from']} to {data['window']['to']} · {', '.join(data['accounts'])}"]
+    if data["backfillAccounts"]:
+        out.append("Backfill read: " + ", ".join(data["backfillAccounts"]))
     for kind, items in data["own"].items():
         out += ["", f"own · {kind}:"]
         for item in items:
@@ -151,6 +162,37 @@ def render_personal(data: dict) -> str:
     out += ["Omitted over caps: " + ", ".join(f"{count} {kind}" for kind, count in data["omitted"].items())]
     out += [f"problem: {problem}" for problem in data["problems"]]
     return "\n".join(out)
+
+
+def clear_backfill(vault, account: str = "all") -> dict:
+    """Remove only synced backfill mail and calendar files, keeping the completion marker."""
+    account = account.casefold()
+    if account != "all" and account not in channel_files.owner_accounts(vault):
+        raise SystemExit(f"brain portrait seed: {account} is not an owner account")
+    removed = {}
+    for name, folder in channel_files.synced_accounts(vault):
+        if account != "all" and account != name:
+            continue
+        counts = removed[name] = dict(mail=0, calendar=0)
+        backfill = folder / "backfill"
+        if folder.is_symlink() or backfill.is_symlink():
+            continue
+        for kind, glob, shape in (("mail", "*/*.md", r"\d{4}-\d{2}-\d{2}/[^/]+\.md"),
+                                  ("calendar", "*.md", r"\d{4}-\d{2}-\d{2}\.md")):
+            root = backfill / kind
+            if root.is_symlink():
+                continue
+            for path in sorted(root.glob(glob)):
+                if (re.fullmatch(shape, path.relative_to(root).as_posix()) and path.is_file()
+                        and not path.is_symlink() and not path.parent.is_symlink()):
+                    path.unlink()
+                    counts[kind] += 1
+            if kind == "mail":
+                for day in sorted(root.glob("*")):
+                    if (re.fullmatch(r"\d{4}-\d{2}-\d{2}", day.name) and not day.is_symlink()
+                            and day.is_dir() and not any(day.iterdir())):
+                        day.rmdir()
+    return removed
 
 
 DAYS = 90
@@ -447,7 +489,11 @@ def coverage(vault, today: date) -> dict:
         account = identity[0] if identity else reach[1] if reach else ""
         if row.channel.casefold() not in covered and not (row.whose == "owner" and account.casefold() in covered):
             unread.append(row.channel)
-    return {"sections": sections, "sources": sources, "unreadChannels": unread, "problems": problems}
+    backfill = [name for name, folder in channel_files.synced_accounts(vault) if (folder / "backfill/.done").is_file()
+                and (any(path.is_file() for path in (folder / "backfill/mail").glob("*/*.md"))
+                     or any(path.is_file() for path in (folder / "backfill/calendar").glob("*.md")))]
+    return {"sections": sections, "sources": sources, "unreadChannels": unread, "unreadBackfill": backfill,
+            "problems": problems}
 
 
 def render_coverage(data: dict) -> str:
@@ -460,5 +506,7 @@ def render_coverage(data: dict) -> str:
                 for s in data["sources"] if s["where"] == where]
     if data["unreadChannels"]:
         out += ["", "Connected and never read for the portrait: " + ", ".join(data["unreadChannels"])]
+    if data["unreadBackfill"]:
+        out += ["", "Unread backfill: " + ", ".join(data["unreadBackfill"])]
     out += [f"problem: {problem}" for problem in data["problems"]]
     return "\n".join(out)

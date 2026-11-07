@@ -1,7 +1,7 @@
 ---
 name: {prefix}people
 description: Daily source-backed People profile review
-version: 1.3.0
+version: 1.4.0
 metadata:
   runtime:
     tags: [memory, people]
@@ -14,6 +14,10 @@ metadata:
 Maintain source-backed profiles and {agent_name}'s own revisable impressions of the people in {human_name}'s life, {human_name} first.
 
 ## Procedure
+<!-- personal -->
+Run `brain portrait coverage --json`; for each account in `unreadBackfill`, load `{prefix}seed` and run it scoped to that account before the rest of this pass.
+<!-- /personal -->
+
 1. Read yesterday's digest in `Conversations/Digests/`. Every user turn labelled with something other than {human_name}'s name is another person speaking: a platform handle or id, or a display name. A handle can be renamed; the stable id on the profile's line for that platform is what identifies them. List the distinct speakers, with what each said and asked and how they responded to the agent.
 2. Resolve each speaker to a profile under `{people_dir}/` by the platform id recorded on the profile; for a Demiurge id no profile carries, run `brain people who <id>` and, when listed, create the profile from the template in the canonical folder for the directory name (`{people_dir}/<Name>/Profile.md`, or `{agents_dir}/<Name>/Profile.md` for an intellect), with its id line, never a handle-named stub. A speaker with no matching profile or directory entry is an unknown person: create `{people_dir}/<display name or id>/Profile.md` from the template with the id as its only confirmed identity, the date, and what they said, marked "identity unconfirmed by {human_name}" (the engine treats such a profile as a stranger until {human_name} confirms who it is; then remove the mark), and add an `ask` to CURRENT's `## Needs you`: "a new person messaged me; who is this?" Never merge an unknown id into an existing profile on a name alone.
 3. For each person spoken with, write the day's dated entry to `{people_dir}/<Name>/History.md` (newest first: date, channel, what they said and asked, how it went, filed as their claims); a thing coming up for them that they named (a trip, a visit, a result, a date) is written with its date spelled out (`November 2`), so the Upcoming scan carries it into context the week before and update `Profile.md` in place: what they told the agent, filed as their claim with the date; what they asked for and how it was answered (the access log has each request); and the impression. Impressions are the agent's own and say so: how they talk, what they care about, what they expect from the agent, with confidence and counterevidence. Revise an earlier impression when yesterday contradicted it; do not just append. A Profile stays under 300 words and holds only what is stable: identifiers, relationship, impression, what they care about, standing facts, disclosure notes. Dated material belongs in History. A profile that has grown past the budget is split on this pass: move its dated entries to History, keep each fact as one sentence, add the History link at the end of the Profile.
