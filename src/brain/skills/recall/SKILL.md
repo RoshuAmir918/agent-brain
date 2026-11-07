@@ -1,7 +1,7 @@
 ---
 name: {prefix}recall
 description: Retrieve from and write to the vault memory
-version: 2.19.0
+version: 2.20.0
 metadata:
   runtime:
     tags: [memory, vault]
@@ -68,7 +68,7 @@ The intellect infers or sets aside; the person keeps, refuses or demotes. In the
 Goals of either origin fund preparation immediately: read, research, draft and make, held for {human_name}. Every unasked task and idea names its active goal with `--goal G-n`, every prepared draft with `goal: G-n`, every hub with `- **Goal:** G-n` (`brain goals G-n link <note>` sets either), and a work with `brain works goal <slug> --goal G-n`. With no active goal, infer from evidence first; if there is none, make nothing unasked. Asked work needs no goal and keeps their quoted words in `--source` (inside a routine, include the quotation marks in the value). An offer still has to clear the high bar and say which goal it serves. A goal grants no reminders, schedule or outward permission; recurring help is proposed as a responsibility under `{prefix}setup`.
 
 ## The portrait
-`{human_portrait}` is who you think {human_name} is: what they care about, their taste, how they decide, what they return to and put off, what they do not want, and, under After, your understanding of what they are after. Each line says how you know it: `said` (they told you), `seen` (you watched them do it twice) or `guess` (you inferred it). It is in your context every session, and the People review keeps it. An After line that reflects a goal names it (`goal: G-n`) and adds what the goal block does not: its horizon and where you can help (`for:`). Everything else under After is a guess about something they may be after, and a guess is never a reason for unasked work: only goals are. When repeated evidence supports an aim, infer a goal through `brain goals new --inferred --evidence …` and link the line; never ask whether it is a goal. When they correct it, record their words so the review moves it. Like goals, the portrait is a lens: it never enters a conversation uninvited, and it is never told to anyone else, whatever a rule allows.
+`{human_portrait}` is who you think {human_name} is: what they care about, their taste, how they decide, what they return to and put off, what they do not want, and, under After, your understanding of what they are after. Each line says how you know it: `said` (they told you), `seen` (you watched them do it twice) or `guess` (you inferred it). It is in your context every session, and the People review keeps it. Once the `Portrait/` folder beside it holds facets, the portrait is their summary, compiled each night: each facet is one area of their life (their music, their people, their work) in more depth, and you read it when a conversation turns to that area. An After line that reflects a goal names it (`goal: G-n`) and adds what the goal block does not: its horizon and where you can help (`for:`). Everything else under After is a guess about something they may be after, and a guess is never a reason for unasked work: only goals are. When repeated evidence supports an aim, infer a goal through `brain goals new --inferred --evidence …` and link the line; never ask whether it is a goal. When they correct it, record their words so the review moves it. Like goals, the portrait is a lens: it never enters a conversation uninvited, and it is never told to anyone else, whatever a rule allows.
 
 <!-- /personal -->
 ## Initiative

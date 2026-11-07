@@ -1116,6 +1116,37 @@ def cmd_portrait(args):
     if args.action == "stamp":
         print(f"{portrait.stamp(args.config)} new line id(s)")
         return
+    if args.action == "compile":
+        try:
+            with vault_lock(args.config):
+                count = portrait.compile(args.config)
+        except ValueError as error:
+            raise SystemExit(f"brain portrait compile: {error}")
+        print("no facets yet; the portrait is written by hand until its lines are moved into facets" if count is None
+              else f"compiled {count} line(s) from {len(portrait.facets(args.config))} facet(s)")
+        return
+    if args.action == "facets":
+        found = portrait.facets(args.config)
+        if args.json:
+            print(json.dumps([{"facet": f.name, "rank": f.rank, "sensitivity": f.sensitivity, "note": f.rel,
+                               "lines": [line.public() for line in f.lines]} for f in found], ensure_ascii=False, indent=2))
+            return
+        for f in found:
+            newest = max((line.evidence for line in f.lines), default="none")
+            print(f"{f.rank} · {f.name} · {len(f.lines)} lines · {f.sensitivity} · newest {newest}")
+        if not found:
+            print("no facets yet")
+        return
+    if args.action == "move":
+        if not (args.id and args.verdict):
+            raise SystemExit("brain portrait move: ID and FACET")
+        try:
+            with vault_lock(args.config):
+                line = portrait.move(args.config, args.id, args.verdict)
+        except ValueError as error:
+            raise SystemExit(f"brain portrait move: {error}")
+        print(f"^{line.id} {line.text} -> {line.facet}")
+        return
     if args.action == "mark":
         if not (args.id and args.verdict):
             raise SystemExit("brain portrait mark: ID and one of " + ", ".join(portrait.VERDICTS))
@@ -1658,10 +1689,11 @@ def main(argv=None):
     s.add_argument("--reviews", metavar="DIR"); s.add_argument("--author", metavar="LOGIN")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_reception)
     s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
-    s.add_argument("action", nargs="?", choices=["seed", "coverage", "stamp", "mark"],
+    s.add_argument("action", nargs="?", choices=["seed", "coverage", "stamp", "mark", "compile", "facets", "move"],
                    help="seed: what to read to seed the portrait; coverage: what it knows and from where; "
-                        "stamp: give new lines their ids now; mark ID right|wrong|not-this: the owner's answer to a line")
-    s.add_argument("id", nargs="?"); s.add_argument("verdict", nargs="?", choices=portrait.VERDICTS)
+                        "stamp: give new lines their ids now; mark ID right|wrong|not-this: the owner's answer to a line; "
+                        "compile: write the portrait from its facets; facets: list them; move ID FACET: a line to a facet")
+    s.add_argument("id", nargs="?"); s.add_argument("verdict", nargs="?", metavar="VERDICT|FACET")
     s.add_argument("--words", metavar="TEXT", help="mark: the owner's own words, kept when a line is wrong")
     s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments, for Taste")
     s.add_argument("--plans", metavar="DIR", help="seed: one file per project with the issues done on it, for After and Energy")

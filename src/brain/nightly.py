@@ -63,7 +63,9 @@ def ensure_frontmatter(vault: Vault, today: date, report: list[str]) -> set[str]
             changed.add(rel)
             report.append(f"frontmatter: {rel} += {sorted(set(d) - set(before))}")
     if vault.config.edition == "personal":   # who the owner is: for the owner's eyes, never an admin's view of the brain
-        for rel in (vault.config.human_profile, vault.config.human_portrait, vault.config.human_goals, vault.config.human_tellable):
+        facets = portrait.folder(vault.config).relative_to(vault.config.vault_path).as_posix() + "/"
+        for rel in (vault.config.human_profile, vault.config.human_portrait, vault.config.human_goals, vault.config.human_tellable,
+                    *sorted(rel for rel in vault.notes if rel.startswith(facets))):
             n = vault.notes.get(rel)
             if n is not None and "audience" not in n.data:
                 n.data = {**n.data, "audience": "owner"}
@@ -447,6 +449,13 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
     if stamped := portrait.stamp(config):
         changed.add(config.human_portrait)
         report.append(f"portrait: {stamped} new line id(s)")
+    with vault_lock(config):
+        try:
+            if (compiled := portrait.compile(config)) is not None:
+                changed.add(config.human_portrait)
+                report.append(f"portrait: compiled {compiled} line(s) from the facets")
+        except ValueError as error:
+            report.append(f"portrait: not compiled: {error}")
     vault.load()
     report.append(compile_context.write(vault))
     vault.load()
