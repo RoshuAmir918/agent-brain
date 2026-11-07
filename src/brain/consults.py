@@ -10,7 +10,7 @@ from typing import Iterable
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from . import fm, identity, needs, owners, routing, seed, tasks
+from . import evidence, fm, identity, needs, owners, routing, seed, tasks
 from .config import Config
 from .lock import vault_lock
 from .vault import Vault
@@ -296,6 +296,8 @@ def lower(config: Config, area: str, by: str, rung: str | None = None) -> None:
         current = autonomy(config, area)[0]["rung"]
         target = rung if rung is not None else RUNGS[max(0, RUNGS.index(current) - 1)]
         _area_note(config, area, "Autonomy", f"- {config.today()} · {routing.name(config, by)} · lower: {target} · by:{by}")
+        _evidence(config.today(), "lowered", f"{routing.name(config, by)} lowered the intellect's room to act to {target}",
+                  by, area, f"area:{area}")
 
 
 def ceiling(config: Config, area: str, rung: str, by: str) -> None:
@@ -312,6 +314,8 @@ def ceiling(config: Config, area: str, rung: str, by: str) -> None:
                 and not identity.listed(config.owner_user_ids, platform, (ident,))):
             raise ValueError("--by must be the area's owner or backup in Owners.md, or an operator in owner_user_ids")
         _area_note(config, area, "Autonomy", f"- {config.today()} · {routing.name(config, by)} · ceiling: {rung} · by:{by}")
+        _evidence(config.today(), "capped", f"{routing.name(config, by)} set the intellect's ceiling to {rung}",
+                  by, area, f"area:{area}")
 
 
 def act(config: Config, area: str, for_: str, task: str = "") -> Consult:
@@ -447,6 +451,7 @@ def decide(config: Config, area: str, by: str, words: str, source: str, supersed
             path = routing.area_path(config, entry.area)
             fm.write(path, fm.read(path)[0], body[:entry.end] + annotation + body[entry.end:])
         _area_note(config, area, "Decisions", f"- {today} · {name} · {words} · {source} · id:{ident}\n  - by: {by}")
+        _evidence(today, "decided", f"{name} decided: {words}", by, area, f"decision:{ident}", id=ident, supersedes=supersedes)
         return ident
 
 
@@ -486,7 +491,7 @@ def add_evidence(config: Config, area: str, day: date | str, person: str, kind: 
 def record_evidence(config: Config, rows: Iterable[seed.Row]) -> int:
     """Append new history lines in one write per area under one vault lock."""
     require_enterprise(config)
-    grouped = {}
+    grouped, facts = {}, []
     for row in rows:
         area = routing.area_name(row.area)
         day = date.fromisoformat(str(row.day))
@@ -499,6 +504,7 @@ def record_evidence(config: Config, rows: Iterable[seed.Row]) -> int:
             raise ValueError("link must omit wikilink brackets")
         bullet = f"- {day} · {row.person} · {row.kind} · {text}" + (f" · [[{link}]]" if link else "")
         grouped.setdefault(area, []).append(bullet)
+        facts.append(evidence.Evidence(day, row.kind, text, f"other:{row.person}", (area,), link or f"area:{area}"))
     if not grouped:
         return 0
     added = 0
@@ -511,6 +517,7 @@ def record_evidence(config: Config, rows: Iterable[seed.Row]) -> int:
             if new:
                 _area_note(config, area, "Evidence", "\n".join(new))
                 added += len(new)
+        evidence.append("consults", facts)
     return added
 
 
@@ -519,6 +526,8 @@ def _delegation(config: Config, area: str, to: str, by: str, words: str, ident: 
     if ident:
         bullet += f"\n  - consult: {ident} · for: {question}"
     _area_note(config, area, "Delegated", bullet)
+    _evidence(config.today(), "delegated", f"{routing.name(config, by)} delegated to {routing.name(config, to)}: {words}",
+              by, area, f"consult:{ident}" if ident else f"area:{area}", id=ident, to=to)
 
 
 def delegate(config: Config, area: str, to: str, by: str, words: str) -> None:
@@ -542,6 +551,19 @@ def _wake(config: Config, consult: Consult, today: date, evidence: str) -> None:
         tasks.set_fields(config, tid, today, values={"evidence": f"{today} — {evidence}"}, clear=["resume"])
 
 
+def _evidence(day: date, verb: str, fact: str, person: str, area: str, pointer: str, **extra: str) -> None:
+    """Every consult event is also a row in the shared evidence contract (docs/knowledge.md section 3)."""
+    whose = f"other:{person}" if person and person != "-" else "own"
+    evidence.append("consults", [evidence.Evidence(day, verb, fact, whose, (area,), pointer,
+                                                   {key: value for key, value in extra.items() if value})])
+
+
+FACTS = {"asked": "Asked {name}: {text}", "confirmed": "{name} confirmed: {text}", "changed": "{name} changed: {text}",
+         "redirected": "{name} redirected to {to}: {text}", "unanswered": "{name} did not answer: {text}",
+         "overruled": "{name} overruled the decision on: {text}", "cited": "Cited {name}'s decision for: {text}",
+         "acted": "Acted on its own: {text}", "reversed": "{name} reversed the act: {text}"}
+
+
 def _log(config: Config, consult: Consult, now: datetime, outcome: str, person: str,
          to: str = "", answer: str = "") -> None:
     asked = config.local(datetime.fromisoformat(consult.asked)) if consult.asked else now
@@ -554,6 +576,10 @@ def _log(config: Config, consult: Consult, now: datetime, outcome: str, person: 
     if outcome == "acted" and consult.source:
         bullet += f"\n  - source: [[{consult.source}]]"
     needs.answered(config, now.date(), bullet)
+    fact = FACTS[outcome].format(name=routing.name(config, person) if person != "-" else "Someone",
+                                 to=routing.name(config, to) if to else "", text=consult.text.removeprefix(ACTED))
+    _evidence(now.date(), outcome, fact + (f"; {answer}" if answer else ""), person, consult.area, f"consult:{consult.id}",
+              id=consult.id, to=to, hours="" if hours == "-" else hours)
 
 
 def _go_ahead(config: Config, consult: Consult, now: datetime, owner: str) -> Consult:
@@ -772,6 +798,8 @@ def dismiss(config: Config, item: needs.Item, today: date, reason: str, by: str 
         raise ValueError("a consult needs the person's words; answer it with brain consult answer")
     if reason == "stop-asking":
         _area_note(config, consult.area, "Not asked", f"- {today} · {consult.to} · stop-asking")
+        _evidence(today, "stopped", f"{routing.name(config, consult.to)} asked not to be consulted on questions like: "
+                  f"{consult.text}", consult.to, consult.area, f"consult:{consult.id}", id=consult.id)
     now = config.local()
     if consult.restricted:   # rule 6: a dismissal is not a person's word for a restricted action
         _wake(config, consult, today, f"{routing.name(config, consult.to)} closed the consult; restricted, so the "

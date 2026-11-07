@@ -27,7 +27,7 @@ Everything else in today's consult code is a heuristic that memory and judgment 
 
 ## 3. One memory of what happened
 
-The intellect's knowledge of the organisation is a stream of evidence rows, in the engine's one evidence contract (`docs/image.md` section 4), the same rows the portrait's sources write: a date, a verb, the fact in one plain sentence, whose it is, hints about what it concerns (a portrait facet, or here a knowledge area), and a pointer back to the original. Verbs are an open set; each source declares the ones it emits. Consult rows add optional trailing fields such as `outcome=confirmed|changed|redirected|overruled|reversed` and `id=<consult id>`. Everything is read back with `brain evidence [--source] [--hint] [--since] [--json]`, so recall, routing and the image filter the same rows the same way.
+The intellect's knowledge of the organisation is a stream of evidence rows, in the engine's one evidence contract (`docs/image.md` section 4), the same rows the portrait's sources write: a date, a verb, the fact in one plain sentence, whose it is, hints about what it concerns (a portrait facet, or here a knowledge area), and a pointer back to the original. Verbs are an open set; each source declares the ones it emits. Consult rows carry the outcome as their verb (`asked`, `confirmed`, `changed`, `redirected`, `overruled`, `acted`, `reversed` and so on) and add optional trailing fields such as `id=<consult id>`. Everything is read back with `brain evidence [--source] [--hint] [--since] [--json]`, so recall, routing and the image filter the same rows the same way.
 
 What is written, from where:
 
