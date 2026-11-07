@@ -453,6 +453,21 @@ def test_a_migration_with_a_schedule_is_a_one_shot_named_for_its_version_and_don
     assert set(schedule.load(config)) == {"watch"}
 
 
+def test_a_newer_release_leaves_a_queued_migration_to_do_the_whole_pending_file(config, monkeypatch):
+    from brain import install
+    from conftest import START_MIGRATION
+    schedule.save(config, {"watch": schedule.Routine(cron="*/15 * * * *", skills=["brain-watch"])})
+    monkeypatch.setattr(install, "installed_version", lambda name: "0.66.0")
+    assert START_MIGRATION(config)
+    first = schedule.load(config)["brain-migration-0-66-0"]
+    monkeypatch.setattr(install, "installed_version", lambda name: "0.68.0")
+    assert START_MIGRATION(config)
+    routines = schedule.load(config)
+    assert set(routines) == {"watch", "brain-migration-0-66-0"} and routines["brain-migration-0-66-0"].at == first.at
+    install.migrate_done(config)
+    assert START_MIGRATION(config) and "brain-migration-0-68-0" in schedule.load(config)
+
+
 def test_import_skips_every_migration_run_and_keeps_the_live_one_of_two_jobs_with_a_name(config):
     from brain import runtime
     home = runtime.home()

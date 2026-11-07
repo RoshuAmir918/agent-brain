@@ -235,7 +235,9 @@ MIGRATION_ROUTINE = "brain-migration-"
 def start_migration(config: Config) -> bool:
     """A new migration starts now, not at the agent's next session: one run of the agent, two minutes out. A vault that
     declares its schedule gets a one-shot routine named for this version (a one-shot that already ran stays done, so a
-    shared name would never run twice), which `migrate-done` removes; without a declared schedule it cannot start."""
+    shared name would never run twice), which `migrate-done` removes; without a declared schedule it cannot start.
+    One migration runs at a time: while an earlier one is still queued or running, it is left to do the whole pending
+    file, which by then spans the newer versions too, rather than a second run working the same vault beside it."""
     from . import schedule
     if schedule.path(config).exists():
         from datetime import datetime, timedelta
@@ -243,6 +245,8 @@ def start_migration(config: Config) -> bool:
         name = MIGRATION_ROUTINE + installed_version("agent-brain").replace(".", "-")
         with vault_lock(config):
             routines = schedule.load(config)
+            if any(existing.startswith(MIGRATION_ROUTINE) for existing in routines):
+                return True
             routines[name] = schedule.Routine(at=at, prompt=MIGRATION_RUN, workdir=str(config.repo))
             schedule._save(config, routines)
         return True
