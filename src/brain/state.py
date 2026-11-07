@@ -78,6 +78,8 @@ def _tasks(vault: Vault) -> list[dict]:
              "report": (task.handoff[1] or None) if task.handoff else None, "pace": tasks.pace(task),
              "lastChunk": worked.get(task.tid), "chunksToday": chunks.get(task.tid, 0) if task.handoff else None,
              "budget": limits.get(task.tid), "closed": _closing(task)[0], "outcome": _closing(task)[1],
+             "left": fm.field(task.body, "Left"),
+             "then": [m[1].strip() for m in re.finditer(r"^[ \t]*-[ \t]+\*\*Then:\*\*[ \t]*([^\r\n]*)", task.body, re.M)],
              "tier": task.state.get("tier"), "archived": archived, "source": source, "view": views.read(config, task.tid),
              "said": _said(fm.field(task.body, "Source")), "owner": task.owner}
             for task, archived, source in entries if _public(vault, source)]

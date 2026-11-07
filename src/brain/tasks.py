@@ -486,8 +486,18 @@ def set_aside(config: Config, tid: str, today: date, why: str) -> Task:
     return task
 
 
-def complete(config: Config, tid: str, today: date, evidence: str) -> Task:
-    """Close an open task as completed, with its evidence on a dated line."""
+CLOSE_OUT = re.compile(r"^[ \t]*-[ \t]+\*\*(?:Left|Then):\*\*[^\n]*\n?", re.M)
+MAX_THEN = 3
+
+
+def complete(config: Config, tid: str, today: date, evidence: str, left: str | None = None,
+             then: list[str] | tuple[str, ...] = ()) -> Task:
+    """Close an open task as completed, with its evidence on a dated line, what it left undone (`Left`) and up to three
+    next stages the owner could start (`Then`), so the finished task says what is done, what is left and what is next."""
+    left = single_line("left", left) if left else None
+    then = [single_line("then", step) for step in then if step.strip()]
+    if len(then) > MAX_THEN:
+        raise ValueError(f"at most {MAX_THEN} --then stages")
     registered, archived = load_tasks(config)
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
@@ -496,7 +506,8 @@ def complete(config: Config, tid: str, today: date, evidence: str) -> Task:
     continuation.clear_close_out(config, tid)
     task.state["state"] = "completed"
     task.state.pop("status", None)
-    task.body = task.body.rstrip("\n") + f"\n- **Completed:** {today.isoformat()} — {evidence}\n"
+    lines = [f"- **Completed:** {today.isoformat()} — {evidence}"] + ([f"- **Left:** {left}"] if left else []) + [f"- **Then:** {step}" for step in then]
+    task.body = CLOSE_OUT.sub("", task.body).rstrip("\n") + "\n" + "\n".join(lines) + "\n"
     save_task(config, task, today)
     _work_history(task, today, evidence)
     return task
@@ -508,11 +519,12 @@ def _work_history(task: Task, today: date, outcome: str) -> None:
                              fm.field(task.body, "Next", "Next action"))
 
 
-def close(config: Config, tid: str, today: date, done: bool, why: str) -> Task:
-    """The owner closing their own task from the app: `done` completes it, otherwise it is cancelled. Either way a dated
-    line says so; nothing else is decided for them."""
+def close(config: Config, tid: str, today: date, done: bool, why: str, left: str | None = None,
+          then: list[str] | tuple[str, ...] = ()) -> Task:
+    """Close a task: `done` completes it, otherwise it is cancelled. Either way a dated line says so. Only a completion
+    carries what was left and what could come next."""
     if done:
-        return complete(config, tid, today, why)
+        return complete(config, tid, today, why, left, then)
     registered, archived = load_tasks(config)
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
@@ -540,6 +552,7 @@ def reopen(config: Config, tid: str, today: date, why: str) -> Task:
         raise ValueError(f"{tid} is already open")
     task.state["state"] = "ready"
     task.state.pop("status", None)
+    task.body = CLOSE_OUT.sub("", task.body)   # what the last close left and proposed is answered by working it again
     task.add_use(today.isoformat())   # active again today, so the night brings it back to the register
     task.body = task.body.rstrip("\n") + f"\n- **Reopened:** {today.isoformat()} — {why}\n"
     save_task(config, task, today)
