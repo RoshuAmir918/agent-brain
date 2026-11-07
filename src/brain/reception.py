@@ -141,15 +141,15 @@ def summary(config: Config, today: date, days: int = 30) -> dict:
 def burden(reviews: Path, author: str, today: date, weeks: int = 8) -> dict:
     """Correction burden on one author's merged pull requests, week by week: how many corrections people made per PR,
     and the share merged with none. The author is the intellect's account; bots' comments are not corrections."""
-    from . import seed
-    loaded, problems = seed.load(reviews, today, weeks * 7)
+    from .sources import reviews as review_source
+    loaded, problems = review_source.load(reviews, today, weeks * 7)
     mine = [review for review in loaded if review.author.casefold() == author.casefold()]
     start = today - timedelta(days=today.weekday()) - timedelta(weeks=weeks - 1)
     out = []
     for week in range(weeks):
         monday = start + timedelta(weeks=week)
         prs = [r for r in mine if monday.isoformat() <= r.merged <= (monday + timedelta(days=6)).isoformat()]
-        corrections = [sum(not seed.BOT.search(by) for _, by, _, _ in r.comments) for r in prs]
+        corrections = [sum(not review_source.BOT.search(by) for _, by, _, _ in r.comments) for r in prs]
         out.append({"week": monday.isoformat(), "prs": len(prs), "corrections": sum(corrections),
                     "perPr": round(sum(corrections) / len(prs), 2) if prs else None,
                     "clean": round(sum(n == 0 for n in corrections) / len(prs), 2) if prs else None})

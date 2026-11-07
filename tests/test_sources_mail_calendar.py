@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from brain import cli, evidence, nightly, sources
 from brain.config import Config
 from brain.sources import calendar, mail
@@ -61,3 +63,53 @@ def test_nothing_connected_is_quiet(vault, tmp_path, monkeypatch):
     from brain.vault import Vault
     assert sources.nightly(Vault(vault), TODAY) == []
     assert set(sources.registry()) >= {"imessage", "mail", "calendar"}
+
+
+def test_the_registry_declares_every_source_once_and_coverage_lists_an_editions_own(vault, capsys, monkeypatch):
+    from brain import coverage
+    from brain.vault import Vault
+    found = sources.registry()
+    assert {"site", "reviews", "plans", "crm", "mail", "calendar", "imessage"} <= set(found)
+    assert found["site"].extract is None and found["mail"].extract is not None and found["crm"].source.needs == "crm"
+    personal = [source.id for source in sources.declared("personal")]
+    assert personal == ["mail", "calendar", "imessage"]
+    org = sources.declared("enterprise")
+    assert [source.id for source in org][:2] == ["site", "writing"] and next(s for s in org if s.id == "mail").where == "internal"
+    data = coverage.coverage(Vault(vault), TODAY)
+    assert [(s["source"], s["where"], s["needs"]) for s in data["sources"]] == [
+        ("mail", "own", "google"), ("calendar", "own", "google"), ("imessage", "own", "")]
+    with pytest.raises(SystemExit, match="the agent reads this one with its own tools"):
+        cli.main(["source", "site", "extract", "--home", str(vault.parent / "home"), "--vault", str(vault)])
+    cli.main(["source", "list", "--json", "--vault", str(vault)])
+    listed = {entry["id"]: entry for entry in __import__("json").loads(capsys.readouterr().out)}
+    assert listed["reviews"]["needs"] == "github" and listed["reviews"]["extracts"] is False
+
+
+def test_a_source_declared_twice_is_refused(monkeypatch):
+    from brain.sources import company
+    monkeypatch.setattr(company, "SOURCES", (*company.SOURCES, company.SOURCES[0]))
+    with pytest.raises(ValueError, match="'site' is declared twice"):
+        sources.registry()
+
+
+def test_a_correspondent_goes_by_the_newest_name_the_owner_used(synced):
+    vault, root = synced
+    message(root, id="o1", day="2026-11-01", labels=["SENT"], date="Sun, 1 Nov 2026 09:00:00 -0800",
+            **{"from": "mira@example.com", "to": "Old Name <alex@example.com>"})
+    message(root, id="o2", labels=["SENT"], **{"from": "mira@example.com", "to": "New Name <alex@example.com>"})
+    message(root, id="o3", day="2026-11-03", labels=["SENT"], date="Tue, 3 Nov 2026 09:00:00 -0800",
+            **{"from": "mira@example.com", "to": "alex@example.com"})
+    row, = [row for row in mail.extract(ctx(vault)) if row.verb == "talks"]
+    assert row.fact == "Wrote to New Name 3 times, last 2026-11-04"
+
+
+def test_the_reading_list_reports_problems_account_by_account(synced):
+    from brain import seed
+    from brain.vault import Vault
+    vault, root = synced
+    bad = calendar_file(root, "")
+    bad.write_bytes(b"\xff\xfe not text")
+    message(root, account="other@example.com", date="not a date")
+    problems = seed.personal(Vault(vault), TODAY)["problems"]
+    assert [p.split(": ", 1)[1] for p in problems] == ["unreadable calendar", "unreadable mail headers (date, from, to, cc, subject, labels)"]
+    assert "mira@example.com" in problems[0] and "other@example.com" in problems[1]

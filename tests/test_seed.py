@@ -3,7 +3,9 @@ from datetime import date
 
 import pytest
 
-from brain import cli, fm, install, seed
+from brain import cli, coverage, fm, install, seed
+from brain.sources import reviews as review_source
+from brain.sources import plans as plan_source
 from brain.config import Config
 
 TODAY = date(2026, 11, 6)
@@ -32,7 +34,7 @@ def reviews(tmp_path):
 
 
 def test_reading_counts_corrections_by_others_inside_the_window(reviews):
-    data = seed.reading(reviews, TODAY)
+    data = review_source.reading(reviews, TODAY)
     assert data["window"] == {"from": "2026-08-08", "to": "2026-11-06"}
     assert (data["prs"], data["withComments"], data["comments"]) == (3, 2, 5)
     assert data["reviewers"] == [{"who": "noah", "comments": 2, "bot": False},
@@ -48,15 +50,15 @@ def test_reading_counts_corrections_by_others_inside_the_window(reviews):
 def test_unreadable_files_and_comments_are_named_not_fatal(reviews):
     (reviews / "bad.md").write_text("---\ntitle: no number\n---\n")
     review(reviews, 104, "kim", "2026-11-02", "noah said this without a date")
-    problems = seed.reading(reviews, TODAY)["problems"]
+    problems = review_source.reading(reviews, TODAY)["problems"]
     assert "bad.md: needs frontmatter pr, author and merged (YYYY-MM-DD)" in problems
     assert any(p.startswith("104.md: malformed comment") for p in problems)
 
 
 def test_area_is_the_first_two_folders():
-    assert seed.area("apps/api/src/x.ts") == "apps/api"
-    assert seed.area("README.md") == "(top level)"
-    assert seed.area("") == "(whole PR)"
+    assert review_source.area("apps/api/src/x.ts") == "apps/api"
+    assert review_source.area("README.md") == "(top level)"
+    assert review_source.area("") == "(whole PR)"
 
 
 def test_cli_prints_the_reading_list_and_its_json(vault, reviews, capsys, monkeypatch):
@@ -117,16 +119,16 @@ def plans(tmp_path):
 
 
 def test_horizon_is_this_quarter_this_year_or_longer():
-    assert seed.horizon("2026-12-31", TODAY) == "now"
-    assert seed.horizon("2027-01-01", TODAY) == "year"
-    assert seed.horizon("2027-11-06", TODAY) == "year"
-    assert seed.horizon("2027-11-07", TODAY) == "longer"
-    assert seed.horizon("", TODAY) == ""
-    assert seed.horizon("2026-03-31", date(2026, 2, 1)) == "now" and seed.horizon("2026-04-01", date(2026, 2, 1)) == "year"
+    assert plan_source.horizon("2026-12-31", TODAY) == "now"
+    assert plan_source.horizon("2027-01-01", TODAY) == "year"
+    assert plan_source.horizon("2027-11-06", TODAY) == "year"
+    assert plan_source.horizon("2027-11-07", TODAY) == "longer"
+    assert plan_source.horizon("", TODAY) == ""
+    assert plan_source.horizon("2026-03-31", date(2026, 2, 1)) == "now" and plan_source.horizon("2026-04-01", date(2026, 2, 1)) == "year"
 
 
 def test_direction_ranks_open_projects_by_horizon_and_shows_where_effort_went(plans):
-    data = seed.direction(plans, TODAY)
+    data = plan_source.direction(plans, TODAY)
     assert [a["project"] for a in data["after"]] == ["Site billing", "Audit trail v2", "Migration tooling", "Sponsor portal",
                                                      "Moonshot", "Mobile app"]
     assert [a["horizon"] for a in data["after"]] == ["now", "now", "now", "year", "longer", ""]
@@ -138,7 +140,7 @@ def test_direction_ranks_open_projects_by_horizon_and_shows_where_effort_went(pl
 
 def test_direction_names_unreadable_projects(plans):
     fm.write(plans / "bad.md", {"state": "started"}, "- yesterday · done · X · y\n")
-    problems = seed.direction(plans, TODAY)["problems"]
+    problems = plan_source.direction(plans, TODAY)["problems"]
     assert "bad.md: malformed issue line '- yesterday · done · X · y'" in problems
     assert "bad.md: needs frontmatter project and state, and target as YYYY-MM-DD when set" in problems
 
@@ -162,6 +164,8 @@ def test_coverage_shows_what_the_portrait_knows_and_what_was_never_read(vault, c
     from brain import channels
     from brain.vault import Vault
     monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
+    path = vault.parent / "brain.toml"   # what an organisation's seed reads; a person's coverage lists their own sources
+    path.write_text(path.read_text() + 'edition = "enterprise"\n')
     (vault / "human").mkdir()
     fm.write(vault / "human/Portrait.md", {"kind": "orientation", "tier": "hot", "pinned": True},
              "## After\n- Win larger sponsors · said · high · 2026-11-01 · [[START]]\n  - horizon: now\n"
@@ -177,7 +181,7 @@ def test_coverage_shows_what_the_portrait_knows_and_what_was_never_read(vault, c
     channels.save(config, [channels.Channel("GitHub lumen/app", "shared", "lumen/app", "gh", "code", "", "2026-10-01", "live"),
                            channels.Channel("Slack", "shared", "lumen", "demiurge", "channels", "", "2026-10-01", "live"),
                            channels.Channel("Old Drive", "shared", "", "", "", "", "2026-01-01", "revoked")])
-    data = seed.coverage(Vault(vault), TODAY)
+    data = coverage.coverage(Vault(vault), TODAY)
     after, taste, cares = data["sections"][0], data["sections"][2], data["sections"][1]
     assert (after["lines"], after["said"], after["guess"], after["newest"]) == (2, 1, 1, "2026-11-02")
     assert taste["seen"] == 1 and cares["lines"] == 0
@@ -199,6 +203,6 @@ def test_a_persons_correction_ranks_above_a_pile_of_bot_comments(tmp_path):
     folder.mkdir()
     review(folder, 1, "kim", "2026-11-01", *[f"2026-11-01 · codex-connector[bot] · a/b/c.ts · Nit {i}." for i in range(9)])
     review(folder, 2, "kim", "2026-11-02", "2026-11-02 · noah · a/b/c.ts · Use the service.")
-    data = seed.reading(folder, TODAY)
+    data = review_source.reading(folder, TODAY)
     assert [item["pr"] for item in data["read"]] == [2, 1]
     assert data["byPeople"] == 1 and data["reviewers"][0] == {"who": "codex-connector[bot]", "comments": 9, "bot": True}

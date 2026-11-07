@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from brain import channel_files, channels, cli, consults, fm, identity, routing, seed, session_context, tasks
+from brain import channel_files, channels, cli, consults, fm, identity, routing, session_context, tasks
+from brain.sources import mail as mail_source
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -64,13 +65,13 @@ def test_reading_lists_only_synced_live_owner_accounts_and_is_read_only(synced):
                     "pending@example.com", "revoked@example.com"):
         message(root, account=account)
     before = snapshot(config.repo)
-    data = seed.deference_reading(Vault(config.vault_path), TODAY)
+    data = mail_source.deference_reading(Vault(config.vault_path), TODAY)
     assert data["accounts"] == ["company@example.com", "ops@example.com"]
     assert {item["account"] for item in data["messages"]} == set(data["accounts"])
     assert data["problems"] == []
     assert all(set(item) == {"path", "date", "from", "account", "cues"} for item in data["messages"])
     assert all(item["from"] == "ana@example.com" for item in data["messages"])
-    scoped = seed.deference_reading(Vault(config.vault_path), TODAY, "OPS@EXAMPLE.COM")
+    scoped = mail_source.deference_reading(Vault(config.vault_path), TODAY, "OPS@EXAMPLE.COM")
     assert scoped["accounts"] == ["ops@example.com"] and len(scoped["messages"]) == 1
     assert snapshot(config.repo) == before
 
@@ -85,7 +86,7 @@ def test_reading_lists_only_synced_live_owner_accounts_and_is_read_only(synced):
 def test_body_cues_are_named_without_returning_matches(synced, body, cue):
     config, root = synced
     message(root, body=body + ": BODY_PRIVATE_MARKER")
-    item, = seed.deference_reading(Vault(config.vault_path), TODAY)["messages"]
+    item, = mail_source.deference_reading(Vault(config.vault_path), TODAY)["messages"]
     assert item["cues"] == [cue]
     assert body not in json.dumps(item)
 
@@ -96,21 +97,21 @@ def test_lowercase_names_and_header_cues_do_not_select_mail(synced, body):
     config, root = synced
     message(root, body=body, subject="per Kim; signed off; check with Kim; ask Ana; approved by Lee; Ana decides",
             **{"from": "Kim decides <ana@example.com>", "to": "ask Ana <recipient@example.com>"})
-    assert seed.deference_reading(Vault(config.vault_path), TODAY)["messages"] == []
+    assert mail_source.deference_reading(Vault(config.vault_path), TODAY)["messages"] == []
 
 
 def test_reading_window_is_inclusive_local_and_newest_first(synced):
     config, root = synced
-    floor = TODAY - timedelta(days=seed.DAYS)
+    floor = TODAY - timedelta(days=routing.DAYS)
     boundary = message(root, "boundary", date=floor.isoformat())
     message(root, "old", date=(floor - timedelta(days=1)).isoformat())
     message(root, "future", date=(TODAY + timedelta(days=1)).isoformat())
     latest = message(root, "latest", date="2026-11-07T01:00:00Z")
     earlier = message(root, "earlier")
-    data = seed.deference_reading(Vault(config.vault_path), TODAY)
+    data = mail_source.deference_reading(Vault(config.vault_path), TODAY)
     assert data["window"] == {"from": str(floor), "to": str(TODAY)}
     assert [item["path"] for item in data["messages"]] == list(map(str, [latest, earlier, boundary]))
-    data = seed.deference_reading(Vault(config.vault_path), TODAY, days=0)
+    data = mail_source.deference_reading(Vault(config.vault_path), TODAY, days=0)
     assert data["window"] == {"from": str(TODAY), "to": str(TODAY)}
     assert len(data["messages"]) == 2
 
@@ -120,7 +121,7 @@ def test_excluded_labels_are_skipped_and_cues_are_unique(synced):
     for label in channel_files.EXCLUDED_LABELS:
         message(root, label, labels=["SENT", label])
     path = message(root, "kept", body="per Kim; per Lee; signed off; sign-off from Ana", labels=["SENT"])
-    item, = seed.deference_reading(Vault(config.vault_path), TODAY)["messages"]
+    item, = mail_source.deference_reading(Vault(config.vault_path), TODAY)["messages"]
     assert item["path"] == str(path) and item["cues"] == ["per", "signed-off"]
 
 
@@ -129,10 +130,10 @@ def test_excluded_labels_are_skipped_and_cues_are_unique(synced):
 def test_unreadable_mail_problems_never_repeat_header_or_body_values(synced, headers):
     config, root = synced
     path = message(root, **headers)
-    data = seed.deference_reading(Vault(config.vault_path), TODAY)
+    data = mail_source.deference_reading(Vault(config.vault_path), TODAY)
     assert data["messages"] == []
     assert data["problems"] == [f"{path}: unreadable mail headers (date, from, labels)"]
-    assert "PRIVATE_MARKER" not in json.dumps(data) + seed.render_deference(data)
+    assert "PRIVATE_MARKER" not in json.dumps(data) + mail_source.render_deference(data)
 
 
 def test_mail_cli_json_and_text_never_expose_content_matches_names_or_recipients(synced, capsys):
@@ -162,19 +163,19 @@ def test_reading_refuses_non_owner_accounts(synced, account):
     config, root = synced
     message(root, account=account)
     with pytest.raises(SystemExit, match="not an owner account"):
-        seed.deference_reading(Vault(config.vault_path), TODAY, account)
+        mail_source.deference_reading(Vault(config.vault_path), TODAY, account)
 
 
 def test_reading_refuses_missing_sync_and_negative_window(synced, monkeypatch):
     config, root = synced
     with pytest.raises(SystemExit, match="no owner account has synced mail"):
-        seed.deference_reading(Vault(config.vault_path), TODAY)
+        mail_source.deference_reading(Vault(config.vault_path), TODAY)
     with pytest.raises(SystemExit, match="non-negative"):
-        seed.deference_reading(Vault(config.vault_path), TODAY, days=-1)
+        mail_source.deference_reading(Vault(config.vault_path), TODAY, days=-1)
     message(root)
     monkeypatch.delenv("AGENT_HOME")
     with pytest.raises(SystemExit, match="no owner account has synced mail"):
-        seed.deference_reading(Vault(config.vault_path), TODAY)
+        mail_source.deference_reading(Vault(config.vault_path), TODAY)
 
 
 def test_personal_edition_refuses_mail_and_claims_without_writing(vault, tmp_path):
@@ -182,7 +183,7 @@ def test_personal_edition_refuses_mail_and_claims_without_writing(vault, tmp_pat
     path.write_text(claim_line())
     before = snapshot(vault)
     with pytest.raises(SystemExit, match="enterprise edition"):
-        seed.deference_reading(Vault(vault), TODAY)
+        mail_source.deference_reading(Vault(vault), TODAY)
     for mode in (["--mail"], ["--claims", str(path)]):
         with pytest.raises(SystemExit, match="enterprise edition"):
             cli.main(["consult", "seed", "--vault", str(vault)] + mode)
@@ -194,23 +195,23 @@ def test_claims_parse_valid_lines_normalize_email_and_ignore_headings_and_frontm
     text += claim_line() + "\n\n## Another area\n"
     text += claim_line(person="KIM@EXAMPLE.COM", area="Release Plans", link="https://example.com/message/1")
     text += "\n" + claim_line(person="email:LEE@EXAMPLE.COM", area="support", claim="Lee owns escalation decisions")
-    rows, problems = seed.deference_claims(text)
+    rows, problems = mail_source.deference_claims(text)
     assert problems == []
-    assert rows == [seed.Row("releases", str(TODAY), SLACK, "deferred-to", CLAIM, LINK),
-                    seed.Row("release plans", str(TODAY), EMAIL, "deferred-to", CLAIM, "https://example.com/message/1"),
-                    seed.Row("support", str(TODAY), "email:lee@example.com", "deferred-to",
+    assert rows == [routing.Row("releases", str(TODAY), SLACK, "deferred-to", CLAIM, LINK),
+                    routing.Row("release plans", str(TODAY), EMAIL, "deferred-to", CLAIM, "https://example.com/message/1"),
+                    routing.Row("support", str(TODAY), "email:lee@example.com", "deferred-to",
                              "Lee owns escalation decisions", LINK)]
     sixteen = "Kim decides " + " ".join(["scope"] * 14)
-    assert len(seed.deference_claims(claim_line(claim=sixteen))[0]) == 1
+    assert len(mail_source.deference_claims(claim_line(claim=sixteen))[0]) == 1
 
 
 def test_frontmatter_without_a_final_newline_is_ignored():
-    assert seed.deference_claims("---\nsource: mail\n---") == ([], [])
+    assert mail_source.deference_claims("---\nsource: mail\n---") == ([], [])
 
 
 def test_bare_email_normalizes_and_joins_candidate_aliases(enterprise):
     address = "Kim.Lee@Example.com"
-    rows, problems = seed.deference_claims(claim_line(person=address))
+    rows, problems = mail_source.deference_claims(claim_line(person=address))
     assert problems == [] and rows[0].person == "email:" + address.lower()
     profile = enterprise.vault_path / enterprise.people_dir / "Kim" / "Profile.md"
     profile.parent.mkdir(parents=True)
@@ -224,14 +225,14 @@ def test_bare_email_normalizes_and_joins_candidate_aliases(enterprise):
 
 @pytest.mark.parametrize("address", ["kim+releases@example.com", "lee.o'neil@example.com"])
 def test_addresses_an_id_cannot_hold_are_refused_plainly(address):
-    rows, problems = seed.deference_claims(claim_line(person=address))
+    rows, problems = mail_source.deference_claims(claim_line(person=address))
     assert rows == [] and problems == ["line 1: an email address may use only letters, digits, dots, underscores and hyphens before @"]
     assert not tasks.PERSON.fullmatch("email:" + address)
 
 
 @pytest.mark.parametrize("quote", ['"', "“", "”", "‘", "’", "`"])
 def test_claims_refuse_each_quotation_mark_without_echoing_the_claim(quote):
-    rows, problems = seed.deference_claims(claim_line(claim=f"PRIVATE_MARKER {quote}Kim approves"))
+    rows, problems = mail_source.deference_claims(claim_line(claim=f"PRIVATE_MARKER {quote}Kim approves"))
     assert rows == [] and problems == ["line 1: claim must omit quotation marks and backticks"]
     assert "PRIVATE_MARKER" not in str(problems)
 
@@ -257,16 +258,16 @@ def test_claims_refuse_each_quotation_mark_without_echoing_the_claim(quote):
     ({"link": "PRIVATE_MARKER\vcontinuation"}, "single-line"),
 ])
 def test_each_refusal_reports_its_line_and_reason_without_echoing_fields(changes, reason):
-    rows, problems = seed.deference_claims("# Claims\n\n" + claim_line(**changes))
+    rows, problems = mail_source.deference_claims("# Claims\n\n" + claim_line(**changes))
     assert rows == [] and len(problems) == 1
     assert problems[0].startswith("line 3: ") and reason in problems[0]
     assert "PRIVATE_MARKER" not in str(problems) and CLAIM not in str(problems)
 
 
 def test_missing_link_and_malformed_lines_are_problems_and_valid_rows_survive():
-    rows, problems = seed.deference_claims(claim_line().rsplit(" · ", 1)[0] + "\nPRIVATE_MARKER\n- malformed\n"
+    rows, problems = mail_source.deference_claims(claim_line().rsplit(" · ", 1)[0] + "\nPRIVATE_MARKER\n- malformed\n"
                                            + claim_line())
-    assert rows == [seed.Row("releases", str(TODAY), SLACK, "deferred-to", CLAIM, LINK)]
+    assert rows == [routing.Row("releases", str(TODAY), SLACK, "deferred-to", CLAIM, LINK)]
     assert problems == ["line 1: link is required", "line 2: expected a dated claim bullet",
                         "line 3: expected date, person, area, claim and link"]
 
@@ -370,5 +371,5 @@ def test_reading_includes_the_backfill_inside_the_window(synced):
     old = root / "company@example.com" / "backfill" / "mail" / str(old_day) / "old.md"
     old.parent.mkdir(parents=True)
     fm.write(old, {"date": old_day.isoformat(), "from": "ana@example.com", "labels": ["INBOX"]}, "Kim decides releases.")
-    assert [item["path"] for item in seed.deference_reading(Vault(config.vault_path), TODAY)["messages"]] == [str(recent)]
-    assert [item["path"] for item in seed.deference_reading(Vault(config.vault_path), TODAY, days=365)["messages"]] == [str(recent), str(old)]
+    assert [item["path"] for item in mail_source.deference_reading(Vault(config.vault_path), TODAY)["messages"]] == [str(recent)]
+    assert [item["path"] for item in mail_source.deference_reading(Vault(config.vault_path), TODAY, days=365)["messages"]] == [str(recent), str(old)]

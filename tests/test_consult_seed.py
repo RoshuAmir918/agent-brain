@@ -7,7 +7,8 @@ import json
 
 import pytest
 
-from brain import cli, consults, fm, identity, owners, routing, seed
+from brain import cli, consults, fm, identity, owners, routing
+from brain.sources import reviews as review_source
 from brain.config import Config
 from conftest import snapshot
 
@@ -61,7 +62,7 @@ def reviews(tmp_path):
 
 def test_history_records_changes_approvals_and_latest_reviews_without_writing(reviews):
     before = snapshot(reviews)
-    rows, problems = seed.routing_evidence(reviews, TODAY)
+    rows, problems = review_source.routing_evidence(reviews, TODAY)
     assert problems == [] and snapshot(reviews) == before
     assert len(rows) == 19
     rich = [row for row in rows if row.link]
@@ -90,7 +91,7 @@ def test_history_records_changes_approvals_and_latest_reviews_without_writing(re
     ("---/x.py", "top level"), ("-app/x.py", "app"),
 ])
 def test_code_areas_are_valid_consult_names(path, expected):
-    assert seed.code_area(path) == expected
+    assert review_source.code_area(path) == expected
     assert owners.AREA.fullmatch(expected) and routing.area_name(expected) == expected
 
 
@@ -101,7 +102,7 @@ def test_code_areas_are_valid_consult_names(path, expected):
 ])
 def test_mergers_add_only_distinct_non_author_human_approvals(tmp_path, merger, expected):
     review(tmp_path, files=["apps/edc-frontend/x.ts"], approved=["kim", "noah"], merged_by=merger)
-    rows, problems = seed.routing_evidence(tmp_path, TODAY)
+    rows, problems = review_source.routing_evidence(tmp_path, TODAY)
     assert problems == []
     assert {row.person for row in rows if row.kind == "approved"} == expected
     assert [row.person for row in rows if row.kind == "changed"] == [GITHUB]
@@ -109,12 +110,12 @@ def test_mergers_add_only_distinct_non_author_human_approvals(tmp_path, merger, 
 
 def test_window_uses_merge_date_and_includes_its_boundaries(reviews):
     review(reviews, 89, merged="2026-08-08", files=["boundary/path/x.ts"])
-    rows, _ = seed.routing_evidence(reviews, TODAY)
+    rows, _ = review_source.routing_evidence(reviews, TODAY)
     assert any(row.text.startswith("#89 ") for row in rows)
     assert not any(row.text.startswith(("#90 ", "#104 ")) for row in rows)
-    rows, _ = seed.routing_evidence(reviews, TODAY, days=0)
+    rows, _ = review_source.routing_evidence(reviews, TODAY, days=0)
     assert rows and {row.text.split()[0] for row in rows} == {"#101"}
-    loaded, problems = seed.load(reviews, TODAY)
+    loaded, problems = review_source.load(reviews, TODAY)
     assert len(loaded) == 4 and problems == []
     assert len(next(item for item in loaded if item.number == 101).comments) == 7
 
@@ -124,7 +125,7 @@ def test_explicit_files_control_pr_areas_and_legacy_files_use_comment_paths(tmp_
         "2026-11-05 · roshan ·  · Review body.",
         "2026-11-04 · kim · apps/old/x.ts · Line comment.",
     ])
-    rows, problems = seed.routing_evidence(tmp_path, TODAY)
+    rows, problems = review_source.routing_evidence(tmp_path, TODAY)
     assert problems == []
     assert {(row.area, row.person, row.kind) for row in rows} == {
         ("apps new", "github:noah", "approved"), ("apps new", "github:roshan", "reviewed"),
@@ -139,8 +140,8 @@ def test_explicit_files_control_pr_areas_and_legacy_files_use_comment_paths(tmp_
 ])
 def test_bad_new_keys_are_problems_without_breaking_the_taste_reader(tmp_path, extra, key):
     review(tmp_path, **extra)
-    assert len(seed.load(tmp_path, TODAY)[0]) == 1
-    _, problems = seed.routing_evidence(tmp_path, TODAY)
+    assert len(review_source.load(tmp_path, TODAY)[0]) == 1
+    _, problems = review_source.routing_evidence(tmp_path, TODAY)
     assert len(problems) == 1 and problems[0].startswith(f"101.md: {key} must")
 
 
@@ -148,7 +149,7 @@ def test_reader_keeps_load_problems_and_skips_bad_comment_dates(tmp_path):
     (tmp_path / "bad.md").write_text("---\ntitle: no number\n---\n")
     review(tmp_path, files=["apps/api/x.py"], comments=[
         "2026-99-01 · noah · apps/api/x.py · Invalid date.", "malformed comment"])
-    rows, problems = seed.routing_evidence(tmp_path, TODAY)
+    rows, problems = review_source.routing_evidence(tmp_path, TODAY)
     assert [row.kind for row in rows] == ["changed"]
     assert any("needs frontmatter" in problem for problem in problems)
     assert any("malformed comment" in problem for problem in problems)
@@ -161,14 +162,14 @@ def test_pr_files_allow_blank_lines_and_headings_before_comments(tmp_path, extra
     path = tmp_path / "101.md"
     data, body = fm.read(path)
     fm.write(path, data, "\n# Comments\n\n" + body + "\n")
-    loaded, problems = seed.load(tmp_path, TODAY)
+    loaded, problems = review_source.load(tmp_path, TODAY)
     assert len(loaded[0].comments) == 1 and problems == []
-    rows, problems = seed.routing_evidence(tmp_path, TODAY)
+    rows, problems = review_source.routing_evidence(tmp_path, TODAY)
     assert {row.kind for row in rows} == {"changed", "reviewed"} and problems == []
 
 
 def test_batch_writes_once_per_area_with_one_lock_and_deduplicates(enterprise, reviews, monkeypatch):
-    rows, _ = seed.routing_evidence(reviews, TODAY)
+    rows, _ = review_source.routing_evidence(reviews, TODAY)
     original_write, original_lock = fm.write, consults.vault_lock
     writes, locks, held = [], [], []
 
@@ -208,7 +209,7 @@ def test_batch_writes_once_per_area_with_one_lock_and_deduplicates(enterprise, r
     ({"link": "[[link]]"}, "brackets"), ({"link": "one\ntwo"}, "single-line"),
 ])
 def test_batch_validates_every_row_before_writing(enterprise, changes, match):
-    row = seed.Row(AREA, str(TODAY), GITHUB, "changed", "#101 Form builder")
+    row = routing.Row(AREA, str(TODAY), GITHUB, "changed", "#101 Form builder")
     before = snapshot(enterprise.vault_path)
     with pytest.raises(ValueError, match=match):
         consults.record_evidence(enterprise, [row, replace(row, **changes)])
@@ -340,7 +341,7 @@ def test_agent_posted_comments_are_not_a_persons_review(enterprise, tmp_path):
         "2026-11-02 · roshan · apps/edc-frontend/x.ts · Posted by Codex: move this into the service.",
         "2026-11-03 · noah · apps/edc-frontend/x.ts · Move this into the service.",
     ])
-    rows, _ = seed.routing_evidence(folder, TODAY)
+    rows, _ = review_source.routing_evidence(folder, TODAY)
     reviewed = {row.person for row in rows if row.kind == "reviewed"}
     assert reviewed == {"github:noah"}
 

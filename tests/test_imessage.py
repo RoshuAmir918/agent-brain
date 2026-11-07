@@ -133,7 +133,7 @@ def test_rows_are_evidence_that_names_no_handle_and_quotes_no_message(messages):
 def test_the_registry_finds_imessage_and_the_cli_extracts_it_into_the_workspace(messages, tmp_path, capsys, monkeypatch):
     from brain import sources
     db, book = messages
-    assert sources.registry()["imessage"].SOURCE.runs == "owner-mac"
+    assert sources.registry()["imessage"].source.runs == "owner-mac"
     monkeypatch.setattr(imessage, "default_books", lambda: [book])
     monkeypatch.chdir(tmp_path)
     home = tmp_path / "agent"

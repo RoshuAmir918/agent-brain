@@ -15,7 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 from ..evidence import Evidence
 from . import Context, Source, hints
 
-SOURCE = Source(id="imessage", editions=("personal",), runs="owner-mac", facets=("people", "places", "music", "play", "reading & ideas"),
+SOURCE = Source(id="imessage", editions=("personal",), runs="owner-mac", where="own", rank=8, facets=("people", "places", "music", "play", "reading & ideas"),
                 sensitive=True, about="who the owner texts and how closely, their group chats, and the links shared",
                 input=Path.home() / "Library/Messages/chat.db")
 
