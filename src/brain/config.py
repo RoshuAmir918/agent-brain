@@ -17,7 +17,7 @@ DAILY_CHUNKS = 16
 # An intellect is one person's (personal) or an organisation's, getting its work done (enterprise): the same engine,
 # installing the routines and skill sections its edition is for. See docs/engine.md, Editions.
 EDITIONS = ("personal", "enterprise")
-PERSONAL_SECTIONS = ("portrait", "primed", "goals")   # context about one person, their day and aims, left out of an enterprise context
+PERSONAL_SECTIONS = ("primed", "goals")   # context about one person's day and aims, left out of an enterprise context
 
 
 def pinned_today() -> date | None:

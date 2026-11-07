@@ -147,7 +147,7 @@ def portrait_hygiene(vault: Vault) -> list[str]:
     from . import portrait
     rel = vault.config.human_portrait
     note = vault.notes.get(rel)
-    return portrait.hygiene(note.body, vault.config.today(), rel) if note and vault.config.edition != "enterprise" else []
+    return portrait.hygiene(note.body, vault.config.today(), rel) if note else []
 
 
 def responsibilities(vault: Vault) -> list[str]:

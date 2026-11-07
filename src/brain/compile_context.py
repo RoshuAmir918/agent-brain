@@ -26,6 +26,12 @@ BEFORE = ("## Before answering\n\n"
 PORTRAIT = ("Who you think {human} is, ranked within each section: `said` they told you, `seen` you watched them do it "
             "twice, `guess` you inferred it and have not tested it. Act on a guess only to prepare or offer, never outward. "
             "This is yours about {human} and is never told to anyone else, whatever a rule allows.")
+COMPANY_PORTRAIT = ("What you understand of {human}, ranked within each section: where it is heading, what it holds to, how "
+                    "it likes work done, how it decides, where effort goes and what it has decided against. `said` its "
+                    "leadership stated it or the roadmap, goals or initiatives say it; `seen` a pattern across its decisions "
+                    "and reviews; `guess` your inference. Let it aim your work: follow the Taste lines before anyone has to "
+                    "correct you, and say when a task serves none of the After lines. Cite `said` and `seen` lines to "
+                    "anyone. A guess about direction is never stated to the team: it goes to the operator as a confirm.")
 UPCOMING_DAYS = 7
 UPCOMING_ITEMS = 12
 AHEAD = re.compile(r"\b(due|deadline|until|flight|flying|trip|visit|leav|arriv|call|renew|expire|starts?|ends?|meet)", re.I)   # today's lines that look forward, not today's evidence
@@ -86,7 +92,8 @@ def build(vault: Vault, only: tuple[str, ...] | None = None) -> str:
             elif rel == config.agent("Triggers.md"):
                 body = active_triggers(body, config.link(rel))
             elif rel == config.human_portrait:
-                body = PORTRAIT.format(human=config.human_name) + "\n\n" + body.strip()
+                rule = COMPANY_PORTRAIT if config.edition == "enterprise" else PORTRAIT
+                body = rule.format(human=config.human_name) + "\n\n" + body.strip()
             sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
     sections.append("Conversations and everything else are retrieved on demand with `brain retrieve`.")
     return "\n\n".join(sections) + "\n"

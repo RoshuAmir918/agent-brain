@@ -1,7 +1,7 @@
 import json
 from datetime import date
 
-from brain import cli, compile_context, fm, portrait, validate
+from brain import cli, compile_context, fm, portrait, state, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -94,12 +94,66 @@ def test_context_carries_the_portrait_after_current_with_its_rule(vault):
     assert "human/Portrait" not in compile_context.directory(Vault(vault))
 
 
-def test_an_enterprise_vault_neither_loads_nor_checks_a_portrait(vault):
-    (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nedition = "enterprise"\n')
+COMPANY = """# Portrait
+
+## After
+- Ship the EDC migration tooling this quarter · said · high · 2026-11-01 · [[START]] ^a001
+  - horizon: now
+- Moving upmarket to larger sponsors · guess · low · 2026-11-03 · [[START]] ^a002
+  - horizon: year
+
+## Taste
+- Service layer owns queries; routers stay thin · seen · medium · 2026-11-04 · [[START]] ^a003
+  - against: two routers query directly
+
+## How it decides
+- Founders decide scope; domain owners decide how · said · high · 2026-11-02 · [[START]] ^a004
+"""
+
+
+def enterprise(vault):
+    (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nedition = "enterprise"\nhuman_name = "Harbor"\n')
+
+
+def test_an_organisation_has_a_portrait_in_its_context_with_the_team_rule(vault):
+    enterprise(vault)
+    write_portrait(vault, COMPANY)
+    text = compile_context.build(Vault(vault))
+    assert "What you understand of Harbor" in text and "Ship the EDC migration tooling" in text
+    assert "A guess about direction is never stated to the team" in text
+    assert "never told to anyone else" not in text
+    assert text.index("# Current") < text.index("Ship the EDC") < text.index("# Triggers")
+
+
+def test_an_organisation_may_say_how_it_decides(vault):
+    lines, problems = portrait.parse(COMPANY)
+    assert problems == [] and [line.section for line in lines][-1] == "How they decide"
+    enterprise(vault)
+    write_portrait(vault, COMPANY)
+    assert validate.portrait_hygiene(Vault(vault)) == []
     write_portrait(vault, "## Hobbies\n- broken\n")
-    loaded = Vault(vault)
-    assert "Hobbies" not in compile_context.build(loaded)
-    assert validate.portrait_hygiene(loaded) == []
+    assert any("unknown section 'Hobbies'" in p for p in validate.portrait_hygiene(Vault(vault)))
+
+
+def test_stamping_reads_how_it_decides_as_a_section(vault):
+    enterprise(vault)
+    path = write_portrait(vault, "## How it decides\n- Founders decide scope · said · high · 2026-11-02 · [[START]]\n")
+    assert portrait.stamp(Config.load(vault)) == 1
+    assert path.read_text().count(" ^") == 1
+
+
+def test_the_state_export_shows_an_organisation_its_stated_and_seen_lines_only(vault):
+    enterprise(vault)
+    write_portrait(vault, COMPANY)
+    config = Config.load(vault)
+    exported = state.build(config, date(2026, 11, 6))["portrait"]
+    assert [line["id"] for line in exported] == ["a001", "a003", "a004"]
+    assert all("against" not in line for line in exported)
+
+
+def test_the_state_export_never_carries_a_persons_portrait(vault):
+    write_portrait(vault)
+    assert state.build(Config.load(vault), date(2026, 11, 6))["portrait"] is None
 
 
 def test_validate_reports_portrait_problems(vault):
