@@ -1,4 +1,4 @@
-"""Maintainer CLI commands remain usable over SSH without an agent environment."""
+"""Engine CLI commands remain usable over SSH without an agent environment."""
 import os
 import subprocess
 import sys

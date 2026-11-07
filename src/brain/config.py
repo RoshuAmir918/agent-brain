@@ -103,7 +103,6 @@ class Config:
     human_name: str = "Human"
     agent_name: str = "Agent"
     owner_user_ids: list[str] = field(default_factory=list)   # the owner's platform ids; "<platform>:<id>" matches one platform only
-    maintainers: list[str] = field(default_factory=list)   # platform ids (bare or "<platform>:<id>") that keep the machinery running; never the owner
     log_dirs: list[str] = field(default_factory=list)   # folders under agent_dir holding receipts and ledgers, never notes
     skill_prefix: str = "brain-"
     timezone: str = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest day boundaries, health and audit dates
@@ -130,6 +129,8 @@ class Config:
                     text=True, stderr=subprocess.DEVNULL).strip())
             except (OSError, subprocess.CalledProcessError):
                 repo = explicit.parent if explicit else start
+        if isinstance(values, dict):
+            values.pop("maintainers", None)   # retired in 0.87.0; vaults written before it still carry the key
         allowed = {item.name for item in fields(cls) if item.name not in ("repo", "_vault_path")}
         if not isinstance(values, dict) or set(values) - allowed:
             raise ValueError("brain.toml [brain] must contain only supported config keys")
@@ -139,7 +140,7 @@ class Config:
         paths = {}
         for name in allowed:
             value = getattr(config, name)
-            if name in ("owner_user_ids", "maintainers", "log_dirs"):
+            if name in ("owner_user_ids", "log_dirs"):
                 if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
                     raise ValueError(f"brain.{name} must be a list of strings")
                 if name == "log_dirs" and any(Path(item).is_absolute() or ".." in Path(item).parts for item in value):

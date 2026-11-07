@@ -27,7 +27,7 @@ One job: decide what has gone quiet, so {human_name} never has to sweep a list o
    - a bullet about the brain itself (a migration, a setup or engine change, a skill): resolve it, with a dated Sleep Log line saying what it recorded;
    - a task waiting on {human_name}, or a proposed improvement, with no Ask line or one over its cap: write its Ask and Why as recall says.
    Any other problem it names is not this routine's: give the count in the account.
-5. `brain commit -m "evening(<date>)" --push` if anything changed. The run's account gives the counts and names them ("set aside 3, dropped 1; asks decided 2, retired 1, resolved by evidence 1; validate fixed 1, 2 left for a maintainer").
+5. `brain commit -m "evening(<date>)" --push` if anything changed. The run's account gives the counts and names them ("set aside 3, dropped 1; asks decided 2, retired 1, resolved by evidence 1; validate fixed 1, 2 left to fix").
 
 ## Boundaries
 Only task state fields and Needs you. No hubs, profiles, CURRENT threads or memory structure. No messages: what is decided here shows in the briefing and the app.

@@ -57,7 +57,7 @@ def tellable_vault(vault, monkeypatch):
     monkeypatch.delenv("BRAIN_HUMAN_NAME", raising=False)
     (vault.parent / "brain.toml").write_text(
         '[brain]\nvault = "memory"\nhuman_name = "Mira"\n'
-        'owner_user_ids = ["slack:U_OWNER"]\nmaintainers = ["slack:U_MAINT"]\n')
+        'owner_user_ids = ["slack:U_OWNER"]\n')
     notes = {
         ALICE: "# Alicia\n- **Demiurge:** `k57alice`\n- **Slack:** `U_ALICE`\n",
         BOB: "# Bob\nSlack: U_BOB\n",
@@ -289,9 +289,8 @@ def test_outside_sessions_end_with_the_exact_resolved_block(tellable_vault, plat
     assert session_context.TELLABLE_HEADING.format(name=name, owner="Mira") == expected.splitlines()[0]
 
 
-@pytest.mark.parametrize("platform, user_id", [("cli", ""), ("slack", "U_OWNER"), ("slack", "U_MAINT"),
-                                                ("cron", "")])
-def test_owner_maintainer_and_cron_sessions_have_no_tellable_block(tellable_vault, platform, user_id):
+@pytest.mark.parametrize("platform, user_id", [("cli", ""), ("slack", "U_OWNER"), ("cron", "")])
+def test_owner_and_cron_sessions_have_no_tellable_block(tellable_vault, platform, user_id):
     block = session_context.build(tellable_vault, tellable_vault.config, platform=platform, user_id=user_id)
     assert "What you may tell " not in block and "Likes Dr. Lee" not in block
 

@@ -55,7 +55,7 @@ The note is filled broadly, not curated. Every fact the night files that is the 
 
 `brain tellable <person>` (the same person forms as `brain access`, or `known`, or `anyone`) resolves that person's access and prints the lines of each subject they may hear: at `details` the lines themselves, at `gist` only their gist forms. `--json` for clients.
 
-A session with anyone but the owner, a maintainer or the agent's own routines gets that block in its session context, after the access lines, under one fixed heading:
+A session with anyone but the owner or the agent's own routines gets that block in its session context, after the access lines, under one fixed heading:
 
 `What you may tell <name> about <owner>, and nothing else:`
 

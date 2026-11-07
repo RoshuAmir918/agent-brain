@@ -245,32 +245,8 @@ def start_migration(config: Config) -> bool:
     return False
 
 
-DEFERRED = "deferred-steps.md"
-
-
-def deferred_path(config: Config) -> Path:
-    return config.vault_path / config.runtime_dir / DEFERRED
-
-
-def deferred_steps(config: Config) -> list[str]:
-    path = deferred_path(config)
-    return [line[2:].strip() for line in path.read_text(encoding="utf-8").splitlines()
-            if line.startswith("- ")] if path.exists() else []
-
-
-def migrate_done(config: Config, deferred: list[str] | None = None) -> str:
-    """Records the version. A step the agent could not complete here (a protected file it may not edit unattended) is
-    carried for a maintainer in <runtime_dir>/deferred-steps.md, which their sessions and `brain health` show, instead of
-    holding the migration open. It is machinery, so it never goes to the owner's Needs you."""
+def migrate_done(config: Config) -> str:
     current = installed_version("agent-brain")
-    if deferred:
-        path = deferred_path(config)
-        text = path.read_text(encoding="utf-8") if path.exists() else (
-            "# Deferred migration steps\n\nSteps an unattended migration could not do (a protected file such as SOUL.md "
-            "or another protected file). A maintainer approves each in a live session; remove the line once it is done.\n\n")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text.rstrip("\n") + "\n" + "".join(f"- {config.today().isoformat()} · {current} · {step}\n"
-                                                         for step in deferred), encoding="utf-8")
     record_version(config, current)
     pending = config.vault_path / config.runtime_dir / "pending-migration.md"
     if pending.exists():
