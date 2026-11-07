@@ -1,7 +1,7 @@
 ---
 name: {prefix}recall
 description: Retrieve from and write to the vault memory
-version: 2.20.0
+version: 2.20.1
 metadata:
   runtime:
     tags: [memory, vault]
@@ -59,7 +59,7 @@ An invitation or question for someone else's owner goes through their intellect,
 ## Goals
 `{human_goals}` holds what {human_name} is trying to become or reach. A reach has a finish line; a become is a direction. Infer these from what you actually see: what they return to across days, synced Anki hours, calendar, Canvas, Library works, what they are building or preparing for. Never from one passing mention or a guess without evidence. Instructions to you ("save me money", "build out my ideas") are responsibilities, never goals. A suggestion of yours remains a proposal; a supported reading of their aim is a goal now. Aspirations and Adopted practices remain free text.
 
-Only `brain goals` writes goal blocks. When they called it a goal: `brain goals new "<title>" --words "<their words>" [--said YYYY-MM-DD] [--reach --by YYYY-MM-DD]`. This requires an owner session. Otherwise add `--inferred --evidence "<date> · <what happened> · [[note]]"`, repeating `--evidence` as needed. Each inferred evidence line must link to an existing note outside the agent directory and prepared drafts. Words are their own words, quoted from the source and dated with `--said`, never your paraphrase. `origin=said|inferred` records whose reading it is; missing origin means said. Record progress as it appears: `brain goals G-n evidence "<dated line>"`. Edit through `brain goals G-n edit --title … --words … --by …` (`--clear-by` removes the date); transitions are `reached|set-aside|reopen --why "…"`. `list --json` and `show G-n` read them.
+Only `brain goals` writes goal blocks. When they called it a goal: `brain goals new "<title>" --words "<their words>" [--said YYYY-MM-DD] [--reach --by YYYY-MM-DD]`. This requires an owner session. Otherwise add `--inferred --evidence "<date> · <what happened> · [[note]]"` (or `evidence:<source>` for what a synced source shows, as portrait lines cite it), repeating `--evidence` as needed. Each inferred evidence line must link to an existing note outside the agent directory and prepared drafts. Words are their own words, quoted from the source and dated with `--said`, never your paraphrase. `origin=said|inferred` records whose reading it is; missing origin means said. Record progress as it appears: `brain goals G-n evidence "<dated line>"`. Edit through `brain goals G-n edit --title … --words … --by …` (`--clear-by` removes the date); transitions are `reached|set-aside|reopen --why "…"`. `list --json` and `show G-n` read them.
 
 Before inferring, read `brain goals list --json` and `brain goals refused --json`: never re-propose a refused reading, matching both its title and words and their meaning. Merge the same aim into an existing goal by adding evidence instead. At most two new inferred goals per night, counting readings made earlier today (the engine enforces a rolling 24 hours), at most five active inferred goals altogether; fewer is better. The nightly People portrait review and explore perform this pass; seed does it when learning a connected account. Never ask whether something is a goal, and do not wait for confirmation: silence keeps it. An inferred goal with no new evidence for thirty days is set aside automatically by the night. Said goals keep the sixty-day nudge and thirty further days before set-aside; prime records those through `brain goals`. Goals never enter an unrelated conversation uninvited.
 
