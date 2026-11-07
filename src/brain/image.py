@@ -329,14 +329,17 @@ def named(hint: str) -> str:
 def route(rows: list[evidence.Evidence], found: list[Facet]) -> dict[str, list[evidence.Evidence]]:
     """Which facet each row goes to. A facet that claims one of the row's hints, or a word in its fact, by its own
     `hints` takes it, and a broader facet does not, so a Climbing facet takes the climbing rows Play would otherwise
-    hold. Otherwise each hint goes to the facet of that name, existing or still to be made. A said-only facet, or a
-    hint naming one, takes nothing from evidence."""
+    hold; a claim matches a whole word or its plain endings (climb, climbing; not run in runtime). Otherwise each hint
+    goes to the facet of that name, existing or still to be made. A row that names a said-only area goes nowhere."""
     by_name = {facet.name.casefold(): facet for facet in found}
-    claims = [(facet, [re.compile(rf"\b{re.escape(hint)}", re.I) for hint in facet.hints])
+    claims = [(facet, [re.compile(rf"\b{re.escape(hint)}(?:s|es|ing|ed|er|ers)?\b", re.I) for hint in facet.hints])
               for facet in found if facet.hints and facet.sensitivity == "open"]
+    closed = {facet.name.casefold() for facet in found if facet.sensitivity != "open"} | {name.casefold() for name in SAID_ONLY}
     out: dict[str, list[evidence.Evidence]] = {}
     for row in rows:
         hints = {hint.casefold() for hint in row.hints}
+        if hints & closed:
+            continue   # what touches a said-only area never becomes a line, whichever facet's words it shares
         specific = [facet.name for facet, words in claims
                     if hints & set(facet.hints) or any(word.search(row.fact) for word in words)]
         general = []
@@ -357,8 +360,9 @@ def evidence_for(config: Config, name: str, since: str | None = None, home: Path
     found = facets(config)
     facet = next((facet for facet in found if facet.name.casefold() == name.casefold()), None)
     floor = facet.judged if facet and since is None else since or ""
-    key = facet.name if facet else named(name)
-    return [row for row in route(evidence.read(home=home), found).get(key, []) if row.date.isoformat() > floor]
+    routed = route(evidence.read(home=home), found)
+    key = facet.name if facet else next((key for key in routed if key.casefold() == name.casefold()), named(name))
+    return [row for row in routed.get(key, []) if row.date.isoformat() > floor]
 
 
 def due(config: Config, home: Path | None = None) -> list[dict]:

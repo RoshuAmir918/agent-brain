@@ -267,3 +267,20 @@ def test_a_facet_that_claims_hints_takes_those_rows_from_the_broader_one(config,
     cli.main(["portrait", "evidence", "Climbing", "--all", "--json", "--vault", str(vault)])
     assert len(__import__("json").loads(capsys.readouterr().out)) == 2
     assert image.evidence_for(config, "Places") == []   # the day pass went to Climbing, not Places
+
+
+def test_claims_match_whole_words_never_open_a_said_only_row_and_names_ignore_case(config, vault, tmp_path, monkeypatch):
+    from brain import evidence
+    from brain.evidence import Evidence
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
+    sort_into_facets(config)
+    fm.write(vault / "human/Portrait/Climbing.md", {"kind": "hub", "tier": "warm", "facet": "Climbing", "rank": 5,
+                                                     "hints": ["climb", "run"]}, "# Climbing\n")
+    evidence.append("mail", [
+        Evidence(date(2026, 11, 1), "went", "Climbing injury treatment", "own", ("health",), "m:1"),
+        Evidence(date(2026, 11, 2), "received", "3 notices from runtime.example.com", "own", ("home & routine",), "m:2"),
+        Evidence(date(2026, 11, 3), "booked", "Table at a bistro", "own", ("food & drink",), "m:3")])
+    routed = image.route(evidence.read(), image.facets(config))
+    assert {name: [row.pointer for row in rows] for name, rows in routed.items()} == {
+        "Home & routine": ["m:2"], "Food & drink": ["m:3"]}
+    assert [row.pointer for row in image.evidence_for(config, "FOOD & DRINK")] == ["m:3"]
