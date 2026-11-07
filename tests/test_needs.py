@@ -374,7 +374,8 @@ def test_cli_text_and_json(vault, capsys):
     cli.main(["needs-you", "--json", "--vault", str(vault)])
     result = json.loads(capsys.readouterr().out)
     assert result == [asdict(item) for item in needs.items(Config.load(vault), TODAY)]
-    assert set(result[0]) == {"id", "kind", "text", "origin", "since", "source", "detail", "context", "needs", "task", "owner"}
+    assert set(result[0]) == {"id", "kind", "text", "origin", "since", "source", "detail", "context", "needs", "task", "owner",
+                              "default", "area"}
     assert snapshot(vault.parent) == before
 
 

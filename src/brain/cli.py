@@ -11,6 +11,8 @@ Usage:
   brain compile-context [--vault <path>] [--out <path>] [--write] [--sections start,current,...]
   brain retrieve [--vault <path>] <query> [--limit 12] [--json [--form names|snippet|full]]
   brain needs-you [--vault <path>] [--json]
+  brain owners [--vault <path>] [--json]
+  brain consult <candidates|ask|answer|overrule|delegate|lapse|list|stats> [--vault <path>]
   brain ideas [--vault <path>] [--all] [--json]
   brain loops [--vault <path>] [--json | --due] [--quiet]
   brain watch-signal [--vault <path>]
@@ -23,7 +25,7 @@ Usage:
   brain install-scripts
   brain export-sessions [--date YYYY-MM-DD]
   brain version
-  brain paths <soul|skills|scripts|vault|repo> [--vault <path>]
+  brain paths <soul|skills|scripts|vault|repo|agent> [--vault <path>]
 """
 from __future__ import annotations
 
@@ -37,7 +39,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, loops, needs, portrait, retrieve, seed, session_context, state, validate, views, works
+from . import access, attribute, audit, compile_context, consults, digest, fm, health, ideas, journal, ledger, loops, needs, owners, portrait, retrieve, seed, session_context, state, validate, views, works
 from . import tasks as tasks_mod
 from .tasks import load_tasks, quiet
 from .vault import Vault
@@ -388,6 +390,77 @@ def cmd_loops(args):
             details = ((f" · with: {item.with_}" if item.with_ else "") + (f" · due: {item.due}" if item.due else "")
                        + (f" · ready: {item.ready}" if item.ready else ""))
             print(f"{item.id} · {item.since} · {item.kind} · {item.text} · [[{item.source}]]{details}")
+
+
+def cmd_owners(args):
+    rows = owners.load(args.config)
+    for problem in owners.problems(args.config):
+        print(f"skipped: {problem}", file=sys.stderr)
+    if args.json:
+        print(json.dumps([asdict(row) for row in rows], ensure_ascii=False, indent=2))
+    else:
+        for row in rows:
+            print(f"{row.area} · {row.owner_name} ({row.owner}) · backup: {row.backup or '-'} · "
+                  f"{row.covers} · {row.wait_hours}h · {row.source}")
+
+
+def cmd_consult(args):
+    config = args.config
+    try:
+        consults.require_enterprise(config)
+        if args.consult_cmd == "ask":
+            entry = consults.ask(config, args.to, args.ask, args.default, args.why, args.area or "", args.task or "", args.restricted)
+            print(entry.id)
+        elif args.consult_cmd == "answer":
+            entry = consults.answer(config, args.which, args.outcome, args.answer, args.by, args.to or "")
+            result = f"moved to {entry.to}" if args.outcome == "redirected" else "decision recorded"
+            print(f"{entry.id}: {args.outcome}; {result}")
+        elif args.consult_cmd == "overrule":
+            consults.overrule(config, args.which, args.answer, args.by)
+            print(f"{args.which}: overrule recorded")
+        elif args.consult_cmd == "delegate":
+            consults.delegate(config, args.area, args.to, args.by, args.words)
+            print(f"{args.area}: delegation recorded for {args.to}")
+        elif args.consult_cmd == "candidates":
+            ranked = consults.candidates(config, args.about, args.area or "", args.limit)
+            if args.json:
+                print(json.dumps([asdict(entry) for entry in ranked], ensure_ascii=False, indent=2))
+            else:
+                for entry in ranked:
+                    hours = f"{entry.median_hours:g}h" if entry.median_hours is not None else "-"
+                    evidence = "; ".join(f"{item['area']}: {item['kind']} ({item['text']})" for item in entry.evidence[:3])
+                    print(f"{entry.person} · {entry.name} · {entry.score:.2f} · median {hours}"
+                          + (" · muted" if entry.muted else "") + f" · {evidence}")
+        elif args.consult_cmd == "lapse":
+            for action in consults.lapse(config, dry_run=args.dry_run):
+                print(action)
+        elif args.consult_cmd == "list":
+            entries = [entry for entry in consults.load(config) if not args.for_ or entry.to == args.for_]
+            if args.json:
+                print(json.dumps([{**asdict(entry.item()), "asked": entry.asked, "until": entry.until,
+                                                      "tried": entry.tried, "restricted": entry.restricted}
+                                  for entry in entries], ensure_ascii=False, indent=2))
+            else:
+                for entry in entries:
+                    print(f"{entry.id} · {entry.kind} · {entry.area} · {entry.to} · {entry.text}")
+        elif args.consult_cmd == "stats":
+            result = consults.stats(config)
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            else:
+                for dimension in ("areas", "people"):
+                    rows = result[dimension]
+                    for key, counts in rows.items():
+                        share = f"{counts['changed_share']:.0%}" if counts['changed_share'] is not None else "-"
+                        hours = f"{counts['median_hours']:g}h" if counts['median_hours'] is not None else "-"
+                        print(f"{dimension} · {key} · asked {counts['asked']} · changed {counts['changed']} · "
+                              f"confirmed {counts['confirmed']} · redirected {counts['redirected']} · "
+                              f"overruled {counts['overruled']} · unanswered {counts['unanswered']} · "
+                              f"changed share {share} · median {hours}")
+                for week in result["weekly"]:
+                    print(f"{week['week']} · resolved {week['resolved']} · redirected {week['redirected']} · {week['rate']:.0%}")
+    except ValueError as error:
+        raise SystemExit(f"brain consult: {error}")
 
 
 def cmd_ideas(args):
@@ -982,6 +1055,7 @@ def cmd_paths(args):
     paths = {"soul": lambda: args.config.soul_path, "skills": lambda: args.config.skills_path,
              "scripts": install.scripts_path, "records": install.records_path,
              "vault": lambda: args.config.vault_path, "repo": lambda: args.config.repo,
+             "agent": lambda: args.config.vault_path / args.config.agent_dir,
              "python": lambda: Path(sys.executable), "schedule": lambda: schedule.path(args.config)}
     print(paths[args.path]().resolve())
 
@@ -1084,6 +1158,39 @@ def main(argv=None):
     s.add_argument("--kind", choices=loops.KINDS); s.add_argument("--source", metavar="NOTE")
     s.add_argument("--with", dest="with_", metavar="WHO"); s.add_argument("--outcome", choices=loops.OUTCOMES)
     s.add_argument("--because", metavar="TEXT"); s.set_defaults(fn=cmd_loops)
+    s = sub.add_parser("owners", help="the area's ownership hints", parents=[vault])
+    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_owners)
+    s = sub.add_parser("consult", help="consult a colleague and keep their words by area (enterprise)", parents=[vault])
+    actions = s.add_subparsers(dest="consult_cmd", required=True)
+    for action in ("candidates", "ask", "answer", "overrule", "delegate", "lapse", "list", "stats"):
+        p = actions.add_parser(action); p.set_defaults(fn=cmd_consult)
+        p.add_argument("--vault", default=argparse.SUPPRESS)
+        if action == "ask":
+            for field in ("to", "why", "ask", "default"):
+                p.add_argument("--" + field, required=True, metavar="PERSON" if field == "to" else "TEXT")
+            p.add_argument("--area", metavar="AREA"); p.add_argument("--task", metavar="T-nnn")
+            p.add_argument("--restricted", action="store_true", help="the answer would authorize production, money or another restricted action")
+        elif action in ("answer", "overrule"):
+            p.add_argument("which", metavar="ID_OR_TEXT" if action == "answer" else "ID")
+            if action == "answer":
+                p.add_argument("--outcome", choices=consults.OUTCOMES, required=True)
+                p.add_argument("--to", metavar="PERSON", help="required for a redirect")
+            p.add_argument("--answer", required=True, metavar="TEXT",
+                           help="the person's exact words; never the intellect's inference")
+            p.add_argument("--by", required=True, metavar="PERSON", help="<platform>:<id> of the person speaking")
+        elif action == "delegate":
+            for field in ("area", "to", "by", "words"):
+                p.add_argument("--" + field, required=True,
+                               help="the delegator's exact words" if field == "words" else None)
+        elif action == "lapse":
+            p.add_argument("--dry-run", action="store_true")
+        else:
+            p.add_argument("--json", action="store_true")
+            if action == "list":
+                p.add_argument("--for", dest="for_", metavar="PERSON")
+            elif action == "candidates":
+                p.add_argument("--about", required=True, metavar="TEXT")
+                p.add_argument("--area", metavar="AREA"); p.add_argument("--limit", type=int, metavar="N")
     s = sub.add_parser("ideas", help="proposals for new ways to help, shown one at a time", parents=[vault])
     s.add_argument("--all", action="store_true")
     mode = s.add_mutually_exclusive_group()
@@ -1204,7 +1311,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_migrate_done)
     s = sub.add_parser("install-scripts", parents=[vault]); s.set_defaults(fn=cmd_install_scripts)
     s = sub.add_parser("paths", parents=[vault])
-    s.add_argument("path", choices=("soul", "skills", "scripts", "records", "vault", "repo", "python", "schedule")); s.set_defaults(fn=cmd_paths)
+    s.add_argument("path", choices=("soul", "skills", "scripts", "records", "vault", "repo", "agent", "python", "schedule")); s.set_defaults(fn=cmd_paths)
     a = ap.parse_args(argv)
     if a.cmd == "channels" and a.action == "mail" and not a.since:
         ap.error("channels mail requires --since")
