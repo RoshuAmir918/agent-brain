@@ -129,7 +129,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
-- 0.94.0: shareable experiences hold only what a friend could act on (no account, login, shipping or billing paperwork, one line per place), and past trips are no longer whereabouts; the migration prunes each vault's tellable note.
+- 0.95.0: shareable experiences hold only what a friend could act on (no account, login, shipping or billing paperwork, one line per place), and past trips are no longer whereabouts; the migration prunes each vault's tellable note.
 - 0.88.0: no maintainer role. `brain.toml`'s `maintainers` is ignored, a former maintainer's id is identified like anyone else's, and `brain migrate-done --defer` and `deferred-steps.md` are gone: a migration step may edit SOUL.md or the runtime config unattended. Machinery is run outside conversations (engine commands in the vault, or a prompt run as the agent's own routine).
 - 0.83.0: the evidence contract: `$AGENT_HOME/evidence/<source>/YYYY-MM.md` rows, read back with `brain evidence [--source] [--hint] [--since] [--json]`; every consult event is written into it.
 - 0.82.0: goals can be inferred from evidence, and the app can keep one, refuse it (`not-a-goal`) or turn it into a task (`to-task`); the migration does one inference pass.
