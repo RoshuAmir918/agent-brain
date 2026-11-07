@@ -67,6 +67,23 @@ def test_triggers_fire_and_retire(template_config):
     assert "retired" not in [t.status for t in triggers.parse(new2) if t.id == "TR-003"]
 
 
+def test_an_impossible_trigger_date_never_fires_and_never_stops_the_night(template_config):
+    text = triggers.TEMPLATE.replace("| --- | --- | --- | --- | --- | --- | --- |",
+        "| --- | --- | --- | --- | --- | --- | --- |\n| TR-001 | commitment | 2026-02-30 | check vendor | [[agent/Tasks#T-003]] | active | 2026-01-01 |")
+    assert triggers.date_of("2026-02-30") is None
+    new, rep = triggers.process(text, TODAY, {}, template_config)
+    assert rep["fired"] == [] and "| TR-001 | commitment | 2026-02-30 |" in new
+
+
+def test_validate_names_an_impossible_trigger_date(vault):
+    from brain import validate
+    from brain.vault import Vault
+    fm.write(vault / "agent/Triggers.md", {"tier": "hot", "pinned": True}, triggers.TEMPLATE.replace(
+        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| --- | --- | --- | --- | --- | --- | --- |\n| TR-001 | commitment | 2026-02-30 | check vendor | [[START]] | active | 2026-01-01 |"))
+    assert validate.trigger_dates(Vault(vault)) == ["agent/Triggers.md · TR-001: 2026-02-30 is not a real date; it never fires"]
+
+
 def make_vault(tmp_path: Path) -> Path:
     root = base_vault(tmp_path / "memory")
     (root / "Conversations").mkdir()

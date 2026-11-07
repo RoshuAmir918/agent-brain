@@ -34,13 +34,6 @@ def _source(vault: Vault, source: str) -> str | None:
     return relative + separator + anchor if _public(vault, relative) else None
 
 
-def _closing(task: tasks.Task) -> tuple[str | None, str | None]:
-    matches = list(re.finditer(r"^[ \t]*-[ \t]+\*\*(?:Completed|Dropped):\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*[—-][ \t]*(.*?))?[ \t]*$",
-                               task.body, re.M))
-    match = matches[-1] if matches else None
-    return (match[1], (match[2] or "").strip() or None) if match else (None, None)
-
-
 def _tasks(vault: Vault) -> list[dict]:
     config = vault.config
     register = config.agent("Tasks.md")
@@ -50,13 +43,6 @@ def _tasks(vault: Vault) -> list[dict]:
     archived = []
     for path in sorted((config.vault_path / config.agent("Tasks Archive")).glob("T-*.md")):
         task = tasks.read_archived_task(config, path)
-        if task is None:
-            try:
-                body = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
-            except fm.Malformed:
-                continue   # its tier is unreadable, so it may be private
-            parsed = tasks.parse_register(body)[1]
-            task = parsed[0] if parsed else None
         if task is not None and task.tid not in seen:
             seen.add(task.tid)
             archived.append((task, True, path.relative_to(config.vault_path).as_posix() + "#" + task.tid))
@@ -77,7 +63,7 @@ def _tasks(vault: Vault) -> list[dict]:
              "resume": task.resume, "handoff": task.handoff[0] if task.handoff else None,
              "report": (task.handoff[1] or None) if task.handoff else None, "pace": tasks.pace(task),
              "lastChunk": worked.get(task.tid), "chunksToday": chunks.get(task.tid, 0) if task.handoff else None,
-             "budget": limits.get(task.tid), "closed": _closing(task)[0], "outcome": _closing(task)[1],
+             "budget": limits.get(task.tid), "closed": tasks.closing(task)[0], "outcome": tasks.closing(task)[1],
              "left": fm.field(task.body, "Left"),
              "then": [m[1].strip() for m in re.finditer(r"^[ \t]*-[ \t]+\*\*Then:\*\*[ \t]*([^\r\n]*)", task.body, re.M)],
              "tier": task.state.get("tier"), "archived": archived, "source": source, "view": views.read(config, task.tid),

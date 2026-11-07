@@ -771,10 +771,6 @@ def cmd_task(args):
             # Without --why only the owner's own Done or Drop in the app closes a task, and it says so.
             raise ValueError(f"task {args.action} needs --why \"<the evidence or the reason>\"")
         with vault_lock(args.config):
-            before = None
-            if args.tid != "new":
-                registered, archived = load_tasks(args.config)
-                before = next((t for t in registered + archived if t.tid == args.tid), None)
             if args.tid == "new":
                 task = tasks_mod.new_task(args.config, args.action, args.source, state="ready" if args.state is None else args.state,
                                           values=values, work=args.work)
@@ -789,10 +785,6 @@ def cmd_task(args):
             else:
                 task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
                                        args.why or "the owner closed it in their app", args.left, args.then or ())
-            if before is not None and before.task_state == "waiting_for_owner" and task.task_state != "waiting_for_owner":
-                # The ask it stood for is answered or moot: it leaves Needs you with it.
-                needs.settle_tasks(args.config, args.config.today(), [(task.tid, before.body)],
-                                   f"{task.tid} is {task.task_state.replace('_', ' ')}")
             # A conversation's task edit is engagement; worker writes never are.
             if in_conversation():
                 from . import continuation
@@ -1238,6 +1230,8 @@ def cmd_schedule(args):
                             changes[key] = [value.strip() for value in changes[key].split(",") if value.strip()]
                     if changes.get("responsibility") == "":
                         changes["responsibility"] = None
+                    if unknown := [need for need in changes.get("needs", []) if need != "computer"]:
+                        raise ValueError(f"unknown need {unknown[0]!r}; only computer is supported")
                     if any(key in changes for key in schedule.TIMING):
                         changes = {**dict.fromkeys(schedule.TIMING), **changes}
                     existed = name in routines
@@ -1253,7 +1247,7 @@ def cmd_schedule(args):
                     verb = {"remove": "removed", "pause": "paused", "resume": "resumed"}[action]
                     changed = f"{verb} routine {name} in {schedule.path(config)}"
             schedule._save(config, routines)
-            errors = schedule.problems(config)
+            errors = schedule.problems(config, known_needs=False)
             if errors:
                 raise ValueError("; ".join(errors))
         print(changed)

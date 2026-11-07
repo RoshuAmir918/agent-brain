@@ -89,6 +89,12 @@ def test_kit_v2_gallery_steps_schedule_trends_and_provenance_are_kept(vault, cap
     ({"pieces": [{"kind": "steps", "title": "S", "items": [{"label": "a"}, {"label": "b"}], "current": 2}]}, "index of one of its 2 stages"),
     ({"pieces": [{"kind": "numbers", "items": [{"label": "a", "value": "1", "trend": [1]}, {"label": "b", "value": "2"}]}]}, "2 to 30 numbers"),
     ({"pieces": [{"kind": "schedule", "title": "S", "items": [{"time": "at some point later in the afternoon maybe", "text": "x"}]}]}, "say it as people do"),
+    ({"pieces": False}, "pieces must be a list"),
+    ({"pieces": {}}, "pieces must be a list"),
+    ('{"pieces": [{"kind": "numbers", "items": [{"label": "a", "value": NaN}, {"label": "b", "value": "2"}]}]}', "must be text"),
+    ('{"pieces": [{"kind": "numbers", "items": [{"label": "a", "value": "1", "trend": [1, Infinity]}, {"label": "b", "value": "2"}]}]}', "2 to 30 numbers"),
+    ({"pieces": [{"kind": "checklist", "title": "C", "items": [{"text": "x", "state": "open", "color": "red"}]}]}, "items are"),
+    ({"pieces": [{"kind": "links", "items": [{"label": "x", "href": "https://x", "icon": "y"}]}]}, "items are"),
 ])
 def test_kit_v2_refuses_shapes_it_cannot_draw(vault, capsys, monkeypatch, bad, says):
     with pytest.raises(SystemExit):

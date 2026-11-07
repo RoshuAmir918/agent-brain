@@ -129,7 +129,7 @@ def _problems(raw: dict, *, known_needs: bool = True) -> list[str]:
 
 def _parse(text: str) -> dict[str, Routine]:
     raw = tomllib.loads(text)
-    errors = _problems(raw)
+    errors = _problems(raw, known_needs=False)
     if errors:
         raise ValueError("; ".join(errors))
     return {name: Routine(**values) for name, values in raw.get("routines", {}).items()}
@@ -177,7 +177,7 @@ def render(routines: dict[str, Routine]) -> str:
     # None denotes an absent optional field, never a TOML value.
     raw["routines"] = {name: {key: value for key, value in values.items() if value is not None}
                        for name, values in raw["routines"].items()}
-    errors = _problems(raw)
+    errors = _problems(raw, known_needs=False)
     if errors:
         raise ValueError("; ".join(errors))
     lines = [HEADER.rstrip()]
