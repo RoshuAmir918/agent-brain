@@ -169,6 +169,8 @@ Held work lives under `<agent_dir>/Prepared/`: things made or drafted for the ow
 
 **Seeding an organisation's Taste.** `brain portrait seed --reviews DIR [--days 90] [--json]` reads one file per merged pull request (frontmatter `pr`, `title`, `author`, `merged`; then one line per review comment, `- YYYY-MM-DD · <reviewer> · <path, empty for a review body> · <comment>`), keeps those merged within the window, drops the comments a PR's own author wrote, and prints the reading list: how many PRs and corrections, comments per reviewer (bots marked) and per area (a path's first two folders), and the PRs to read, most corrected first. Unreadable files and comment lines are named, never fatal. The judgment is the enterprise-only `seed` skill's: it fetches the files read-only with `gh` into `$AGENT_HOME/channels/<owner>-<repo>/reviews/` when they are missing, turns a correction made on two or more PRs into a `seen` Taste line (a repository rule stating it makes it `said`), keeps the evidence in `<agent_dir>/Seeds/`, and leaves the operator one confirm. Reviewer counts say where to read; they are never a measure of a person.
 
+**Seeding an organisation's direction.** `brain portrait seed --plans DIR [--days 30] [--json]` reads one file per project from the tracker (frontmatter `project`, `state` and optionally `initiative`, `target`, `lead`; then one line per issue, `- YYYY-MM-DD · done|opened · <key> · <title>`; `_unplanned.md` holds issues in no project). It ranks the open projects (planned, started, paused, backlog) by horizon from their target date (`now` within this quarter, `year` within twelve months, `longer` past that, none without a target), counts the issues finished in the window per project and outside any project, with each one's share, and names the projects due this quarter, not paused, with nothing finished. The skill writes After from it (one line per direction, `said` where the tracker states it, `guess` where only inferred, which reaches only the operator) and Energy as `seen` lines, including where effort and After disagree. Effort is counted by project, never by person.
+
 `brain portrait [--json]` prints the claims with their ids, section, basis, confidence, evidence date and horizon; `--top N` prints only the top N After lines with their `for:` lists, for explore and prime. `--json` gives every field but `against:`.
 
 ## Responsibilities
@@ -360,6 +362,7 @@ brain nightly --date 2026-10-10 --sessions-dir "$AGENT_HOME/records/sessions" --
 brain validate
 brain portrait [--top N] [--json]
 brain portrait seed --reviews DIR [--days 90] [--json]
+brain portrait seed --plans DIR [--days 30] [--json]
 brain attribute --file <record.md> --ts <iso> [--reason <text>] [--write]
 brain attribute [--sessions-dir <dir>] [--write]
 brain digest --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]
