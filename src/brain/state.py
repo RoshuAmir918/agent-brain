@@ -59,7 +59,7 @@ def _tasks(vault: Vault) -> list[dict]:
              "report": (task.handoff[1] or None) if task.handoff else None, "pace": tasks.pace(task),
              "lastChunk": worked.get(task.tid), "chunksToday": chunks.get(task.tid, 0) if task.handoff else None,
              "closed": tasks.closing(task)[0], "outcome": tasks.closing(task)[1],
-             "left": fm.field(task.body, "Left"),
+             "left": fm.field(task.body, "Left"), "due": fm.field(task.body, "Due"),
              "then": [m[1].strip() for m in re.finditer(r"^[ \t]*-[ \t]+\*\*Then:\*\*[ \t]*([^\r\n]*)", task.body, re.M)],
              "archived": archived, "source": source, "view": views.read(config, task.tid),
              "said": _said(fm.field(task.body, "Source")), "owner": task.owner}
