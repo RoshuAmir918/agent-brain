@@ -175,6 +175,14 @@ Held work lives under `<agent_dir>/Prepared/`: things made or drafted for the ow
 
 `brain portrait [--json]` prints the claims with their ids, section, basis, confidence, evidence date and horizon; `--top N` prints only the top N After lines with their `for:` lists, for explore and prime. `--json` gives every field but `against:`.
 
+## Reception
+
+`<agent_dir>/Reception/YYYY-MM.md` (`kind: log`) records, one row each, what was offered to the owner and how it landed: `- YYYY-MM-DD HH:MM · <id> · <kind> · <what> · <outcome> · [[<source>]] · portrait:<line id>`, the last field only when the offer served a portrait line. Kinds are `message`, `brief`, `idea`, `draft`, `gesture`, `letter`, `work` and `ask`. Outcomes are `pending` (offered, nothing heard), `delivered` (the runtime saw it reach a surface that reports opens), `opened`, `used` (acted on, replied to, kept), `liked`, `declined:<reason>`, `ignored` and `unknown`.
+
+The engine writes the `pending` row for every idea (`brain ideas --add`) and every Needs you ask, and settles it from the answer: an idea's yes is `used` and any other answer `declined:<answer>`; a resolved ask is `used` and a dismissed one `declined:<reason>`. Other offers are recorded by whoever makes them with `brain reception add --kind K --what TEXT --source NOTE [--portrait ID]`, which prints the row's id, and the runtime reports what it sees with `brain reception set <id> <outcome>`. The night settles a row with nothing heard after seven days: `ignored` when it was `delivered`, since the surface would have shown an open, and `unknown` otherwise. `brain reception [summary] [--days 30] [--json]` gives offered, used, liked, declined, ignored and unknown by kind and by portrait line, with a hit rate of used and liked over everything that has landed.
+
+**Correction burden.** `brain reception burden --reviews DIR --author LOGIN [--weeks 8] [--json]` reads the seed's review files and gives, week by week, the author's merged pull requests, the corrections people made on them (bots' comments are not corrections), the corrections per PR and the share merged with none. The author is the intellect's own account: falling burden is the measure of whether it is learning how its organisation works. It is never run to measure a person.
+
 ## Responsibilities
 
 Any hub may name its Library work with frontmatter `work: <slug>`, where the slug matches `[a-z0-9-]+`. `brain state --json` exposes it as the hub's `work`. When the runtime's `LIBRARY.md` exists, `brain validate` warns about a task or hub naming an unlisted work; these warnings do not make validation fail.
