@@ -6,7 +6,6 @@ import fcntl
 import json
 import re
 import subprocess
-import tempfile
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -78,12 +77,7 @@ def _progress_records(config: Config):
             records = {}
         rows = records.setdefault(str(config.vault_path.resolve()), {})
         yield rows
-        staged = path.with_suffix(".json.tmp")
-        try:
-            staged.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
-            staged.replace(path)
-        finally:
-            staged.unlink(missing_ok=True)
+        fm.write_text(path, json.dumps(records, indent=2) + "\n")
 
 
 def last_worked(config: Config) -> dict[str, str]:
@@ -122,16 +116,10 @@ def engaged_at(config: Config) -> dict[str, str]:
 
 
 def mark_engaged(config: Config, tid: str, instruction: str | None = None, by: str | None = None) -> bool:
-    """The owner engaged: restore the budget and restart the direction check."""
-    with vault_lock(config):
-        return _mark_engaged(config, tid, instruction, by)
-
-
-def _mark_engaged(config: Config, tid: str, instruction: str | None = None, by: str | None = None) -> bool:
-    """Lock-free task-facing variant; caller holds the vault lock. A task's budget follows its own owner's engagement:
-    in an organisation, someone else (`by`) asking about it is interest, not the owner steering it, and nothing is
-    written."""
-    task = next((t for t in sum(tasks.load_tasks(config), []) if t.tid == tid), None) if by else None
+    """The owner engaged: restore the budget and restart the direction check; the caller holds the vault lock. A task's
+    budget follows its own owner's engagement: in an organisation, someone else (`by`) asking about it is interest, not
+    the owner steering it, and nothing is written."""
+    task = tasks.find(config, tid) if by else None
     if task is not None and task.owner and by != task.owner:
         return False
     if runtime.configured() is None:
@@ -144,9 +132,7 @@ def _mark_engaged(config: Config, tid: str, instruction: str | None = None, by: 
         except (OSError, ValueError):
             records = {}
         records.setdefault(str(config.vault_path.resolve()), {})[tid] = config.local().isoformat()
-        staged = path.with_suffix(".json.tmp")
-        staged.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
-        staged.replace(path)
+        fm.write_text(path, json.dumps(records, indent=2) + "\n")
         row = rows.setdefault(tid, {})
         row["chunks_since_review"] = 0
         row.pop("circling", None)
@@ -212,20 +198,17 @@ def finish_lines(config: Config) -> list[tasks.Task]:
             elif waiting:
                 continue
             elif not task.delivers and not task.state.get("finish_asked"):
-                journal._add_ask(config, config.today(),
-                                 f"What would done look like for {task.title}? Until then {config.agent_name} "
-                                 "won't keep working on it in the background.",
-                                 config.agent(f"Tasks#{task.tid}"))
+                journal.add_ask(config, config.today(),
+                                f"What would done look like for {task.title}? Until then {config.agent_name} "
+                                "won't keep working on it in the background.",
+                                config.agent(f"Tasks#{task.tid}"))
                 task.state["finish_asked"] = "pending"
                 tasks.save_task(config, task, config.today())
         return registered + archived
 
 
 def _task(config: Config, tid: str, *, open_only: bool = False) -> tasks.Task:
-    registered, archived = tasks.load_tasks(config)
-    task = next((t for t in registered + archived if t.tid == tid), None)
-    if task is None and re.fullmatch(r"T-\d{3}", tid) and tasks.archive_path(config, tid).exists():
-        task = tasks.read_archived_task(config, tasks.archive_path(config, tid))
+    task = tasks.find(config, tid, archived_closed=True)
     if task is None or not task.handoff or (open_only and not tasks.is_open(task)):
         raise ValueError(f"{tid} is not an open handed-off task" if open_only else f"{tid} is not a handed-off task")
     return task
@@ -306,10 +289,9 @@ def answered(config: Config, source: str, question: str, because: str, owner_eng
     """Remember a task-sourced answer without treating a worker's discovery as owner engagement. Caller holds the lock."""
     match = re.search(r"\bT-\d{3}\b", source)
     if match and runtime.configured() is not None:
-        registered, archived = tasks.load_tasks(config)
-        if any(t.tid == match[0] and t.handoff for t in registered + archived):
+        if (task := tasks.find(config, match[0])) and task.handoff:
             text = f"{question} Answer: {because}"
-            if not (owner_engaged and _mark_engaged(config, match[0], text, by)):
+            if not (owner_engaged and mark_engaged(config, match[0], text, by)):
                 with _progress_records(config) as rows:
                     rows.setdefault(match[0], {})["instruction"] = {"at": config.local().isoformat(), "text": text}
 
@@ -379,7 +361,7 @@ def review(config: Config, tid: str, verdict: str, reason: str, *, ask: str | No
                 # CURRENT carries the first non-blocking ask; the escalated task supplies its own question.
                 needs.settle_tasks(config, config.today(), [(tid, task.body)], "replaced by the review's steering question")
                 if not row.get("circling"):
-                    journal._add_ask(config, config.today(), ask, config.agent(f"Tasks#{tid}"))
+                    journal.add_ask(config, config.today(), ask, config.agent(f"Tasks#{tid}"))
                 count = _count(row, now.date().isoformat())
                 row["budget_cap"] = {"date": now.date().isoformat(), "limit": count + max(0, limit - count) // 2}
             elif verdict == "stuck":
@@ -420,22 +402,12 @@ def checkpoint(config: Config, tid: str, text: str) -> None:
     if runtime.configured() is None:
         raise ValueError("checkpoint needs AGENT_HOME")
     with vault_lock(config):
-        registered, archived = tasks.load_tasks(config)
-        if not any(task.tid == tid for task in registered + archived) and not tasks.archive_path(config, tid).exists():
+        if tasks.find(config, tid, archived_closed=True) is None:
             raise ValueError(f"unknown task: {tid}")
         folder = runtime.home() / "records" / "continue" / "tasks"
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{tid}.json"
-        staged = None
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folder, suffix=".tmp", delete=False) as stream:
-                staged = stream.name
-                json.dump({"task": tid, "at": config.local().isoformat(), "text": text}, stream, ensure_ascii=False)
-                stream.write("\n")
-            Path(staged).replace(path)
-        finally:
-            if staged is not None:
-                Path(staged).unlink(missing_ok=True)
+        fm.write_text(folder / f"{tid}.json",
+                      json.dumps({"task": tid, "at": config.local().isoformat(), "text": text}, ensure_ascii=False) + "\n")
 
 
 def _checkpoint(tid: str) -> dict | None:
@@ -456,13 +428,7 @@ def checkpoint_text(tid: str) -> str | None:
 def chunk(config: Config, tid: str) -> str:
     """Record a baseline or one chunk; saved work and resting or closed transitions count."""
     with vault_lock(config):
-        registered, archived = tasks.load_tasks(config)
-        task = next((task for task in registered + archived if task.tid == tid), None)
-        if task is None:
-            path = tasks.archive_path(config, tid)
-            task = tasks.read_archived_task(config, path) if path.exists() else None
-        if task is None or not task.handoff:
-            raise ValueError(f"{tid} is not a handed-off task")
+        task = _task(config, tid)
         if runtime.configured() is None:
             return f"{tid} progress not recorded: AGENT_HOME is not set"
         with _progress_records(config) as rows:

@@ -32,7 +32,7 @@ def log(config, outcome, ident, day=TODAY, area="infrastructure", person=KIM, te
     bullet = f"- {day} · consult {outcome} · {text} · by {person} · {area} · - · id:{ident:012x}"
     if source:
         bullet += f"\n  - source: [[{source}]]"
-    needs._answered(config, day, bullet)
+    needs.answered(config, day, bullet)
 
 
 def outcomes(config, values, *, start=1, day=TODAY, area="infrastructure"):

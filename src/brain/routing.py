@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 from statistics import median
 
-from . import directory, fm, identity, needs, owners, tasks
+from . import directory, fm, identity, owners, tasks
 from .config import Config
 from .retrieve import tokens
 
@@ -85,7 +85,7 @@ def area_bodies(config: Config) -> dict[str, str]:
 
 
 def section(body: str, title: str) -> str:
-    span = needs._section(body, title)
+    span = fm.section(body, title)
     return body[span[0]:span[1]] if span else ""
 
 
@@ -119,7 +119,7 @@ class Decision:
 
 def decisions(body: str, area: str) -> list[Decision]:
     out = []
-    span = needs._section(body, "Decisions")
+    span = fm.section(body, "Decisions")
     for match in DECISION.finditer(body, *span) if span else []:
         day, author, text, ident, details = match.groups()
         try:

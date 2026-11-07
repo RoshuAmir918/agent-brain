@@ -139,7 +139,7 @@ def test_ask_refusals_are_read_only(enterprise, field, value, message):
 
 
 def test_closed_task_refused(enterprise):
-    tasks.complete(enterprise, "T-001", TODAY, "Finished it.")
+    tasks.close(enterprise, "T-001", TODAY, True, "Finished it.")
     with pytest.raises(ValueError, match="not an open task"):
         ask(enterprise, task="T-001")
 

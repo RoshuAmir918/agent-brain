@@ -60,14 +60,14 @@ def test_checkpoint_atomic_per_task_and_visible_in_due(worker, capsys):
 def test_checkpoint_failed_replace_keeps_previous_and_cleans_temp(worker, monkeypatch):
     config, home, _ = worker
     continuation.checkpoint(config, "T-001", "previous")
-    original = Path.replace
+    original = fm.os.replace
 
-    def fail(self, target):
+    def fail(source, target):
         if Path(target).name == "T-001.json":
             raise OSError("replace failed")
-        return original(self, target)
+        return original(source, target)
 
-    monkeypatch.setattr(Path, "replace", fail)
+    monkeypatch.setattr(fm.os, "replace", fail)
     with pytest.raises(OSError, match="replace failed"):
         continuation.checkpoint(config, "T-001", "new")
     assert continuation.checkpoint_text("T-001") == "previous"

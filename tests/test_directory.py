@@ -73,7 +73,7 @@ def test_sync_replaces_atomically_and_cleans_up_on_failure(config, payload, monk
         assert directory.path().read_bytes() == before
         raise OSError("replace failed")
 
-    monkeypatch.setattr(Path, "replace", fail_replace)
+    monkeypatch.setattr(fm.os, "replace", fail_replace)
     with pytest.raises(OSError, match="replace failed"):
         directory.sync(config, {}, TODAY)
     assert directory.path().read_bytes() == before
