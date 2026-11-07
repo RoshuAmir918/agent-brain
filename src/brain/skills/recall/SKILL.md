@@ -1,7 +1,7 @@
 ---
 name: {prefix}recall
 description: Retrieve from and write to the vault memory
-version: 2.20.1
+version: 2.21.0
 metadata:
   runtime:
     tags: [memory, vault]
@@ -63,7 +63,9 @@ Only `brain goals` writes goal blocks. When they called it a goal: `brain goals 
 
 Before inferring, read `brain goals list --json` and `brain goals refused --json`: never re-propose a refused reading, matching both its title and words and their meaning. Merge the same aim into an existing goal by adding evidence instead. At most two new inferred goals per night, counting readings made earlier today (the engine enforces a rolling 24 hours), at most five active inferred goals altogether; fewer is better. The nightly People portrait review and explore perform this pass; seed does it when learning a connected account. Never ask whether something is a goal, and do not wait for confirmation: silence keeps it. An inferred goal with no new evidence for thirty days is set aside automatically by the night. Said goals keep the sixty-day nudge and thirty further days before set-aside; prime records those through `brain goals`. Goals never enter an unrelated conversation uninvited.
 
-The intellect infers or sets aside; the person keeps, refuses or demotes. In their owner session, `brain goals G-n not-a-goal [--why "…"]` archives it and remembers the refused reading; `brain goals G-n to-task` creates a task with their words as quoted source, archives the goal and prints the task id. App controls add `--from-app`.
+Endings are judged nightly and confirmed; when {human_name} says "done", "that's replaced by X" or "forget it" in conversation, apply `brain goals G-n reached`, `superseded-by G-m` or `set-aside --why "<their reason>"` right away, and `reopen --why "…"` can undo an ending.
+
+The intellect infers, ends with grounded `--evidence`, or sets aside; the person keeps, refuses or demotes. In their owner session, `brain goals G-n not-a-goal [--why "…"]` archives it and remembers the refused reading; `brain goals G-n to-task` creates a task with their words as quoted source, archives the goal and prints the task id. App controls add `--from-app`.
 
 Goals of either origin fund preparation immediately: read, research, draft and make, held for {human_name}. Every unasked task and idea names its active goal with `--goal G-n`, every prepared draft with `goal: G-n`, every hub with `- **Goal:** G-n` (`brain goals G-n link <note>` sets either), and a work with `brain works goal <slug> --goal G-n`. With no active goal, infer from evidence first; if there is none, make nothing unasked. Asked work needs no goal and keeps their quoted words in `--source` (inside a routine, include the quotation marks in the value). An offer still has to clear the high bar and say which goal it serves. A goal grants no reminders, schedule or outward permission; recurring help is proposed as a responsibility under `{prefix}setup`.
 
