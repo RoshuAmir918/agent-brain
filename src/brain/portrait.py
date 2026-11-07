@@ -1,4 +1,5 @@
-"""The owner's portrait: the agent's ranked, sourced understanding of who they are, guesses included and labelled."""
+"""The portrait: the agent's ranked, sourced understanding of who its owner is, a person or an organisation, guesses
+included and labelled."""
 from __future__ import annotations
 
 import re
@@ -11,6 +12,7 @@ from .config import Config
 from .lock import vault_lock
 
 SECTIONS = ("After", "Cares about", "Taste", "How they decide", "Energy", "Not")
+HEADINGS = {"How it decides": "How they decide"}   # what an organisation's portrait may call a section instead
 BASES = ("said", "seen", "guess")
 CONFIDENCES = ("high", "medium", "low")
 HORIZONS = ("now", "year", "longer")
@@ -53,7 +55,7 @@ def parse(body: str) -> tuple[list[Line], list[str]]:
     section = None
     for raw in body.splitlines():
         if raw.startswith("## "):
-            section = raw[3:].strip()
+            section = HEADINGS.get(raw[3:].strip(), raw[3:].strip())
             if section not in SECTIONS:
                 problems.append(f"unknown section {section!r}; sections are {', '.join(SECTIONS)}")
             continue
@@ -98,6 +100,11 @@ def load(config: Config) -> list[Line]:
     return parse(fm.read(path)[1])[0] if path.is_file() else []
 
 
+def shown(lines: list[Line]) -> list[Line]:
+    """What everyone in an organisation may see: what was stated and what was seen, never a guess about direction."""
+    return [line for line in lines if line.basis != "guess"]
+
+
 def top(lines: list[Line], n: int) -> list[Line]:
     return [line for line in lines if line.section == "After"][:n]
 
@@ -139,7 +146,7 @@ def stamp(config: Config) -> int:
         section, count, out = None, 0, []
         for raw in body.splitlines(keepends=True):
             if raw.startswith("## "):
-                section = raw[3:].strip()
+                section = HEADINGS.get(raw[3:].strip(), raw[3:].strip())
             match = LINE.match(raw.rstrip("\r\n")) if section in SECTIONS else None
             if match and not match["id"]:
                 new = secrets.token_hex(2)

@@ -147,9 +147,10 @@ Signup says it plainly: the intellect reads your mail, your calendar and whateve
 Built in this order, each its own engine release, so that the moment that wins (an owner shown who they are, and correcting it) arrives as early as possible:
 
 1. **0.55.0, the note.** The format, `brain portrait [--top N] [--json]`, line ids stamped by the night, `brain validate`'s checks, and the portrait in `.context.md` after CURRENT. Nothing writes the note yet, and an owner may.
-2. **0.56.0, seed and reveal.** The seed skill and `brain portrait seed --account`, and the reveal as one batched confirm. First run on a vault starting from zero, then on Orphan's.
-3. **Demiurge with 0.57.0, reception.** The reveal card and the standing portrait surface; the runtime reporting opens and replies; the reception ledger, its pending rows, nightly settlement and `--summary`. They ship together because without the runtime's reports nearly every row settles to `unknown` and the ledger teaches nothing.
-4. **0.58.0, rewiring and migration.** People, Explore, Prime and Sleep 2 work from the portrait, `owner_card` drops the Impression, and existing vaults migrate, as below.
+2. **0.56.0, the company portrait.** The same note in an enterprise vault, in its context with the team's rule, and its stated and seen lines in the state export for the stage.
+3. **0.57.0, seeding Taste from corrections.** For an organisation, Taste from its review rules and the comments on its recent merged pull requests, After from its stated goals and initiatives, each batch confirmed by the people whose words it rests on. For a person, the mail seed and the reveal as one batched confirm, first on a vault starting from zero, then on Orphan's.
+4. **Demiurge with 0.58.0, reception.** The reveal card and the standing portrait surface; the runtime reporting opens and replies; the reception ledger, its pending rows, nightly settlement and `--summary`. They ship together because without the runtime's reports nearly every row settles to `unknown` and the ledger teaches nothing.
+5. **0.59.0, rewiring and migration.** People, Explore, Prime and Sleep 2 work from the portrait, `owner_card` drops the Impression, and existing vaults migrate, as below.
 
 The migration, unattended, in the owner's existing vault:
 
@@ -173,4 +174,4 @@ The point is a better agent, not a longer note. Three numbers, from `brain recep
 - **Who sees the portrait.** Settled: the owner always reads and edits their own (section 2). The impression's "never disclosed" was about third parties, and still holds for them.
 - **How much to read on seed.** Settled: full bodies of the threads the owner wrote in and all transactional mail, not headers first. A timid first portrait loses the first day, and reveal accuracy is the measure that says whether reading more is worth it.
 - **Energy and sensitivity.** What drains someone is close to mood. The section is limited to behaviour and the owner's own words. Revisit after the first reveals.
-- **Enterprise.** The portrait is personal-edition only. An organisation's intellect knows its members through their profiles, as today.
+- **Enterprise.** Settled by Demiurge's `docs/judgment.md` section 3: an organisation's intellect has one portrait, of the company (where it is heading, its standards, how it likes work done, how it decides), in the same note and format. It is the team's to read, guesses about direction excepted, which go to the operator as a confirm. Its first seed is Taste from the review corrections the company has already written down (judgment section 6, step 0).

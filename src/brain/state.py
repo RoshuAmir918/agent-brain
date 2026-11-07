@@ -7,7 +7,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import access, fm, health, ideas, journal, ledger, loops, needs, responsibilities, schedule, tasks, triggers, views
+from . import access, fm, health, ideas, journal, ledger, loops, needs, portrait, responsibilities, schedule, tasks, triggers, views
 from .config import Config
 from .session_context import legacy, profile_ids
 from .vault import Vault
@@ -323,4 +323,8 @@ def build(config: Config, today: date) -> dict:
             "idea": owner_idea, "ideasOpen": ideas_open, "channels": _channels(vault),
             "shareable": _shareable(vault, hubs, recent),
             "waitingOnComputer": [task["id"] for task in task_entries if task["open"] and task["resume"] == "computer"],
-            "responsibilities": responsibility_entries}
+            "responsibilities": responsibility_entries,
+            # an organisation's stage is the whole team's, so it shows what was stated and seen; a person's portrait is
+            # theirs alone and waits for an owner-only view
+            "portrait": [line.public() for line in portrait.shown(portrait.load(config))]
+            if config.edition == "enterprise" else None}
