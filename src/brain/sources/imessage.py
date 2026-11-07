@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
 from ..evidence import Evidence
-from . import Context, Source
+from . import Context, Source, hints
 
 SOURCE = Source(id="imessage", editions=("personal",), runs="owner-mac", facets=("people", "places", "music", "play", "reading & ideas"),
                 sensitive=True, about="who the owner texts and how closely, their group chats, and the links shared",
@@ -255,17 +255,6 @@ def media(links: list[dict]) -> dict:
 
 PEOPLE = 60   # the closest people, by closeness; the rest of an address book is not the owner's life
 GROUPS = 30
-HINTS = (("places", ("maps.", "goo.gl/maps", "yelp.", "tripadvisor.", "airbnb.", "booking.com", "zillow.", "redfin.", "streeteasy.")),
-         ("food & drink", ("opentable.", "resy.", "doordash.", "ubereats.", "seamless.", "tock.")),
-         ("music", ("spotify.", "music.apple.", "soundcloud.", "bandcamp.", "tidal.", "songlink.", "ra.co")),
-         ("play", ("strava.", "chess.com", "lichess.", "steampowered.", "twitch.tv", "ticketmaster.", "eventbrite.", "partiful.")))
-
-
-def hints(domain: str) -> tuple[str, ...]:
-    found = tuple(facet for facet, marks in HINTS if any(mark in domain for mark in marks))
-    return found or ("reading & ideas",)
-
-
 def pointer(kind: str, key: str) -> str:
     """A stable pointer that names no phone number or address: the same person or link gets the same one each run."""
     return f"imessage:{kind}/{hashlib.sha256(key.encode()).hexdigest()[:8]}"
