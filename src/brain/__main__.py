@@ -1,3 +1,3 @@
-from .nightly import main
+from .cli import main
 
 main()

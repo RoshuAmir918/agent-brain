@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from brain import attribute, digest, fm, install, nightly, sessions, validate
+from brain import attribute, cli, digest, fm, install, sessions, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import harness_session, message, snapshot, tool, write_shards
@@ -27,7 +27,7 @@ def harness(vault, tmp_path, monkeypatch):
 def test_export_conversations_routines_raw_json_and_unchanged_mtimes(harness, capsys):
     config, home, source = harness
     args = ["export-sessions", "--vault", str(config.vault_path), "--date", "2026-10-20"]
-    nightly.main(args)
+    cli.main(args)
     assert capsys.readouterr().out == 'exported: 6 files written, 0 unchanged\n'
     out = config.vault_path / "Conversations/Sessions"
     assert sorted(path.name for path in out.iterdir()) == ["cli-session.md", "slack-dm.md"]
@@ -39,13 +39,13 @@ def test_export_conversations_routines_raw_json_and_unchanged_mtimes(harness, ca
     assert transcript.startswith('# slack-dm\n\n- platform: slack\n- speaker: owner (owner)\n- started: ')
     assert '## user · 2026-10-20T07:00:00Z\n\nSlack morning question.' in transcript
     times = {path: path.stat().st_mtime_ns for path in list(out.glob("*.md")) + list(records.rglob("*")) if path.is_file()}
-    nightly.main(args)
+    cli.main(args)
     assert capsys.readouterr().out == 'exported: 0 files written, 6 unchanged\n'
     assert all(path.stat().st_mtime_ns == stamp for path, stamp in times.items())
     updated = json.loads((source / "slack-dm.json").read_text())
     updated["entries"].append(message("assistant", "Another turn.", "2026-10-21T07:01:00Z"))
     (source / "slack-dm.json").write_text(json.dumps(updated))
-    nightly.main(args)
+    cli.main(args)
     assert capsys.readouterr().out == 'exported: 2 files written, 4 unchanged\n'
     assert all(path.stat().st_mtime_ns == stamp for path, stamp in times.items() if path.stem != 'slack-dm')
     assert (source / "night.json").read_bytes() == (records / "jsonl/night.json").read_bytes()
@@ -135,7 +135,7 @@ def test_install_paths_require_an_explicit_runtime(vault, monkeypatch, capsys):
     monkeypatch.delenv('AGENT_HOME', raising=False)
     with pytest.raises(RuntimeError, match='AGENT_HOME is not set'):
         install.scripts_path()
-    nightly.main(['paths', 'vault', '--vault', str(vault)])
+    cli.main(['paths', 'vault', '--vault', str(vault)])
     assert capsys.readouterr().out == str(vault) + '\n'
 
 

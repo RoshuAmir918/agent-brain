@@ -4,7 +4,7 @@ from datetime import datetime
 import pytest
 
 from brain.config import Config
-from brain import attribute, fm, nightly
+from brain import attribute, cli, fm
 from brain.tasks import load_tasks
 from brain.vault import Vault
 from conftest import nightly_argv, snapshot, harness_session, message, tool, write_shards
@@ -53,7 +53,7 @@ def test_two_session_exports_produce_expected_rows_without_writing(vault, export
 
 def test_sessions_cli_writes_monthly_logs_and_rerun_adds_no_duplicates(vault, exported_sessions, capsys):
     args = ["attribute", "--vault", str(vault), "--sessions-dir", str(exported_sessions), "--write"]
-    nightly.main(args)
+    cli.main(args)
     printed = capsys.readouterr().out
     assert len(printed.splitlines()) == 7 and "cited in session marked | explicit" in printed
     october = vault / "agent/Use Log/2026-10.md"
@@ -61,7 +61,7 @@ def test_sessions_cli_writes_monthly_logs_and_rerun_adds_no_duplicates(vault, ex
     assert len(attribute.read_log(october)) == 6
     assert len(attribute.read_log(november)) == 1
     before = snapshot(vault)
-    nightly.main(args)
+    cli.main(args)
     assert capsys.readouterr().out == ""
     assert snapshot(vault) == before
 
@@ -114,7 +114,7 @@ def test_session_date_falls_back_to_filename_parent_then_mtime(vault, tmp_path, 
 
 def test_nightly_attributes_before_folding_and_compiling(vault, exported_sessions):
     args = nightly_argv(vault, "2026-10-06", "--sessions-dir", str(exported_sessions), "--write")
-    nightly.main(args)
+    cli.main(args)
     data, _ = fm.read(vault / "Harbor Context.md")
     assert data["uses"] == ["2026-10-06", "2026-10-05", "2026-01-01"]
     assert data["tier"] == "hot"
@@ -124,14 +124,14 @@ def test_nightly_attributes_before_folding_and_compiling(vault, exported_session
     assert "ORIGINAL_FULL_BODY" in context and "memory/Harbor Context|" in context
     log = vault / "agent/Use Log/2026-10.md"
     before = log.read_bytes()
-    nightly.main(args)
+    cli.main(args)
     assert log.read_bytes() == before
 
 
 def test_nightly_preview_keeps_sessions_and_vault_unchanged(vault, exported_sessions):
     before = snapshot(vault)
     exports_before = snapshot(exported_sessions)
-    nightly.main(nightly_argv(vault, "2026-10-06", "--sessions-dir", str(exported_sessions)))
+    cli.main(nightly_argv(vault, "2026-10-06", "--sessions-dir", str(exported_sessions)))
     assert snapshot(vault) == before and snapshot(exported_sessions) == exports_before
     assert not (vault.parent / ".context.md").exists()
 
@@ -139,7 +139,7 @@ def test_nightly_preview_keeps_sessions_and_vault_unchanged(vault, exported_sess
 def test_legacy_file_attribution_still_uses_whole_file_and_custom_reason(vault, tmp_path, capsys):
     path = tmp_path / "record.md"
     path.write_text("No Sources footer is necessary in the legacy form: T-001\n")
-    nightly.main(["attribute", "--vault", str(vault), "--file", str(path), "--ts", "2026-10-05T12:00Z",
+    cli.main(["attribute", "--vault", str(vault), "--file", str(path), "--ts", "2026-10-05T12:00Z",
                   "--reason", "legacy", "--write"])
     assert capsys.readouterr().out == "2026-10-05T12:00Z | T-001 | legacy | explicit\n"
     assert attribute.read_log(vault / "agent/Use Log/2026-10.md")[0].reason == "legacy"
@@ -147,7 +147,7 @@ def test_legacy_file_attribution_still_uses_whole_file_and_custom_reason(vault, 
 
 def test_legacy_file_attribution_still_requires_timestamp(vault, tmp_path):
     with pytest.raises(SystemExit) as caught:
-        nightly.main(["attribute", "--vault", str(vault), "--file", str(tmp_path / "record.md")])
+        cli.main(["attribute", "--vault", str(vault), "--file", str(tmp_path / "record.md")])
     assert caught.value.code == 2
 
 
@@ -176,7 +176,7 @@ def test_attribution_ignores_evaluation_sessions_and_routine_opens(tmp_path):
 
 def test_attribute_defaults_to_the_profile_records_folder(tmp_path, monkeypatch, capsys):
     import json
-    from brain import fm, nightly
+    from brain import cli, fm
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     vault = tmp_path / "memory"; (vault / "agent").mkdir(parents=True)
     fm.write(vault / "Harbor.md", {"kind": "hub", "tier": "warm"}, "# Harbor\nbody\n")
@@ -185,6 +185,6 @@ def test_attribute_defaults_to_the_profile_records_folder(tmp_path, monkeypatch,
     sessions = home / "records" / "sessions" / "jsonl"; sessions.mkdir(parents=True)
     call = tool("read_file", {"path": "memory/Harbor.md"}, "2026-10-21T10:00:00-07:00")
     write_shards(sessions.parent, harness_session("conv", [call]))
-    nightly.main(["attribute", "--vault", str(vault)])
+    cli.main(["attribute", "--vault", str(vault)])
     assert "Harbor" in capsys.readouterr().out
     assert not (vault / "Conversations").exists()

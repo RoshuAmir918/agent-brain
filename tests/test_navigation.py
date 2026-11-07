@@ -142,7 +142,7 @@ def test_frontmatter_requirement_still_applies_to_guides(tmp_path):
 
 
 def test_relative_cli_vault_matches_absolute_without_human_reads(tmp_path, monkeypatch, capsys):
-    from brain.nightly import main
+    from brain.cli import main
     vault = make_vault(tmp_path)
     human = vault.root.parent / "sources"
     human.mkdir()

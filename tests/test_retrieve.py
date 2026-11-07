@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from brain import fm, nightly, retrieve, triggers
+from brain import cli, fm, retrieve, triggers
 from brain.vault import Vault
 from conftest import snapshot
 
@@ -96,7 +96,7 @@ def test_tokens_preserve_ids_and_dates_and_exact_body_hits(retrieval_vault):
 
 def test_retrieval_cli_json_limit_and_no_writes(retrieval_vault, capsys):
     before = snapshot(retrieval_vault.root)
-    nightly.main(["retrieve", "--vault", str(retrieval_vault.root), "harbor", "--limit", "2", "--json"])
+    cli.main(["retrieve", "--vault", str(retrieval_vault.root), "harbor", "--limit", "2", "--json"])
     rows = json.loads(capsys.readouterr().out)
     assert len(rows) == 2
     assert set(rows[0]) == {"path", "tier", "score", "reason"}
@@ -105,24 +105,24 @@ def test_retrieval_cli_json_limit_and_no_writes(retrieval_vault, capsys):
 
 
 def test_stopword_query_has_no_candidates(retrieval_vault, capsys):
-    nightly.main(["retrieve", "--vault", str(retrieval_vault.root), "the and of to CI"])
+    cli.main(["retrieve", "--vault", str(retrieval_vault.root), "the and of to CI"])
     assert capsys.readouterr().out == "no candidates\n"
-    nightly.main(["retrieve", "--vault", str(retrieval_vault.root), "the and", "--json"])
+    cli.main(["retrieve", "--vault", str(retrieval_vault.root), "the and", "--json"])
     assert json.loads(capsys.readouterr().out) == []
 
 
 def test_retrieval_json_forms_add_index_line_or_body(retrieval_vault, capsys):
     argv = ["retrieve", "--vault", str(retrieval_vault.root), "harbor", "--limit", "1", "--json"]
-    nightly.main(argv + ["--form", "snippet"])
+    cli.main(argv + ["--form", "snippet"])
     assert json.loads(capsys.readouterr().out)[0]["text"] == "Quiet description."
-    nightly.main(argv + ["--form", "full"])
+    cli.main(argv + ["--form", "full"])
     assert json.loads(capsys.readouterr().out)[0]["text"] == "# Harbor project\nQuiet description.\n## Build pipelines\n[[Linked]]"
-    nightly.main(argv + ["--form", "names"])
+    cli.main(argv + ["--form", "names"])
     assert set(json.loads(capsys.readouterr().out)[0]) == {"path", "tier", "score", "reason"}
 
 
 def test_retrieval_full_form_of_a_task_match_is_its_entry(retrieval_vault, capsys):
-    nightly.main(["retrieve", "--vault", str(retrieval_vault.root), "t-001", "--json", "--form", "full"])
+    cli.main(["retrieve", "--vault", str(retrieval_vault.root), "t-001", "--json", "--form", "full"])
     row = json.loads(capsys.readouterr().out)[0]
     assert row["path"].startswith("memory/agent/Tasks.md#T-001") and "ORIGINAL_FULL_BODY" in row["text"]
     assert "### T-001" not in row["text"]

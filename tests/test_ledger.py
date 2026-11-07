@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from brain import audit, fm, ledger, nightly
+from brain import audit, cli, fm, ledger, nightly
 from brain.config import Config
 from brain.vault import Vault
 from conftest import nightly_argv, snapshot
@@ -152,7 +152,7 @@ def test_append_rejects_unsafe_routine(config, routine):
 
 def test_ledger_cli_flags(config, capsys):
     path = write_ledger(config, "Letters", "2026-10-26 | morning | Mail. | Wait.\n")
-    nightly.main(["ledger", "append", "morning", "--outcome", "progress", "--account", "Mail | checked.\nQuiet.",
+    cli.main(["ledger", "append", "morning", "--outcome", "progress", "--account", "Mail | checked.\nQuiet.",
                   "--next", "Wait.", "--at", "2026-10-28 08:30", "--vault", str(config.vault_path)])
     assert capsys.readouterr().out.strip() == str(path)
     assert read_rows(path)[-1] == ledger.Row("2026-10-28 08:30", "morning", "progress", "Mail / checked. Quiet.", "Wait.")
@@ -166,7 +166,7 @@ def test_ledger_cli_defaults_and_json(config, monkeypatch, capsys, as_json, opti
         def now(cls, tz=None):
             return datetime(2026, 10, 28, 12, 34, tzinfo=tz)
 
-    monkeypatch.setattr(nightly, "datetime", Clock)
+    monkeypatch.setattr(cli, "datetime", Clock)
     values = {"routine": "watch", "outcome": "nothing", "account": "Mail checked."}
     if optional:
         values.update(next="Wait.", at="2026-10-27 08:30")
@@ -179,7 +179,7 @@ def test_ledger_cli_defaults_and_json(config, monkeypatch, capsys, as_json, opti
         for name, value in values.items():
             if name != "routine":
                 argv.extend(["--" + name, value])
-    nightly.main(argv)
+    cli.main(argv)
     path = config.vault_path / "Orphan/Watch/2026-10.md"
     assert capsys.readouterr().out.strip() == str(path)
     assert read_rows(path) == [ledger.Row(values.get("at", "2026-10-28 12:34"), "watch", "nothing", "Mail checked.",
@@ -204,7 +204,7 @@ def test_ledger_cli_errors_do_not_write(config, monkeypatch, argv, payload, mess
         monkeypatch.setattr("sys.stdin", io.StringIO(payload))
     before = snapshot(config.repo)
     with pytest.raises(SystemExit) as error:
-        nightly.main(["ledger", "append", "--vault", str(config.vault_path), *argv])
+        cli.main(["ledger", "append", "--vault", str(config.vault_path), *argv])
     assert message in str(error.value)
     assert error.value.code != 0
     assert snapshot(config.repo) == before
@@ -302,7 +302,7 @@ def test_nightly_preview_is_read_only_and_write_collapses_before_validation_and_
     path = write_ledger(config, "Watch", "2026-10-26 08:30 | watch | nothing | First. | Wait.\n"
                         "2026-10-26 22:30 | watch | nothing | Second. | Last.\n")
     before = snapshot(config.repo)
-    nightly.main(nightly_argv(vault, "2026-10-28"))
+    cli.main(nightly_argv(vault, "2026-10-28"))
     assert snapshot(config.repo) == before
     assert "report only; nothing written" in capsys.readouterr().out
     validate_run = nightly.validate.run
@@ -321,13 +321,13 @@ def test_nightly_preview_is_read_only_and_write_collapses_before_validation_and_
         return "fixture"
 
     monkeypatch.setattr(nightly.validate, "run", validate_after_collapse)
-    monkeypatch.setattr(nightly, "commit", commit_after_collapse)
-    nightly.main(nightly_argv(vault, "2026-10-28", "--write", "--commit"))
+    monkeypatch.setattr(cli, "commit", commit_after_collapse)
+    cli.main(nightly_argv(vault, "2026-10-28", "--write", "--commit"))
     assert checked == [True] and committed == [True]
     assert "ledger: collapsed nothing rows" in capsys.readouterr().out
     before = path.read_bytes()
     monkeypatch.setattr(nightly.validate, "run", validate_run)
-    nightly.main(nightly_argv(vault, "2026-10-28", "--write"))
+    cli.main(nightly_argv(vault, "2026-10-28", "--write"))
     assert path.read_bytes() == before
     assert "ledger: collapsed" not in capsys.readouterr().out
 

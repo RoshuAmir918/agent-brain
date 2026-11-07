@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from brain import continuation, needs, nightly, state, tasks
+from brain import cli, continuation, needs, state, tasks
 from brain.config import Config
 
 
@@ -21,7 +21,7 @@ def enterprise(vault):
 
 
 def run(vault, capsys, *args):
-    nightly.main([*args, "--vault", str(vault)])
+    cli.main([*args, "--vault", str(vault)])
     return capsys.readouterr().out.strip()
 
 

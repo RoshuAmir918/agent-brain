@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from brain.config import Config
-from brain import compile_context, fm, nightly, validate
+from brain import cli, compile_context, fm, nightly, validate
 from brain.tasks import Task, archived_open_tasks, bounded_hot_body, load_tasks, parse_register, read_archive_body, write_archive
 from brain.vault import Vault
 from conftest import make_vault, nightly_argv, snapshot
@@ -280,7 +280,7 @@ def test_closed_archived_task_never_restores_or_appears_in_directory(tmp_path, s
     archive = root / "agent/Tasks Archive/T-099.md"
     original = archive.read_bytes()
     assert all(t.tid != task.tid for t in archived_open_tasks(Config.load(root)))
-    nightly.main(nightly_argv(root, "2026-10-06", "--write"))
+    cli.main(nightly_argv(root, "2026-10-06", "--write"))
     register = fm.read(root / "agent/Tasks.md")[1]
     assert "### T-099" not in register
     assert "T-099" not in (root / "CURRENT.md").read_text()
@@ -301,7 +301,7 @@ def test_previous_day_primed_expires_without_losing_uses_or_global_pin_rule(tmp_
     today = root / "agent/Primed/2026-10-06.md"
     fm.write(today, {"kind": "primed", "tier": "hot", "pinned": False,
                      "uses": ["2026-10-06"], "uses_inferred": []}, "# DIAGNOSTIC today\n")
-    nightly.main(nightly_argv(root, "2026-10-06", "--write"))
+    cli.main(nightly_argv(root, "2026-10-06", "--write"))
     data, actual_body = fm.read(path)
     assert data["tier"] == ("hot" if pinned else "cold")
     assert data["uses"] == uses
@@ -346,7 +346,7 @@ def test_nightly_required_field_overflow_keeps_the_task_and_finishes_the_night(t
     before = snapshot(root)
     args = nightly_argv(root, "2026-10-06", *(["--write"] if write else []))
     try:
-        nightly.main(args)
+        cli.main(args)
     except SystemExit:
         pass   # validation may still fail on the fixture; what matters is the night ran past the task
     assert "T-099: parent judgment required" in capsys.readouterr().out
@@ -373,7 +373,7 @@ def test_single_primed_file_never_expires_and_stays_out_of_active_directory(tmp_
     path = root / "agent/Primed.md"
     fm.write(path, {"kind": "primed", "tier": "hot", "pinned": False, "uses": ["2026-10-06"], "uses_inferred": []},
              "# DIAGNOSTIC today\n")
-    nightly.main(nightly_argv(root, "2026-10-06", "--write"))
+    cli.main(nightly_argv(root, "2026-10-06", "--write"))
     assert fm.read(path)[0]["tier"] == "hot"
     assert "Primed" not in compile_context.directory(Vault(root))
     assert validate.run(Vault(root), set()) == []

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from brain import attribute, digest, fm, nightly, session_tools
+from brain import attribute, cli, digest, fm, nightly, session_tools
 from brain.tasks import load_tasks
 from brain.config import Config
 from brain.vault import Vault
@@ -58,15 +58,15 @@ def test_harness_observed_rows_exclude_automatic_load_and_tool_results(vault, ob
 
 def test_observed_cli_write_is_idempotent_even_after_session_id_changes(vault, observed_sessions, capsys):
     args = ["attribute", "--vault", str(vault), "--sessions-dir", str(observed_sessions), "--write"]
-    nightly.main(args)
+    cli.main(args)
     assert len(capsys.readouterr().out.splitlines()) == 3
     log = vault / "agent/Use Log/2026-10.md"
     before = log.read_bytes()
-    nightly.main(args)
+    cli.main(args)
     assert capsys.readouterr().out == "" and log.read_bytes() == before
     path = observed_sessions / "jsonl/cli-session.json"
     path.write_text(path.read_text().replace("cli-session", "renamed-session"))
-    nightly.main(args)
+    cli.main(args)
     assert capsys.readouterr().out == "" and log.read_bytes() == before
 
 

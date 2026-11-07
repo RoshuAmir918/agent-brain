@@ -1,4 +1,4 @@
-from brain import fm, nightly, validate
+from brain import cli, fm, validate
 from brain.vault import Vault
 
 
@@ -15,7 +15,7 @@ def test_undeclared_kind_never_gates_the_nightly_but_brain_validate_reports_it(v
     v = Vault(vault)
     assert not any("undeclared kind" in problem for problem in validate.run(v, set(v.notes)))
     try:
-        nightly.main(["validate", "--vault", str(vault)])
+        cli.main(["validate", "--vault", str(vault)])
     except SystemExit:
         pass
     assert "Evidence.md: undeclared kind 'evidence'" in capsys.readouterr().out

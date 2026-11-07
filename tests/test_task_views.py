@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from brain import nightly, state, views
+from brain import cli, state, views
 from brain.config import Config
 from brain.vault import Vault
 
@@ -18,7 +18,7 @@ def no_conversation(monkeypatch):
 
 def view(vault, capsys, monkeypatch, spec, tid="T-001"):
     monkeypatch.setattr("sys.stdin", io.StringIO(spec if isinstance(spec, str) else json.dumps(spec)))
-    nightly.main(["task", tid, "view", "--vault", str(vault)])
+    cli.main(["task", tid, "view", "--vault", str(vault)])
     return capsys.readouterr().out.strip()
 
 
@@ -104,7 +104,7 @@ def test_kit_v2_refuses_shapes_it_cannot_draw(vault, capsys, monkeypatch, bad, s
 
 def test_the_owners_own_words_are_exported_when_the_source_quotes_them(vault, capsys):
     config = Config.load(vault)
-    nightly.main(["task", "new", "Add Ledger to the Library", "--source", "Rohan in Home, Nov 5: Yes add ledger to my library", "--vault", str(vault)])
+    cli.main(["task", "new", "Add Ledger to the Library", "--source", "Rohan in Home, Nov 5: Yes add ledger to my library", "--vault", str(vault)])
     tid = capsys.readouterr().out.split()[0]
     exported = next(t for t in state._tasks(Vault(config.vault_path)) if t["id"] == tid)
     assert exported["said"] == "Rohan in Home, Nov 5: Yes add ledger to my library"

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from brain import fm, journal, nightly, signals, state, tasks, validate
+from brain import cli, fm, journal, signals, state, tasks, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import make_vault
@@ -30,7 +30,7 @@ def task(config):
 
 
 def run(config, capsys, *args):
-    nightly.main(["continue", *args, "--vault", str(config.vault_path)])
+    cli.main(["continue", *args, "--vault", str(config.vault_path)])
     return capsys.readouterr().out.strip()
 
 
@@ -277,7 +277,7 @@ def test_existing_progress_fingerprint_keeps_its_quiet_count(work, capsys):
 def test_chunk_rejects_unknown_and_non_handed_off(vault, tmp_path, monkeypatch, capsys, tid):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
     with pytest.raises(SystemExit) as error:
-        nightly.main(["continue", "--chunk", tid, "--vault", str(vault)])
+        cli.main(["continue", "--chunk", tid, "--vault", str(vault)])
     assert error.value.code == 2 and f"{tid} is not a handed-off task" in capsys.readouterr().err
 
 
@@ -310,7 +310,7 @@ def test_daily_signal_ids_date_heartbeat_and_ignores_next(work, capsys):
     config, home, clock = work
     tasks.set_pace(config, "T-001", "daily", AT.date())
     assert signals.continue_(config) == "date: none"
-    nightly.main(["continue-signal", "--daily", "--vault", str(config.vault_path)])
+    cli.main(["continue-signal", "--daily", "--vault", str(config.vault_path)])
     assert capsys.readouterr().out == "date: 2026-11-04\nT-001\n"
     current = task(config)
     current.body = current.body.replace("ORIGINAL_FULL_BODY", "Different Next")
@@ -418,11 +418,11 @@ def test_work_saved_needs_more_than_whitespace(work, capsys):
 def test_handoff_reports_in_the_conversation_it_came_from(vault, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
     monkeypatch.setenv("DEMIURGE_CONVERSATION", "jn7ledger")
-    nightly.main(["handoff", "T-001", "--report", "the Ledger thread", "--vault", str(vault)])
+    cli.main(["handoff", "T-001", "--report", "the Ledger thread", "--vault", str(vault)])
     assert "reported in demiurge:jn7ledger" in capsys.readouterr().out
     assert tasks.load_tasks(Config.load(vault))[0][0].handoff[1] == "demiurge:jn7ledger"
     monkeypatch.delenv("DEMIURGE_CONVERSATION")
-    nightly.main(["handoff", "T-001", "--report", "Home", "--vault", str(vault)])
+    cli.main(["handoff", "T-001", "--report", "Home", "--vault", str(vault)])
     assert tasks.load_tasks(Config.load(vault))[0][0].handoff[1] == "Home"
 
 
@@ -445,6 +445,6 @@ def test_due_puts_the_task_worked_least_recently_first(work, capsys):
 def test_handoff_with_workers_tells_the_turn_not_to_start(vault, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
     monkeypatch.setenv("DEMIURGE_WORKERS", "1")
-    nightly.main(["handoff", "T-001", "--vault", str(vault)])
+    cli.main(["handoff", "T-001", "--vault", str(vault)])
     out = capsys.readouterr().out
     assert "a background worker starts on it" in out and "do not start the work in this turn" in out

@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from brain import fm, ideas, needs, nightly, triggers
+from brain import cli, fm, ideas, needs, nightly, triggers
 from brain.config import Config
 from brain.tasks import Task, load_tasks, write_archive
 from brain.vault import Vault
@@ -279,7 +279,7 @@ def test_nightly_write_expires_and_reports_each_confirm(vault, capsys):
                   "- 2026-10-20 · confirm · Second accepted.\n"
                   "- 2026-10-24 · confirm · Still pending.\n"
                   "- 2026-10-25 · ask · Still waiting.\n")
-    nightly.main(nightly_argv(vault, TODAY, "--write"))
+    cli.main(nightly_argv(vault, TODAY, "--write"))
     output = capsys.readouterr().out
     body = fm.read(vault / "CURRENT.md")[1]
     log = vault / "agent/Sleep Log/2026-10.md"
@@ -288,7 +288,7 @@ def test_nightly_write_expires_and_reports_each_confirm(vault, capsys):
         assert line in output and line in log.read_text()
         assert text not in body
     assert "Still pending." in body and "Still waiting." in body
-    nightly.main(nightly_argv(vault, TODAY, "--write"))
+    cli.main(nightly_argv(vault, TODAY, "--write"))
     assert "needs-you:" not in capsys.readouterr().out
     assert log.read_text().count("needs-you: confirm accepted after 5 days:") == 2
 
@@ -296,7 +296,7 @@ def test_nightly_write_expires_and_reports_each_confirm(vault, capsys):
 def test_nightly_preview_does_not_expire_in_real_vault(vault, capsys):
     write_current(vault, "- 2026-10-21 · confirm · Preview only.\n")
     before = snapshot(vault.parent)
-    nightly.main(nightly_argv(vault, TODAY))
+    cli.main(nightly_argv(vault, TODAY))
     assert snapshot(vault.parent) == before
     output = capsys.readouterr().out
     assert "needs-you: confirm accepted after 5 days: Preview only." in output
@@ -316,8 +316,8 @@ def test_nightly_commit_covers_expired_current_without_real_git_actions(vault, m
             return "fixture-sha"
         return ""
 
-    monkeypatch.setattr(nightly, "sh", fake_git)
-    nightly.main(nightly_argv(vault, TODAY, "--write", "--commit"))
+    monkeypatch.setattr(cli, "sh", fake_git)
+    cli.main(nightly_argv(vault, TODAY, "--write", "--commit"))
     assert "Included in commit." not in fm.read(vault / "CURRENT.md")[1]
     assert commands[0] == ("add", "-A", "--", "memory", ":(exclude)memory/.brain", ".context.md")
     assert commands[2][:3] == ("commit", "-q", "-m")
@@ -335,7 +335,7 @@ def test_expiry_runs_before_validation_and_is_recorded_on_failure(vault, monkeyp
 
     monkeypatch.setattr(nightly.validate, "run", fail_validation)
     with pytest.raises(SystemExit, match="1"):
-        nightly.main(nightly_argv(vault, TODAY, "--write"))
+        cli.main(nightly_argv(vault, TODAY, "--write"))
     assert "needs-you: confirm accepted after 5 days: Accepted before validation." in capsys.readouterr().out
     log = (vault / "agent/Sleep Log/2026-10.md").read_text()
     assert "write, validation failed, not committed" in log
@@ -367,11 +367,11 @@ def test_cli_text_and_json(vault, capsys):
     write_tasks(vault, Task("T-002", "Waiting task", "", {"state": "waiting_for_owner"}))
     fm.write(vault / "Topic.md", {}, "## Improvements\n" + improvement("October 26 — Better practice", "proposed"))
     before = snapshot(vault.parent)
-    nightly.main(["needs-you", "--vault", str(vault)])
+    cli.main(["needs-you", "--vault", str(vault)])
     assert capsys.readouterr().out.splitlines() == [   # ranked: what blocks work, then newest first, confirms last
         "ask · Waiting task · agent/Tasks.md#T-002", "ask · Owner decision. · Trip",
         "confirm · Went ahead. · CURRENT.md"]
-    nightly.main(["needs-you", "--json", "--vault", str(vault)])
+    cli.main(["needs-you", "--json", "--vault", str(vault)])
     result = json.loads(capsys.readouterr().out)
     assert result == [asdict(item) for item in needs.items(Config.load(vault), TODAY)]
     assert set(result[0]) == {"id", "kind", "text", "origin", "since", "source", "detail", "context", "needs", "task", "owner"}
@@ -379,9 +379,9 @@ def test_cli_text_and_json(vault, capsys):
 
 
 def test_empty_cli(vault, capsys):
-    nightly.main(["needs-you", "--vault", str(vault)])
+    cli.main(["needs-you", "--vault", str(vault)])
     assert capsys.readouterr().out == ""
-    nightly.main(["needs-you", "--vault", str(vault), "--json"])
+    cli.main(["needs-you", "--vault", str(vault), "--json"])
     assert json.loads(capsys.readouterr().out) == []
 
 
@@ -404,7 +404,7 @@ def test_a_set_aside_task_is_not_an_ask(vault):
 
 def test_cli_ask_adds_once_with_its_source(vault, capsys):
     for _ in range(2):
-        nightly.main(["needs-you", "--vault", str(vault), "--ask", "Still renew the lease?", "--source", "agent/Tasks#T-004"])
+        cli.main(["needs-you", "--vault", str(vault), "--ask", "Still renew the lease?", "--source", "agent/Tasks#T-004"])
     asks = [item for item in needs.parse_section(fm.read(vault / "CURRENT.md")[1]) if item.kind == "ask"]
     assert [(item.text, item.source) for item in asks] == [("Still renew the lease?", "agent/Tasks#T-004")]
 
@@ -412,14 +412,14 @@ def test_cli_ask_adds_once_with_its_source(vault, capsys):
 def test_cli_stale_tasks(vault, capsys):
     write_tasks(vault, Task("T-001", "Old", "- **Status:** parked by nobody\n", {"state": "ready", "uses": "2020-01-01", "tier": "cold"}),
                 Task("T-002", "Set aside", "", {"state": "set_aside", "uses": "2020-01-01"}))
-    nightly.main(["stale-tasks", "--vault", str(vault)])
+    cli.main(["stale-tasks", "--vault", str(vault)])
     assert capsys.readouterr().out.splitlines() == [
         "T-001 · ready · cold · last touched 2020-01-01 · Old · Status: parked by nobody"]
 
 
 def test_cli_ask_is_not_suppressed_by_a_confirm_with_the_same_words(vault):
     write_current(vault, "- 2026-10-28 · confirm · Renew the lease.\n")
-    nightly.main(["needs-you", "--vault", str(vault), "--ask", "Renew the lease."])
+    cli.main(["needs-you", "--vault", str(vault), "--ask", "Renew the lease."])
     assert [item.kind for item in needs.parse_section(fm.read(vault / "CURRENT.md")[1])] == ["confirm", "ask"]
 
 
@@ -427,7 +427,7 @@ def test_cli_ask_is_not_suppressed_by_a_confirm_with_the_same_words(vault):
 def test_cli_ask_rejects_conflicting_arguments(vault, argv):
     before = snapshot(vault.parent)
     with pytest.raises(SystemExit):
-        nightly.main(["needs-you", "--vault", str(vault), *argv])
+        cli.main(["needs-you", "--vault", str(vault), *argv])
     assert snapshot(vault.parent) == before
 
 
@@ -436,7 +436,7 @@ def test_an_ask_unanswered_for_five_days_is_retired_and_reported_but_a_tasks_ask
     write_current(vault, "- 2026-10-23 · ask · Five days old.\n"
                   "- 2026-10-24 · ask · Four days old.\n"
                   "- 2026-09-30 · ask · The task's own question. · [[agent/Tasks#T-004]]\n")
-    nightly.main(nightly_argv(vault, TODAY, "--write"))
+    cli.main(nightly_argv(vault, TODAY, "--write"))
     output = capsys.readouterr().out
     body = fm.read(vault / "CURRENT.md")[1]
     line = "needs-you: ask unanswered 5 days, retired: Five days old."
@@ -448,8 +448,8 @@ def test_a_sixth_ask_is_added_and_the_lowest_ranked_overflow_goes_to_the_evening
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
     write_current(vault, "".join(f"- 2026-10-2{n} · ask · Question {n}.\n" for n in range(5))
                   + "- 2026-10-27 · confirm · Did a thing.\n")
-    nightly.main(["needs-you", "--vault", str(vault), "--ask", "Question 1."])   # a repeat is not a new ask
-    nightly.main(["needs-you", "--vault", str(vault), "--ask", "Renew the registration by November 1?"])
+    cli.main(["needs-you", "--vault", str(vault), "--ask", "Question 1."])   # a repeat is not a new ask
+    cli.main(["needs-you", "--vault", str(vault), "--ask", "Renew the registration by November 1?"])
     assert "now holds 6 asks; tonight's evening decides the lowest-ranked down to 5" in capsys.readouterr().err
     body = fm.read(vault / "CURRENT.md")[1]
     assert "Renew the registration" in body and body.count("· ask ·") == 6
@@ -457,7 +457,7 @@ def test_a_sixth_ask_is_added_and_the_lowest_ranked_overflow_goes_to_the_evening
     assert ranked[0] == "Renew the registration by November 1?"          # a date this week first
     assert ranked[1:6] == ["Question 4.", "Question 3.", "Question 2.", "Question 1.", "Question 0."]   # then newest first
     assert ranked[-1] == "Did a thing."
-    nightly.main(["needs-you", "--vault", str(vault), "--overflow"])
+    cli.main(["needs-you", "--vault", str(vault), "--overflow"])
     assert capsys.readouterr().out.splitlines() == ["2026-10-20 · Question 0. · CURRENT.md"]
     from brain import validate
     from brain.vault import Vault
@@ -467,7 +467,7 @@ def test_stale_lists_asks_three_days_old_oldest_first_but_not_a_tasks(vault, cap
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
     write_current(vault, "- 2026-10-26 · ask · Fresh.\n- 2026-10-25 · ask · Three days.\n- 2026-10-01 · ask · Older.\n"
                   "- 2026-10-01 · ask · A task's. · [[agent/Tasks#T-009]]\n- 2026-10-01 · confirm · Not an ask.\n")
-    nightly.main(["needs-you", "--vault", str(vault), "--stale"])
+    cli.main(["needs-you", "--vault", str(vault), "--stale"])
     assert capsys.readouterr().out.splitlines() == ["2026-10-01 · Older. · CURRENT.md", "2026-10-25 · Three days. · CURRENT.md"]
 
 
@@ -509,7 +509,7 @@ def test_resolve_removes_the_answered_item_and_records_the_evidence(vault, capsy
                   "- 2026-10-29 · ask · Book the dinner for Saturday?\n"
                   "- 2026-10-30 · confirm · Moved the dentist to Thursday.\n")
     write_tasks(vault, Task("T-009", "Waiting task", "", {"state": "waiting_for_owner"}))
-    nightly.main(["needs-you", "--vault", str(vault), "--resolve", "tailscale share", "--because", "tailscale status shows Kevin's share accepted on Nov 2"])
+    cli.main(["needs-you", "--vault", str(vault), "--resolve", "tailscale share", "--because", "tailscale status shows Kevin's share accepted on Nov 2"])
     assert capsys.readouterr().out == "resolved ask: Accept Kevin's Tailscale share for Hands?\n"
     body = fm.read(vault / "CURRENT.md")[1]
     assert "Tailscale" not in body and "Book the dinner" in body and "Moved the dentist" in body
@@ -517,7 +517,7 @@ def test_resolve_removes_the_answered_item_and_records_the_evidence(vault, capsy
     assert log.startswith("---\nkind: log\ntier: cold\n---\n# Answered")
     assert "- 2026-11-03 · ask · Accept Kevin's Tailscale share for Hands? · because tailscale status shows Kevin's share accepted on Nov 2 · [[agent/Tasks#T-037]]" in log
     confirm, = [item for item in needs.items(Config.load(vault), date(2026, 11, 3)) if item.kind == "confirm"]
-    nightly.main(["needs-you", "--vault", str(vault), "--resolve", confirm.id, "--because", "Roshan said Thursday works"])
+    cli.main(["needs-you", "--vault", str(vault), "--resolve", confirm.id, "--because", "Roshan said Thursday works"])
     assert "Moved the dentist" not in fm.read(vault / "CURRENT.md")[1]
     assert log.count("\n- ") + 1 == (vault / "agent/Answered/2026-11.md").read_text().count("\n- ")
     from brain.vault import Vault
@@ -537,7 +537,7 @@ def test_resolve_refuses_what_it_cannot_settle(vault, capsys, which, because, me
     if because:
         args += ["--because", because]
     with pytest.raises(SystemExit):
-        nightly.main(args)
+        cli.main(args)
     out = capsys.readouterr()
     assert message in out.err + str(out.out) or because == ""
     assert "Book the dinner" in fm.read(vault / "CURRENT.md")[1]
@@ -547,7 +547,7 @@ def test_dismiss_no_sets_the_task_aside_and_the_item_never_returns(vault, capsys
     monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
     write_tasks(vault, Task("T-011", "Hands share", "- **Status:** waiting\n", {"state": "ready"}))
     write_current(vault, "- 2026-10-28 · ask · Accept Kevin's share for Hands? · [[agent/Tasks#T-011]]\n")
-    nightly.main(["needs-you", "--vault", str(vault), "--dismiss", "Kevin's share"])
+    cli.main(["needs-you", "--vault", str(vault), "--dismiss", "Kevin's share"])
     assert capsys.readouterr().out == "dismissed (no) ask: Accept Kevin's share for Hands?\n"
     assert "Kevin's share" not in fm.read(vault / "CURRENT.md")[1]
     task, = [t for t in load_tasks(Config.load(vault))[0] if t.tid == "T-011"]
@@ -560,7 +560,7 @@ def test_dismiss_done_completes_a_waiting_task(vault, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
     write_tasks(vault, Task("T-012", "Renew registration", "- **Status:** waiting on Roshan\n", {"state": "waiting_for_owner"}))
     item, = needs.items(Config.load(vault), date(2026, 11, 3))
-    nightly.main(["needs-you", "--vault", str(vault), "--dismiss", item.id, "--reason", "done"])
+    cli.main(["needs-you", "--vault", str(vault), "--dismiss", item.id, "--reason", "done"])
     task, = [t for t in load_tasks(Config.load(vault))[0] if t.tid == "T-012"]
     assert task.task_state == "completed" and "the owner said they did it, in their app" in task.body
     assert needs.items(Config.load(vault), date(2026, 11, 3)) == []
@@ -582,9 +582,9 @@ def test_ideas_declines_a_proposal_and_stop_asking_is_logged_for_the_people_revi
 
 def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(vault, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
-    nightly.main(["needs-you", "--vault", str(vault), "--ask", "Book the Saturday dinner for Mira's visit?",
+    cli.main(["needs-you", "--vault", str(vault), "--ask", "Book the Saturday dinner for Mira's visit?",
                   "--why", "Two places have tables at 7; I'll book the one you pick, or neither."])
-    nightly.main(["needs-you", "--vault", str(vault), "--ask", "Keep the refundable fare?"])
+    cli.main(["needs-you", "--vault", str(vault), "--ask", "Keep the refundable fare?"])
     write_tasks(vault, Task("T-030", "Connect Roshan's Google accounts",
                             "- **Status:** the Gmail link is ready\n- **Blocker:** T-030 step 3 needs an account pick\n"
                             "- **Ask:** Which of your two Gmails should I read first?\n"

@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from brain import fm, needs, nightly, state, tasks
+from brain import cli as brain_cli, fm, needs, nightly, state, tasks
 from brain.config import Config
 from brain.vault import Vault
 from conftest import nightly_argv
@@ -13,7 +13,7 @@ TODAY = date(2026, 11, 5)
 
 
 def cli(vault, capsys, *args):
-    nightly.main(["task", *args, "--vault", str(vault)])
+    brain_cli.main(["task", *args, "--vault", str(vault)])
     return capsys.readouterr().out.strip()
 
 
@@ -44,7 +44,7 @@ def test_the_night_keeps_a_worker_write_made_after_it_loaded_the_tasks(vault, mo
 
     monkeypatch.setattr(nightly, "retier", worker_writes_meanwhile)
     try:
-        nightly.main(nightly_argv(vault, TODAY, "--write"))
+        brain_cli.main(nightly_argv(vault, TODAY, "--write"))
     except SystemExit:
         pass
     capsys.readouterr()

@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from brain import fm, journal, ledger, loops, needs, nightly, state, validate
+from brain import cli, fm, journal, ledger, loops, needs, state, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -181,7 +181,7 @@ def test_owed_and_waiting_require_a_counterpart_even_in_bare_vaults(config, kind
 
 def test_cli_add_uses_counterpart_validation(known_config):
     with pytest.raises(SystemExit, match="brain loops: test-harness maintainer is not a person or intellect"):
-        nightly.main(["loops", "--vault", str(known_config.vault_path), "--add", "Relay the answer",
+        cli.main(["loops", "--vault", str(known_config.vault_path), "--add", "Relay the answer",
                       "--kind", "owed", "--source", "Trip", "--with", "test-harness maintainer"])
     assert loops.open_loops(known_config) == []
 
@@ -257,28 +257,28 @@ def test_due_respects_owner_zone_and_elapsed_hours_across_dst(config):
 def test_cli_lists_adds_closes_and_quiet_exit_codes(config, monkeypatch, capsys):
     monkeypatch.setattr(Config, "now", lambda self, moment=None: AT)
     argv = ["loops", "--vault", str(config.vault_path)]
-    nightly.main(argv + ["--due"])
+    cli.main(argv + ["--due"])
     assert capsys.readouterr().out == ""
     with pytest.raises(SystemExit) as error:
-        nightly.main(argv + ["--due", "--quiet"])
+        cli.main(argv + ["--due", "--quiet"])
     assert error.value.code == 1 and capsys.readouterr().out == ""
-    nightly.main(argv + ["--add", "Relay answer", "--kind", "owed", "--source", "Trip", "--with", "Kevin",
+    cli.main(argv + ["--add", "Relay answer", "--kind", "owed", "--source", "Trip", "--with", "Kevin",
                          "--due", "2026-10-28 11:00"])
     assert "added loop" in capsys.readouterr().out
-    nightly.main(argv)
+    cli.main(argv)
     line = capsys.readouterr().out
     assert "owed · Relay answer · [[Trip]]" in line and "with: Kevin" in line and len(line.splitlines()) == 1
-    nightly.main(argv + ["--due"])
+    cli.main(argv + ["--due"])
     assert capsys.readouterr().out == line
     with pytest.raises(SystemExit) as error:
-        nightly.main(argv + ["--quiet"])
+        cli.main(argv + ["--quiet"])
     assert error.value.code == 0 and capsys.readouterr().out == ""
-    nightly.main(argv + ["--json"])
+    cli.main(argv + ["--json"])
     result = json.loads(capsys.readouterr().out)
     assert result["open"] == result["due"] and result["closed_recent"] == []
-    nightly.main(argv + ["--close", result["open"][0]["id"], "--outcome", "dropped", "--because", "No longer needed"])
+    cli.main(argv + ["--close", result["open"][0]["id"], "--outcome", "dropped", "--because", "No longer needed"])
     assert "closed (dropped)" in capsys.readouterr().out
-    nightly.main(argv + ["--json"])
+    cli.main(argv + ["--json"])
     result = json.loads(capsys.readouterr().out)
     assert result["open"] == result["due"] == [] and result["closed_recent"][0]["outcome"] == "dropped"
 
@@ -289,7 +289,7 @@ def test_cli_lists_adds_closes_and_quiet_exit_codes(config, monkeypatch, capsys)
 ])
 def test_cli_rejects_incomplete_mutations(config, extra):
     with pytest.raises(SystemExit, match="brain loops:"):
-        nightly.main(["loops", "--vault", str(config.vault_path), *extra])
+        cli.main(["loops", "--vault", str(config.vault_path), *extra])
 
 
 def test_cli_empty_due_exits_zero_in_a_subprocess(config):
@@ -410,7 +410,7 @@ def test_ready_round_trips_and_overrides_age_and_future_deadline(config, kind, m
     assert loops.ready(config, "FOLLOW  THROUGH", AT + timedelta(hours=1)) == marked
     assert snapshot(config.vault_path) == before
     monkeypatch.setattr(Config, "now", lambda self, moment=None: AT)
-    nightly.main(["loops", "--json", "--vault", str(config.vault_path)])
+    cli.main(["loops", "--json", "--vault", str(config.vault_path)])
     result = json.loads(capsys.readouterr().out)
     assert result["open"][0]["ready"] == result["due"][0]["ready"] == marked.ready
     closed = loops.close(config, item.id, AT, "done", "Relayed")

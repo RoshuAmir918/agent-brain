@@ -6,7 +6,7 @@ from pathlib import Path
 from brain import activation as act, fm, triggers, attribute
 from brain.tasks import parse_register, Task
 from brain.vault import Vault
-from brain import nightly
+from brain import cli, nightly
 
 TODAY = date(2026, 10, 5)
 
@@ -84,7 +84,7 @@ def make_vault(tmp_path: Path) -> Path:
 
 def test_nightly_archives_cold_tasks_and_restores_logged_uses(tmp_path):
     root = make_vault(tmp_path)
-    nightly.main(nightly_argv(root, "2026-10-05", "--write"))
+    cli.main(nightly_argv(root, "2026-10-05", "--write"))
     v = Vault(root)
     assert v.notes["Harbor Context.md"].data["tier"] == "hot"
     assert v.notes["START.md"].data["pinned"] is True
@@ -98,7 +98,7 @@ def test_nightly_archives_cold_tasks_and_restores_logged_uses(tmp_path):
     assert "T-001 — Ship thing" in cur
     # a use log line reheats T-002 the next night
     attribute.append_log(root / "agent" / "Use Log" / "2026-10.md", [attribute.Use("2026-10-05T20:00Z", "T-002", "the owner asked", "explicit")])
-    nightly.main(nightly_argv(root, "2026-10-06", "--write"))
+    cli.main(nightly_argv(root, "2026-10-06", "--write"))
     reg = fm.read(root / "agent" / "Tasks.md")[1]
     assert "### T-002" in reg
 

@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from brain import continuation, journal, needs, nightly, tasks
+from brain import cli as brain_cli, continuation, journal, needs, tasks
 from brain.config import Config
 
 
@@ -27,7 +27,7 @@ def worker(vault, tmp_path, monkeypatch):
 
 
 def cli(config, capsys, *args):
-    nightly.main(["continue", *args, "--vault", str(config.vault_path)])
+    brain_cli.main(["continue", *args, "--vault", str(config.vault_path)])
     return capsys.readouterr().out.strip()
 
 
@@ -171,18 +171,18 @@ def test_owner_task_edits_and_answered_asks_are_available_to_reviewer(worker, ca
     config, clock = worker
     count(config, capsys, clock, 2)
     monkeypatch.setenv("DEMIURGE_CONVERSATION", "owner")
-    nightly.main(["task", "T-001", "set", "--next", "Publish just the finalists", "--vault", str(config.vault_path)])
+    brain_cli.main(["task", "T-001", "set", "--next", "Publish just the finalists", "--vault", str(config.vault_path)])
     capsys.readouterr()
     assert context(config, capsys)["ownerInstruction"] == "Publish just the finalists"
     assert due(config, capsys)[0]["chunksSinceReview"] == 0
     journal.add_ask(config, config.today(), "Publish the three finalists?", "agent/Tasks#T-001")
-    nightly.main(["needs-you", "--resolve", "Publish the three finalists?", "--because", "Yes, just those three",
+    brain_cli.main(["needs-you", "--resolve", "Publish the three finalists?", "--because", "Yes, just those three",
                   "--vault", str(config.vault_path)])
     capsys.readouterr()
     assert context(config, capsys)["ownerInstruction"] == "Publish the three finalists? Answer: Yes, just those three"
     monkeypatch.setenv("DEMIURGE_TASK", "T-001")
     count(config, capsys, clock)
-    nightly.main(["task", "T-001", "set", "--next", "worker's plan", "--vault", str(config.vault_path)])
+    brain_cli.main(["task", "T-001", "set", "--next", "worker's plan", "--vault", str(config.vault_path)])
     capsys.readouterr()
     assert due(config, capsys)[0]["chunksSinceReview"] == 1
     assert "Yes, just those three" in context(config, capsys)["ownerInstruction"]
@@ -202,7 +202,7 @@ def test_met_begins_next_chunk_instructions_and_clears_after_one_chunk_or_close(
     assert json.loads(cli(config, capsys, "T-001", "--json"))["checkpoint"].startswith(expected)
     assert task(config).task_state == "in_progress"
     if close:
-        nightly.main(["task", "T-001", "done", "--why", "verified the Library", "--vault", str(config.vault_path)])
+        brain_cli.main(["task", "T-001", "done", "--why", "verified the Library", "--vault", str(config.vault_path)])
         capsys.readouterr()
         assert "close_out" not in continuation._progress(config)["T-001"]
         assert task(config).task_state == "completed"
@@ -336,7 +336,7 @@ def test_answering_a_steering_ask_is_engagement_but_worker_resolution_is_not(wor
     verdict(config, capsys, "circling", "too many listings", "--ask", "Should the shortlist stop at three apartments?")
     count(config, capsys, clock)
     monkeypatch.setenv("DEMIURGE_CONVERSATION", "owner")
-    nightly.main(["needs-you", "--resolve", "Should the shortlist stop at three apartments?", "--because", "Yes, just three",
+    brain_cli.main(["needs-you", "--resolve", "Should the shortlist stop at three apartments?", "--because", "Yes, just three",
                   "--vault", str(config.vault_path)])
     capsys.readouterr()
     assert due(config, capsys)[0]["chunksSinceReview"] == 0
@@ -345,7 +345,7 @@ def test_answering_a_steering_ask_is_engagement_but_worker_resolution_is_not(wor
     assert task(config).task_state == "in_progress"
     count(config, capsys, clock)
     monkeypatch.setenv("DEMIURGE_TASK", "T-001")
-    nightly.main(["needs-you", "--resolve", "Should the shortlist stop at two apartments?", "--because", "evidence resolved it",
+    brain_cli.main(["needs-you", "--resolve", "Should the shortlist stop at two apartments?", "--because", "evidence resolved it",
                   "--vault", str(config.vault_path)])
     capsys.readouterr()
     assert due(config, capsys)[0]["chunksSinceReview"] == 1

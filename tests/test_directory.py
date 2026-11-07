@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from brain import directory, fm, nightly, session_context, validate
+from brain import cli, directory, fm, session_context, validate
 from brain.vault import Vault
 
 TODAY = date(2026, 11, 3)
@@ -166,22 +166,22 @@ def test_people_who_text_and_json_identify_and_name_profiles(config, payload, ca
     directory.sync(config, payload, TODAY)
     entry = directory.lookup(config, ident)
     profile(config, rel, f"# Profile\n- **Demiurge:** `{entry['id']}`\n")
-    nightly.main(["people", "who", ident, "--vault", str(config.vault_path)])
+    cli.main(["people", "who", ident, "--vault", str(config.vault_path)])
     assert capsys.readouterr().out == expected + f"\nProfile: memory/{rel}\n"
-    nightly.main(["people", "who", ident, "--json", "--vault", str(config.vault_path)])
+    cli.main(["people", "who", ident, "--json", "--vault", str(config.vault_path)])
     assert json.loads(capsys.readouterr().out) == dict(entry, profiles=[rel])
 
 
 def test_people_who_unknown_exits_one(config, capsys):
     with pytest.raises(SystemExit) as error:
-        nightly.main(["people", "who", "nobody", "--vault", str(config.vault_path)])
+        cli.main(["people", "who", "nobody", "--vault", str(config.vault_path)])
     assert error.value.code == 1
     assert capsys.readouterr().out == "not in the directory\n"
 
 
 def test_people_sync_stdin_and_run_use_same_directory(config, payload, capsys, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
-    nightly.main(["people", "sync", "--vault", str(config.vault_path)])
+    cli.main(["people", "sync", "--vault", str(config.vault_path)])
     assert capsys.readouterr().out == "synced 2 people, 1 intellect\n"
 
     def run(command, **kwargs):
@@ -189,8 +189,8 @@ def test_people_sync_stdin_and_run_use_same_directory(config, payload, capsys, m
         assert kwargs == {"capture_output": True, "text": True, "check": True, "timeout": 20}
         return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload))
 
-    monkeypatch.setattr(nightly.subprocess, "run", run)
-    nightly.main(["people", "sync", "--run", "--vault", str(config.vault_path)])
+    monkeypatch.setattr(cli.subprocess, "run", run)
+    cli.main(["people", "sync", "--run", "--vault", str(config.vault_path)])
     assert capsys.readouterr().out == "synced 2 people, 1 intellect\n"
 
 
@@ -214,9 +214,9 @@ def test_people_sync_failures_leave_cache_unchanged(config, payload, monkeypatch
             raise subprocess.CalledProcessError(1, command)
         return subprocess.CompletedProcess(command, 0, stdout="not json")
 
-    monkeypatch.setattr(nightly.subprocess, "run", run)
+    monkeypatch.setattr(cli.subprocess, "run", run)
     with pytest.raises(SystemExit, match="people sync:"):
-        nightly.main(["people", "sync", "--run", "--vault", str(config.vault_path)])
+        cli.main(["people", "sync", "--run", "--vault", str(config.vault_path)])
     assert directory.path().read_bytes() == before
 
 
