@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from statistics import median
+from typing import Iterable
 from uuid import uuid4
 
-from . import fm, needs, owners, routing, tasks
+from . import fm, needs, owners, routing, seed, tasks
 from .config import Config
 from .lock import vault_lock
 
@@ -216,24 +217,38 @@ def _unmuted(config: Config, area: str, person: str, text: str) -> None:
 
 def add_evidence(config: Config, area: str, day: date | str, person: str, kind: str, text: str, link: str = "") -> bool:
     """Append one deduplicated history line under its area."""
+    return bool(record_evidence(config, [seed.Row(area, str(day), person, kind, text, link)]))
+
+
+def record_evidence(config: Config, rows: Iterable[seed.Row]) -> int:
+    """Append new history lines in one write per area under one vault lock."""
     require_enterprise(config)
-    area = routing.area_name(area)
-    day = date.fromisoformat(str(day))
-    _person(person, "person")
-    if kind not in routing.SEED_KINDS:
-        raise ValueError("evidence kind must be approved, reviewed, changed or deferred-to")
-    text = _words("text", text)
-    link = tasks.single_line("link", link)
-    if any(char in link for char in "[]"):
-        raise ValueError("link must omit wikilink brackets")
-    bullet = f"- {day} · {person} · {kind} · {text}" + (f" · [[{link}]]" if link else "")
+    grouped = {}
+    for row in rows:
+        area = routing.area_name(row.area)
+        day = date.fromisoformat(str(row.day))
+        _person(row.person, "person")
+        if row.kind not in routing.SEED_KINDS:
+            raise ValueError("evidence kind must be approved, reviewed, changed or deferred-to")
+        text = _words("text", row.text)
+        link = tasks.single_line("link", row.link)
+        if any(char in link for char in "[]"):
+            raise ValueError("link must omit wikilink brackets")
+        bullet = f"- {day} · {row.person} · {row.kind} · {text}" + (f" · [[{link}]]" if link else "")
+        grouped.setdefault(area, []).append(bullet)
+    if not grouped:
+        return 0
+    added = 0
     with vault_lock(config):
-        path = routing.area_path(config, area)
-        body = fm.read(path)[1] if path.exists() else ""
-        if bullet in routing.section(body, "Evidence").splitlines():
-            return False
-        _area_note(config, area, "Evidence", bullet)
-    return True
+        for area, bullets in sorted(grouped.items()):
+            path = routing.area_path(config, area)
+            body = fm.read(path)[1] if path.exists() else ""
+            existing = set(routing.section(body, "Evidence").splitlines())
+            new = list(dict.fromkeys(bullet for bullet in bullets if bullet not in existing))
+            if new:
+                _area_note(config, area, "Evidence", "\n".join(new))
+                added += len(new)
+    return added
 
 
 def _delegation(config: Config, area: str, to: str, by: str, words: str, ident: str = "", question: str = "") -> None:
@@ -252,7 +267,8 @@ def delegate(config: Config, area: str, to: str, by: str, words: str) -> None:
     words = _words("words", words)
     with vault_lock(config):
         row = next((row for row in owners.load(config) if row.area == area), None)
-        if row is None or by not in (row.owner, row.backup):
+        aliases = routing.identities(config)
+        if row is None or aliases.get(by, by) not in {aliases.get(person, person) for person in (row.owner, row.backup)}:
             raise ValueError("--by must be the area's owner or backup in Owners.md")
         _delegation(config, area, to, by, words)
 
@@ -364,7 +380,8 @@ def answer(config: Config, which: str, outcome: str, answer: str, by: str, to: s
             _gate(config, consult.area, by, consult.id)
         if outcome == "redirected":
             _unmuted(config, consult.area, to, consult.text)
-            if to in consult.tried:
+            aliases = routing.identities(config)
+            if aliases.get(to, to) in {aliases.get(person, person) for person in consult.tried}:
                 raise ValueError(f"{to} already received this consult; choose someone not in tried")
             if len(consult.tried) >= MAX_TRIES:
                 raise ValueError(f"consult already tried {MAX_TRIES} people; use brain consult lapse")
@@ -422,8 +439,10 @@ def lapse(config: Config, *, dry_run: bool = False) -> list[str]:
             if consult.kind != "ask" or not consult.until or config.local(datetime.fromisoformat(consult.until)) > now:
                 continue
             permitted = routing.allowed(config, consult.area, consult.id) if consult.restricted else None
+            aliases = routing.identities(config)
+            tried = {aliases.get(person, person) for person in consult.tried}
             recipient = next((entry.person for entry in candidates(config, consult.text, consult.area)
-                              if not entry.muted and entry.person not in consult.tried
+                              if not entry.muted and entry.person not in tried
                               and (permitted is None or entry.person in permitted)), "") if len(consult.tried) < MAX_TRIES else ""
             if recipient:
                 actions.append(f"{consult.id}: reassigned to {recipient}")

@@ -1,13 +1,14 @@
 """Rank colleagues from area records; reading evidence never changes it."""
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from statistics import median
 
-from . import directory, fm, needs, owners, tasks
+from . import directory, fm, needs, owners, session_context, tasks
 from .config import Config
 from .retrieve import tokens
 
@@ -29,6 +30,7 @@ WEIGHTS = {   # add evidence across relevant areas
 }
 SEED_KINDS = ("approved", "reviewed", "changed", "deferred-to")   # history imported by a seeder
 HALF_LIFE_DAYS = 90   # only seeded history decays; explicit decisions and ownership remain on record
+# Seeded kinds score weight * log2(1 + decayed count) per person, area and kind, so one fresh line is worth its weight.
 DECISION = re.compile(r"^- (\d{4}-\d{2}-\d{2}) · (.+?) · (.*?) · id:([0-9a-f]{12})"
                       r"(?=\n|$)((?:\n[ \t]+-[^\n]*)*)", re.M)   # an answer and its adjacent annotations
 
@@ -42,6 +44,24 @@ def area_name(area: str) -> str:
 
 def area_path(config: Config, area: str) -> Path:
     return config.vault_path / config.agent(f"Areas/{area_name(area)}.md")
+
+
+def identities(config: Config) -> dict[str, str]:
+    """Map explicit person-profile ids to Slack, then Demiurge, then their first other id."""
+    out = {}
+    line = session_context._qualified_id_line("github", r"(?P<id>[A-Za-z0-9-]+)")
+    # Only person profiles, read directly: loading the whole vault per call made ranking scale with the vault.
+    for path in sorted((config.vault_path / config.people_dir).rglob("Profile.md")):
+        data, body = fm.read(path)
+        if data.get("kind") == "log":   # a moved or retired stub, never an identity (as directory.profiles)
+            continue
+        ids = session_context.profile_ids(body)
+        ids += ["github:" + match["id"] for match in re.finditer(line, body)]
+        if ids:
+            canonical = next((ident for platform in ("slack:", "demiurge:") for ident in ids
+                              if ident.startswith(platform)), ids[0])
+            out.update((ident, canonical) for ident in ids)
+    return out
 
 
 def name(config: Config, person: str) -> str:
@@ -64,11 +84,13 @@ def section(body: str, title: str) -> str:
     return body[span[0]:span[1]] if span else ""
 
 
-def stopped(config: Config, area: str, person: str) -> bool:
+def stopped(config: Config, area: str, person: str, aliases: dict[str, str] | None = None) -> bool:
     path = area_path(config, area)
     body = fm.read(path)[1] if path.exists() else ""
-    return bool(re.search(r"^- \d{4}-\d{2}-\d{2} · " + re.escape(person) + r" · stop-asking$",
-                          section(body, "Not asked"), re.M))
+    aliases = identities(config) if aliases is None else aliases
+    canonical = aliases.get(person, person)
+    return any(aliases.get(found, found) == canonical for found in re.findall(
+        r"^- \d{4}-\d{2}-\d{2} · (\S+) · stop-asking$", section(body, "Not asked"), re.M))
 
 
 @dataclass
@@ -155,8 +177,11 @@ def allowed(config: Config, area: str, consult: str = "") -> set[str]:
     people = {row.owner, row.backup} - {""} if row else set()
     path = area_path(config, area)
     body = fm.read(path)[1] if path.exists() else ""
-    return people | {entry["person"] for entry in delegations(body)
-                     if not entry["consult"] or consult and entry["consult"] == consult}
+    people |= {entry["person"] for entry in delegations(body)
+               if not entry["consult"] or consult and entry["consult"] == consult}
+    aliases = identities(config)
+    canonical = {aliases.get(person, person) for person in people}
+    return people | canonical | {ident for ident, person in aliases.items() if person in canonical}
 
 
 def relevant(config: Config, about: str, area: str = "") -> list[str]:
@@ -204,13 +229,23 @@ def candidates(config: Config, about: str, area: str = "", limit: int | None = N
         raise ValueError("limit must be positive")
     relevant_areas = relevance(config, about, area)
     target = area_name(area) if area else next(iter(relevant_areas), "general")
+    aliases = identities(config)
     people = {}
     hours = {}
 
+    seeded = {}   # (person, area, kind) -> decayed count, scored once below
+
     def add(person: str, key: str, kind: str, day: str, text: str, link: str, factor: float = 1) -> None:
+        original, person = person, aliases.get(person, person)
         candidate = people.setdefault(person, Candidate(person, name(config, person)))
-        candidate.score += WEIGHTS[kind] * factor * relevant_areas[key]
-        candidate.evidence.append(dict(area=key, kind=kind, date=day, text=text, link=link))
+        if kind in SEED_KINDS:
+            seeded[person, key, kind] = seeded.get((person, key, kind), 0) + factor
+        else:
+            candidate.score += WEIGHTS[kind] * factor * relevant_areas[key]
+        evidence = dict(area=key, kind=kind, date=day, text=text, link=link)
+        if original != person:
+            evidence["via"] = original
+        candidate.evidence.append(evidence)
 
     for row in owners.load(config):
         if row.area in relevant_areas:
@@ -260,9 +295,13 @@ def candidates(config: Config, about: str, area: str = "", limit: int | None = N
         if outcome == "redirected" and tasks.PERSON.fullmatch(entry["to"]):
             add(entry["to"], key, "redirected-to", entry["date"], entry["answer"] or entry["text"], entry["link"])
         if outcome in ("changed", "confirmed", "redirected") and entry["hours"] is not None:
-            hours.setdefault(person, []).append(entry["hours"])
+            hours.setdefault(aliases.get(person, person), []).append(entry["hours"])
+    # Seeded history is high-volume, so it counts with diminishing returns: forty approvals outweigh the owner map,
+    # but not by an order of magnitude. Consult outcomes are rare and deliberate and stay linear.
+    for (person, key, kind), count in seeded.items():
+        people[person].score += WEIGHTS[kind] * math.log2(1 + count) * relevant_areas[key]
     for person, candidate in people.items():
-        candidate.muted = stopped(config, target, person)
+        candidate.muted = stopped(config, target, person, aliases)
         candidate.median_hours = median(hours[person]) if person in hours else None
         candidate.evidence.sort(key=lambda item: (-abs(WEIGHTS[item["kind"]]), item["area"], item["date"]))
     ranked = sorted(people.values(), key=lambda entry: (entry.muted, -entry.score,

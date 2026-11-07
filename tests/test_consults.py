@@ -3,6 +3,7 @@ from dataclasses import asdict
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -10,7 +11,7 @@ import sys
 
 import pytest
 
-from brain import cli, consults, directory, fm, needs, nightly, owners, routing, state, tasks, validate
+from brain import cli, consults, directory, fm, needs, nightly, owners, routing, seed, state, tasks, validate
 from brain.config import Config
 from brain.lock import vault_lock
 from brain.vault import Vault
@@ -601,7 +602,7 @@ def test_seeded_evidence_dedup_decay_kinds_and_links(enterprise):
     ranked = consults.candidates(enterprise, "export")
     assert [entry.person for entry in ranked] == [LEE, KIM]
     assert ranked[0].score == sum(routing.WEIGHTS[kind] for kind in routing.SEED_KINDS)
-    assert ranked[1].score == routing.WEIGHTS["deferred-to"] / 2
+    assert ranked[1].score == pytest.approx(routing.WEIGHTS["deferred-to"] * math.log2(1.5))
     assert ranked[1].evidence == [dict(area="export pipeline", kind="deferred-to", date=str(old),
                                      text="Per Kim · she signed off.", link="https://example.com/pr/1")]
     assert all(item["link"] == "agent/Areas/export pipeline.md" for item in ranked[0].evidence)
@@ -966,3 +967,12 @@ def test_overrule_in_restricted_area_needs_a_permitted_word_to_act(enterprise, b
     assert "overruled the consult: Leave staging alone." in body
     assert ("act on it only once one of" in body) is not acts
     assert "overruled" in (enterprise.vault_path / "agent/Areas/infrastructure.md").read_text()
+
+
+def test_seeded_volume_counts_with_diminishing_returns(enterprise):
+    rows = [seed.Row("infrastructure", TODAY.isoformat(), KIM, "approved", f"#{number} Terraform deploys") for number in range(40)]
+    assert consults.record_evidence(enterprise, rows) == 40
+    ranked = {entry.person: entry.score for entry in consults.candidates(enterprise, "terraform deploys")}
+    assert ranked[KIM] == pytest.approx(routing.WEIGHTS["approved"] * math.log2(41))
+    assert routing.WEIGHTS["owner"] < ranked[KIM] < 2 * routing.WEIGHTS["owner"]
+    assert ranked[NATHAN] == routing.WEIGHTS["owner"]
