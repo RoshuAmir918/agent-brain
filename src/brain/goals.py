@@ -289,8 +289,18 @@ def _write(config: Config, data: dict, body: str, goal: Goal, *, new: bool = Fal
     return goal
 
 
+def _said(config: Config, said: str | None) -> str:
+    """When the person said it: a stated past date, never one in the future; today when not given."""
+    if said is None:
+        return config.today().isoformat()
+    when = day(said)
+    if date.fromisoformat(when) > config.today():
+        raise ValueError("--said is when they said it, so it can't be in the future")
+    return when
+
+
 def new(config: Config, title: str, words: str, *, reach: bool = False, by: str | None = None,
-        from_app: bool = False) -> Goal:
+        said: str | None = None, from_app: bool = False) -> Goal:
     if config.edition != "personal":
         raise ValueError("goals belong to a person; organisation aims belong in initiatives")
     if errors := problems(config):
@@ -302,13 +312,13 @@ def new(config: Config, title: str, words: str, *, reach: bool = False, by: str 
     if by is not None:
         state["by"] = day(by)
     gid = f"G-{max((int(goal.gid[2:]) for goal in load(config)), default=0) + 1}"
-    goal = Goal(gid, title, f'- **In their words:** "{words}" ({config.today()})\n', state)
+    goal = Goal(gid, title, f'- **In their words:** "{words}" ({_said(config, said)})\n', state)
     return _write(config, *read(config), goal, new=True, from_app=from_app)
 
 
 def change(config: Config, gid: str, operation: str, *, text: str | None = None, title: str | None = None,
            words: str | None = None, by: str | None = None, clear_by: bool = False, kind: str | None = None,
-           why: str | None = None, from_app: bool = False) -> Goal:
+           why: str | None = None, said: str | None = None, from_app: bool = False) -> Goal:
     if errors := problems(config):
         raise ValueError(errors[0])
     data, body = read(config)
@@ -319,8 +329,11 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
     if operation == "edit":
         if title is not None:
             goal.title = line("title", title, 80)
-        if words is not None:
-            goal.body = WORDS.sub(lambda _: f'- **In their words:** "{line("words", words, 500)}" ({today})', goal.body)
+        if words is not None or said is not None:
+            current = WORDS.search(goal.body)
+            text = line("words", words, 500) if words is not None else (current[1] if current else "")
+            when = _said(config, said) if said is not None or words is not None else current[2]
+            goal.body = WORDS.sub(lambda _: f'- **In their words:** "{text}" ({when})', goal.body)
         if kind:
             if kind not in KINDS:
                 raise ValueError("kind must be reach or become")

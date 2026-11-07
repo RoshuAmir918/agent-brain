@@ -1,7 +1,7 @@
 ---
 name: {prefix}recall
 description: Retrieve from and write to the vault memory
-version: 2.17.0
+version: 2.17.1
 metadata:
   runtime:
     tags: [memory, vault]
@@ -59,7 +59,7 @@ An invitation or question for someone else's owner goes through their intellect,
 ## Goals
 `{human_goals}` holds what {human_name} is trying to become or reach, in their words. A reach has a finish line; a become is a direction. Instructions to you ("save me money", "build out my ideas") are responsibilities, never goals. Your suggestion stays a proposal until they adopt it. Aspirations and Adopted practices remain free text.
 
-Only `brain goals` writes goal blocks: `brain goals new "<title>" --words "<their words>" [--reach --by YYYY-MM-DD]`; `brain goals G-n edit --title … --words … --by …` (`--clear-by` removes the date); `brain goals G-n evidence "<date> · <what happened> · [[note]]"`; `brain goals G-n reached|set-aside|reopen --why "…"`. `list --json` and `show G-n` read them. Capture when they call something a goal or return to it on a second day, with the date they said it; record progress when it appears on its own. A wish said once is at most an aspiration. Their preference in Working together about keeping their exact words still wins.
+Only `brain goals` writes goal blocks: `brain goals new "<title>" --words "<their words>" [--said YYYY-MM-DD] [--reach --by YYYY-MM-DD]` (`--said` when they said it on an earlier day); `brain goals G-n edit --title … --words … --by …` (`--clear-by` removes the date); `brain goals G-n evidence "<date> · <what happened> · [[note]]"`; `brain goals G-n reached|set-aside|reopen --why "…"`. `list --json` and `show G-n` read them. Capture when they call something a goal or return to it on a second day, with the date they said it; record progress when it appears on its own. A wish said once is at most an aspiration. Their preference in Working together about keeping their exact words still wins.
 
 If {human_name} has no active goal and the context says the capture question has never been asked, claim it with `brain goals asked` only in {human_name}'s own conversation or the morning briefing. Only if that command returns the question, ask {human_name}: "What are you working toward right now? Anything: a race, an exam, a habit, a skill. I'll keep it in mind, and it's how I decide what to do without being asked." Never repeat it, even without an answer. Otherwise goals never enter a conversation uninvited; a conversation about a show stays about the show. The prime routine nudges after sixty days without evidence (`brain goals G-n nudge`), once, and sets aside after thirty more without a response (`brain goals G-n set-aside --why …`); never edit or delete the block yourself.
 
