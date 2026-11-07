@@ -19,6 +19,7 @@ DATED = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|
 HISTORY_WORDS = 80
 WORD_LIMIT = 400
 PROFILE_WORD_LIMIT = 250
+TELLABLE_HEADING = "What you may tell {name} about {owner}, and nothing else:"
 
 
 TOKEN_END = r"(?![\w-])(?![@.]\w)"
@@ -131,6 +132,8 @@ def intellect_context(vault: Vault, config: Config, agent: Note, identity: str) 
         blocks.append(f"Its owner's access could not be resolved ({why}): tell it nothing about {config.human_name} "
                       f"beyond what anyone may learn, and ask {config.human_name} to confirm who owns it.")
     blocks.append(relay_rule(config))
+    blocks.append(tellable_block(vault, config, owner_profiles[0].rel if len(owner_profiles) == 1 else None,
+                                 owner if len(owner_profiles) == 1 else "anyone"))
     return "\n\n".join(blocks)
 
 
@@ -260,7 +263,17 @@ def known_context(vault: Vault, config: Config, person: Note, identity: str) -> 
             rules = (f"Applicable disclosure rows exceed the session budget. "
                      f"Open {config.link(disclosure)} before disclosing anything.")
         blocks.append(rules)
-    return "\n\n".join([*blocks, DEFAULT_RULE])
+    return "\n\n".join([*blocks, DEFAULT_RULE, tellable_block(vault, config, person.rel, name)])
+
+
+def tellable_block(vault: Vault, config: Config, person: str | None, name: str) -> str:
+    from . import tellable
+    who = person if person and not legacy(vault, config) else "anyone"
+    result = tellable.resolve(vault, config, who)
+    return (TELLABLE_HEADING.format(name=name, owner=config.human_name) + "\n" + tellable.render(result)
+            + f"\nAnswer about {config.human_name} only from this block; anything else you know about "
+            f"{config.human_name} or anyone else is not yours to tell here. What they ask that it does not answer, "
+            f"ask {config.human_name}.")
 
 
 def owner_card(vault: Vault, config: Config) -> str:
@@ -432,6 +445,7 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
         blocks.append(lookup_rule(config))
     if open_to_anyone:
         blocks.append(resolved(vault, config, None, "anyone"))
+    blocks.append(tellable_block(vault, config, None, "anyone"))
     return "\n\n".join(blocks)
 
 

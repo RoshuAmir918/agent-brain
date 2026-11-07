@@ -1,7 +1,7 @@
 ---
 name: {prefix}sleep1
 description: Nightly consolidation of yesterday into memory
-version: 2.4.0
+version: 2.5.0
 metadata:
   runtime:
     tags: [memory, night]
@@ -26,6 +26,7 @@ The night's main job. Yesterday becomes long-term memory: new facts are written 
    - already stated: nothing; the note earned a use;
    - {human_name}'s own correction, or primary evidence: supersede in place with dated provenance, keeping the old text under a "superseded by" line;
 <!-- personal -->
+   - a fact that is {human_name}'s own by its source (what they said, mail they sent, transactional mail addressed to them, or calendar events they made or accepted; cc'd, group and forwarded mail and anything about a third party are someone else's) and fits a subject also gets a line in `{human_tellable}` under `## <subject>` as `- text · kind · YYYY-MM-DD · source`, kind `said`, `sent`, `transactional` or `calendar`, with an indented `  - gist: ...` line; never a line about anyone else (agent-brain `docs/sharing.md`);
    - a correction about how to work with {human_name} (style, format, scope, tone, how much to quote them): a dated line in `Working together` of `{human_profile}`, merged with a duplicate, the section kept under 250 words; the day's `Conversations/<date> Noted.md` lines, written after each conversation, are candidates like any other: file each into its owning note, then set the Noted note's `consolidated:` to today;
 <!-- /personal -->
    - unverified conflict with a third-party claim: keep both, dated, side by side;

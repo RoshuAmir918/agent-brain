@@ -65,7 +65,10 @@ def test_known_person_context_has_profile_paths_and_applicable_rules(people_vaul
         "(`demiurge_tell_owner` on Demiurge, else an ask in CURRENT's Needs you), and tell them you have asked and "
                 "will bring back the answer; never "
         "offer to ask and stop. Note the request in your after-session record. Your own impression of the owner "
-        "is never shared with anyone, whatever a rule allows.")
+        "is never shared with anyone, whatever a rule allows.\n\n"
+        "What you may tell Alice about Mira, and nothing else:\nNothing yet.\n"
+        "Answer about Mira only from this block; anything else you know about Mira or anyone else is not yours "
+        "to tell here. What they ask that it does not answer, ask Mira.")
 
 
 def test_disclosure_row_selection_includes_person_group_and_anyone_only(people_vault):
@@ -95,7 +98,10 @@ def test_unknown_context_is_fail_closed(people_vault):
                                  user_name="Visitor") == (
         "This session is with an unknown person (slack NOPE, name shown as Visitor). No profile. "
         "Treat them as a stranger: nothing about Mira or anyone else may be disclosed; be courteous; "
-        "the People review will create a profile from this conversation.")
+        "the People review will create a profile from this conversation.\n\n"
+        "What you may tell anyone about Mira, and nothing else:\nNothing yet.\n"
+        "Answer about Mira only from this block; anything else you know about Mira or anyone else is not yours "
+        "to tell here. What they ask that it does not answer, ask Mira.")
 
 
 def test_ambiguous_context_lists_profiles_and_treats_identity_as_unknown(people_vault):
@@ -150,7 +156,7 @@ def test_profile_truncation_keeps_250_words_and_a_full_path_pointer(people_vault
     assert len(profile.split()) == 250
     assert profile.endswith("word248…") and "word249" not in block
     assert "Full profile: memory/people/Alice/Profile.md; dated history beside it in History.md" in block
-    assert len(block.split()) <= 400
+    assert len(block.split("\n\nWhat you may tell", 1)[0].split()) <= 400
 
 
 def test_large_disclosure_tables_are_not_partially_injected(people_vault):
@@ -160,15 +166,15 @@ def test_large_disclosure_tables_are_not_partially_injected(people_vault):
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
     assert "Open memory/people/Disclosure.md before disclosing anything." in block
     assert "| allow |" not in block and "| deny |" not in block
-    assert block.endswith(session_context.DEFAULT_RULE)
-    assert len(block.split()) <= 400
+    assert block.split("\n\nWhat you may tell", 1)[0].endswith(session_context.DEFAULT_RULE)
+    assert len(block.split("\n\nWhat you may tell", 1)[0].split()) <= 400
 
 
 def test_missing_disclosure_file_is_explicit_and_defaults_to_no_disclosure(people_vault):
     del people_vault.notes["people/Disclosure.md"]
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
     assert "Disclosure.md is missing: memory/people/Disclosure.md." in block
-    assert block.endswith(session_context.DEFAULT_RULE)
+    assert block.split("\n\nWhat you may tell", 1)[0].endswith(session_context.DEFAULT_RULE)
 
 
 @pytest.mark.parametrize("metadata", [{}, {"user_name": "Visitor"}, {"chat_id": "C_OWNER"}])
@@ -299,7 +305,7 @@ def test_a_migrated_vault_gives_a_known_person_their_resolved_access(people_vaul
     assert "- plans: tell gist (D2)" in block
     assert "health" not in block.split("may learn")[1].split("Scope:")[0]
     assert "Scope: D1 covers reading the calendar" in block
-    assert "| D1 |" not in block and block.endswith(session_context.DEFAULT_RULE)
+    assert "| D1 |" not in block and block.split("\n\nWhat you may tell", 1)[0].endswith(session_context.DEFAULT_RULE)
     bob = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_BOB")
     assert "- plans: tell gist (D2)" in bob and "schedule" not in bob.split("may learn")[1]
 
@@ -351,7 +357,8 @@ def test_the_owner_hears_how_to_work_with_them_and_what_the_agent_thinks_of_them
 
 def test_the_owners_impression_is_never_disclosed(people_vault):
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
-    assert block.endswith("Your own impression of the owner is never shared with anyone, whatever a rule allows.")
+    assert block.split("\n\nWhat you may tell", 1)[0].endswith(
+        "Your own impression of the owner is never shared with anyone, whatever a rule allows.")
 
 
 def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault):

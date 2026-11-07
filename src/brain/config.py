@@ -245,8 +245,13 @@ class Config:
         return (Path(self.human_profile).parent / "Portrait.md").as_posix()
 
     @property
+    def human_tellable(self) -> str:
+        """The owner's own facts that may be told, beside their profile, resolved by disclosure rules."""
+        return (Path(self.human_profile).parent / "Tellable.md").as_posix()
+
+    @property
     def orientation(self) -> set[str]:
-        return {"START.md", "CURRENT.md", self.human_goals, self.human_portrait,
+        return {"START.md", "CURRENT.md", self.human_goals, self.human_portrait, self.human_tellable,
                 f"{self.runtime_dir}/README.md", *(self.agent(name) for name in
                 ("SOUL.md", "Triggers.md", "Tasks.md", "Channels.md", "Ideas.md", "Owners.md", "Consults.md",
                  "Memory Spec.md", "Retrieval Checks.md"))}
@@ -291,4 +296,5 @@ class Config:
         return {name: getattr(self, name) for name in
                 ("vault", "agent_dir", "people_dir", "agents_dir", "human_profile",
                  "sources_dir", "runtime_dir", "human_name", "agent_name")} | {"prefix": self.skill_prefix, "human_goals": self.human_goals,
-                                                                       "human_portrait": self.human_portrait}
+                                                                       "human_portrait": self.human_portrait,
+                                                                       "human_tellable": self.human_tellable}
