@@ -7,7 +7,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from . import install, runtime
+from . import fm, install, runtime
 from .config import Config
 
 
@@ -75,6 +75,6 @@ def export(config: Config, day: date | None = None) -> tuple[int, int]:
             unchanged += 1
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
+            fm.write_text(target, content)
             written += 1
     return written, unchanged

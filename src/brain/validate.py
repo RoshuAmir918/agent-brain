@@ -7,7 +7,7 @@ from importlib.resources import files
 from . import access, fm, owners, responsibilities as responsibility_ids, works
 from .identity import profile_ids, profiles
 from .vault import Vault
-from .tasks import TASK_STATES, parse_register
+from .tasks import TASK_STATES, parse_archive, parse_register
 
 
 def goal_problems(vault: Vault) -> list[str]:
@@ -67,12 +67,10 @@ def task_states(vault: Vault) -> list[str]:
     problems = []
     for path in ([reg] if reg.exists() else []) + sorted(arch_dir.glob("*.md")):
         try:
-            text = fm.read(path)[1]
+            body = fm.read(path)[1]
         except fm.Malformed:
             continue   # malformed() names it
-        if path != reg:
-            text = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", text, flags=re.M)
-        for task in parse_register(text)[1]:
+        for task in parse_register(body)[1] if path == reg else parse_archive(body):
             if "state" in task.state and task.task_state not in TASK_STATES:
                 problems.append(f"{task.tid}: unknown task state '{task.state['state']}'")
     return problems
@@ -93,10 +91,10 @@ def work_warnings(vault: Vault) -> list[str]:
     seen = {task.tid for task in entries}
     for path in sorted((vault.root / vault.config.agent("Tasks Archive")).glob("*.md")):
         try:
-            text = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
+            archive = parse_archive(fm.read(path)[1])
         except fm.Malformed:
             continue   # malformed() names it
-        for task in parse_register(text)[1]:
+        for task in archive:
             if task.tid not in seen:
                 seen.add(task.tid)
                 entries.append(task)
@@ -261,7 +259,7 @@ def owner_questions(vault: Vault) -> list[str]:
     for rel, note in sorted(vault.notes.items()):
         if vault.kind_for(rel) != "hub":
             continue
-        span = needs._section(note.body, "Improvements")
+        span = fm.section(note.body, "Improvements")
         if span is None:
             continue
         section = note.body[span[0]:span[1]]

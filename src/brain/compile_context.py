@@ -231,5 +231,5 @@ def summary(text: str, limit: int = WORD_LIMIT) -> str:
 
 def write(vault: Vault, out: Path | None = None) -> str:
     text = build(vault, app_changes=False)
-    fm.write(out if out is not None else repo_root(vault.config) / ".context.md", {}, text)
+    fm.write_text(out if out is not None else repo_root(vault.config) / ".context.md", text)
     return summary(text, vault.config.context.hot_words)

@@ -8,11 +8,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import directory, fm, needs
+from . import directory, fm
 from .config import Config
 from .identity import is_owner, profile_ids
 from .lock import vault_lock
-from .needs import _plain
 
 KINDS = ("promised", "owed", "waiting")
 OUTCOMES = ("done", "dropped")
@@ -52,7 +51,7 @@ class Item:
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
-        key = json.dumps([self.kind, _plain(self.text)], ensure_ascii=False)
+        key = json.dumps([self.kind, fm.plain(self.text)], ensure_ascii=False)
         self.id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
 
 
@@ -149,7 +148,7 @@ def _bullet(line: str) -> Item | None:
 
 
 def parse_section(body: str, title: str = "Open") -> list[Item]:
-    span = needs._section(body, title)
+    span = fm.section(body, title)
     out = []
     current = None
     for line in body[span[0]:span[1]].splitlines() if span else []:
@@ -208,7 +207,7 @@ def closed_recent(config: Config) -> list[Item]:
 
 
 def _insert(body: str, title: str, text: str) -> str:
-    span = needs._section(body, title)
+    span = fm.section(body, title)
     if span is None:
         return body.rstrip("\n") + f"\n\n## {title}\n\n{text}\n"
     return body[:span[1]].rstrip("\n") + "\n\n" + text + "\n\n" + body[span[1]:]
@@ -230,7 +229,7 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
     with vault_lock(config):
         path = path_for(config)
         data, body = fm.read(path) if path.exists() else fm.split(TEMPLATE)
-        if any(_plain(item.text) == _plain(text) for item in parse_section(body)):
+        if any(fm.plain(item.text) == fm.plain(text) for item in parse_section(body)):
             return False
         item = Item(kind, text, config.local(at).strftime("%Y-%m-%d %H:%M"), source, with_, due)
         body = _insert(body, "Open", render(item))
@@ -242,11 +241,11 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
 def _pick(config: Config, which: str) -> Item:
     candidates = open_loops(config)
     chosen = [item for item in candidates if item.id == which]
-    needle = _plain(which)
+    needle = fm.plain(which)
     if not chosen:
-        chosen = [item for item in candidates if needle and needle == _plain(item.text)]
+        chosen = [item for item in candidates if needle and needle == fm.plain(item.text)]
     if not chosen:
-        chosen = [item for item in candidates if needle and needle in _plain(item.text)]
+        chosen = [item for item in candidates if needle and needle in fm.plain(item.text)]
     if len(chosen) != 1:
         raise ValueError(("no open loop matches " if not chosen else f"{len(chosen)} open loops match ")
                          + repr(which) + "; use an id from `brain loops --json`")
@@ -261,7 +260,7 @@ def ready(config: Config, which: str, at: datetime) -> Item:
             return item
         path = path_for(config)
         data, body = fm.read(path)
-        body, _ = needs._without(body, needs._section(body, "Open"), lambda loop: loop.id == item.id,
+        body, _ = fm.without(body, fm.section(body, "Open"), lambda loop: loop.id == item.id,
                                  bullet=_bullet, detail=DETAIL)
         item.ready = config.local(at).strftime("%Y-%m-%d %H:%M")
         body = _insert(body, "Open", render(item))
@@ -279,7 +278,7 @@ def close(config: Config, which: str, at: datetime, outcome: str, because: str) 
         item = _pick(config, which)
         path = path_for(config)
         data, body = fm.read(path)
-        body, _ = needs._without(body, needs._section(body, "Open"), lambda bullet: bullet.id == item.id,
+        body, _ = fm.without(body, fm.section(body, "Open"), lambda bullet: bullet.id == item.id,
                                  bullet=_bullet, detail=DETAIL)
         item.closed = config.local(at).strftime("%Y-%m-%d %H:%M")
         item.outcome, item.because = outcome, because
@@ -293,7 +292,7 @@ def close(config: Config, which: str, at: datetime, outcome: str, because: str) 
                     archive.write_text("---\nkind: log\ntier: cold\n---\n\n# Closed loops\n\n", encoding="utf-8")
                 with archive.open("a", encoding="utf-8") as stream:
                     stream.write(render(old) + "\n\n")
-            span = needs._section(body, "Closed")
+            span = fm.section(body, "Closed")
             kept = "\n\n".join(render(old) for old in closed[-CLOSED_KEEP:])
             body = body[:span[0]] + "\n\n" + kept + "\n\n" + body[span[1]:]
         fm.write(path, data, body)

@@ -342,9 +342,9 @@ def test_completed_lists_the_weeks_finished_tasks_newest_first(vault, capsys):
     config = Config.load(vault)
     cli(vault, capsys, "new", "Assemble Hope's résumé", "--source", "help Hope with her résumé")
     tid = entry(config)[-1].tid
-    tasks.complete(config, tid, TODAY, "the résumé is assembled")
+    tasks.close(config, tid, TODAY, True, "the résumé is assembled")
     old = cli(vault, capsys, "new", "Old work", "--source", "long ago").split()[0]
-    tasks.complete(config, old, TODAY - timedelta(days=30), "done long ago")
+    tasks.close(config, old, TODAY - timedelta(days=30), True, "done long ago")
     def completed(*args):
         brain_cli.main(["completed", *args, "--vault", str(vault)])
         return capsys.readouterr().out

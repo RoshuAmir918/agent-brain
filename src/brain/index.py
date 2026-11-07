@@ -1,20 +1,15 @@
 """Index lines and activation-ordered selection for the context directory."""
 from __future__ import annotations
 
-import re
-
 from . import fm
-from .vault import Vault
+from .vault import WIKILINK_RE, Vault
 
 MAX_INDEX_WORDS = 25
 
 
-LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]*))?\]\]")
-
-
 def plain(text: str) -> str:
     """Wikilinks become their display text; pipes are dropped so the line is table-safe."""
-    text = LINK_RE.sub(lambda m: (m.group(2) or m.group(1).rsplit("/", 1)[-1]).strip(), text)
+    text = WIKILINK_RE.sub(lambda m: (m.group(2) or m.group(1).rsplit("/", 1)[-1]).strip(), text)
     return text.replace("|", "/").replace("**", "")
 
 

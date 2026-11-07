@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 from . import fm
 from .config import Config
 
-WIKILINK_RE = re.compile(r"\[\[([^\]|#\\]+)(?:#[^\]|\\]*)?(?:\\?\|[^\]]*)?\]\]")
+WIKILINK_RE = re.compile(r"\[\[([^\]|#\\]+)(?:#[^\]|\\]*)?(?:\\?\|([^\]]*))?\]\]")   # target, label
 TASK_ID_RE = re.compile(r"\bT-(\d{3})\b")
 TRIGGER_ID_RE = re.compile(r"\bTR-(\d{3})\b")
 DAILY = re.compile(r"Conversations/\d{4}-\d{2}-\d{2}\.md\Z")  # immutable daily conversation archives
@@ -29,18 +29,11 @@ def navigation_text(text: str) -> str:
     which may themselves contain shorter fences. Sources footers outside code
     remain visible to the link checker.
     """
-    lines = []
-    fence_char, fence_size = "", 0
+    lines, fence = [], ""
     for line in text.splitlines(keepends=True):
-        if fence_char:
-            if re.match(r"^ {0,3}" + re.escape(fence_char) +
-                        r"{" + str(fence_size) + r",}[ \t]*(?:\r?\n)?$", line):
-                fence_char, fence_size = "", 0
-            lines.append("\n" if line.endswith("\n") else "")
-            continue
-        opening = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
-        if opening and not (opening[1][0] == "`" and "`" in opening[2]):
-            fence_char, fence_size = opening[1][0], len(opening[1])
+        following = fence_after(line, fence)
+        if fence or following:
+            fence = following
             lines.append("\n" if line.endswith("\n") else "")
         else:
             lines.append(line)
@@ -48,6 +41,17 @@ def navigation_text(text: str) -> str:
     # Inline spans cannot cross paragraph boundaries.
     return "".join(_without_code_spans(block) for block in
                    re.split(r"(\n[ \t]*\n)", visible))
+
+
+def fence_after(line: str, fence: str) -> str:
+    """The open code fence after `line` (its backtick or tilde run), given the one open before it; "" when none."""
+    if fence:
+        closing = r" {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*\r?\n?"
+        return "" if re.fullmatch(closing, line) else fence
+    opening = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
+    if opening and not (opening[1][0] == "`" and "`" in opening[2]):
+        return opening[1]
+    return ""
 
 
 def _without_code_spans(visible: str) -> str:

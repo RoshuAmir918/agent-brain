@@ -81,7 +81,7 @@ def _public_link(vault: Vault, title: str | None) -> str | None:
 
 
 def _improvements(body: str, source: str) -> list[dict]:
-    span = needs._section(body, "Improvements")
+    span = fm.section(body, "Improvements")
     if span is None:
         return []
     section = body[span[0]:span[1]]
@@ -106,7 +106,7 @@ def _hubs(vault: Vault, task_entries: list[dict]) -> list[dict]:
             continue
         skill, records = note.data.get("skill"), note.data.get("records")
         responsibility = {"skill": skill, "records": records} if skill and records else None
-        span = needs._section(note.body, "Open questions")
+        span = fm.section(note.body, "Open questions")
         questions = [match[1].strip() for line in note.body[span[0]:span[1]].splitlines()
                      if (match := re.match(r"^[ \t]*[-*+] (.+)", line))] if span else []
         targets = {note.stem.casefold(), source.removesuffix(".md").casefold()}

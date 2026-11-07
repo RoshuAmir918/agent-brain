@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from brain import cli as brain_cli, runtime, schedule, validate
+from brain import cli as brain_cli, fm, runtime, schedule, validate
 from brain.config import Config
 from brain.schedule import Routine
 from brain.vault import Vault
@@ -383,8 +383,6 @@ def test_save_omits_default_workdir_and_preserves_unicode_and_controls(config):
 
 
 def test_failed_atomic_replace_preserves_file_and_removes_temporary(config, monkeypatch):
-    from pathlib import Path
-
     schedule.save(config, {"watch": Routine(every="1h")})
     before = schedule.path(config).read_bytes()
     files_before = set(schedule.path(config).parent.iterdir())
@@ -395,7 +393,7 @@ def test_failed_atomic_replace_preserves_file_and_removes_temporary(config, monk
         assert target.read_bytes() == before
         raise OSError("replace failed")
 
-    monkeypatch.setattr(Path, "replace", fail_replace)
+    monkeypatch.setattr(fm.os, "replace", fail_replace)
     with pytest.raises(OSError, match="replace failed"):
         schedule.save(config, {"watch": Routine(every="2h")})
     assert schedule.path(config).read_bytes() == before
@@ -406,7 +404,7 @@ def test_cli_holds_vault_lock_across_read_edit_and_write(config, monkeypatch):
     from contextlib import contextmanager
 
     held = False
-    original_load, original_save = schedule.load, schedule._save
+    original_load, original_save = schedule.load, schedule.save
 
     @contextmanager
     def lock(cfg):
@@ -426,11 +424,10 @@ def test_cli_holds_vault_lock_across_read_edit_and_write(config, monkeypatch):
         assert held
         return original_save(cfg, routines)
 
+    original_save(config, {"watch": Routine(every="1h")})
     monkeypatch.setattr(brain_cli, "vault_lock", lock)
-    monkeypatch.setattr(schedule, "vault_lock", lock)
     monkeypatch.setattr(schedule, "load", load)
-    monkeypatch.setattr(schedule, "_save", save)
-    schedule.save(config, {"watch": Routine(every="1h")})
+    monkeypatch.setattr(schedule, "save", save)
     cli(config, "set", "watch", "--every", "2h")
     assert not held and original_load(config)["watch"].every == "2h"
 

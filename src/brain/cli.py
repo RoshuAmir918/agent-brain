@@ -305,14 +305,15 @@ def cmd_needs_you(args):
         raise SystemExit("brain needs-you: --source goes with --ask or --confirm")
     if args.confirm:
         with vault_lock(args.config):
-            journal._add_ask(args.config, args.config.today(), args.confirm, args.source, why=args.why or "", kind="confirm")
+            journal.add_ask(args.config, args.config.today(), args.confirm, args.source, why=args.why or "", kind="confirm")
         return
     if args.ask:
         from .needs import vague_ask
         if (reason := vague_ask(args.ask)):
             print(f"ask refused: {reason}", file=sys.stderr)
             sys.exit(2)
-        journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "")
+        with vault_lock(args.config):
+            journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "")
         count = len(needs.open_asks((args.config.vault_path / "CURRENT.md").read_bytes().decode("utf-8")))
         if count > needs.OPEN_ASKS:
             print(f"Needs you now holds {count} asks; tonight's evening decides the lowest-ranked down to {needs.OPEN_ASKS}.",
@@ -819,8 +820,7 @@ def cmd_task(args):
         if args.action == "view":
             if values or args.why:
                 raise ValueError("task T-nnn view takes its view as JSON on stdin, nothing else")
-            registered, archived = load_tasks(args.config)
-            if not any(t.tid == args.tid and tasks_mod.is_open(t) for t in registered + archived):
+            if tasks_mod.find(args.config, args.tid, open_only=True) is None:
                 raise ValueError(f"{args.tid} is not an open task")
             view = views.write(args.config, args.tid, sys.stdin.read())
             print(f"{args.tid} view saved: {len(view['pieces'])} pieces" if view else f"{args.tid} view removed")
@@ -848,8 +848,8 @@ def cmd_task(args):
             # A conversation's task edit is engagement; worker writes never are.
             if in_conversation():
                 from . import continuation
-                continuation._mark_engaged(args.config, task.tid, args.source if args.tid == "new" else
-                                           args.next or args.delivers or args.status or args.why, speaker())
+                continuation.mark_engaged(args.config, task.tid, args.source if args.tid == "new" else
+                                          args.next or args.delivers or args.status or args.why, speaker())
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -905,7 +905,7 @@ def cmd_handoff(args):
         with vault_lock(args.config):
             task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work, owner=owner)
             from . import continuation
-            continuation._mark_engaged(args.config, task.tid, by=speaker())
+            continuation.mark_engaged(args.config, task.tid, by=speaker())
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -958,7 +958,9 @@ def cmd_continue(args):
             return
         if args.engaged:
             by = args.by or speaker()
-            if continuation.mark_engaged(args.config, args.engaged, args.instruction, by):
+            with vault_lock(args.config):
+                engaged = continuation.mark_engaged(args.config, args.engaged, args.instruction, by)
+            if engaged:
                 print(f"{args.engaged} engaged")
             else:
                 print(f"{args.engaged} not engaged: {by} is not its owner")
@@ -1346,7 +1348,7 @@ def cmd_schedule(args):
                         routines[name] = replace(routines[name], enabled=action == "resume")
                     verb = {"remove": "removed", "pause": "paused", "resume": "resumed"}[action]
                     changed = f"{verb} routine {name} in {schedule.path(config)}"
-            schedule._save(config, routines)
+            schedule.save(config, routines)
             errors = schedule.problems(config, known_needs=False)
             if errors:
                 raise ValueError("; ".join(errors))

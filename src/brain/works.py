@@ -1,7 +1,6 @@
 """The runtime's Library listing, summaries and history in local work checkouts."""
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -21,12 +20,7 @@ def write_view(slug: str, text: str) -> dict | None:
     path = runtime.home() / "works" / slug / "view.json"
     if not path.parent.is_dir():
         raise ValueError(f"work folder does not exist: {path.parent}; create it with demiurge works new")
-    clean = views.validate(text)
-    if clean is None:
-        path.unlink(missing_ok=True)
-    else:
-        fm.write(path, {}, json.dumps(clean, ensure_ascii=False, separators=(",", ":")) + "\n")
-    return clean
+    return views.save(path, text)
 
 
 def append_history(slug: str, tid: str, title: str, today: date, outcome: str,
@@ -42,7 +36,7 @@ def append_history(slug: str, tid: str, title: str, today: date, outcome: str,
         lines.append(f"- Delivers: {delivers}")
     if next_step:
         lines.append(f"- Next it left: {next_step}")
-    fm.write(path, {}, body.rstrip() + "\n\n" + "\n".join(lines) + "\n")
+    fm.write_text(path, body.rstrip() + "\n\n" + "\n".join(lines) + "\n")
 
 
 def library() -> str | None:

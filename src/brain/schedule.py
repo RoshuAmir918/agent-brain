@@ -4,14 +4,13 @@ from __future__ import annotations
 import json
 import re
 import sys
-import tempfile
 import tomllib
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
+from . import fm
 from .config import Config
-from .lock import vault_lock
 from .responsibilities import ID_PATTERN
 
 HEADER = "# The routines this agent runs. Edit with `brain schedule`; the runtime applies changes within a minute.\n"
@@ -193,7 +192,7 @@ def render(routines: dict[str, Routine]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _save(config: Config, routines: dict[str, Routine]) -> None:
+def save(config: Config, routines: dict[str, Routine]) -> None:
     """Validate before touching the file; caller holds the vault lock for the entire read/edit/write."""
     routines = {name: replace(routine, workdir=_workdir(config, routine.workdir))
                 for name, routine in routines.items()}
@@ -201,20 +200,7 @@ def _save(config: Config, routines: dict[str, Routine]) -> None:
     _parse(text)
     target = path(config)
     target.parent.mkdir(parents=True, exist_ok=True)
-    staged = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False) as stream:
-            staged = Path(stream.name)
-            stream.write(text)
-        staged.replace(target)
-    finally:
-        if staged is not None:
-            staged.unlink(missing_ok=True)
-
-
-def save(config: Config, routines: dict[str, Routine]) -> None:
-    with vault_lock(config):
-        _save(config, routines)
+    fm.write_text(target, text)
 
 
 def defaults(config: Config) -> dict[str, Routine]:
