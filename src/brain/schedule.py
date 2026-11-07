@@ -212,7 +212,7 @@ def defaults(config: Config) -> dict[str, Routine]:
         "attribution": Routine(cron="30 1 * * *", skills=[f"{p}attribute"], prompt="Run attribution for yesterday."),
         "sleep1": Routine(cron="30 2 * * *", skills=[f"{p}sleep1"], prompt="Run Sleep 1 for yesterday."),
         "rem": Routine(cron="30 3 * * *", skills=[f"{p}rem"], prompt="Run REM."),
-        "sleep2": Routine(cron="0 4 * * *", skills=[f"{p}sleep2"], prompt="Run Sleep 2."),
+        "sleep2": Routine(cron="0 4 * * *", skills=[f"{p}sleep2", f"{p}portrait"], prompt="Run Sleep 2."),
         "context-refresh": Routine(cron="15 * * * *", prompt="", script="refresh.sh", agent=False),
         "improve": Routine(cron="30 7 * * *", skills=[f"{p}improve"], prompt="Run Improve."),
         "watch": Routine(cron="*/15 6-22 * * *", skills=[f"{p}watch"], deliver="demiurge", monitor="watch-signal.sh"),
@@ -221,7 +221,7 @@ def defaults(config: Config) -> dict[str, Routine]:
     }
     if config.edition == "personal":
         routines |= {
-            "people": Routine(cron="0 6 * * *", skills=[f"{p}people"]),
+            "people": Routine(cron="0 6 * * *", skills=[f"{p}people", f"{p}portrait"]),
             "prime": Routine(cron="30 7 * * *", skills=[f"{p}prime"]),
             "morning": Routine(cron="0 8 * * *", skills=[f"{p}morning"], prompt="Run the morning briefing.", deliver="demiurge"),
         }
