@@ -12,7 +12,7 @@ Usage:
   brain retrieve [--vault <path>] <query> [--limit 12] [--json [--form names|snippet|full]]
   brain needs-you [--vault <path>] [--json]
   brain owners [--vault <path>] [--json]
-  brain consult <candidates|ask|answer|overrule|delegate|lapse|list|stats> [--vault <path>]
+  brain consult <candidates|seed|ask|answer|overrule|delegate|lapse|list|stats> [--vault <path>]
   brain ideas [--vault <path>] [--all] [--json]
   brain loops [--vault <path>] [--json | --due] [--quiet]
   brain watch-signal [--vault <path>]
@@ -422,6 +422,28 @@ def cmd_consult(args):
         elif args.consult_cmd == "delegate":
             consults.delegate(config, args.area, args.to, args.by, args.words)
             print(f"{args.area}: delegation recorded for {args.to}")
+        elif args.consult_cmd == "seed":
+            folder = Path(args.reviews).expanduser()
+            if not folder.is_dir():
+                raise ValueError(f"no folder {folder}")
+            if args.days < 0:
+                raise ValueError("--days must be non-negative")
+            today = config.today()
+            rows, problems = seed.routing_evidence(folder, today, args.days)
+            areas = {}
+            for row in rows:
+                areas.setdefault(row.area, dict(changed=0, reviewed=0, approved=0))[row.kind] += 1
+            result = dict(prs=len(seed.load(folder, today, args.days)[0]), found=len(rows),
+                          added=0 if args.dry_run else consults.record_evidence(config, rows),
+                          areas=areas, problems=problems)
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, indent=2))
+            else:
+                print(f"{result['prs']} PRs read, {result['found']} lines found, {result['added']} lines added")
+                for area, counts in areas.items():
+                    print(f"{area} · " + " · ".join(f"{kind} {count}" for kind, count in counts.items()))
+                for problem in problems:
+                    print(f"problem: {problem}")
         elif args.consult_cmd == "candidates":
             ranked = consults.candidates(config, args.about, args.area or "", args.limit)
             if args.json:
@@ -1163,7 +1185,7 @@ def main(argv=None):
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_owners)
     s = sub.add_parser("consult", help="consult a colleague and keep their words by area (enterprise)", parents=[vault])
     actions = s.add_subparsers(dest="consult_cmd", required=True)
-    for action in ("candidates", "ask", "answer", "overrule", "delegate", "lapse", "list", "stats"):
+    for action in ("candidates", "seed", "ask", "answer", "overrule", "delegate", "lapse", "list", "stats"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_consult)
         p.add_argument("--vault", default=argparse.SUPPRESS)
         if action == "ask":
@@ -1185,6 +1207,10 @@ def main(argv=None):
                                help="the delegator's exact words" if field == "words" else None)
         elif action == "lapse":
             p.add_argument("--dry-run", action="store_true")
+        elif action == "seed":
+            p.add_argument("--reviews", required=True, metavar="DIR")
+            p.add_argument("--days", type=int, default=seed.DAYS, metavar="N")
+            p.add_argument("--dry-run", action="store_true"); p.add_argument("--json", action="store_true")
         else:
             p.add_argument("--json", action="store_true")
             if action == "list":
