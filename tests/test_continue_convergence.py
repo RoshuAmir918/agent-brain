@@ -13,8 +13,6 @@ from brain.config import Config
 @pytest.fixture
 def worker(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
-    monkeypatch.delenv("DEMIURGE_CONVERSATION", raising=False)
-    monkeypatch.delenv("DEMIURGE_TASK", raising=False)
     clock = [datetime(2026, 11, 6, 12, tzinfo=ZoneInfo("America/Los_Angeles"))]
     monkeypatch.setattr(Config, "now", lambda self, moment=None: clock[0])
     config = Config.load(vault)

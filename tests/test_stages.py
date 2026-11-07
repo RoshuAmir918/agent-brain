@@ -22,8 +22,6 @@ def cli(config, capsys, *args):
 def stages_config(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
     monkeypatch.setattr(Config, "now", lambda self, moment=None: datetime(2026, 11, 6, 13))
-    monkeypatch.delenv("DEMIURGE_CONVERSATION", raising=False)
-    monkeypatch.delenv("DEMIURGE_TASK", raising=False)
     return Config.load(vault)
 
 

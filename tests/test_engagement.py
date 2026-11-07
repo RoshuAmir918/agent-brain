@@ -12,8 +12,6 @@ AT = datetime(2026, 11, 5, 12, tzinfo=timezone.utc)
 @pytest.fixture
 def setup(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
-    monkeypatch.delenv("DEMIURGE_CONVERSATION", raising=False)
-    monkeypatch.delenv("DEMIURGE_TASK", raising=False)
     clock = [AT]
     monkeypatch.setattr(Config, "now", lambda self, moment=None: clock[0])
     config = Config.load(vault)

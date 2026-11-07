@@ -10,12 +10,6 @@ from brain.config import Config
 TODAY = date(2026, 11, 6)
 
 
-@pytest.fixture(autouse=True)
-def no_conversation(monkeypatch):
-    monkeypatch.delenv("DEMIURGE_CONVERSATION", raising=False)
-    monkeypatch.delenv("DEMIURGE_TASK", raising=False)
-
-
 def cli(vault, capsys, *args):
     brain_cli.main(["task", *args, "--vault", str(vault)])
     return capsys.readouterr().out.strip()
