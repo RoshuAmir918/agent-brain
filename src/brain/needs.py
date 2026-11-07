@@ -389,14 +389,14 @@ def _answered(config: Config, today: date, line: str) -> None:
 TASK_SOURCE = re.compile(r"#(T-\d{3})$")
 
 
-def dismiss(config: Config, which: str, today: date, reason: str = "no") -> Item:
+def dismiss(config: Config, which: str, today: date, reason: str = "no", *, by: str = "") -> Item:
     """The owner closed an item without answering it, and chose why. The item leaves the list and is never raised
     again; what happens to its source depends on the reason, never on a guess:
     - `no`: nothing is done. An ask's or a waiting task's task is set aside, a proposal is dropped, an access request is
-      declined with no grant written, a confirm is accepted.
+      declined with no grant written, a confirm is accepted (an autonomous act's confirm is reversed).
     - `done`: the owner did it themselves. Its task is completed, with that as evidence.
     - `stop-asking`: as `no`, and the owner wants no questions like it; the People review turns it into a dated line in
-      Working together. Only this reason teaches the agent anything beyond the one item.
+      Working together. For ordinary items, only this reason changes future suggestions.
     Each is logged in Answered with its reason."""
     from . import tasks as task_mod
     if reason not in REASONS:
@@ -404,7 +404,7 @@ def dismiss(config: Config, which: str, today: date, reason: str = "no") -> Item
     item = _pick(config, which, today)
     if item.origin == "consult":
         from . import consults
-        consults.dismiss(config, item, today, reason)
+        consults.dismiss(config, item, today, reason, by)
         return item
     tid = None
     if item.origin == "current":

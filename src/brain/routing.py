@@ -159,11 +159,16 @@ def responses(config: Config) -> list[dict]:
             if line.startswith("  - answer: ") and current is not None:
                 current["answer"] = line.removeprefix("  - answer: ")
                 continue
+            if line.startswith("  - source: [[") and current is not None and current["outcome"] == "acted":
+                match = re.fullmatch(r"  - source: \[\[([^\[\]\n]+)\]\]", line)
+                if match:
+                    current["source"] = match[1]
+                continue
             current = None
             parts = line.removeprefix("- ").split(" · ")
             if len(parts) not in (7, 8) or parts[1] not in (
                     "consult changed", "consult confirmed", "consult redirected", "consult overruled", "consult unanswered",
-                    "consult asked", "consult cited"):
+                    "consult asked", "consult cited", "consult acted", "consult reversed"):
                 continue
             try:
                 date.fromisoformat(parts[0])
@@ -172,6 +177,7 @@ def responses(config: Config) -> list[dict]:
                 continue
             person = parts[3].removeprefix("by ")
             if (not tasks.PERSON.fullmatch(person) and not (parts[1] == "consult cited" and person)
+                    and not (parts[1] in ("consult acted", "consult reversed") and person == "-")
                     or not re.fullmatch(r"id:[0-9a-f]{12}", parts[-1])):
                 continue
             current = dict(date=parts[0], outcome=parts[1].removeprefix("consult "), text=parts[2],
@@ -229,7 +235,7 @@ def relevance(config: Config, about: str, area: str = "") -> dict[str, float]:
             entry.question + " " + entry.text + " " + " ".join(words for _, _, words in entry.overrules)
             for entry in decisions(body, key))
     for response in responses(config):
-        if response["outcome"] in ("asked", "cited"):
+        if response["outcome"] in ("asked", "cited", "acted", "reversed"):
             continue
         key = response["area"]
         texts[key] = texts.get(key, key) + " " + response["text"] + " " + response["answer"]

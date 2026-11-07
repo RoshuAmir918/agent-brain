@@ -12,7 +12,7 @@ Usage:
   brain retrieve [--vault <path>] <query> [--limit 12] [--json [--form names|snippet|full]]
   brain needs-you [--vault <path>] [--json]
   brain owners [--vault <path>] [--json]
-  brain consult <decisions|cite|decide|candidates|seed|ask|answer|overrule|delegate|lapse|list|stats> [--vault <path>]
+  brain consult <autonomy|act|reverse|lower|ceiling|decisions|cite|decide|candidates|seed|ask|answer|overrule|delegate|lapse|list|stats> [--vault <path>]
   brain ideas [--vault <path>] [--all] [--json]
   brain loops [--vault <path>] [--json | --due] [--quiet]
   brain watch-signal [--vault <path>]
@@ -337,7 +337,7 @@ def cmd_needs_you(args):
     if args.dismiss:
         with vault_lock(args.config):
             try:
-                item = needs.dismiss(args.config, args.dismiss, args.config.today(), args.reason)
+                item = needs.dismiss(args.config, args.dismiss, args.config.today(), args.reason, by=speaker() or "")
             except ValueError as error:
                 print(error, file=sys.stderr)
                 sys.exit(1)
@@ -419,7 +419,34 @@ def cmd_consult(args):
     config = args.config
     try:
         consults.require_enterprise(config)
-        if args.consult_cmd == "ask":
+        if args.consult_cmd == "autonomy":
+            entries = consults.autonomy(config, args.area)
+            if args.json:
+                print(json.dumps(entries, ensure_ascii=False, indent=2))
+            else:
+                for entry in entries:
+                    print(f"{entry['area']} · {entry['rung']} · ceiling {entry['ceiling']}"
+                          + (" · restricted" if entry["restricted"] else "") + f"\n  {entry['needed']}")
+                    for row in entry["window"]:
+                        print(f"  {row['date']} · {row['outcome']} · {row['id']} · [[{row['link']}]]")
+                    for event in entry["events"]:
+                        print(f"  {event['date']} · {event['kind']} · {event['from']} -> {event['to']}"
+                              + (f" · ceiling {event['ceiling']}" if event["kind"] == "ceiling" else "")
+                              + (f" · {event['id']}" if "id" in event else "") + f" · [[{event['link']}]]")
+                        for row in event.get("window", []):
+                            print(f"    {row['date']} · {row['outcome']} · {row['id']} · [[{row['link']}]]")
+        elif args.consult_cmd == "act":
+            print(consults.act(config, args.area, args.for_, args.task or "").id)
+        elif args.consult_cmd == "reverse":
+            consults.reverse(config, args.which, args.by, args.answer)
+            print(f"{args.which}: reversal recorded")
+        elif args.consult_cmd == "lower":
+            consults.lower(config, args.area, args.by, args.rung)
+            print(f"{args.area}: lower recorded")
+        elif args.consult_cmd == "ceiling":
+            consults.ceiling(config, args.area, args.rung, args.by)
+            print(f"{args.area}: ceiling recorded")
+        elif args.consult_cmd == "ask":
             entry = consults.ask(config, args.to, args.ask, args.default, args.why, args.area or "", args.task or "",
                                  args.restricted, args.not_covered)
             print(entry.id)
@@ -1432,17 +1459,26 @@ def main(argv=None):
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_owners)
     s = sub.add_parser("consult", help="consult a colleague and keep their words by area (enterprise)", parents=[vault])
     actions = s.add_subparsers(dest="consult_cmd", required=True)
-    for action in ("decisions", "cite", "decide", "candidates", "seed", "ask", "answer", "overrule", "delegate", "lapse", "list", "stats"):
+    for action in ("autonomy", "act", "reverse", "lower", "ceiling", "decisions", "cite", "decide", "candidates", "seed", "ask", "answer", "overrule", "delegate", "lapse", "list", "stats"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_consult)
         p.add_argument("--vault", default=argparse.SUPPRESS)
-        if action == "ask":
+        if action == "autonomy":
+            p.add_argument("--area", metavar="AREA"); p.add_argument("--json", action="store_true")
+        elif action in ("lower", "ceiling"):
+            p.add_argument("--area", required=True, metavar="AREA")
+            p.add_argument("--rung", choices=consults.RUNGS, required=action == "ceiling")
+            p.add_argument("--by", required=True, metavar="PERSON")
+        elif action == "ask":
             for field in ("to", "why", "ask", "default"):
                 p.add_argument("--" + field, required=True, metavar="PERSON" if field == "to" else "TEXT")
             p.add_argument("--area", metavar="AREA"); p.add_argument("--task", metavar="T-nnn")
             p.add_argument("--not-covered", metavar="TEXT", help="why matching decisions do not answer this question (at most 40 words)")
             p.add_argument("--restricted", action="store_true", help="the answer would authorize production, money or another restricted action")
-        elif action == "cite":
-            p.add_argument("which", metavar="ID")
+        elif action in ("cite", "act"):
+            if action == "act":
+                p.add_argument("--area", required=True, metavar="AREA")
+            else:
+                p.add_argument("which", metavar="ID")
             p.add_argument("--task", metavar="T-nnn")
             p.add_argument("--for", dest="for_", required=True, metavar="TEXT", help="what you are going ahead with (at most 40 words)")
         elif action == "decide":
@@ -1451,7 +1487,7 @@ def main(argv=None):
             p.add_argument("--words", required=True, metavar="TEXT", help="the person's exact words; never the intellect's inference")
             p.add_argument("--source", required=True, metavar="TEXT", help="where it was said: a vault note, link, or channel and date")
             p.add_argument("--supersedes", metavar="ID")
-        elif action in ("answer", "overrule"):
+        elif action in ("answer", "overrule", "reverse"):
             p.add_argument("which", metavar="ID_OR_TEXT" if action == "answer" else "ID")
             if action == "answer":
                 p.add_argument("--outcome", choices=consults.OUTCOMES, required=True)
