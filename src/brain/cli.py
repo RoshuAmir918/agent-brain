@@ -434,23 +434,46 @@ def cmd_consult(args):
             consults.delegate(config, args.area, args.to, args.by, args.words)
             print(f"{args.area}: delegation recorded for {args.to}")
         elif args.consult_cmd == "seed":
-            folder = Path(args.reviews).expanduser()
-            if not folder.is_dir():
-                raise ValueError(f"no folder {folder}")
-            if args.days < 0:
+            if args.account is not None and not args.mail:
+                raise ValueError("--account goes with --mail")
+            if args.mail and args.dry_run:
+                raise ValueError("--dry-run goes with --reviews or --claims; --mail writes nothing")
+            if args.claims and args.days is not None:
+                raise ValueError("--days goes with --reviews or --mail")
+            days = seed.DAYS if args.days is None else args.days
+            if days < 0:
                 raise ValueError("--days must be non-negative")
             today = config.today()
-            rows, problems = seed.routing_evidence(folder, today, args.days)
+            if args.mail:
+                data = seed.deference_reading(Vault(config.vault_path), today, args.account or "all", days)
+                print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else seed.render_deference(data))
+                return
+            if args.reviews:
+                folder = Path(args.reviews).expanduser()
+                if not folder.is_dir():
+                    raise ValueError(f"no folder {folder}")
+                rows, problems = seed.routing_evidence(folder, today, days)
+            else:
+                path = Path(args.claims).expanduser()
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except (OSError, ValueError):
+                    raise ValueError(f"unreadable claims file {path}") from None
+                rows, problems = seed.deference_claims(text)
             areas = {}
             for row in rows:
-                areas.setdefault(row.area, dict(changed=0, reviewed=0, approved=0))[row.kind] += 1
-            result = dict(prs=len(seed.load(folder, today, args.days)[0]), found=len(rows),
+                areas.setdefault(row.area, dict(changed=0, reviewed=0, approved=0) if args.reviews
+                                 else {"deferred-to": 0})[row.kind] += 1
+            result = dict(found=len(rows),
                           added=0 if args.dry_run else consults.record_evidence(config, rows),
                           areas=areas, problems=problems)
+            if args.reviews:
+                result["prs"] = len(seed.load(folder, today, days)[0])
             if args.json:
                 print(json.dumps(result, ensure_ascii=False, indent=2))
             else:
-                print(f"{result['prs']} PRs read, {result['found']} lines found, {result['added']} lines added")
+                print((f"{result['prs']} PRs read, " if args.reviews else "")
+                      + f"{result['found']} lines found, {result['added']} lines added")
                 for area, counts in areas.items():
                     print(f"{area} · " + " · ".join(f"{kind} {count}" for kind, count in counts.items()))
                 for problem in problems:
@@ -1368,8 +1391,12 @@ def main(argv=None):
         elif action == "lapse":
             p.add_argument("--dry-run", action="store_true")
         elif action == "seed":
-            p.add_argument("--reviews", required=True, metavar="DIR")
-            p.add_argument("--days", type=int, default=seed.DAYS, metavar="N")
+            mode = p.add_mutually_exclusive_group(required=True)
+            mode.add_argument("--reviews", metavar="DIR")
+            mode.add_argument("--mail", action="store_true", help="list company mail with deference cues, without content")
+            mode.add_argument("--claims", metavar="FILE", help="import derived statements of who decides what")
+            p.add_argument("--account", metavar="ADDR", help="with --mail: one connected owner account (default all)")
+            p.add_argument("--days", type=int, metavar="N", help=f"with --reviews or --mail: days back (default {seed.DAYS})")
             p.add_argument("--dry-run", action="store_true"); p.add_argument("--json", action="store_true")
         else:
             p.add_argument("--json", action="store_true")

@@ -50,6 +50,7 @@ def identities(config: Config) -> dict[str, str]:
     """Map explicit person-profile ids to Slack, then Demiurge, then their first other id."""
     out = {}
     line = session_context._qualified_id_line("github", r"(?P<id>[A-Za-z0-9-]+)")
+    email = session_context._qualified_id_line("email", r"(?P<id>[A-Za-z0-9.!#$%&'*+=?^{}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
     # Only person profiles, read directly: loading the whole vault per call made ranking scale with the vault.
     for path in sorted((config.vault_path / config.people_dir).rglob("Profile.md")):
         data, body = fm.read(path)
@@ -57,6 +58,7 @@ def identities(config: Config) -> dict[str, str]:
             continue
         ids = session_context.profile_ids(body)
         ids += ["github:" + match["id"] for match in re.finditer(line, body)]
+        ids += ["email:" + match["id"].casefold() for match in re.finditer(email, body)]
         if ids:
             canonical = next((ident for platform in ("slack:", "demiurge:") for ident in ids
                               if ident.startswith(platform)), ids[0])
