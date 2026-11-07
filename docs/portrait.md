@@ -124,7 +124,7 @@ A connection made later runs the same pass scoped to that account, and adds or u
 
 ### The person's seed, as built (0.65.0)
 
-The pass reads what the account has synced, not twelve months: Demiurge keeps the last thirty days of mail and the calendar from a week back to a month ahead. A longer backfill is a change to the sync, not to this pass, and the pass reads whatever window the files hold.
+The pass reads what the account has synced: Demiurge keeps the last thirty days of mail and the calendar from a week back to a month ahead. The sync also writes a one-time twelve-month backfill of the owner's sent and Updates mail and past calendar, which the seed reads once and clears; the pass reads whatever window the files hold.
 
 **The arithmetic is the engine's.** `brain portrait seed --account <address|all> [--json]` reads the owner accounts' synced files under `$AGENT_HOME/channels/<account>/` and prints a reading list in which every item already says whose it is (`docs/sharing.md`):
 
