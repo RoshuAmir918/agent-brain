@@ -204,7 +204,7 @@ def capture(config: Config) -> dict:
 def save_capture(config: Config, values: dict) -> None:
     path = _state_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fm.write(path, {}, json.dumps(values, ensure_ascii=False, indent=2) + "\n")
+    fm.write_text(path, json.dumps(values, ensure_ascii=False, indent=2) + "\n")
 
 
 def asked(config: Config) -> bool:
@@ -402,13 +402,12 @@ def link_note(config: Config, gid: str, note: str) -> None:
 
 def migrate(config: Config, *, apply: bool = False) -> list[str]:
     """Archive legacy content for the intellect to judge; never create goals."""
-    from .needs import _section
     if config.edition != "personal":
         return ["organisation vault: no personal goals to migrate"]
     path = config.vault_path / config.human_goals
     original = path.read_bytes().decode("utf-8") if path.exists() else TEMPLATE
     _, body = fm.split(original)
-    span = _section(body, "Active goals")
+    span = fm.section(body, "Active goals")
     if span is None:
         return ["no Active goals section; nothing to migrate"]
     for raw in body[span[0]:span[1]].splitlines():

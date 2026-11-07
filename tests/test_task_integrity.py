@@ -249,7 +249,7 @@ def test_a_waiting_task_keeps_its_ask(vault, capsys):
 
 
 @pytest.mark.parametrize("call", [
-    lambda config: tasks.complete(config, "T-001", TODAY, "done\n### T-002 — Phantom"),
+    lambda config: tasks.close(config, "T-001", TODAY, True, "done\n### T-002 — Phantom"),
     lambda config: tasks.close(config, "T-001", TODAY, False, "moot\nmore"),
     lambda config: tasks.set_aside(config, "T-001", TODAY, " "),
     lambda config: tasks.hand_off(config, "T-001", TODAY, "Home\n### T-002 — Phantom"),
@@ -274,17 +274,17 @@ def test_closing_a_hot_excerpt_keeps_the_full_body_in_the_archive(vault):
     shed = next(f"FULL_ONLY_{day} " for day in range(1, 13) if f"FULL_ONLY_{day} " not in task.body)
     assert tasks.archive_pointer(config, "T-001") in task.body
     tasks.save_task(config, task, TODAY)
-    tasks.complete(config, "T-001", TODAY, "booked")
+    tasks.close(config, "T-001", TODAY, True, "booked")
     assert shed in tasks.archive_path(config, "T-001").read_text()
 
 
 def test_completed_reads_the_latest_closing_and_the_register_wins(vault):
     config = Config.load(vault)
-    tasks.complete(config, "T-001", date(2026, 10, 1), "first try")
+    tasks.close(config, "T-001", date(2026, 10, 1), True, "first try")
     tasks.write_archive(config, find_any(config, "T-001"), "cold", date(2026, 10, 1))
     tasks.reopen(config, "T-001", TODAY, "one more page")
     assert tasks.completed(config, TODAY, 60) == []   # the archive's completed copy is stale
-    tasks.complete(config, "T-001", TODAY, "second try")
+    tasks.close(config, "T-001", TODAY, True, "second try")
     row, = tasks.completed(config, TODAY)
     assert (row["completed"], row["evidence"]) == ("2026-11-05", "second try")
 

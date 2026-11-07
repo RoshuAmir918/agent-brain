@@ -8,7 +8,9 @@ as `<agent>/Task Views/T-nnn.json`; `brain state --json` carries them. Work summ
 import json
 import math
 import re
+from pathlib import Path
 
+from . import fm
 from .config import Config
 
 MAX_BYTES = 16_000
@@ -53,14 +55,17 @@ def read(config: Config, tid: str) -> dict | None:
 
 def write(config: Config, tid: str, text: str) -> dict | None:
     """Check `text` against the kit and keep it; an empty view (`{}` or `{"pieces": []}`) removes the task's view."""
+    return save(path(config, tid), text)
+
+
+def save(p: Path, text: str) -> dict | None:
+    """Keep a checked task or work view at `p`, atomically; an empty view removes it."""
     clean = validate(text)
-    p = path(config, tid)
     if clean is None:
         p.unlink(missing_ok=True)
         return None
-    out = json.dumps(clean, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(out + "\n", encoding="utf-8")
+    fm.write_text(p, json.dumps(clean, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n")
     return clean
 
 

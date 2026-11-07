@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import json
 import re
-import tempfile
 from datetime import date
 from pathlib import Path, PurePosixPath
 
-from . import install, runtime
+from . import fm, install, runtime
 from .config import Config
 from .identity import profile_ids, profiles
 from .lock import vault_lock
@@ -31,14 +30,7 @@ def sync(config: Config, payload: dict, today: date) -> list[str]:
     }
     target = path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent, delete=False) as stream:
-        staged = Path(stream.name)
-        try:
-            stream.write(json.dumps(directory, ensure_ascii=False, indent=2) + "\n")
-            stream.close()
-            staged.replace(target)
-        finally:
-            staged.unlink(missing_ok=True)
+    fm.write_text(target, json.dumps(directory, ensure_ascii=False, indent=2) + "\n")
     count = len(directory["intellects"])
     with vault_lock(config):   # profiles are read and rewritten as they are now, not as an earlier snapshot had them
         added = reconcile(Vault(config.vault_path), directory, today)

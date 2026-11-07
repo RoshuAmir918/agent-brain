@@ -289,7 +289,7 @@ def test_closing_a_registered_task_also_closes_its_older_archive_copy(vault):
     reg = vault / "agent/Tasks.md"
     data, body = fm.read(reg)
     fm.write(reg, data, body + "\n" + T.Task("T-060", "Setup", "- **Status:** current\n", {"state": "in_progress"}).render())
-    T.complete(config, "T-060", date(2026, 11, 3), "machinery done")
+    T.close(config, "T-060", date(2026, 11, 3), True, "machinery done")
     data, body = fm.read(reg)
     fm.write(reg, data, body.split("### T-060")[0])          # the register stops listing it, as a hand move does
     registered, archived = T.load_tasks(config)

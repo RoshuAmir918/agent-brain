@@ -361,13 +361,13 @@ def ask_library(config: Config, today: date, report: list[str], records_path: Pa
         source = f"CURRENT#Library/{work.slug}"
         if source not in existing:
             text = f"Still want {work.title} in your Library? I can keep it, keep it updated, or put it away."
-            journal._add_ask(config, today, text, source, distinct_source=True)
+            journal.add_ask(config, today, text, source, distinct_source=True)
             report.append(f"needs-you: Library ask: {work.slug}")
             changed = True
         # Recover an interruption after CURRENT was saved but before its record was written.
         asked[work.slug] = existing.get(source) or today.isoformat()
         path.parent.mkdir(parents=True, exist_ok=True)
-        fm.write(path, {}, json.dumps(asked, indent=2, sort_keys=True) + "\n")
+        fm.write_text(path, json.dumps(asked, indent=2, sort_keys=True) + "\n")
     return changed
 
 

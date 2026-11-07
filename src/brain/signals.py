@@ -13,9 +13,7 @@ from .vault import Vault
 def _heartbeat(home: Path, routine: str, now: datetime, **counts: int) -> None:
     path = home / "records" / routine / "signal.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    staged = path.with_suffix(".json.tmp")
-    staged.write_text(json.dumps({"checked": now.isoformat(), **counts}) + "\n", encoding="utf-8")
-    staged.replace(path)
+    fm.write_text(path, json.dumps({"checked": now.isoformat(), **counts}) + "\n")
 
 
 def _daily_job(job: dict) -> bool:

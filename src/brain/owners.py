@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from . import fm
 from .config import Config
 from .tasks import PERSON
 
@@ -198,11 +199,9 @@ def problems(config: Config) -> list[str]:
 
 def restricted(config: Config) -> set[str]:
     """Read restricted areas from the optional Restricted section."""
-    from . import needs
-
     path = config.vault_path / config.agent("Owners.md")
     body = path.read_text(encoding="utf-8") if path.exists() else ""
-    span = needs._section(body, "Restricted")
+    span = fm.section(body, "Restricted")
     return {" ".join(line[2:].casefold().split())
             for line in body[span[0]:span[1]].splitlines() if line.startswith("- ")
             and AREA.fullmatch(" ".join(line[2:].casefold().split()))} if span else set()

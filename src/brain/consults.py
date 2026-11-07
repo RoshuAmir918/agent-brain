@@ -95,11 +95,11 @@ def _bullet(line: str) -> Consult | None:
         if not link:
             return None
         source = link[1].split("|", 1)[0].strip()
-    return Consult(parts[0], needs._plain(parts[1]), parts[2], source)
+    return Consult(parts[0], fm.plain(parts[1]), parts[2], source)
 
 
 def parse_section(body: str, title: str = "Open") -> list[Consult]:
-    span = needs._section(body, title)
+    span = fm.section(body, title)
     out, current = [], None
     for line in body[span[0]:span[1]].splitlines() if span else []:
         detail = DETAIL.match(line)
@@ -156,7 +156,7 @@ def _render(consult: Consult) -> str:
 
 def _append(path: Path, title: str, bullet: str, template: str) -> None:
     data, body = fm.read(path) if path.exists() else fm.split(template)
-    span = needs._section(body, title)
+    span = fm.section(body, title)
     if span is None:
         body = body.rstrip("\n") + f"\n\n## {title}\n\n{bullet}\n"
     else:
@@ -169,7 +169,7 @@ def _remove(config: Config, consult: Consult) -> None:
     path = path_for(config)
     data, body = fm.read(path)
     title = "Open" if consult.kind == "ask" else "Went ahead"
-    span = needs._section(body, title)
+    span = fm.section(body, title)
     blocks = re.split(r"(?m)(?=^- )", body[span[0]:span[1]])
     kept = "".join(block for block in blocks if not re.search(r"^  - id: " + re.escape(consult.id) + r"$", block, re.M))
     body = body[:span[0]] + kept + body[span[1]:]
@@ -553,7 +553,7 @@ def _log(config: Config, consult: Consult, now: datetime, outcome: str, person: 
         bullet += f"\n  - answer: {answer}"
     if outcome == "acted" and consult.source:
         bullet += f"\n  - source: [[{consult.source}]]"
-    needs._answered(config, now.date(), bullet)
+    needs.answered(config, now.date(), bullet)
 
 
 def _go_ahead(config: Config, consult: Consult, now: datetime, owner: str) -> Consult:
@@ -598,7 +598,7 @@ def ask(config: Config, to: str, text: str, default: str, why: str, area: str = 
                              '--not-covered "<why the record does not answer this>"')
         _available(config, area, to, text)
         existing = next((entry for entry in load(config) if entry.kind == "ask" and entry.area == area
-                         and needs._plain(entry.text) == needs._plain(text)), None)
+                         and fm.plain(entry.text) == fm.plain(text)), None)
         restricted = restricted or area in owners.restricted(config)
         if restricted:
             _gate(config, area, to, existing.id if existing else "")
@@ -633,7 +633,7 @@ def _open(config: Config, which: str) -> Consult:
     entries = [entry for entry in load(config) if entry.kind == "ask"]
     chosen = [entry for entry in entries if entry.id == which]
     if not chosen:
-        chosen = [entry for entry in entries if needs._plain(which) and needs._plain(which) in needs._plain(entry.text)]
+        chosen = [entry for entry in entries if fm.plain(which) and fm.plain(which) in fm.plain(entry.text)]
     if len(chosen) != 1:
         raise ValueError(("no open consult matches " if not chosen else f"{len(chosen)} open consults match ")
                          + repr(which) + "; use an id from `brain consult list --json`")

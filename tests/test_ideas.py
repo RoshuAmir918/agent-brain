@@ -104,9 +104,9 @@ def test_every_response_starts_the_owner_cooldown(vault, monkeypatch, answer, ag
 def test_cooldown_uses_latest_idea_response_across_months(vault):
     config = Config.load(vault)
     write_ideas(vault, bullet("Still open?"))
-    needs._answered(config, date(2026, 10, 31), "- 2026-10-31 · idea · Other? · yes · T-002")
-    needs._answered(config, TODAY, "- 2026-11-03 · dismissed no · idea · Latest? · id:123456789abc")
-    needs._answered(config, TODAY, "- 2026-11-03 · dismissed no · ask · Decision? · id:abcdef123456")
+    needs.answered(config, date(2026, 10, 31), "- 2026-10-31 · idea · Other? · yes · T-002")
+    needs.answered(config, TODAY, "- 2026-11-03 · dismissed no · idea · Latest? · id:123456789abc")
+    needs.answered(config, TODAY, "- 2026-11-03 · dismissed no · ask · Decision? · id:abcdef123456")
     assert ideas.cooldown_until(config, TODAY) == date(2026, 11, 4)
     assert ideas.shown(config, date(2026, 11, 4)).text == "Still open?"
 
@@ -214,7 +214,7 @@ def test_improvements_are_only_ideas_and_respond_in_their_hub(vault, answer, sta
     assert needs.items(config, TODAY) == []
     assert (item.kind, item.origin, item.text, item.detail, item.context) == (
         "idea", "improvement", "Want a short morning summary?", "Find important mail quickly.", "Correspondence")
-    assert item.id == needs._improvements(entry, "Correspondence.md", TODAY)[0].id
+    assert item.id == needs.improvements(entry, "Correspondence.md", TODAY)[0].id
     ideas.respond(config, item.id, TODAY, answer)
     section = path.read_text().split("### October 30 — Inbox summary", 1)[1].split("### October 29", 1)[0]
     assert needs.improvement_status(section) == status
