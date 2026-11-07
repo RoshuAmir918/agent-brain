@@ -44,6 +44,7 @@ def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
     value = ("Project" if name == "hub" else "2026-11-06 08:05" if name == "resume" else "new-value" if name == "work"
              else "T-000" if name == "after"
              else "G-1" if name == "goal"
+             else "2026-12-01" if name == "due"
              else "new value")
     if name == "goal":
         goals.new(config, "Reading", "Read widely", from_app=True)
@@ -167,8 +168,8 @@ def test_new_parses_appends_sources_json_and_shared_id_allocation(vault, capsys)
 
 
 @pytest.mark.parametrize("args,message", [
-    ([], "needs --source"), (["--source", "words", "--state", "blocked"], "ready or in_progress"),
-    (["--source", "words", "--state", ""], "ready or in_progress"),
+    ([], "needs --source"), (["--source", "words", "--state", "blocked"], "ready, in_progress or yours"),
+    (["--source", "words", "--state", ""], "ready, in_progress or yours"),
     (["--source", "words", "--work", "Bad slug"], "work slug"),
     (["--source", "words", "--hub", "Missing"], "note does not exist"),
     (["--source", "words\nmore"], "single-line"),

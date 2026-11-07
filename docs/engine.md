@@ -281,6 +281,8 @@ Earlier stages of this work:
 - T-042 Update Housing Connect income… (completed 2026-11-06): Submitted the eligible applications; Delivers: eligible applications submitted; last Verified: confirmation received; Next it left: follow up with agency
 ```
 
+A task can carry `- **Due:** YYYY-MM-DD` (`--due` with `new` or `set`), the day the owner named; state task rows export it as `due`. `brain task new` accepts `--state yours` for the owner's own things, on their plate.
+
 `brain task T-nnn done --why "<evidence>" [--left TEXT] [--then STAGE]...` also records what the task left undone (one `- **Left:**` line) and up to three next stages the owner could start (one `- **Then:**` line each, as titles), after the Completed line. A later close replaces them, and a reopen removes them. State task rows add `left` (text or null) and `then` (a list, possibly empty); both describe the latest completion and are empty while the task is open.
 
 State task rows, `brain continue --due --json` rows and the single object from `brain continue T-nnn --json` also include `stages: [{id, title, state, closed, delivers, outcome, verified, next}]`, or `[]`. These are full field values, in the same order as the text: `closed` is the closing date, `outcome` is the latest Completed/Dropped evidence (falling back to Why), and absent values are null. State stages follow the snapshot's task visibility exclusions. The continue `checkpoint` string includes the close-out instruction, earlier stages block and saved checkpoint, in that order.
