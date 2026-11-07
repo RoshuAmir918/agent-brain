@@ -37,7 +37,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, loops, needs, retrieve, session_context, state, validate, views, works
+from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, loops, needs, portrait, retrieve, session_context, state, validate, views, works
 from . import tasks as tasks_mod
 from .tasks import load_tasks, quiet
 from .vault import Vault
@@ -781,6 +781,23 @@ def cmd_state(args):
                          ("tasks", "hubs", "routines", "triggers", "ledger", "journal", "needsYou", "outputs", "loops", "loopsClosed")))
 
 
+def cmd_portrait(args):
+    lines = portrait.load(args.config)
+    if args.top is not None:
+        lines = portrait.top(lines, args.top)
+    if args.json:
+        print(json.dumps([line.public() for line in lines], ensure_ascii=False, indent=2))
+        return
+    if not lines:
+        print(f"no portrait yet: {args.config.link(args.config.human_portrait)}")
+        return
+    for line in lines:
+        print(" · ".join(part for part in (line.id and f"^{line.id}", line.section, line.text, line.basis, line.confidence,
+                                           line.evidence, line.horizon) if part))
+        if args.top is not None and line.for_:
+            print(f"  for: {line.for_}")
+
+
 def cmd_simulate(a):
     print(act.simulate_table(a.config.context.hot_threshold if a.h is None else a.h,
                              a.config.context.warm_threshold if a.w is None else a.w))
@@ -1124,6 +1141,9 @@ def main(argv=None):
     s.add_argument("--daily", action="store_true"); s.set_defaults(fn=cmd_continue_signal)
     s = sub.add_parser("stale-tasks", help="open tasks gone quiet long enough for the evening review", parents=[vault])
     s.set_defaults(fn=cmd_stale_tasks)
+    s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
+    s.add_argument("--top", type=int, metavar="N", help="only the top N After lines, with what each asks attention to watch")
+    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_portrait)
     s = sub.add_parser("state", parents=[vault])
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_state)
     s = sub.add_parser("health", parents=[vault]); s.add_argument("--date")

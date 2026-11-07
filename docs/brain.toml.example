@@ -19,7 +19,7 @@ edition = "personal"                 # "enterprise": an organisation's intellect
 [context]   # each key also has a BRAIN_* environment override; see docs/engine.md
 hot_words = 6000   # BRAIN_HOT_WORDS: budget in note-body words for the directory's most active notes
 # Legacy section name "hot" is accepted as an alias for "directory".
-sections = ["start", "current", "goals", "triggers", "tasks", "directory"]
+sections = ["start", "current", "portrait", "goals", "triggers", "tasks", "directory"]
 prefetch = true
 prefetch_limit = 6
 prefetch_chars = 1500

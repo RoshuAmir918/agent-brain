@@ -143,6 +143,13 @@ def owner_profile(vault: Vault) -> list[str]:
         if words > OWNER_PROFILE_WORDS else []
 
 
+def portrait_hygiene(vault: Vault) -> list[str]:
+    from . import portrait
+    rel = vault.config.human_portrait
+    note = vault.notes.get(rel)
+    return portrait.hygiene(note.body, vault.config.today(), rel) if note and vault.config.edition != "enterprise" else []
+
+
 def responsibilities(vault: Vault) -> list[str]:
     """Every own skill is a responsibility: a hub at the vault root names it and its records folder. On demand only; the nightly write is never blocked on it."""
     problems = []
@@ -241,7 +248,7 @@ def hygiene(vault: Vault) -> list[str]:
             + channels(vault) + identity_duplicates(vault) + needs_ceiling(vault) + needs_hygiene(vault)
             + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
-            + watch_signal_hygiene(vault) + schedule_hygiene(vault))
+            + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault))
 
 
 def schedule_hygiene(vault: Vault) -> list[str]:
