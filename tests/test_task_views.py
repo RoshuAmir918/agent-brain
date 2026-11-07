@@ -10,12 +10,6 @@ from brain.config import Config
 from brain.vault import Vault
 
 
-@pytest.fixture(autouse=True)
-def no_conversation(monkeypatch):
-    monkeypatch.delenv("DEMIURGE_CONVERSATION", raising=False)
-    monkeypatch.delenv("DEMIURGE_TASK", raising=False)
-
-
 def view(vault, capsys, monkeypatch, spec, tid="T-001"):
     monkeypatch.setattr("sys.stdin", io.StringIO(spec if isinstance(spec, str) else json.dumps(spec)))
     cli.main(["task", tid, "view", "--vault", str(vault)])

@@ -2,12 +2,20 @@
 import hashlib
 import os
 import subprocess
+import sys
 
 import pytest
 
 from brain import fm, nightly, triggers
 from brain.config import Config
 from brain.tasks import Task
+
+
+@pytest.fixture(autouse=True)
+def isolated_cli_env(monkeypatch):
+    monkeypatch.setenv("PATH", os.path.dirname(sys.executable), prepend=os.pathsep)
+    for name in ("DEMIURGE_CONVERSATION", "DEMIURGE_TASK", "DEMIURGE_WORKERS", "BRAIN_SPEAKER"):
+        monkeypatch.delenv(name, raising=False)
 
 
 def make_vault(root, uses="2026-09-20"):
