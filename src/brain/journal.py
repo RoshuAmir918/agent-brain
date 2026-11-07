@@ -69,14 +69,14 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
         which, outcome, why = ((closure, "done", "closed in conversation") if isinstance(closure, str) else
                                (closure["loop"], closure["outcome"], closure["why"]))
         # A retried record or another session may already have closed this loop.
-        if any(item.id == which or loops._plain(item.text) == loops._plain(which)
+        if any(item.id == which or fm.plain(item.text) == fm.plain(which)
                for item in loops.open_loops(config)):
             try:
                 loops.close(config, which, local, outcome, why)
             except ValueError:
                 pass   # ambiguous text or a concurrent close leaves the rest of the capture intact
     for which in record.get("ready") or []:
-        if any(item.id == which or needs._plain(item.text) == needs._plain(which)
+        if any(item.id == which or fm.plain(item.text) == fm.plain(which)
                for item in loops.open_loops(config)):
             try:
                 loops.ready(config, which, local)
@@ -85,7 +85,7 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     for which in record.get("resolved") or []:
         with vault_lock(config):
             matched = [item for item in needs.items(config, local.date()) if item.kind in ("ask", "confirm")
-                       and (item.id == which or needs._plain(item.text) == needs._plain(which))]
+                       and (item.id == which or fm.plain(item.text) == fm.plain(which))]
             if len(matched) == 1:
                 try:
                     needs.resolve(config, matched[0].id, because="answered in conversation", today=local.date(),
@@ -97,7 +97,8 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
         if (reason := vague_ask(needs_you)):
             print(f"skipped ask {needs_you!r}: {reason}", file=sys.stderr)
         else:
-            add_ask(config, local.date(), needs_you, touched[0] if touched else None)
+            with vault_lock(config):
+                add_ask(config, local.date(), needs_you, touched[0] if touched else None)
     if owner:
         working_together(config, local.date(), record.get("workingTogether"))
         promote_touched(config, vault, record.get("touched") or [], local.date(), speaker)
@@ -131,7 +132,7 @@ def promote_touched(config: Config, vault: Vault, touched: list[str], today: dat
                 if tasks.pace(task) == "daily":
                     tasks.set_pace(config, task.tid, "regular", today)
                 from . import continuation
-                continuation._mark_engaged(config, task.tid)
+                continuation.mark_engaged(config, task.tid)
 
 
 HEADING = re.compile(r"^##[ \t]+Working together\b[^\n]*$", re.M)
@@ -197,20 +198,15 @@ def noted(config: Config, at: datetime, lines, speaker: str | None) -> Path | No
     return path
 
 
-def add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False, why: str = "") -> bool:
-    """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing. Always
-    adds: a question is never lost to a full list. Past the ceiling, the evening decides the lowest-ranked ones down
-    to it. `force` is kept for callers written before the ceiling stopped refusing."""
-    with vault_lock(config):
-        return _add_ask(config, day, text, source, force, why)
-
-
-def _add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False, why: str = "", *,
-             distinct_source: bool = False, kind: str = "ask") -> bool:
+def add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False, why: str = "", *,
+            distinct_source: bool = False, kind: str = "ask") -> bool:
+    """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing; the caller
+    holds the vault lock. Always adds: a question is never lost to a full list. Past the ceiling, the evening decides
+    the lowest-ranked ones down to it. `force` is kept for callers written before the ceiling stopped refusing."""
     path = config.vault_path / "CURRENT.md"
     data, body = fm.read(path) if path.exists() else ({}, "")
     text = " ".join(text.replace("·", "-").split())   # the separator, inside the text, would break the bullet
-    from .needs import _section, parse_section, replace_task_asks, task_of
+    from .needs import parse_section, replace_task_asks, task_of
     asks = parse_section(body)
     if any(item.kind == kind and item.text.casefold() == text.casefold() and (not distinct_source or item.source == source) for item in asks):
         return True   # already asked; the first one stands until it is resolved
@@ -220,7 +216,7 @@ def _add_ask(config: Config, day: date, text: str, source: str | None, force: bo
     why = " ".join(why.split())
     if why:
         bullet += f"\n  - why: {why}"
-    span = _section(body, "Needs you")
+    span = fm.section(body, "Needs you")
     if span is None:
         body = body.rstrip("\n") + ("\n\n" if body.strip() else "") + "## Needs you\n\n" + bullet + "\n"
     else:

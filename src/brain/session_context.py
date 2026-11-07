@@ -9,7 +9,7 @@ from .compile_context import DATE
 from .config import Config
 from .identity import matching_agents, matching_profiles, role
 from .install import deferred_path, deferred_steps
-from .vault import Note, Vault
+from .vault import WIKILINK_RE, Note, Vault
 
 DEFAULT_RULE = ("Default for everything else: decline briefly. When what they ask needs the owner (an answer only the "
                 "owner can give, a thing the owner holds, a status the owner knows), ask the owner now, in this session "
@@ -52,7 +52,7 @@ def intellect_owner(agent: Note) -> tuple[str, str]:
     if not match:
         return "", ""
     value = match[1]
-    link = re.search(r"\[\[([^\]|]+)(?:\|([^\]]*))?\]\]", value)
+    link = WIKILINK_RE.search(value)
     if link:
         target = link[1].strip()
         parts = [part for part in target.split("/") if part]

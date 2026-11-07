@@ -478,7 +478,7 @@ def test_a_newer_ask_for_a_task_replaces_its_older_one_and_items_name_the_task(v
                   "- 2026-10-26 · ask · Reconnect Supabase? · [[agent/Tasks#T-003]]\n"
                   "- 2026-10-26 · ask · Book the dinner?\n")
     config = Config.load(vault)
-    journal._add_ask(config, TODAY, "What would done look like for the apartment site?", "agent/Tasks#T-004")
+    journal.add_ask(config, TODAY, "What would done look like for the apartment site?", "agent/Tasks#T-004")
     body = fm.read(vault / "CURRENT.md")[1]
     assert "More listings" not in body and "What would done look like" in body
     assert "Reconnect Supabase?" in body and "Book the dinner?" in body

@@ -42,14 +42,57 @@ def read(path: Path) -> tuple[dict, str]:
 
 
 def write(path: Path, data: dict, body: str) -> None:
-    """Write through a temporary file and an atomic rename: a note is never seen half-written, and two writers can no
-    longer leave a truncated file padded with NUL bytes (an Amicus register on 2026-11-05)."""
-    staged = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    write_text(path, join(data, body))
+
+
+def write_text(path: Path, text: str | bytes, mode: int | None = None) -> None:
+    """Write through a uniquely named temporary file and an atomic rename: a reader never sees the file half-written,
+    and two writers can no longer leave a truncated file padded with NUL bytes (an Amicus register on 2026-11-05)."""
+    staged = path.with_name(f".{path.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
     try:
-        staged.write_text(join(data, body), encoding="utf-8")
+        staged.write_bytes(text.encode("utf-8") if isinstance(text, str) else text)
+        if mode is not None:
+            staged.chmod(mode)
         os.replace(staged, path)
     finally:
         staged.unlink(missing_ok=True)
+
+
+def section(body: str, title: str) -> tuple[int, int] | None:
+    """The span of a `## title` section's body, up to the next `## ` heading."""
+    heading = re.search(r"^## " + re.escape(title) + r"[ \t]*\r?$", body, re.M)
+    if not heading:
+        return None
+    following = re.compile(r"^## ", re.M).search(body, heading.end())
+    return heading.end(), following.start() if following else len(body)
+
+
+def without(body: str, span: tuple[int, int], drop, *, bullet, detail: re.Pattern) -> tuple[str, list]:
+    """The section's lines without the bullets `drop(item)` selects and their indented detail lines. `bullet` parses a
+    line into an item or None; `detail` matches an indented line belonging to the bullet above it."""
+    kept, removed, dropping = [], [], False
+    for line in body[span[0]:span[1]].splitlines(keepends=True):
+        if detail.match(line.rstrip("\r\n")):
+            if not dropping:
+                kept.append(line)
+            continue
+        item = bullet(line)
+        dropping = bool(item and drop(item))
+        if dropping:
+            removed.append(item)
+        else:
+            kept.append(line)
+    return body[:span[0]] + "".join(kept) + body[span[1]:], removed
+
+
+def plain(text: str) -> str:
+    """Case- and whitespace-insensitive form, for matching an item by its words."""
+    return " ".join(text.casefold().split())
+
+
+def cut(text: str, words: int) -> str:
+    parts = text.split()
+    return text if len(parts) <= words else " ".join(parts[:words]).rstrip(",;:") + "…"
 
 
 def field(body: str, *names: str) -> str | None:

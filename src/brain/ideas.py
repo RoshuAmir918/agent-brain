@@ -50,7 +50,7 @@ def _bullet(line: str) -> Item | None:
 
 def parse_section(body: str, *, cut: bool = True) -> list[Item]:
     """Read Open bullets and their optional, indented why and needs lines; hygiene reads the uncut why."""
-    span = needs_mod._section(body, "Open")
+    span = fm.section(body, "Open")
     out = []
     if span is None:
         return out
@@ -63,7 +63,7 @@ def parse_section(body: str, *, cut: bool = True) -> list[Item]:
             out.append(item)
     if cut:
         for item in out:
-            item.detail = needs_mod._cut(item.detail, needs_mod.WHY_WORDS)
+            item.detail = fm.cut(item.detail, needs_mod.WHY_WORDS)
     return out
 
 
@@ -98,12 +98,12 @@ def _open(vault_or_config: Vault | Config, today: date) -> list[Item]:
     out = parse_section(note.body) if note else []
     for rel, note in vault.notes.items():
         if vault.kind_for(rel) == "hub":
-            for item in needs_mod._improvements(note.body, rel, today):
+            for item in needs_mod.improvements(note.body, rel, today):
                 item.kind = "idea"   # the origin/source/label keep existing proposal ids stable
                 out.append(item)
     gone = needs_mod.dismissed_ids(config)
-    rejected = {needs_mod._plain(text) for _, answer, text, _ in _responses(config) if answer in ("no", "stop-asking")}
-    return sorted((item for item in out if item.id not in gone and needs_mod._plain(item.text) not in rejected),
+    rejected = {fm.plain(text) for _, answer, text, _ in _responses(config) if answer in ("no", "stop-asking")}
+    return sorted((item for item in out if item.id not in gone and fm.plain(item.text) not in rejected),
                   key=lambda item: item.since or "", reverse=True)
 
 
@@ -147,12 +147,12 @@ def shown(config: Config, today: date) -> Item | None:
 
 def add_refusal(config: Config, today: date, text: str) -> str | None:
     text = " ".join(text.replace("·", "-").split())
-    needle = needs_mod._plain(text)
+    needle = fm.plain(text)
     if not needle:
         return "idea text must not be empty"
-    if any(needs_mod._plain(item.text) == needle for item in _open(config, today)):
+    if any(fm.plain(item.text) == needle for item in _open(config, today)):
         return "the same idea is already open (including snoozed ideas)"
-    if any(needs_mod._plain(previous) == needle for _, answer, previous, _ in _responses(config)
+    if any(fm.plain(previous) == needle for _, answer, previous, _ in _responses(config)
            if answer in ("no", "stop-asking")):
         return "the owner already dismissed this idea with no or stop-asking"
     path = config.vault_path / config.agent("Ideas.md")
@@ -180,7 +180,7 @@ def add(config: Config, today: date, text: str, source: str, why: str = "", need
         for label, value in (("why", why), ("needs", needs), ("goal", goal or "")):
             if value.strip():
                 bullet += f"\n  - {label}: {' '.join(value.split())}"
-        span = needs_mod._section(body, "Open")
+        span = fm.section(body, "Open")
         if span is None:
             body = body.rstrip("\n") + "\n\n## Open\n\n" + bullet + "\n"
         else:
@@ -199,8 +199,8 @@ def respond(config: Config, which: str, today: date, answer: str) -> Item:
         candidates = _open(config, today)
         chosen = [item for item in candidates if item.id == which]
         if not chosen:
-            needle = needs_mod._plain(which)
-            chosen = [item for item in candidates if needle and needle in needs_mod._plain(item.text)]
+            needle = fm.plain(which)
+            chosen = [item for item in candidates if needle and needle in fm.plain(item.text)]
         if len(chosen) != 1:
             raise ValueError(("no open idea matches " if not chosen else f"{len(chosen)} open ideas match ")
                              + repr(which) + "; use an id from `brain ideas --all`")
@@ -221,9 +221,9 @@ def respond(config: Config, which: str, today: date, answer: str) -> Item:
             if item.origin == "ideas":
                 path = config.vault_path / config.agent("Ideas.md")
                 data, body = fm.read(path)
-                span = needs_mod._section(body, "Open")
-                body, _ = needs_mod._without(body, span, lambda bullet: bullet.id == item.id,
-                                            bullet=_bullet, detail=DETAIL)
+                span = fm.section(body, "Open")
+                body, _ = fm.without(body, span, lambda bullet: bullet.id == item.id,
+                                     bullet=_bullet, detail=DETAIL)
                 fm.write(path, data, body)
             else:
                 rel, _, anchor = item.source.partition("#")
@@ -237,13 +237,13 @@ def respond(config: Config, which: str, today: date, answer: str) -> Item:
                 changed = needs_mod.STATUS_FIELD.sub(lambda m: m[0].replace(m[1], status), entry, count=1)
                 if changed == entry:
                     changed = entry.rstrip("\n") + f"\n- **Status:** {status}\n\n"
-                path.write_text(body[:heading.end()] + changed + body[end:], encoding="utf-8")
+                fm.write_text(path, body[:heading.end()] + changed + body[end:])
         text = item.text.replace("·", "-")
         if answer in ("no", "stop-asking"):
             line = f"- {today.isoformat()} · dismissed {answer} · idea · {text} · id:{item.id}"
         else:
             line = f"- {today.isoformat()} · idea · {text} · {answer}" + (f" · {tid}" if tid else "") + f" · id:{item.id}"
-        needs_mod._answered(config, today, line + f" · [[{item.source}]]")
+        needs_mod.answered(config, today, line + f" · [[{item.source}]]")
         from . import reception
         reception.answered(config, "idea", item.text, "used" if answer == "yes" else f"declined:{answer}")
         return item

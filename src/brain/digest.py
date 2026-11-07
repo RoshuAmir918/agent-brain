@@ -9,9 +9,10 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from . import install, runtime, session_tools, sessions
+from . import fm, install, runtime, session_tools, sessions
 from .attribute import ROLE_RE, fallback_date, last_timestamp
 from .config import Config
+from .vault import fence_after
 
 PACIFIC = ZoneInfo("America/Los_Angeles")
 WORD_LIMIT = 25000
@@ -132,20 +133,10 @@ def markdown_timestamp(line: str) -> str | None:
     return stamp if stamp and cleaned.strip().strip("*`()[] ") == stamp else None
 
 
-def markdown_fence(line: str, fence: str) -> str:
-    if fence:
-        closing = r" {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}[ \t]*\r?\n?"
-        return "" if re.fullmatch(closing, line) else fence
-    opening = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
-    if opening and not (opening[1][0] == "`" and "`" in opening[2]):
-        return opening[1]
-    return ""
-
-
 def markdown_messages(text: str) -> list[dict]:
     messages, current, timestamp, fence = [], None, None, ""
     for line in text.splitlines(keepends=True):
-        following = markdown_fence(line, fence)
+        following = fence_after(line, fence)
         if fence or following:
             fence = following
             if current is not None:
@@ -266,5 +257,5 @@ def write(config: Config, day: date, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     encoded = text.encode("utf-8")
     if not path.exists() or path.read_bytes() != encoded:
-        path.write_bytes(encoded)
+        fm.write_text(path, encoded)
     return path

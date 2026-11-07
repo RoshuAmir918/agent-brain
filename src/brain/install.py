@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 import shutil
 
-import os
 import subprocess
 import sys
 from importlib.metadata import version as installed_version
@@ -57,6 +56,13 @@ def local_section(text: str) -> str:
     return text[match.start():].rstrip("\n") + "\n" if match else ""
 
 
+def render(text: str, values: dict[str, str]) -> str:
+    """A template with each `{token}` replaced by its value."""
+    for token, value in values.items():
+        text = text.replace("{" + token + "}", value)
+    return text
+
+
 def render_skill(config: Config, name: str) -> str:
     """The package's current text of one routine, rendered for this vault: what `install-skills` writes before keeping the
     vault's `## Local` section."""
@@ -64,10 +70,7 @@ def render_skill(config: Config, name: str) -> str:
     if not template.is_file():
         raise ValueError(f"no such routine: {name}; the package has " + ", ".join(
             sorted(p.name for p in files("brain").joinpath("skills").iterdir() if p.joinpath("SKILL.md").is_file())))
-    text = for_edition(template.read_text(encoding="utf-8"), config.edition)
-    for token, value in config.template_values().items():
-        text = text.replace("{" + token + "}", value)
-    return text
+    return render(for_edition(template.read_text(encoding="utf-8"), config.edition), config.template_values())
 
 
 def skills(config: Config) -> Path:
@@ -78,15 +81,12 @@ def skills(config: Config) -> Path:
             if not template.is_file():
                 continue
             target = config.skills_path / (config.skill_prefix + routine.name) / "SKILL.md"
-            text = template.read_text(encoding="utf-8")
-            if config.edition not in editions(text):
+            if config.edition not in editions(template.read_text(encoding="utf-8")):
                 # Not this edition's: an earlier render (before the vault changed edition) is removed with its folder.
                 if target.exists():
                     shutil.rmtree(target.parent)
                 continue
-            text = for_edition(text, config.edition)
-            for token, value in config.template_values().items():
-                text = text.replace("{" + token + "}", value)
+            text = render_skill(config, routine.name)
             if target.exists():
                 current = target.read_text(encoding="utf-8")
                 previous = target.with_name("previous.md")
@@ -94,11 +94,9 @@ def skills(config: Config) -> Path:
                     previous.write_text(current, encoding="utf-8")
                 local = local_section(current)
                 if local:
-                    text = text.rstrip("\n") + "\n\n" + local
-                    for token, value in config.template_values().items():
-                        text = text.replace("{" + token + "}", value)
+                    text = render(text.rstrip("\n") + "\n\n" + local, config.template_values())
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(text, encoding="utf-8")
+            fm.write_text(target, text)
         memory_spec(config)
     return config.skills_path
 
@@ -107,17 +105,13 @@ def memory_spec(config: Config) -> Path:
     """The Memory Spec is the engine's description of how memory works, so it follows the engine: re-rendered with the
     skills, keeping the vault's frontmatter and its `## Local` section."""
     target = config.vault_path / config.agent("Memory Spec.md")
-    text = files("brain").joinpath("templates", "memory-spec.md").read_text(encoding="utf-8")
-    for token, value in config.template_values().items():
-        text = text.replace("{" + token + "}", value)
+    text = render(files("brain").joinpath("templates", "memory-spec.md").read_text(encoding="utf-8"), config.template_values())
     data = {"kind": "orientation", "pinned": True, "tier": "hot", "uses": [], "uses_inferred": []}
     if target.exists():
         data, current = fm.read(target)
         local = local_section(current)
         if local:
-            text = text.rstrip("\n") + "\n\n" + local
-            for token, value in config.template_values().items():
-                text = text.replace("{" + token + "}", value)
+            text = render(text.rstrip("\n") + "\n\n" + local, config.template_values())
         if current.strip() == text.strip():
             return target
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -134,9 +128,7 @@ def responsibility(config: Config, name: str, skill: str, records: str) -> list[
                              ("skill.md", config.skills_path / skill / "SKILL.md")):
         if target.exists():
             continue
-        text = files("brain").joinpath("templates", template).read_text(encoding="utf-8")
-        for token, value in values.items():
-            text = text.replace("{" + token + "}", value)
+        text = render(files("brain").joinpath("templates", template).read_text(encoding="utf-8"), values)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
         written.append(target)
@@ -152,10 +144,7 @@ def scripts() -> list[Path]:
         if not script.name.endswith(".sh"):
             continue
         target = directory / script.name
-        staged = target.with_name(target.name + ".tmp")
-        staged.write_bytes(script.read_bytes())
-        staged.chmod(0o755)
-        os.replace(staged, target)   # atomic, so a script can replace itself while it runs
+        fm.write_text(target, script.read_bytes(), 0o755)   # atomic, so a script can replace itself while it runs
         installed.append(target)
     return installed
 
@@ -242,7 +231,7 @@ def start_migration(config: Config) -> bool:
             if any(existing.startswith(MIGRATION_ROUTINE) for existing in routines):
                 return True
             routines[name] = schedule.Routine(at=at, prompt=MIGRATION_RUN, workdir=str(config.repo))
-            schedule._save(config, routines)
+            schedule.save(config, routines)
         return True
     print(f"migration not started: no declared schedule at {schedule.path(config)}", file=sys.stderr)
     return False
@@ -282,5 +271,5 @@ def migrate_done(config: Config, deferred: list[str] | None = None) -> str:
     with vault_lock(config):
         routines = schedule.load(config) if schedule.path(config).exists() else {}
         if any(name.startswith(MIGRATION_ROUTINE) for name in routines):
-            schedule._save(config, {name: routine for name, routine in routines.items() if not name.startswith(MIGRATION_ROUTINE)})
+            schedule.save(config, {name: routine for name, routine in routines.items() if not name.startswith(MIGRATION_ROUTINE)})
     return current
