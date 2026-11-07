@@ -1,7 +1,7 @@
 ---
 name: {prefix}people
 description: Daily source-backed People profile review
-version: 2.0.0
+version: 2.1.0
 metadata:
   runtime:
     tags: [memory, people]
@@ -27,7 +27,7 @@ Run `brain portrait coverage --json`; for each account in `unreadBackfill`, load
    - **New evidence.** Something they said about themselves is a `said` line, in their framing, with today's date; a pattern you have now seen twice is `seen`, stated as behaviour (what they do, decide, ask for, return to, push back on); an inference from one signal is a `guess` with a `test:` (a question to ask once, at a natural moment). Where what they say and what they do differ, keep both, the second as `against:`. Health, mood, relationships and other sensitive subjects appear only as `said`, in their words, never as `seen` or `guess`. Be honest, not flattering.
    - **After and goals.** Goals are `brain goals`'s, never the portrait's: each active goal has one After line naming it (`goal: G-n`), with its `horizon:` and a `for:` naming where you can help; a goal reached or set aside leaves After for History. Anything else under After is a `guess` about something they may be after; it funds nothing. When they confirm one, record it with `brain goals new` and link the line; when they correct one, it goes to History.
    - **Promote and retire.** A guess whose offers came back `used` or `liked` twice in the reception summary becomes `seen`; one {human_name} confirmed becomes `said`. A guess whose offer was declined, or that they corrected, moves to `History.md` beside the portrait, dated with its id; when they corrected it, their words become a `Not` line, so it is never guessed again. A line contradicted by new evidence is revised, never just appended to; its old version goes to History with the date.
-   - Rewrite in place, rank within each section, keep every line's `^id` (write new lines without one), at most eight lines a section and 700 words.
+   - Rewrite in place, rank within each section, keep every line's `^id` (write new lines without one, then `brain portrait stamp`), at most eight lines a section and 700 words. When {human_name} answers a line in their app (right, wrong or not this), the engine applies it with `brain portrait mark`; never undo it.
    When a `seen` or `guess` line is new or changed, add one `confirm` to CURRENT's `## Needs you`, written so {human_name} understands it cold ("I've come to think you … — right?"); count the confirms of this kind in Needs you and History over the last seven days, and add none past two. Their answer is evidence: record it on the line. Your portrait of {human_name} is never told to anyone else.
 6. Each profile's title is the person's name once you know it; their ids stay as platform lines (`- **Slack:** \`U…\``, `- **Demiurge:** \`k57…\``). A profile you cannot resolve says so in its title ("unresolved Demiurge speaker"), never matching a rule by accident. The engine logs requests and raises the declines no rule covers; do not add them to Needs you yourself. Keep `{people_dir}/README.md` a current list of profiles, including any Sleep 1 created for someone only mentioned.
 7. Overwrite `$AGENT_HOME/records/people/state.json` with the reviewed window and the ids handled, so a rerun does not count a speaker twice. `brain commit -m "people(<date>)" --push`.
