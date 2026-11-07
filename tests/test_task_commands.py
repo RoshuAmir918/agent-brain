@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from brain import cli as brain_cli, fm, ideas, tasks
+from brain import cli as brain_cli, fm, goals, ideas, tasks
 from brain.config import Config
 from conftest import snapshot
 
@@ -43,7 +43,10 @@ def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
     config, where = location
     value = ("Project" if name == "hub" else "2026-11-06 08:05" if name == "resume" else "new-value" if name == "work"
              else "T-000" if name == "after"
+             else "G-1" if name == "goal"
              else "new value")
+    if name == "goal":
+        goals.new(config, "Reading", "Read widely")
     if name == "after":
         tasks.write_archive(config, tasks.Task("T-000", "Earlier", "", {"state": "completed"}), "cold", TODAY)
     out = cli(vault, capsys, "T-001", "set", "--" + name, value)

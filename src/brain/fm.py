@@ -52,6 +52,13 @@ def field(body: str, *names: str) -> str | None:
     return match[1].replace("**", "").strip() if match else None
 
 
+def hub_goal(body: str) -> str | None:
+    """Only the hub's own Goal bullet, before any subsection or proposal."""
+    preamble = re.split(r"^#{2,6} ", body, maxsplit=1, flags=re.M)[0]
+    match = re.search(r"^- \*\*Goal:\*\*[ \t]*([^\r\n]*)", preamble, re.M | re.I)
+    return match[1].strip() if match else None
+
+
 def first_line(body: str) -> str:
     """First non-heading, non-empty prose line, used for index lines."""
     for ln in body.splitlines():

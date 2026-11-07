@@ -7,7 +7,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import access, fm, health, ideas, journal, ledger, loops, needs, portrait, responsibilities, schedule, tasks, triggers, views
+from . import access, fm, goals, health, ideas, journal, ledger, loops, needs, portrait, responsibilities, schedule, tasks, triggers, views, works
 from .config import Config
 from .session_context import legacy, profile_ids
 from .vault import Vault
@@ -64,6 +64,7 @@ def _tasks(vault: Vault) -> list[dict]:
     return [{"id": task.tid, "title": task.title, "state": task.task_state, "open": tasks.is_open(task),
              "detail": fm.field(task.body, "Status"), "next": fm.field(task.body, "Next", "Next action"),
              "blockers": fm.field(task.body, "Blocker", "Blockers"), "hub": _public_link(vault, task.hub), "work": task.work,
+             "goal": task.goal if config.edition == "personal" else None,
              "after": task.after, "stages": continuation.stages(config, task, public_tasks),
              "delivers": task.delivers, "ask": fm.field(task.body, "Ask"), "why": fm.field(task.body, "Why"),
              "verified": fm.field(task.body, "Verified"), "evidence": fm.field(task.body, "Latest evidence"),
@@ -244,6 +245,37 @@ def _outputs(vault: Vault) -> list[dict]:
     return out
 
 
+def _goals(vault: Vault, task_entries: list[dict]) -> list[dict]:
+    if vault.config.edition != "personal":
+        return []
+    entries = [goal.public() for goal in goals.load(vault.config)]
+    by_id = {entry["id"]: entry["links"] for entry in entries}
+    def link(gid, kind, ident):
+        if gid in by_id and ident not in by_id[gid][kind]:
+            by_id[gid][kind].append(ident)
+    for task in task_entries:
+        link(task["goal"], "tasks", task["id"])
+        if task["work"]:
+            link(task["goal"], "works", task["work"])
+    for source, note in sorted(vault.notes.items()):
+        if not _public(vault, source):
+            continue
+        if note.data.get("kind") == "draft" or vault.kind_for(source) == "draft":
+            gid = note.data.get("goal") or fm.field(note.body, "Goal")
+            link(gid, "drafts", source.removesuffix(".md"))
+        elif vault.kind_for(source) == "hub":
+            gid = fm.hub_goal(note.body)
+            link(gid, "hubs", note.stem)
+            if note.data.get("work"):
+                link(gid, "works", note.data["work"])
+    for idea in ideas._open(vault, vault.config.today()):
+        if _source(vault, idea.source) is not None:
+            link(idea.goal, "ideas", idea.id)
+    for work in works.parse(works.library() or ""):
+        link(works.goal_for(work.slug) or work.goal, "works", work.slug)
+    return entries
+
+
 def _journal(vault: Vault, today: date) -> list[dict]:
     config = vault.config
     floor = (today - timedelta(days=29)).isoformat()
@@ -306,6 +338,8 @@ def build(config: Config, today: date) -> dict:
     idea = ideas.shown(config, today)
     source = _source(vault, idea.source) if idea else None
     owner_idea = {**asdict(idea), "source": source} if source is not None else None
+    if owner_idea and config.edition == "enterprise":
+        owner_idea["goal"] = None
     ideas_open = sum(_source(vault, item.source) is not None for item in ideas._open(vault, today))
     try:
         engine = health.installed_version("agent-brain")
@@ -315,6 +349,7 @@ def build(config: Config, today: date) -> dict:
     if version and health.git(config.vault_path, "--no-optional-locks", "status", "--porcelain"):
         version += "+dirty"
     return {"schema": 1, "engine": engine, "version": version, "tasks": task_entries, "hubs": hubs,
+            "goals": _goals(vault, task_entries),
             "routines": routine_entries, "triggers": trigger_entries, "ledger": recent,
             "journal": _journal(vault, today),  # kept for one more release while the owner's app switches to loops
             "needsYou": owner_items, "outputs": _outputs(vault),

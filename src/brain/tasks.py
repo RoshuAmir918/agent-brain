@@ -5,6 +5,7 @@ read/modify/write operation. The CLI, ideas, needs-you and nightly own that lock
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -63,6 +64,10 @@ class Task:
     def work(self) -> str | None:
         match = re.search(r"^[ \t]*-[ \t]+\*\*Work:\*\*[ \t]*([a-z0-9-]+)[ \t]*$", self.body, re.M)
         return match[1] if match else None
+
+    @property
+    def goal(self) -> str | None:
+        return fm.field(self.body, "Goal")
 
     @property
     def after(self) -> str | None:
@@ -177,7 +182,7 @@ HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
 PACE_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[^\n]*\n?", re.M)
 WORK_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Work:\*\*[^\n]*\n?", re.M)
 RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
-FIELDS = ("status", "next", "verified", "evidence", "blocker", "ask", "why", "delivers", "hub", "work", "after", "resume", "morning")
+FIELDS = ("status", "next", "verified", "evidence", "blocker", "ask", "why", "delivers", "hub", "work", "goal", "after", "resume", "morning")
 LABELS = {"evidence": "Latest evidence"}   # the line a field writes, when it is not the field's own name
 RESUME = re.compile(r"^(?:computer|\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)$")
 
@@ -201,6 +206,9 @@ def note_name(config: Config, value: str) -> str:
 def _field_value(config: Config, name: str, value: str) -> str:
     from .needs import ASK_WORDS, WHY_WORDS, vague_ask
     value = single_line(name, value)
+    if name == "goal":
+        from .goals import require_active
+        require_active(config, value)
     if name == "resume" and not RESUME.fullmatch(value):
         raise ValueError("resume must be computer, YYYY-MM-DD or YYYY-MM-DD HH:MM, in the owner's local time")
     if name == "ask":
@@ -358,7 +366,7 @@ def append_task(config: Config, task: Task) -> None:
 
 
 def new_task(config: Config, title: str, source: str, *, state: str = "ready",
-             values: dict[str, str] | None = None, work: str | None = None) -> Task:
+             values: dict[str, str] | None = None, work: str | None = None, goal: str | None = None) -> Task:
     """Create a task without handing it off; the caller holds the vault lock."""
     title, source = single_line("title", title), single_line("source", source)
     if not title or not source:
@@ -368,12 +376,22 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
         raise ValueError("new task state must be ready or in_progress")
     if work is not None and not works.SLUG.fullmatch(work):
         raise ValueError("work slug must match [a-z0-9-]+")
-    values = values or {}
-    if set(values) - {"status", "next", "delivers", "hub", "after"}:
+    values = dict(values or {})
+    if goal is not None:
+        values["goal"] = goal
+    parent = _working_on(config)
+    from .goals import active, guard
+    if parent is not None and "goal" not in values and any(g.gid == parent.goal for g in active(config)):
+        values["goal"] = parent.goal  # a worker's follow-up serves what the task it is working on serves
+    guard(config, values.get("goal"), source, parent=parent)
+    if set(values) - {"status", "next", "delivers", "hub", "goal", "after"}:
         raise ValueError("unsupported new task field")
     body = "".join(f"- **{name.title()}:** {_field_value(config, name, value)}\n" for name, value in values.items())
     resolved = Vault(config.vault_path).resolve(source)
-    source = f"[[{resolved.removesuffix('.md')}]]" if resolved else f'"{source}"'
+    if resolved:
+        source = f"[[{resolved.removesuffix('.md')}]]"
+    elif not (source.startswith('"') and source.endswith('"')):
+        source = f'"{source}"'
     body += f"- **Source:** {source}\n"
     if work is not None:
         body += f"- **Work:** {work}\n"
@@ -780,6 +798,14 @@ def read_archive_body(config: Config, tid: str) -> str | None:
 def is_register_summary(body: str) -> bool:
     lines = [line.strip() for line in body.splitlines() if line.strip()]
     return len(lines) == 1 and lines[0].startswith("- **Warm:**")
+
+
+def _working_on(config: Config) -> Task | None:
+    """The open task a worker is running (DEMIURGE_TASK), whose follow-ups inherit why it exists."""
+    tid = os.environ.get("DEMIURGE_TASK", "")
+    if not re.fullmatch(r"T-\d+", tid):
+        return None
+    return next((t for t in load_tasks(config)[0] if t.tid == tid), None)
 
 
 def load_tasks(config: Config, report: list[str] | None = None) -> tuple[list[Task], list[Task]]:

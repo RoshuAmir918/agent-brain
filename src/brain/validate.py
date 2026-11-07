@@ -9,6 +9,28 @@ from .vault import Vault
 from .tasks import TASK_STATES, parse_register
 
 
+def goal_problems(vault: Vault) -> list[str]:
+    from . import goals, ideas
+    from .tasks import all_tasks
+    out = goals.problems(vault.config)
+    known = {goal.gid for goal in goals.load(vault.config)}
+    def check(source, gid):
+        if gid is not None and (not isinstance(gid, str) or gid not in known):
+            out.append(f"{source}: unknown goal {gid!r}; choose an active id with `brain goals list` and link with --goal")
+    for task in all_tasks(vault.config):
+        check(task.tid, task.goal)
+    for idea in ideas._open(vault, vault.config.today()):
+        check(idea.id, idea.goal)
+    for rel, note in vault.notes.items():
+        if note.data.get("kind") == "draft" or vault.kind_for(rel) == "draft":
+            check(rel, note.data.get("goal") or fm.field(note.body, "Goal"))
+        elif vault.kind_for(rel) == "hub":
+            check(rel, fm.hub_goal(note.body))
+    for work in works.parse(works.library() or ""):
+        check(work.slug, works.goal_for(work.slug) or work.goal)
+    return out
+
+
 def run(vault: Vault, changed: set[str], body_changed: set[str] | None = None) -> list[str]:
     problems = []
     # 1. frontmatter has the required keys and links resolve on changed notes
@@ -251,7 +273,7 @@ def needs_ceiling(vault: Vault) -> list[str]:
 def hygiene(vault: Vault) -> list[str]:
     """The checks beyond structure. The nightly reports them without gating on them, so a problem that creeps back is
     seen the next day rather than at the next migration."""
-    return (responsibilities(vault) + task_states(vault) + kinds(vault) + access_problems(vault) + owner_profile(vault)
+    return (responsibilities(vault) + task_states(vault) + goal_problems(vault) + kinds(vault) + access_problems(vault) + owner_profile(vault)
             + channels(vault) + identity_duplicates(vault) + needs_ceiling(vault) + needs_hygiene(vault)
             + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
