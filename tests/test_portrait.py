@@ -251,3 +251,9 @@ def test_an_after_line_may_name_the_goal_it_reflects_and_the_goal_must_exist(vau
     found = "\n".join(validate.portrait_hygiene(Vault(vault)))
     assert "After · Run Boston: goal G-99 is not in human/Goals.md" in found
     assert "After · Sail: goal 'marathon'; a goal id such as G-3" in found
+
+
+def test_only_said_and_seen_lines_are_shown():
+    body = "## Taste\n" + "".join(f"- Line {basis} · {basis} · low · 2026-11-01 · [[S]]\n"
+                                  for basis in ("said", "seen", "guess", "Guess", "guessed", "sed"))
+    assert [line.basis for line in portrait.shown(portrait.parse(body)[0])] == ["said", "seen"]

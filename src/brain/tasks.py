@@ -837,7 +837,10 @@ def all_tasks(config: Config) -> list[Task]:
         task = read_archived_task(config, path)
         if task is None:
             # Older hand-archived entries have no nightly provenance header.
-            body = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
+            try:
+                body = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
+            except fm.Malformed:
+                continue   # skipped as the vault skips it; validate names it
             parsed = parse_register(body)[1]
             task = parsed[0] if parsed else None
         if task is not None and task.tid not in seen:
@@ -875,7 +878,10 @@ def completed(config: Config, today: date, days: int = 7) -> list[dict]:
     archive = config.vault_path / config.agent("Tasks Archive")
     if archive.is_dir():
         for path in sorted(archive.glob("*.md")):
-            sources.append(re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M))
+            try:
+                sources.append(re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M))
+            except fm.Malformed:
+                continue   # skipped as the vault skips it; validate names it
     seen, out = set(), []
     for text in sources:
         for task in parse_register(text)[1]:

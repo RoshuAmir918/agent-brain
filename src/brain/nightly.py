@@ -127,7 +127,9 @@ def retier(vault: Vault, today: date, report: list[str]) -> set[str]:
         ages = act.ages_from_dates([str(x) for x in n.data.get("uses", [])], today)
         iages = act.ages_from_dates([str(x) for x in n.data.get("uses_inferred", [])], today)
         b = act.activation(ages, iages)
-        if kind == "episode" and rel.startswith("Conversations/") and not n.data.get("consolidated"):
+        if n.data.get("tier") == "private":
+            tier = "private"   # the export's only privacy marker: activation still moves, the tier never does
+        elif kind == "episode" and rel.startswith("Conversations/") and not n.data.get("consolidated"):
             tier = "hot" if act.tier_for(b, h=h, w=w) == "hot" else "warm"   # unconsolidated records cannot go cold
         elif kind == "primed" and not n.data.get("pinned"):
             try:

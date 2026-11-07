@@ -276,6 +276,13 @@ def test_mail_coverage_line_names_accounts_and_last_sync(synced):
     assert " · mira@example.com (owner) · " in text
 
 
+def register_school(vault, host, status="live"):
+    path = vault / "agent/Channels.md"
+    data, body = fm.read(path)
+    row = channels.Channel("Canvas", "owner", host, f"`$AGENT_HOME/channels/{host}/`", "", "", "", status)
+    fm.write(path, data, body.rstrip("\n") + "\n" + row.render() + "\n")
+
+
 def canvas_school(root, host="school.instructure.com"):
     school = root / host
     (school / "courses" / "10").mkdir(parents=True, exist_ok=True)
@@ -300,6 +307,7 @@ def announcement(school, day, id, title, posted):
 def test_canvas_lists_due_missing_new_grades_and_recent_announcements(synced):
     vault, root = synced
     school = canvas_school(root)
+    register_school(vault, "school.instructure.com")
     announcement(school, "2026-11-03", 7, "Midterm moved", "2026-11-03 12:00 -08:00")
     announcement(school, "2026-10-20", 8, "Old news", "2026-10-20 12:00 -08:00")
     text = channel_files.canvas(Vault(vault))
@@ -321,12 +329,17 @@ def test_canvas_is_silent_without_a_school_and_says_so_when_nothing_is_due(synce
     school = root / "empty.instructure.com"
     (school / "courses").mkdir(parents=True)
     (school / "courses.md").write_text("# Courses\n\nNo active courses.\n")
+    assert channel_files.canvas(Vault(vault)) == ""                  # files no live row reaches are never read
+    register_school(vault, "empty.instructure.com", status="revoked")
+    assert channel_files.canvas(Vault(vault)) == ""
+    register_school(vault, "empty.instructure.com")
     assert "Nothing due on Canvas in the next 7 days" in channel_files.canvas(Vault(vault))
 
 
 def test_canvas_block_reaches_the_session_context_beside_the_calendar(synced):
     vault, root = synced
     canvas_school(root)
+    register_school(vault, "school.instructure.com")
     calendar_file(root, event())
     text = compile_context.upcoming(Vault(vault))
     assert text.index("## Calendar") < text.index("## Canvas")

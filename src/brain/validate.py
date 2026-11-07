@@ -5,6 +5,7 @@ import re
 from importlib.resources import files
 
 from . import access, fm, owners, responsibilities as responsibility_ids, works
+from .identity import profile_ids, profiles
 from .vault import Vault
 from .tasks import TASK_STATES, parse_register
 
@@ -65,7 +66,10 @@ def task_states(vault: Vault) -> list[str]:
     arch_dir = vault.root / cfg.agent("Tasks Archive")
     problems = []
     for path in ([reg] if reg.exists() else []) + sorted(arch_dir.glob("*.md")):
-        text = fm.read(path)[1]
+        try:
+            text = fm.read(path)[1]
+        except fm.Malformed:
+            continue   # malformed() names it
         if path != reg:
             text = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", text, flags=re.M)
         for task in parse_register(text)[1]:
@@ -88,7 +92,10 @@ def work_warnings(vault: Vault) -> list[str]:
         entries = []
     seen = {task.tid for task in entries}
     for path in sorted((vault.root / vault.config.agent("Tasks Archive")).glob("*.md")):
-        text = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
+        try:
+            text = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
+        except fm.Malformed:
+            continue   # malformed() names it
         for task in parse_register(text)[1]:
             if task.tid not in seen:
                 seen.add(task.tid)
@@ -281,9 +288,9 @@ def needs_ceiling(vault: Vault) -> list[str]:
 def hygiene(vault: Vault) -> list[str]:
     """The checks beyond structure. The nightly reports them without gating on them, so a problem that creeps back is
     seen the next day rather than at the next migration."""
-    return (responsibilities(vault) + task_states(vault) + goal_problems(vault) + kinds(vault) + access_problems(vault) + owner_profile(vault)
-            + channels(vault) + identity_duplicates(vault) + needs_ceiling(vault) + needs_hygiene(vault)
-            + stale_current(vault) + closed_task_mentions(vault)
+    return (malformed(vault) + responsibilities(vault) + task_states(vault) + goal_problems(vault) + kinds(vault)
+            + access_problems(vault) + owner_profile(vault) + channels(vault) + identity_duplicates(vault)
+            + needs_ceiling(vault) + needs_hygiene(vault) + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
             + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault)
             + owners.problems(vault.config) + tellable_hygiene(vault))
@@ -369,6 +376,11 @@ def checks(vault: Vault) -> list[str]:
     return run(vault, set(vault.notes)) + hygiene(vault) + broken_bytes(vault)
 
 
+def malformed(vault: Vault) -> list[str]:
+    return [f"{rel}: frontmatter is not valid YAML ({error}); the engine skips the note until it is fixed"
+            for rel, error in sorted(vault.malformed.items())]
+
+
 def broken_bytes(vault: Vault) -> list[str]:
     """A note holding NUL bytes was left by a broken write (two writers racing); parsers read past them silently."""
     out = []
@@ -404,10 +416,8 @@ def needs_hygiene(vault: Vault) -> list[str]:
 
 def identity_duplicates(vault: Vault) -> list[str]:
     """One permanent Demiurge id belongs on one profile, across both people and intellects."""
-    from . import directory
-    from .session_context import profile_ids
     identities = {}
-    for note in directory.profiles(vault):
+    for note in profiles(vault):
         for ident in profile_ids(note.body):
             if ident.startswith("demiurge:"):
                 identities.setdefault(ident, []).append(note.rel)

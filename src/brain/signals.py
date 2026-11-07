@@ -63,11 +63,11 @@ def watch(config: Config) -> str:
     if due and (failed := _last_failure(home, config.skill_prefix + "watch")):
         lines.append(f"last failure: {failed}")
     lines.append("channels:")
-    channels = home / "channels"
-    own = set(channel_files.accounts(config_vault(config))) | {path.name.lower() for path in channels.iterdir()} \
-        if channels.is_dir() else set()
+    # Only live registry rows: a pending, revoked or unregistered account's leftover files are never read or reported.
+    synced = channel_files.synced_accounts(config_vault(config), owner_only=False)
+    own = {name for name, _ in synced}
     rows = []
-    for account in sorted(channels.iterdir()) if channels.is_dir() else []:
+    for _, account in synced:
         for kind in ("mail", "calendar"):
             directory = account / kind
             if not directory.is_dir():

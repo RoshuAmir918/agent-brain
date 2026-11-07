@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import access, fm, session_context
+from . import access, fm
 from .config import Config
+from .identity import matching_agents, matching_profiles, role
 from .lock import vault_lock
 from .vault import Vault, WIKILINK_RE
 
@@ -62,13 +63,15 @@ def append(config: Config, entries: list | None, platform: str, at: datetime, *,
            user_id: str = "", user_id_alt: str = "") -> Path | None:
     """Keep valid entries only, resolving identity from the session rather than the model."""
     user_ids = tuple(value for value in (user_id, user_id_alt) if value)
-    if (session_context.is_owner(config, platform, user_ids) or session_context.is_member(config, platform, user_ids)
-            or not isinstance(entries, list) or not entries):
+    if not isinstance(entries, list) or not entries:
         return None
     vault = Vault(config.vault_path)
+    who = role(vault, config, platform, user_ids)
+    if who in ("owner", "member"):
+        return None
     vocabulary = access.subjects(vault, config)
     rule_ids = {rule.id for rule in access.rules(vault, config)}
-    profiles = session_context.matching_profiles(vault, config, user_ids, platform)
+    profiles = (matching_agents if who == "intellect" else matching_profiles)(vault, config, user_ids, platform)
     person = (f"[[{config.link(profiles[0].rel)}]]" if len(profiles) == 1 else
               f"stranger ({_clean(platform) or 'platform unknown'} {_clean(user_id or user_id_alt) or 'id unavailable'})")
     local = config.local(at)

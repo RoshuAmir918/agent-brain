@@ -7,9 +7,10 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import cli, fm, health, needs, schedule, state, triggers
+from brain import cli, fm, health, needs, nightly, schedule, state, triggers, validate
 from brain.config import Config
 from brain.tasks import Task, write_archive
+from brain.vault import Vault
 from conftest import git, snapshot
 
 
@@ -320,3 +321,34 @@ def test_drafts_are_outputs_not_hubs_and_a_hub_link_to_a_private_note_is_withhel
     assert "Draft letter" in [output["title"] for output in snapshot["outputs"]]
     assert next(task for task in snapshot["tasks"] if task["id"] == "T-009")["hub"] is None
     assert "Pat" not in json.dumps(snapshot["tasks"], ensure_ascii=False).replace("Write to Pat", "")
+
+
+def test_nightly_keeps_a_used_private_hub_private_and_out_of_the_export(vault):
+    note(vault, "Secret.md", "# Secret\n## Open questions\n- PRIVATE_question\n",
+         kind="hub", tier="private", skill="PRIVATE_skill", uses=[TODAY.isoformat()])
+    nightly.run(vault, TODAY)
+    assert fm.read(vault / "Secret.md")[0]["tier"] == "private"
+    assert "PRIVATE" not in json.dumps(state.build(Config.load(vault), TODAY))
+
+
+def test_nightly_leaves_malformed_frontmatter_alone_and_validate_names_it(vault):
+    text = "---\ntier: private\nuses: [unclosed\n---\n# Broken\n## Open questions\n- MALFORMED_question\n"
+    (vault / "Broken.md").write_text(text)
+    nightly.run(vault, TODAY)
+    assert (vault / "Broken.md").read_text() == text
+    loaded = Vault(vault)
+    assert "Broken.md" not in loaded.notes
+    assert any(problem.startswith("Broken.md: frontmatter is not valid YAML") for problem in validate.hygiene(loaded))
+    assert "MALFORMED" not in json.dumps(state.build(Config.load(vault), TODAY))
+
+
+def test_one_malformed_archive_ledger_or_portrait_is_skipped_not_fatal(vault):
+    config = Config.load(vault)
+    broken = "---\nkind: [unclosed\n---\n"
+    for rel in (config.agent("Tasks Archive/T-090.md"), config.agent("Notes/2026-10.md"), config.human_portrait):
+        (vault / rel).parent.mkdir(parents=True, exist_ok=True)
+        (vault / rel).write_text(broken + "### T-090 — MALFORMED_task\n- **State:** ready\n")
+    nightly.run(vault, TODAY)
+    assert "MALFORMED" not in json.dumps(state.build(config, TODAY))
+    assert {f"{rel}: frontmatter" for rel in (config.agent("Tasks Archive/T-090.md"), config.human_portrait)} <= {
+        problem.split(" is not")[0] for problem in validate.hygiene(Vault(vault))}

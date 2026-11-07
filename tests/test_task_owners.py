@@ -73,3 +73,24 @@ def test_only_the_owners_engagement_keeps_the_budget_whole(vault, capsys, monkey
     assert "not engaged: slack:U0LEE is not its owner" in run(vault, capsys, "continue", "--engaged", "T-001")
     assert continuation.engaged_at(config) == before
     assert run(vault, capsys, "continue", "--engaged", "T-001", "--by", "slack:U0KIM") == "T-001 engaged"
+
+
+def test_a_members_edit_answer_or_touch_engages_only_their_own_task(vault, capsys, monkeypatch):
+    from datetime import datetime
+    from brain import journal
+    config = enterprise(vault)
+    run(vault, capsys, "handoff", "T-001", "--for", "slack:U0KIM")
+    with continuation._progress_records(config) as rows:
+        rows["T-001"]["circling"] = 3
+    monkeypatch.setenv("DEMIURGE_CONVERSATION", "abc")
+    monkeypatch.setenv("BRAIN_SPEAKER", "slack:U0LEE")
+    run(vault, capsys, "task", "T-001", "set", "--status", "Lee asked how it goes")
+    continuation.answered(config, "agent/Tasks.md#T-001", "Which venue?", "the hall", owner_engaged=True,
+                          by="slack:U0LEE")
+    journal.append_entry(config, {"headline": "Lee asked.", "outcome": "progress", "touched": ["agent/Tasks#T-001"]},
+                         "slack", datetime(2026, 11, 5, 9, 0), user_id="U0LEE")
+    progress = continuation._progress(config)["T-001"]
+    assert progress["circling"] == 3 and progress["instruction"]["text"] == "Which venue? Answer: the hall"
+    journal.append_entry(config, {"headline": "Kim steered.", "outcome": "progress", "touched": ["agent/Tasks#T-001"]},
+                         "slack", datetime(2026, 11, 5, 9, 0), user_id="U0KIM")
+    assert "circling" not in continuation._progress(config)["T-001"]

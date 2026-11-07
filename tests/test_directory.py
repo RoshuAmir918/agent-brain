@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from brain import cli, directory, fm, session_context, validate
+from brain import cli, directory, fm, identity, session_context, validate
 from brain.vault import Vault
 
 TODAY = date(2026, 11, 3)
@@ -295,4 +295,4 @@ def test_a_moved_profile_stub_is_never_an_identity(config, payload):
     real = profile(config, "people/Rohan_Mehta/Profile.md", "# Rohan Mehta\nHandle: rpaimehta\n")
     directory.sync(config, payload, TODAY)
     assert "Demiurge:" not in stub.read_text() and "`k57090`" in real.read_text()
-    assert [note.rel for note in directory.profiles(Vault(config.vault_path))] == ["people/Rohan_Mehta/Profile.md"]
+    assert [note.rel for note in identity.profiles(Vault(config.vault_path))] == ["people/Rohan_Mehta/Profile.md"]

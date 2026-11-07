@@ -121,16 +121,21 @@ def engaged_at(config: Config) -> dict[str, str]:
         return {}
 
 
-def mark_engaged(config: Config, tid: str, instruction: str | None = None) -> None:
+def mark_engaged(config: Config, tid: str, instruction: str | None = None, by: str | None = None) -> bool:
     """The owner engaged: restore the budget and restart the direction check."""
     with vault_lock(config):
-        _mark_engaged(config, tid, instruction)
+        return _mark_engaged(config, tid, instruction, by)
 
 
-def _mark_engaged(config: Config, tid: str, instruction: str | None = None) -> None:
-    """Lock-free task-facing variant; caller holds the vault lock."""
+def _mark_engaged(config: Config, tid: str, instruction: str | None = None, by: str | None = None) -> bool:
+    """Lock-free task-facing variant; caller holds the vault lock. A task's budget follows its own owner's engagement:
+    in an organisation, someone else (`by`) asking about it is interest, not the owner steering it, and nothing is
+    written."""
+    task = next((t for t in sum(tasks.load_tasks(config), []) if t.tid == tid), None) if by else None
+    if task is not None and task.owner and by != task.owner:
+        return False
     if runtime.configured() is None:
-        return
+        return True
     path = _engaged_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     with _progress_records(config) as rows:
@@ -148,6 +153,7 @@ def _mark_engaged(config: Config, tid: str, instruction: str | None = None) -> N
         row.pop("budget_cap", None)
         if instruction:
             row["instruction"] = {"at": config.local().isoformat(), "text": instruction}
+    return True
 
 
 def budget_for(config: Config, task, engaged: dict[str, str] | None = None) -> int:
@@ -295,16 +301,15 @@ def clear_close_out(config: Config, tid: str) -> None:
             rows[tid].pop("close_out", None)
 
 
-def answered(config: Config, source: str, question: str, because: str, owner_engaged: bool = False) -> None:
+def answered(config: Config, source: str, question: str, because: str, owner_engaged: bool = False,
+             by: str | None = None) -> None:
     """Remember a task-sourced answer without treating a worker's discovery as owner engagement. Caller holds the lock."""
     match = re.search(r"\bT-\d{3}\b", source)
     if match and runtime.configured() is not None:
         registered, archived = tasks.load_tasks(config)
         if any(t.tid == match[0] and t.handoff for t in registered + archived):
             text = f"{question} Answer: {because}"
-            if owner_engaged:
-                _mark_engaged(config, match[0], text)
-            else:
+            if not (owner_engaged and _mark_engaged(config, match[0], text, by)):
                 with _progress_records(config) as rows:
                     rows.setdefault(match[0], {})["instruction"] = {"at": config.local().isoformat(), "text": text}
 

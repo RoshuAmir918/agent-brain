@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import PurePosixPath
 
+from . import identity
 from .config import Config
-from .session_context import matching_profiles, table_cells, has_id_line
+from .identity import has_id_line, matching_profiles
 from .vault import Note, Vault, WIKILINK_RE
 
 SUBJECTS = {
@@ -81,10 +82,10 @@ def _word(text: str) -> str:
     return text.strip().strip("`").casefold()
 
 
-def _profiles(vault: Vault, config: Config) -> list[Note]:
-    return [note for rel, note in sorted(vault.notes.items())
-            if PurePosixPath(rel).parent.parent == PurePosixPath(config.people_dir)
-            and PurePosixPath(rel).name == "Profile.md"]
+def table_cells(line: str) -> list[str]:
+    protected = WIKILINK_RE.sub(lambda match: match[0].replace("|", r"\|"), line)
+    return [cell.replace(r"\|", "|").strip()
+            for cell in re.split(r"(?<!\\)\|", protected.strip().strip("|"))]
 
 
 def _group_notes(vault: Vault, config: Config) -> list[Note]:
@@ -122,7 +123,7 @@ def hub_subject(vault: Vault, config: Config, rel: str) -> str:
 
 def groups(vault: Vault, config: Config) -> dict[str, list[str]]:
     """Group note paths and their linked profile members, including empty groups."""
-    profiles = {note.rel for note in _profiles(vault, config)}
+    profiles = {note.rel for note in identity.profiles(vault, "person")}
     result = {}
     for note in _group_notes(vault, config):
         section = _section(note.body, "Members", prefix=True)
@@ -145,7 +146,7 @@ def _audience(vault: Vault, text: str, profiles: set[str], group_rels: set[str])
 
 def rules(vault: Vault, config: Config) -> list[Rule]:
     """Parse current and legacy tables without changing the disclosure note."""
-    profiles = {note.rel for note in _profiles(vault, config)}
+    profiles = {note.rel for note in identity.profiles(vault, "person")}
     group_rels = {note.rel for note in _group_notes(vault, config)}
     result = []
     headings = []
@@ -211,9 +212,10 @@ def resolve(vault: Vault, config: Config, person: str | None = None, *, audience
     """Resolve tell and do independently, for a person or an audience without personal rules."""
     memberships = groups(vault, config)
     if audience is None:
-        person = person if person in {note.rel for note in _profiles(vault, config)} else None
-        group_rels = [rel for rel, members in memberships.items() if person in members]
+        person = person if person in {note.rel for note in identity.profiles(vault, "person")} else None
+        # An unconfirmed profile may not be who it claims: none of its own or its groups' grants apply.
         known = person is not None and confirmed(vault.notes[person])
+        group_rels = [rel for rel, members in memberships.items() if person in members] if known else []
     else:
         person = None
         group_rels = [audience.target] if audience.kind == "group" and audience.target in memberships else []
@@ -223,7 +225,7 @@ def resolve(vault: Vault, config: Config, person: str | None = None, *, audience
         audience = rule.audience
         if audience is None:
             continue
-        if person and audience == Audience("person", person):
+        if known and audience == Audience("person", person):
             tiers[0].append(rule)
         elif audience.kind == "group" and audience.target in group_rels:
             tiers[1].append(rule)
@@ -244,7 +246,7 @@ def resolve(vault: Vault, config: Config, person: str | None = None, *, audience
 
 def matching_people(vault: Vault, config: Config, who: str) -> list[Note]:
     """Look up a profile path, display/folder name, or a platform-qualified or bare id."""
-    profiles = _profiles(vault, config)
+    profiles = identity.profiles(vault, "person")
     paths = [note for note in profiles if who in (note.rel, note.rel.removesuffix(".md"))]
     if paths:
         return paths
@@ -276,10 +278,10 @@ def friends(vault: Vault, today: date) -> dict:
     memberships = groups(vault, config)
     close = [rel for rel in memberships if PurePosixPath(rel).stem.replace("_", " ").casefold() == "close friends"]
     excluded = {config.human_profile} | {person for rel in close for person in memberships[rel]}
-    id_line = session_context._qualified_id_line("|".join(session_context.PLATFORMS), r"[^\s`*]+")
+    id_line = identity.qualified_id_line("|".join(identity.PLATFORMS), r"[^\s`*]+")
     candidates = {}
     names = {}
-    for note in _profiles(vault, config):
+    for note in identity.profiles(vault, "person"):
         if note.rel in excluded or not confirmed(note) or not re.search(id_line, note.body):
             continue
         folder = PurePosixPath(note.rel).parent.name.replace("_", " ")

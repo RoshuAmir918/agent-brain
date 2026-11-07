@@ -87,6 +87,8 @@ def build(vault: Vault, only: tuple[str, ...] | None = None, *, app_changes: boo
                 sections.append(block)
         elif named[name] in sources:
             rel = named[name]
+            if rel in vault.malformed:
+                continue   # its header is unreadable; validate names it
             _, body = fm.read(vault.root / rel)
             if rel == config.agent("Tasks.md"):
                 body = open_register(vault, body)

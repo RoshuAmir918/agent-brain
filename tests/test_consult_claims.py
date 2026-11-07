@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from brain import channel_files, channels, cli, consults, fm, routing, seed, session_context, tasks
+from brain import channel_files, channels, cli, consults, fm, identity, routing, seed, session_context, tasks
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -350,7 +350,7 @@ def test_email_profile_ids_join_slack_consults_and_retain_via(enterprise):
     evidence = next(item for item in candidate.evidence if item["kind"] == "deferred-to")
     assert evidence["via"] == EMAIL and evidence["link"] == LINK
     assert "via" not in next(item for item in candidate.evidence if item["kind"] == "reviewed")
-    assert session_context.profile_ids("- **Email:** kim@example.com\n") == []
+    assert identity.profile_ids("- **Email:** kim@example.com\n") == []
     assert snapshot(enterprise.repo) == before
 
 

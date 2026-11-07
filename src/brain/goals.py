@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 
-from . import fm, session_context
+from . import fm, identity
 from .config import Config
 from .tasks import STATE_RE, parse_state, single_line
 
@@ -209,7 +209,7 @@ def save_capture(config: Config, values: dict) -> None:
 
 def asked(config: Config) -> bool:
     platform, separator, ident = os.environ.get("BRAIN_SPEAKER", "").strip().partition(":")
-    if not separator or not ident or not (platform == "cron" or session_context.is_owner(config, platform, (ident,))):
+    if not separator or not ident or not (platform == "cron" or identity.is_owner(config, platform, (ident,))):
         raise ValueError(f"the capture question is only for {config.human_name}, the owner; run it in their session (BRAIN_SPEAKER naming the owner) or the morning briefing (cron)")
     values = capture(config)
     if values["asked"] or active(config) or config.edition != "personal":

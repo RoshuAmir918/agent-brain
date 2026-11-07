@@ -184,8 +184,8 @@ def test_new_refuses_exhausted_ids(vault, capsys):
     assert error.value.code == 1 and "no unused T-nnn" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("command", [("handoff", "T-001"), ("task", "T-001", "done"),
-                                     ("task", "T-001", "drop"), ("task", "T-001", "yours"),
+@pytest.mark.parametrize("command", [("handoff", "T-001"), ("task", "T-001", "done", "--by-owner"),
+                                     ("task", "T-001", "drop", "--by-owner"), ("task", "T-001", "yours"),
                                      ("task", "T-001", "set", "--status", "updated"),
                                      ("task", "new", "Title", "--source", "words")])
 def test_cli_holds_nonreentrant_vault_lock_across_read_write(vault, monkeypatch, capsys, command):

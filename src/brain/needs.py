@@ -451,7 +451,7 @@ def _drop_proposal(config: Config, item: Item, today: date) -> None:
 
 
 def resolve(config: Config, which: str, because: str, today: date, *, record_answer: bool = True,
-            owner_engaged: bool = False) -> Item:
+            owner_engaged: bool = False, by: str | None = None) -> Item:
     """Remove one item from CURRENT's Needs you because something answered it, and record what did, in
     `<agent_dir>/Answered/YYYY-MM.md`. `which` is an item id from `brain needs-you --json`, or text that matches exactly
     one open item. Tasks, proposals and access requests are resolved where they live, not here."""
@@ -475,7 +475,7 @@ def resolve(config: Config, which: str, because: str, today: date, *, record_ans
         reception.answered(config, "ask", item.text, "used")
     if record_answer:
         from . import continuation
-        continuation.answered(config, item.source, item.text, because, owner_engaged)
+        continuation.answered(config, item.source, item.text, because, owner_engaged, by)
     return item
 
 
