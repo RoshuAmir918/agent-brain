@@ -2,10 +2,11 @@ name: version
 # Every change to main ships as its own version: migrations, the changelog and `brain update` all key on the number,
 # and two PRs on one number hide each other (0.48.0 and 0.48.1 each shipped twice on 2026-11-06, and the second
 # 0.48.1's migration was never run). A PR's version must be higher than main's when it merges.
+# It reports on every PR, so it can be a required check: a PR that changes no engine code passes at once. Required with
+# "branches up to date", a PR merges only once it has the latest main, so it is compared with the version actually there.
 on:
   pull_request:
     branches: [main]
-    paths: ["src/**", "pyproject.toml"]
 jobs:
   bumped:
     runs-on: ubuntu-latest
@@ -16,6 +17,10 @@ jobs:
       - name: The version is higher than main's
         run: |
           git fetch -q origin main
+          if ! git diff --name-only origin/main...HEAD | grep -qE '^(src/|pyproject\.toml$)'; then
+            echo "no engine code changed; no new version needed"
+            exit 0
+          fi
           ours=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)
           theirs=$(git show origin/main:pyproject.toml | grep -m1 '^version = ' | cut -d'"' -f2)
           echo "this PR: $ours, main: $theirs"
