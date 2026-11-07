@@ -1158,12 +1158,15 @@ def cmd_continue(args):
                                  worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks,
                                  now=tasks_mod.local_now(args.config), budgets=limits, caps=caps)
         output = []
+        stage_entries = tasks_mod.all_tasks(args.config)
         for task in ready:
             limit = caps.get(task.tid) if tasks_mod.pace(task) == "daily" else limits.get(task.tid, args.config.daily_chunks)
+            earlier = continuation.stages(args.config, task, stage_entries)
             output.append({"id": task.tid, "title": task.title, "state": task.task_state, "pace": tasks_mod.pace(task),
                            "handedOff": task.handoff[0], "report": task.handoff[1], "work": task.work,
+                           "after": task.after, "stages": earlier,
                            "delivers": task.delivers, "next": state._field(task.body, "Next", "Next action"),
-                           "lastChunk": worked.get(task.tid), "checkpoint": continuation.instructions(args.config, task),
+                           "lastChunk": worked.get(task.tid), "checkpoint": continuation.instructions(args.config, task, earlier),
                            "chunksToday": chunks.get(task.tid, 0), "budget": limit,
                            "budgetLeft": None if limit is None else max(0, limit - chunks.get(task.tid, 0)),
                            **continuation.review_status(args.config, task.tid)})

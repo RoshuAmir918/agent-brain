@@ -1,4 +1,4 @@
-"""Read the runtime's Library listing; works themselves stay in the agent workspace."""
+"""The runtime's Library listing and history in local work checkouts."""
 from __future__ import annotations
 
 import re
@@ -6,10 +6,26 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-from . import runtime
+from . import fm, runtime
 
 SLUG = re.compile(r"[a-z0-9-]+")
 ENTRY = re.compile(r"^[ \t]*-[ \t]+[^|\n]+\|[ \t]*([a-z0-9-]+)[ \t]*\|")
+
+
+def append_history(slug: str, tid: str, title: str, today: date, outcome: str,
+                   delivers: str | None, next_step: str | None) -> None:
+    """Append a closed stage to a local work, atomically; the caller holds the vault lock."""
+    home = runtime.configured()
+    if home is None or not SLUG.fullmatch(slug) or not (home / "works" / slug).is_dir():
+        return
+    path = home / "works" / slug / "HISTORY.md"
+    body = path.read_text(encoding="utf-8") if path.exists() else "# History\n"
+    lines = [f"## {today.isoformat()} · {tid} · {title}", f"- Outcome: {outcome}"]
+    if delivers:
+        lines.append(f"- Delivers: {delivers}")
+    if next_step:
+        lines.append(f"- Next it left: {next_step}")
+    fm.write(path, {}, body.rstrip() + "\n\n" + "\n".join(lines) + "\n")
 
 
 def library() -> str | None:

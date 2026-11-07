@@ -37,6 +37,13 @@ def _field(body: str, *names: str) -> str | None:
     return match[1].replace("**", "").strip() if match else None
 
 
+def _closing(task: tasks.Task) -> tuple[str | None, str | None]:
+    matches = list(re.finditer(r"^[ \t]*-[ \t]+\*\*(?:Completed|Dropped):\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*[—-][ \t]*(.*?))?[ \t]*$",
+                               task.body, re.M))
+    match = matches[-1] if matches else None
+    return (match[1], (match[2] or "").strip() or None) if match else (None, None)
+
+
 def _tasks(vault: Vault) -> list[dict]:
     config = vault.config
     register = config.agent("Tasks.md")
@@ -58,20 +65,18 @@ def _tasks(vault: Vault) -> list[dict]:
     worked, chunks = continuation.last_worked(config), continuation.chunks_today(config)
     limits = continuation.budgets(config, [task for task, _, _ in entries if task.handoff and tasks.is_open(task)])
 
-    def closing(task: tasks.Task) -> tuple[str | None, str | None]:
-        match = re.search(r"^[ \t]*-[ \t]+\*\*(?:Completed|Dropped):\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*[—-][ \t]*(.*?))?[ \t]*$",
-                          task.body, re.M)
-        return (match[1], (match[2] or "").strip() or None) if match else (None, None)
+    public_tasks = [task for task, _, source in entries if _public(vault, source)]
 
     return [{"id": task.tid, "title": task.title, "state": task.task_state, "open": tasks.is_open(task),
              "detail": _field(task.body, "Status"), "next": _field(task.body, "Next", "Next action"),
              "blockers": _field(task.body, "Blocker", "Blockers"), "hub": _public_link(vault, task.hub), "work": task.work,
+             "after": task.after, "stages": continuation.stages(config, task, public_tasks),
              "delivers": task.delivers, "ask": _field(task.body, "Ask"), "why": _field(task.body, "Why"),
              "verified": _field(task.body, "Verified"), "evidence": _field(task.body, "Latest evidence"),
              "resume": task.resume, "handoff": task.handoff[0] if task.handoff else None,
              "report": (task.handoff[1] or None) if task.handoff else None, "pace": tasks.pace(task),
              "lastChunk": worked.get(task.tid), "chunksToday": chunks.get(task.tid, 0) if task.handoff else None,
-             "budget": limits.get(task.tid), "closed": closing(task)[0], "outcome": closing(task)[1],
+             "budget": limits.get(task.tid), "closed": _closing(task)[0], "outcome": _closing(task)[1],
              "tier": task.state.get("tier"), "archived": archived, "source": source, "view": views.read(config, task.tid),
              "said": _said(_field(task.body, "Source")), "owner": task.owner}
             for task, archived, source in entries if _public(vault, source)]

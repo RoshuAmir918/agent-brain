@@ -65,6 +65,11 @@ class Task:
         return match[1] if match else None
 
     @property
+    def after(self) -> str | None:
+        match = re.search(r"^[ \t]*-[ \t]+\*\*After:\*\*[ \t]*(T-\d{3})[ \t]*$", self.body, re.M)
+        return match[1] if match else None
+
+    @property
     def resume(self) -> str | None:
         """A local `YYYY-MM-DD[ HH:MM]`, `computer` (until woken), or None."""
         match = re.search(r"^[ \t]*-[ \t]+\*\*Resume:\*\*[ \t]*(computer|\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)[ \t]*$", self.body, re.M)
@@ -172,7 +177,7 @@ HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
 PACE_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[^\n]*\n?", re.M)
 WORK_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Work:\*\*[^\n]*\n?", re.M)
 RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
-FIELDS = ("status", "next", "verified", "evidence", "blocker", "ask", "why", "delivers", "hub", "work", "resume", "morning")
+FIELDS = ("status", "next", "verified", "evidence", "blocker", "ask", "why", "delivers", "hub", "work", "after", "resume", "morning")
 LABELS = {"evidence": "Latest evidence"}   # the line a field writes, when it is not the field's own name
 RESUME = re.compile(r"^(?:computer|\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)$")
 
@@ -203,6 +208,8 @@ def _field_value(config: Config, name: str, value: str) -> str:
             raise ValueError(f"ask refused: {reason}")
     if name == "work" and not works.SLUG.fullmatch(value):
         raise ValueError("work slug must match [a-z0-9-]+")
+    if name == "after" and not TASK_ID_RE.fullmatch(value):
+        raise ValueError("after must name a T-nnn task")
     limit = {"ask": 16, "why": 40}.get(name)
     if limit and len(value.split()) > limit:
         raise ValueError(f"{name} must be at most {limit} words")
@@ -274,6 +281,8 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
     task = next((t for t in registered + archived if t.tid == tid), None)
     if task is None or not is_open(task):
         raise ValueError(f"{tid} is not an open task (unknown or closed); a closed one comes back with task {tid} reopen")
+    if "after" in values:
+        validate_after(config, tid, values["after"])
     if state == "waiting_for_owner" and "ask" not in values and ("ask" in clear or not _owner_ask(task.body)):
         raise ValueError("waiting_for_owner needs the question: --ask \"…\" --why \"…\"")
     before = current_words(task, config)
@@ -360,7 +369,7 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     if work is not None and not works.SLUG.fullmatch(work):
         raise ValueError("work slug must match [a-z0-9-]+")
     values = values or {}
-    if set(values) - {"status", "next", "delivers", "hub"}:
+    if set(values) - {"status", "next", "delivers", "hub", "after"}:
         raise ValueError("unsupported new task field")
     body = "".join(f"- **{name.title()}:** {_field_value(config, name, value)}\n" for name, value in values.items())
     resolved = Vault(config.vault_path).resolve(source)
@@ -369,6 +378,8 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     if work is not None:
         body += f"- **Work:** {work}\n"
     task = Task(next_id(config), title, body, {"state": state})
+    if task.after:
+        validate_after(config, task.tid, task.after)
     if (words := current_words(task, config)) > MAX_WORDS:
         raise ValueError(f"the new task would hold {words} words; the limit is {MAX_WORDS}. Say it shorter: "
                          "a sentence or two per field")
@@ -469,7 +480,15 @@ def complete(config: Config, tid: str, today: date, evidence: str) -> Task:
     task.state.pop("status", None)
     task.body = task.body.rstrip("\n") + f"\n- **Completed:** {today.isoformat()} — {evidence}\n"
     save_task(config, task, today)
+    _work_history(task, today, evidence)
     return task
+
+
+def _work_history(task: Task, today: date, outcome: str) -> None:
+    from . import state
+    if task.work:
+        works.append_history(task.work, task.tid, task.title, today, outcome, task.delivers,
+                             state._field(task.body, "Next", "Next action"))
 
 
 def close(config: Config, tid: str, today: date, done: bool, why: str) -> Task:
@@ -487,6 +506,7 @@ def close(config: Config, tid: str, today: date, done: bool, why: str) -> Task:
     task.state.pop("status", None)
     task.body = task.body.rstrip("\n") + f"\n- **Dropped:** {today.isoformat()} — {why}\n"
     save_task(config, task, today)
+    _work_history(task, today, why)
     return task
 
 
@@ -803,6 +823,39 @@ def load_tasks(config: Config, report: list[str] | None = None) -> tuple[list[Ta
         tasks.append(t)
     archived = [t for t in archived_open_tasks(config) if t.tid not in seen]
     return tasks, archived
+
+
+def all_tasks(config: Config) -> list[Task]:
+    """Full entries, including closed archives; the register wins over an older archive copy."""
+    entries = sum(load_tasks(config), []) if (config.vault_path / config.agent("Tasks.md")).exists() else []
+    seen = {task.tid for task in entries}
+    for path in sorted((config.vault_path / config.agent("Tasks Archive")).glob("T-*.md")):
+        task = read_archived_task(config, path)
+        if task is None:
+            # Older hand-archived entries have no nightly provenance header.
+            body = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
+            parsed = parse_register(body)[1]
+            task = parsed[0] if parsed else None
+        if task is not None and task.tid not in seen:
+            seen.add(task.tid)
+            entries.append(task)
+    return entries
+
+
+def validate_after(config: Config, tid: str, after: str) -> None:
+    """Validate a new edge before writing, while the caller holds the vault lock."""
+    entries = {task.tid: task for task in all_tasks(config)}
+    if after == tid:
+        raise ValueError("after cannot name the task itself")
+    if after not in entries:
+        raise ValueError(f"after task does not exist: {after}")
+    seen = {tid}
+    while after:
+        if after in seen:
+            raise ValueError("after would create a cycle")
+        seen.add(after)
+        task = entries.get(after)
+        after = task.after if task else None
 
 
 COMPLETED_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Completed:\*\*[ \t]*(\d{4}-\d{2}-\d{2})(?:[ \t]*[—-][ \t]*(.*))?$", re.M)

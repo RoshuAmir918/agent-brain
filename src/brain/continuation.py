@@ -230,16 +230,67 @@ def _task(config: Config, tid: str, *, open_only: bool = False) -> tasks.Task:
     return task
 
 
-def instructions(config: Config, task: tasks.Task) -> str | None:
+def stages(config: Config, task: tasks.Task, entries: list[tasks.Task] | None = None) -> list[dict]:
+    """The After chain and other tasks on this work, oldest first, keeping the newest five."""
+    by_id = {entry.tid: entry for entry in (tasks.all_tasks(config) if entries is None else entries)}
+    earlier, seen = {}, {task.tid}
+    after = task.after
+    while after and after not in seen:
+        seen.add(after)
+        stage = by_id.get(after)
+        if stage is None:
+            break
+        earlier[stage.tid] = stage
+        after = stage.after
+    if task.work:
+        earlier.update((entry.tid, entry) for entry in by_id.values() if entry.work == task.work and entry.tid != task.tid)
+    # IDs are allocated in creation order; use them rather than last-use or closure dates.
+    out = []
+    for stage in sorted(earlier.values(), key=lambda entry: entry.tid)[-5:]:
+        closed, outcome = state._closing(stage)
+        out.append({"id": stage.tid, "title": stage.title, "state": stage.task_state, "closed": closed,
+                    "delivers": stage.delivers, "outcome": outcome or state._field(stage.body, "Why"),
+                    "verified": state._field(stage.body, "Verified"), "next": state._field(stage.body, "Next", "Next action")})
+    return out
+
+
+def stages_text(earlier: list[dict]) -> str | None:
+    if not earlier:
+        return None
+
+    def short(value: str, words: int) -> str:
+        text = " ".join(value.split())
+        trimmed = " ".join(text.split()[:words])[:160].rstrip()
+        return trimmed + ("…" if trimmed != text else "")
+
+    lines = ["Earlier stages of this work:"]
+    for stage in earlier:
+        status = " ".join(value for value in (stage["state"], stage["closed"]) if value)
+        line = f"- {stage['id']} {short(stage['title'], 8)}" + (f" ({status})" if status else "")
+        if stage["outcome"]:
+            line += f": {short(stage['outcome'], 9)}"
+        for name, label in (("delivers", "Delivers"), ("verified", "last Verified"), ("next", "Next it left")):
+            if stage[name]:
+                line += f"; {label}: {short(stage[name], 6)}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def instructions(config: Config, task: tasks.Task, earlier: list[dict] | None = None) -> str | None:
     checkpoint = checkpoint_text(task.tid)
     close = _progress(config).get(task.tid, {}).get("close_out")
+    parts = []
     if close and tasks.is_open(task):
         prefix = (f"The reviewer judged the Delivers met ({close['reason']}). This chunk closes the task: "
                   f"verify the deliverable exactly as the Delivers says, then `brain task {task.tid} done` "
                   f"with the evidence and tell {config.human_name} once where the task reports, or, if it is not "
                   f"actually met, say precisely what is missing with `brain task {task.tid} set --next …`.")
-        return prefix + (f"\n\n{checkpoint}" if checkpoint else "")
-    return checkpoint
+        parts.append(prefix)
+    if block := stages_text(stages(config, task) if earlier is None else earlier):
+        parts.append(block)
+    if checkpoint:
+        parts.append(checkpoint)
+    return "\n\n".join(parts) or None
 
 
 def clear_close_out(config: Config, tid: str) -> None:
