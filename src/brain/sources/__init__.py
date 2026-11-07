@@ -10,6 +10,10 @@ from pathlib import Path
 from types import ModuleType
 
 RUNS = ("owner-mac", "runtime", "agent")
+
+
+class Nothing(ValueError):
+    """The source has nothing to read: no account connected, no file synced. Not a failure."""
 # What a link, a sender or an event title says about which part of a life it belongs to; first matches win in order.
 HINTS = (("places", ("maps.", "goo.gl/maps", "yelp.", "tripadvisor.", "airbnb.", "booking.com", "zillow.", "redfin.",
                      "streeteasy.", "expedia.", "flight", "hotel", "trip ")),
@@ -68,6 +72,8 @@ def nightly(vault, today: date, home: Path | None = None) -> list[str]:
         try:
             rows = module.extract(Context(today, None, None, config, vault))
             added = evidence.append(name, rows, home)
+        except Nothing:
+            continue
         except (ValueError, OSError) as error:
             report.append(f"evidence: {name}: not extracted ({error})")
             continue

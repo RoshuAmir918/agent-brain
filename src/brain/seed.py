@@ -10,129 +10,64 @@ from pathlib import Path
 
 from . import channel_files, fm, routing, tasks
 
-FORWARDED = re.compile(r"^\s*(?:>\s*)*(?:-+\s*Forwarded message\s*-+|Begin forwarded message:)", re.M | re.I)
 PERSONAL_CAPS = {"sent": 100, "transactional": 150, "events": 100, "person": 100}
 
 
-def _mail(folder: Path) -> list[Path]:
-    """An account's synced mail, the rolling copy first, then the one-time twelve-month backfill."""
-    return sorted((folder / "mail").glob("*/*.md")) + sorted((folder / "backfill/mail").glob("*/*.md"))
-
-
 def personal(vault, today: date, account: str = "all", days: int | None = None) -> dict:
-    """Classify the owner's synced headers and calendar, without exposing mail bodies."""
+    """The owner's synced mail and calendar as a reading list for the seed: their own side and other people's, sorted
+    and capped, without exposing mail bodies. The reading is the mail and calendar sources'; this is what to read."""
+    from .sources import calendar, mail
     if days is not None and days < 0:
         raise SystemExit("brain portrait seed: --days must be zero or more")
-    owners = set(channel_files.owner_accounts(vault))
+    folders, owners = mail.owned(vault)
     account = account.casefold()
     if account != "all" and account not in owners:
         raise SystemExit(f"brain portrait seed: {account} is not an owner account")
-    folders = [(name, folder) for name, folder in channel_files.synced_accounts(vault)
-               if account == "all" or account == name]
+    folders = [(name, folder) for name, folder in folders if account == "all" or account == name]
     backfill = [name for name, folder in folders
                 if any((folder / "backfill").glob("mail/*/*.md")) or any((folder / "backfill").glob("calendar/*.md"))]
-    files = [(name, _mail(folder),
-              sorted((folder / "calendar").glob("*.md")) + sorted((folder / "backfill/calendar").glob("*.md")))
-             for name, folder in folders]
-    files = [(name, mail, calendar) for name, mail, calendar in files if mail or calendar]
-    if not files:
+    folders = [(name, folder) for name, folder in folders if mail.files(folder) or calendar.files(folder)]
+    if not folders:
         raise SystemExit("brain portrait seed: no owner account has synced mail or calendar files"
                          + (f" for {account}" if account != "all" else ""))
     floor = today - timedelta(days=days) if days is not None else None
-    dates, sent, transactional, people, events, problems = [], [], {}, [], {}, []
-    other = dict(forwarded=0, cc=0, group=0)
-
-    def addresses(value: str) -> set[str]:
-        return {email.casefold() for _, email in getaddresses([value]) if email}
+    dates: list[str] = []
 
     def inside(day: date) -> bool:
         dates.append(day.isoformat())
         return floor is None or floor <= day <= today
 
-    for name, mail, calendar in files:
-        seen = set()
-        for path in mail:
-            if path.stem in seen:
-                continue
-            seen.add(path.stem)   # the filename is the mail id; the rolling copy comes first
-            try:
-                data, body = fm.read(path)
-                raw = str(data.get("date", ""))
-                try:
-                    received = channel_files.local_datetime(raw, vault.config)
-                except ValueError:
-                    received = vault.config.local(parsedate_to_datetime(raw))
-                labels = data.get("labels", [])
-                if not isinstance(labels, list) or any(not isinstance(label, str) for label in labels):
-                    raise ValueError
-                if any(not isinstance(data.get(key, ""), str) for key in ("from", "to", "cc", "subject")):
-                    raise ValueError
-                sender = data.get("from", "")
-                senders = addresses(sender)
-                if not senders:
-                    raise ValueError
-            except (OSError, ValueError, TypeError, OverflowError):
-                problems.append(f"{path}: unreadable mail headers (date, from, to, cc, subject, labels)")
-                continue
-            if not inside(received.date()) or channel_files.EXCLUDED_LABELS.intersection(labels):
-                continue
-            to, cc = addresses(data.get("to", "")), addresses(data.get("cc", ""))
-            subject = data.get("subject", "")
-            if "SENT" in labels or owners & senders:
-                kind = "sent"
-            elif re.match(r"^\s*fw(?:d)?:", subject, re.I) or FORWARDED.search(body):
-                kind = "forwarded"
-            elif owners & cc and not owners & to:
-                kind = "cc"
-            elif owners & to and ("CATEGORY_UPDATES" in labels or channel_files.AUTOMATED.search(sender)):
-                kind = "transactional"
-            elif len((to | cc) - owners) > 1:
-                kind = "group"
-            else:
-                kind = "person"
-            item = {"kind": kind, "whose": "own" if kind in ("sent", "transactional") else "other",
-                    "date": received.isoformat(), "from": sender, "subject": subject, "path": str(path), "account": name}
-            if kind == "sent":
-                sent.append(item | {"to": data.get("to", ""), "cc": data.get("cc", "")})
-            elif kind == "transactional":
-                transactional.setdefault(min(senders), []).append(item)
-            elif kind == "person":
-                people.append(item)
-            else:
-                other[kind] += 1
-        for path in calendar:
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (OSError, ValueError):
-                problems.append(f"{path}: unreadable calendar")
-                continue
-            for block in re.split(r"^## ", text, flags=re.M)[1:]:
-                parsed = channel_files.parse_calendar("## " + block, name, vault.config)
-                for event in parsed:
-                    if not inside(event.start.date()):
-                        continue
-                    if event.response.casefold() != "accepted" and re.search(r"^attendee:[ \t]*\S", block, re.M):
-                        continue
-                    key = (event.id or event.title, event.start, event.end)
-                    events.setdefault(key, (event, path, name))
+    mails, events, problems = [], [], []
+    for folder in folders:   # each account's mail, then its calendar, as the reading list has always reported them
+        found, unreadable = mail.read(vault, [folder], owners)
+        mails += found
+        problems += unreadable
+        found, unreadable = calendar.read(vault, [folder])
+        events += found
+        problems += unreadable
+    sent, transactional, people = [], {}, []
+    other = dict(forwarded=0, cc=0, group=0)
+    for item in mails:
+        if not inside(item.received.date()) or item.excluded:
+            continue
+        entry = {"kind": item.kind, "whose": item.whose, "date": item.received.isoformat(), "from": item.sender,
+                 "subject": item.subject, "path": str(item.path), "account": item.account}
+        if item.kind == "sent":
+            sent.append(entry | {"to": item.to, "cc": item.cc})
+        elif item.kind == "transactional":
+            transactional.setdefault(min(item.senders), []).append(entry)
+        elif item.kind == "person":
+            people.append(entry)
+        else:
+            other[item.kind] += 1
+    accepted = [(event, path, name) for event, ok, path, name in events if inside(event.start.date()) and ok]
     newest = lambda item: (datetime.fromisoformat(item["date"]), item["path"])
     notices = []
     for sender, items in transactional.items():
         items.sort(key=newest, reverse=True)
         notices.append(items[0] | {"from": sender, "count": len(items),
                                    "subjects": list(dict.fromkeys(item["subject"] for item in items))[:3]})
-    recurring = {}
-    for event, path, name in sorted(events.values(), key=lambda value: value[0].start, reverse=True):
-        day = event.start.date().isoformat()
-        group = recurring.setdefault(event.title, {"kind": "event", "whose": "own", "title": event.title,
-                                                  "date": event.start.isoformat(), "count": 0, "next": "", "last": "",
-                                                  "location": event.location, "path": str(path), "account": name})
-        group["count"] += 1
-        if day >= today.isoformat():
-            group["next"] = min(group["next"] or day, day)
-        else:
-            group["last"] = max(group["last"], day)
-    lists = {"sent": sent, "transactional": notices, "events": list(recurring.values()), "person": people}
+    lists = {"sent": sent, "transactional": notices, "events": calendar.grouped(accepted, today), "person": people}
     omitted = {}
     for kind, items in lists.items():
         items.sort(key=newest, reverse=True)
@@ -140,7 +75,7 @@ def personal(vault, today: date, account: str = "all", days: int | None = None) 
         lists[kind] = items[:PERSONAL_CAPS[kind]]
     return {"window": {"from": floor.isoformat() if floor else min(dates, default=today.isoformat()),
                        "to": today.isoformat() if floor else max(dates, default=today.isoformat())},
-            "accounts": [name for name, _, _ in files],
+            "accounts": [name for name, _ in folders],
             "backfillAccounts": backfill,
             "own": {kind: lists[kind] for kind in ("sent", "transactional", "events")},
             "other": other | {"person": lists["person"]}, "omitted": omitted, "problems": problems}
@@ -276,7 +211,8 @@ def deference_reading(vault, today: date, account: str = "all", days: int = DAYS
     account = account.casefold()
     if account != "all" and account not in channel_files.owner_accounts(vault):
         raise SystemExit(f"brain consult seed: {account} is not an owner account")
-    files = [(name, _mail(folder)) for name, folder in channel_files.synced_accounts(vault)
+    from .sources import mail as mail_source
+    files = [(name, mail_source.files(folder)) for name, folder in channel_files.synced_accounts(vault)
              if account == "all" or account == name]
     files = [(name, mail) for name, mail in files if mail]
     if not files:
