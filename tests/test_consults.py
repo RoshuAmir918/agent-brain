@@ -124,7 +124,7 @@ def test_ask_any_person_without_map_and_proposed_rows_are_hints(enterprise):
     ("text", "word " * 17, "ask must be at most 16"),
     ("default", " \n ", "give a default"),
     ("default", "word " * 41, "default must be at most 40"),
-    ("why", "word " * 41, "why must be at most 40"),
+    ("why", "word " * 61, "why must be at most 60"),
     ("why", "", "give --why"),
     ("to", "Noah", "<platform>:<id>"),
     ("task", "T-999", "not an open task"),

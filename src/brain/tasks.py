@@ -186,7 +186,7 @@ HANDOFF_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Handed off:\*\*[^\n]*\n?", re.M)
 PACE_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Pace:\*\*[^\n]*\n?", re.M)
 WORK_LINE = re.compile(r"^[ \t]*-[ \t]+\*\*Work:\*\*[^\n]*\n?", re.M)
 RESTING = ("waiting_for_owner", "yours", "set_aside", "blocked")
-FIELDS = ("status", "next", "verified", "evidence", "blocker", "ask", "why", "delivers", "hub", "work", "goal", "after", "resume", "morning")
+FIELDS = ("status", "next", "verified", "evidence", "blocker", "ask", "why", "delivers", "hub", "work", "goal", "after", "resume", "morning", "due")
 LABELS = {"evidence": "Latest evidence"}   # the line a field writes, when it is not the field's own name
 RESUME = re.compile(r"^(?:computer|\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)$")
 
@@ -221,6 +221,11 @@ def _field_value(config: Config, name: str, value: str) -> str:
                 datetime.strptime(value, "%Y-%m-%d %H:%M") if " " in value else date.fromisoformat(value)
         except ValueError:
             raise ValueError("resume must be computer, YYYY-MM-DD or YYYY-MM-DD HH:MM, in the owner's local time") from None
+    if name == "due":
+        try:
+            date.fromisoformat(value)
+        except ValueError:
+            raise ValueError("due must be YYYY-MM-DD, the day the owner named") from None
     if name == "ask":
         if (reason := vague_ask(value)):
             raise ValueError(f"ask refused: {reason}")
@@ -383,8 +388,8 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     if not title or not source:
         raise ValueError("new needs a nonempty title and --source")
     state = normal_state(single_line("state", state))
-    if state not in ("ready", "in_progress"):
-        raise ValueError("new task state must be ready or in_progress")
+    if state not in ("ready", "in_progress", "yours"):
+        raise ValueError("new task state must be ready, in_progress or yours")
     if work is not None and not works.SLUG.fullmatch(work):
         raise ValueError("work slug must match [a-z0-9-]+")
     values = dict(values or {})
@@ -395,7 +400,7 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     if inherit_goal and parent is not None and "goal" not in values and any(g.gid == parent.goal for g in active(config)):
         values["goal"] = parent.goal  # a worker's follow-up serves what the task it is working on serves
     guard(config, values.get("goal"), source, parent=parent)
-    if set(values) - {"status", "next", "delivers", "hub", "goal", "after"}:
+    if set(values) - {"status", "next", "delivers", "hub", "goal", "after", "due"}:
         raise ValueError("unsupported new task field")
     body = "".join(f"- **{name.title()}:** {_field_value(config, name, value)}\n" for name, value in values.items())
     resolved = Vault(config.vault_path).resolve(source)

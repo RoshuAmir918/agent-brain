@@ -22,6 +22,7 @@ RUNGS = ("ask", "ask-on-big", "act-confirm", "act-report")
 CLIMB_WINDOW = 10   # require a full window of consequential choices before earning another rung
 CLIMB_CONFIRMED = 8   # at least eight directions must stand in that window; changes remain counterevidence
 DEFAULT_CEILING = "act-confirm"   # reporting without a confirm needs a person's explicit ceiling
+WHY_WORDS = 60   # a consult's why cites the evidence for choosing this colleague, so it runs longer than an owner's Why line
 TEMPLATE = """---
 kind: orientation
 tier: warm
@@ -604,7 +605,7 @@ def ask(config: Config, to: str, text: str, default: str, why: str, area: str = 
     if reason := needs.vague_ask(text):
         raise ValueError(f"ask refused: {reason}")
     for label, value, limit in (("ask", text, needs.ASK_WORDS), ("default", default, needs.WHY_WORDS),
-                                ("why", why, needs.WHY_WORDS)):
+                                ("why", why, WHY_WORDS)):
         if len(value.split()) > limit:
             raise ValueError(f"{label} must be at most {limit} words; say it shorter")
     if not default:
