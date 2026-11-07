@@ -9,14 +9,15 @@ from pathlib import Path
 
 from .. import channel_files
 from ..evidence import Evidence
-from . import Context, Nothing, Source, hints
+from . import Context, Nothing, Source, globbed, hints
 
-SOURCE = Source(id="calendar", editions=("personal",), runs="runtime", facets=("play", "places", "food & drink", "home & routine"),
+SOURCE = Source(id="calendar", editions=("personal",), runs="runtime", where="own", rank=7, needs="google",
+                files=("calendar/*.md", "backfill/calendar/*.md"), facets=("play", "places", "food & drink", "home & routine"),
                 about="the events the owner accepted, by title: how often, when last and next, and where")
 
 
 def files(folder: Path) -> list[Path]:
-    return sorted((folder / "calendar").glob("*.md")) + sorted((folder / "backfill/calendar").glob("*.md"))
+    return globbed(SOURCE, folder)
 
 
 def read(vault, accounts: list[tuple[str, Path]]) -> tuple[list[tuple[object, bool, Path, str]], list[str]]:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from brain import channel_files, cli, fm, install, seed, state, tasks
+from brain import channel_files, cli, coverage, fm, install, seed, state, tasks
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -250,7 +250,7 @@ def test_personal_coverage_accepts_internal_notes_and_matches_account_identity_o
     folder.mkdir()
     for account in ('mira@example.com', 'other@example.com'):
         fm.write(folder / f'2026-11-04 {account}.md', {'kind': 'log', 'source': 'mail', 'read': '2026-11-04', 'channel': account}, '')
-    data = seed.coverage(Vault(vault), TODAY)
+    data = coverage.coverage(Vault(vault), TODAY)
     assert data['problems'] == []
     assert 'Primary' not in data['unreadChannels'] and 'Other' not in data['unreadChannels']
     assert 'Missing' in data['unreadChannels']
@@ -264,8 +264,8 @@ def test_coverage_reports_only_completed_owner_backfills_with_files(synced, kind
                     'pending@example.com', 'revoked@example.com'):
         path = message(root, account=account) if kind == 'mail' else calendar_file(root, event(), account=account)
         backfilled(root, path)
-    assert seed.coverage(Vault(vault), TODAY)['unreadBackfill'] == []
-    assert 'Unread backfill:' not in seed.render_coverage(seed.coverage(Vault(vault), TODAY))
+    assert coverage.coverage(Vault(vault), TODAY)['unreadBackfill'] == []
+    assert 'Unread backfill:' not in coverage.render_coverage(coverage.coverage(Vault(vault), TODAY))
     for folder in root.iterdir():
         (folder / 'backfill/.done').touch()
     (root / 'missing@example.com/backfill').mkdir(parents=True)
@@ -280,7 +280,7 @@ def test_coverage_reports_only_completed_owner_backfills_with_files(synced, kind
     cli.main(argv)
     assert 'Unread backfill: mira@example.com, other@example.com' in capsys.readouterr().out
     seed.clear_backfill(Vault(vault))
-    assert seed.coverage(Vault(vault), TODAY)['unreadBackfill'] == []
+    assert coverage.coverage(Vault(vault), TODAY)['unreadBackfill'] == []
     assert (root / 'mira@example.com/backfill/.done').exists()
 
 

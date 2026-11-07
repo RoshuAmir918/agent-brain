@@ -29,6 +29,7 @@ WEIGHTS = {   # add evidence across relevant areas
     "stop-asking": 0,     # keeps muted people visible without changing their score
 }
 SEED_KINDS = ("approved", "reviewed", "changed", "deferred-to")   # history imported by a seeder
+DAYS = 90   # the default window for routing evidence a seeder reads
 HALF_LIFE_DAYS = 90   # only seeded history decays; explicit decisions and ownership remain on record
 # Seeded kinds score weight * log2(1 + decayed count) per person, area and kind, so one fresh line is worth its weight.
 DECISION = re.compile(r"^- (\d{4}-\d{2}-\d{2}) · (.+?) · (.*?) · id:([0-9a-f]{12})"
@@ -352,3 +353,14 @@ def candidates(config: Config, about: str, area: str = "", limit: int | None = N
     ranked = sorted(people.values(), key=lambda entry: (bool(entry.muted or entry.away), -entry.score,
                     entry.median_hours if entry.median_hours is not None else float("inf"), entry.person))
     return ranked[:limit] if limit is not None else ranked
+
+
+@dataclass
+class Row:
+    """One piece of routing history a seeder found: who decided or deferred on what, in which area, and where."""
+    area: str
+    day: str
+    person: str
+    kind: str
+    text: str
+    link: str = ""
