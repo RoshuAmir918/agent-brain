@@ -170,12 +170,12 @@ def test_cli_json_carries_the_block_and_whether_the_speaker_is_the_owner(people_
     cli.main(["session-context", "--vault", root, "--platform", "slack", "--user-id", "U_OWNER", "--json"])
     owner = json.loads(capsys.readouterr().out)
     assert owner == {"block": session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_OWNER"),
-                     "owner": True, "member": False}
+                     "owner": True, "member": False, "answering": False}
     cli.main(["session-context", "--vault", root, "--platform", "slack", "--user-id", "U_ALICE", "--json"])
     alice = json.loads(capsys.readouterr().out)
-    assert alice["block"] and not alice["owner"] and not alice["member"]
+    assert alice["block"] and not alice["owner"] and not alice["member"] and alice["answering"]
     cli.main(["session-context", "--vault", root, "--json"])
-    assert json.loads(capsys.readouterr().out) == {"block": "", "owner": False, "member": False}
+    assert json.loads(capsys.readouterr().out) == {"block": "", "owner": False, "member": False, "answering": False}
 
 
 def test_maintainer_context_is_the_health_report_without_profiles_or_rules(people_vault):

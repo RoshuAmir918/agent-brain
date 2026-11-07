@@ -313,8 +313,10 @@ def test_the_night_writes_the_owner_audience_to_disk(vault):
     (vault / "human").mkdir(exist_ok=True)
     fm.write(vault / "human/Profile.md", {"kind": "profile", "tier": "hot"}, "# Human\n")
     write_portrait(vault)
+    for name in ("Goals.md", "Tellable.md"):
+        fm.write(vault / "human" / name, {"kind": "orientation", "tier": "hot"}, f"# {name[:-3]}\n")
     cli.main(["nightly", "--vault", str(vault), "--date", "2026-11-06", "--write"])
-    for rel in ("human/Profile.md", "human/Portrait.md"):
+    for rel in ("human/Profile.md", "human/Portrait.md", "human/Goals.md", "human/Tellable.md"):
         assert fm.read(vault / rel)[0]["audience"] == "owner"
 
 
