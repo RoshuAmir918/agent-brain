@@ -973,6 +973,17 @@ def cmd_channels(args):
         print("no channels registered")
 
 
+def cmd_works(args):
+    try:
+        view = works.write_view(args.slug, sys.stdin.read())
+    except (ValueError, RuntimeError, OSError) as error:
+        print(error, file=sys.stderr)
+        if views.KIT not in str(error):
+            print(views.KIT, file=sys.stderr)
+        sys.exit(1)
+    print(f"{args.slug} view saved: {len(view['pieces'])} pieces" if view else f"{args.slug} view removed")
+
+
 def cmd_task(args):
     try:
         values = {name: getattr(args, name) for name in tasks_mod.FIELDS if getattr(args, name) is not None
@@ -1496,6 +1507,10 @@ def main(argv=None):
     p.add_argument("--run", action="store_true"); p.add_argument("--vault"); p.set_defaults(fn=cmd_people)
     p = actions.add_parser("who", help="identify a person or intellect and find their vault profile")
     p.add_argument("ident"); p.add_argument("--json", action="store_true"); p.add_argument("--vault"); p.set_defaults(fn=cmd_people)
+    s = sub.add_parser("works", help="summaries in local Library works")
+    actions = s.add_subparsers(dest="action", required=True)
+    p = actions.add_parser("view", help="save a work's summary from JSON on stdin; an empty view removes it")
+    p.add_argument("slug"); p.add_argument("--vault"); p.set_defaults(fn=cmd_works)
     s = sub.add_parser("task", help="create a task or change one: done, drop, yours, reopen, set",
                        description="brain task TID {done,drop,yours,reopen,set} [fields]; brain task new TITLE --source SOURCE")
     s.add_argument("tid", metavar="TID|new", help="task id, or new to create a task")

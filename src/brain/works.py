@@ -1,15 +1,31 @@
-"""The runtime's Library listing and history in local work checkouts."""
+"""The runtime's Library listing, summaries and history in local work checkouts."""
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Literal
 
-from . import fm, runtime
+from . import fm, runtime, views
 
 SLUG = re.compile(r"[a-z0-9-]+")
 ENTRY = re.compile(r"^[ \t]*-[ \t]+[^|\n]+\|[ \t]*([a-z0-9-]+)[ \t]*\|")
+
+
+def write_view(slug: str, text: str) -> dict | None:
+    """Keep a checked summary in an existing work, atomically; an empty view removes it."""
+    if not SLUG.fullmatch(slug):
+        raise ValueError("work slug must match [a-z0-9-]+")
+    path = runtime.home() / "works" / slug / "view.json"
+    if not path.parent.is_dir():
+        raise ValueError(f"work folder does not exist: {path.parent}; create it with demiurge works new")
+    clean = views.validate(text)
+    if clean is None:
+        path.unlink(missing_ok=True)
+    else:
+        fm.write(path, {}, json.dumps(clean, ensure_ascii=False, separators=(",", ":")) + "\n")
+    return clean
 
 
 def append_history(slug: str, tid: str, title: str, today: date, outcome: str,
