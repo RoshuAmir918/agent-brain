@@ -9,9 +9,10 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from .. import fm
-from . import Source
+from ..evidence import Evidence
+from . import Context, Nothing, Source, globbed
 
-SOURCE = Source(id="plans", editions=("enterprise",), runs="agent", where="internal", rank=4, needs="tracker", files=("plans/*.md",),
+SOURCE = Source(id="plans", editions=("enterprise",), runs="runtime", where="internal", rank=4, needs="tracker", files=("plans/*.md",),
                 facets=("direction",), about="projects, their targets and the issues done on them")
 
 PLAN_DAYS = 30   # effort is about now: a month of finished work
@@ -19,6 +20,7 @@ PLAN_DAYS = 30   # effort is about now: a month of finished work
 PLAN_LINE = re.compile(r"^- (?P<at>\d{4}-\d{2}-\d{2}) · (?P<what>done|opened) · (?P<key>[^·]+?) · (?P<title>.+?)\s*$")
 
 OPEN_STATES = ("planned", "started", "paused", "backlog")
+
 
 @dataclass
 class Project:
@@ -30,6 +32,7 @@ class Project:
     file: Path
     done: list[tuple[str, str, str]] = field(default_factory=list)   # at, key, title
 
+
 def horizon(target: str, today: date) -> str:
     """When a target falls: `now` within this quarter, `year` within twelve months, `longer` past that; no target says
     nothing about when, so the skill decides."""
@@ -38,6 +41,7 @@ def horizon(target: str, today: date) -> str:
     when = date.fromisoformat(target)
     quarter_end = date(today.year + (today.month > 9), (((today.month - 1) // 3 + 1) * 3) % 12 + 1, 1) - timedelta(days=1)
     return "now" if when <= quarter_end else "year" if when <= today + timedelta(days=365) else "longer"
+
 
 def load_plans(folder: Path, today: date, days: int) -> tuple[list[Project], list[tuple[str, str, str]], list[str]]:
     """Open projects with the work finished on them in the window, the work finished outside any project, and what
@@ -74,6 +78,7 @@ def load_plans(folder: Path, today: date, days: int) -> tuple[list[Project], lis
             projects.append(project)
     return projects, unplanned, problems
 
+
 def direction(folder: Path, today: date, days: int = 30) -> dict:
     projects, unplanned, problems = load_plans(folder, today, days)
     total = sum(len(p.done) for p in projects) + len(unplanned)
@@ -92,6 +97,7 @@ def direction(folder: Path, today: date, days: int = 30) -> dict:
         "problems": problems,
     }
 
+
 def render_direction(data: dict) -> str:
     out = [f"{data['window']['from']} to {data['window']['to']}: {len(data['after'])} open projects, {data['done']} issues done", "",
            "Heading, soonest first:"]
@@ -104,3 +110,39 @@ def render_direction(data: dict) -> str:
         out += ["", "Due this quarter with nothing done in the window: " + ", ".join(data["unattended"])]
     out += [f"problem: {problem}" for problem in data["problems"]]
     return "\n".join(out)
+
+
+def rows(projects: list[Project], unplanned: list[tuple[str, str, str]], days: int) -> list[Evidence]:
+    """Where the organisation is heading and where its effort goes. A project's row is dated by the newest work done on
+    it, or the day its file last changed, so a night with nothing new writes the same rows."""
+    out = []
+    for project in projects:
+        changed = date.fromtimestamp(project.file.stat().st_mtime)
+        newest = max((at for at, _, _ in project.done), default="")
+        about = project.name + (f" ({project.initiative})" if project.initiative else "")
+        target = f", target {project.target}" if project.target else ", no target"
+        lead = f", led by {project.lead}" if project.lead else ""
+        out.append(Evidence(date.fromisoformat(newest) if newest else changed, "plans",
+                            f"{about}: {project.state}{target}{lead}; {len(project.done)} issues done in the last {days} days",
+                            "own", ("direction",), f"plans:{project.file.parent.parent.name}/{project.file.stem}"))
+    if unplanned:
+        newest = max(at for at, _, _ in unplanned)
+        out.append(Evidence(date.fromisoformat(newest), "did", f"{len(unplanned)} issues done in no project in the last {days} days",
+                            "own", ("direction",), "plans:unplanned"))
+    return out
+
+
+def extract(ctx: Context) -> list[Evidence]:
+    from .. import runtime
+    home = runtime.configured()
+    folders = sorted(path for path in (home / "channels").glob("*") if path.is_dir()) if home else []
+    days = (ctx.today - ctx.since).days if ctx.since else PLAN_DAYS
+    projects, unplanned = [], []
+    for folder in folders:
+        if globbed(SOURCE, folder):
+            found, loose, _ = load_plans(folder / "plans", ctx.today, days)
+            projects += found
+            unplanned += loose
+    if not projects and not unplanned:
+        raise Nothing("no plan files")
+    return rows(projects, unplanned, days)

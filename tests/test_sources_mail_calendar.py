@@ -82,7 +82,7 @@ def test_the_registry_declares_every_source_once_and_coverage_lists_an_editions_
         cli.main(["source", "site", "extract", "--home", str(vault.parent / "home"), "--vault", str(vault)])
     cli.main(["source", "list", "--json", "--vault", str(vault)])
     listed = {entry["id"]: entry for entry in __import__("json").loads(capsys.readouterr().out)}
-    assert listed["reviews"]["needs"] == "github" and listed["reviews"]["extracts"] is False
+    assert listed["reviews"]["needs"] == "github" and listed["reviews"]["extracts"] is True and listed["site"]["extracts"] is False
 
 
 def test_a_source_declared_twice_is_refused(monkeypatch):

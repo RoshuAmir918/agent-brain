@@ -11,6 +11,7 @@ from . import channel_files
 
 STALE_DAYS = 90
 
+
 def coverage(vault, today: date) -> dict:
     """How much the portrait knows and from where: each section's lines, each kind of source's last reading (from the
     `source` and `read` keys of the Seeds notes), and the connected channels no seed has read yet."""
@@ -56,6 +57,7 @@ def coverage(vault, today: date) -> dict:
             "facets": [{"facet": facet.name, "rank": facet.rank, "lines": len(facet.lines),
                         "newest": max((line.evidence for line in facet.lines), default="")} for facet in image.facets(config)]}
 
+
 def attention(config, lines, today: date, days: int = 7) -> list[dict]:
     """How often each After line was served in the last week: explore runs whose account names `portrait:<id>`, and
     offers recorded against it. A top line with none is a direction nobody is working toward."""
@@ -70,6 +72,7 @@ def attention(config, lines, today: date, days: int = 7) -> list[dict]:
     offers = Counter(row.portrait for _, row in reception.rows(config, today - timedelta(days=days)) if row.portrait)
     return [{"id": line.id, "text": line.text, "rank": line.rank, "runs": runs[line.id], "offers": offers[line.id]}
             for line in lines if line.section == "After" and line.id]
+
 
 def render_coverage(data: dict) -> str:
     out = ["Portrait:"]
