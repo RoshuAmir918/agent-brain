@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
-from . import fm, identity
+from . import evidence as rows, fm, identity
 from .config import Config
 from .tasks import STATE_RE, Task, parse_state, single_line
 from .vault import Vault, WIKILINK_RE
@@ -390,6 +390,21 @@ def new(config: Config, title: str, words: str, *, reach: bool = False, by: str 
     return _write(config, *read(config), goal, new=True, from_app=from_app)
 
 
+ROW = re.compile(r"\bevidence:([a-z][a-z0-9-]*)\b")
+ROW_DAYS = 3   # a goal's evidence line may summarize a source's own rows from the few days before it
+
+
+def _grounded(config: Config, at: str, text: str, vault: Vault | None = None) -> bool:
+    """Evidence an inferred goal may rest on: a real note outside the intellect's own folders, or a synced source's
+    own rows (`evidence:<source>`, as portrait lines cite them) from that day or the days just before."""
+    if _has_evidence_note(config, text, vault):
+        return True
+    day_ = date.fromisoformat(at)
+    return any(row.whose == "own" and 0 <= (day_ - row.date).days <= ROW_DAYS
+               for match in ROW.finditer(text)
+               for row in rows.read(match[1], since=day_ - timedelta(days=ROW_DAYS)))
+
+
 def _has_evidence_note(config: Config, text: str, vault: Vault | None = None) -> bool:
     vault = vault or Vault(config.vault_path)
     agent = (config.vault_path / config.agent_dir).resolve()
@@ -412,8 +427,10 @@ def _evidence(config: Config, text: str, *, inferred: bool = False) -> str:
     at, text = (day(match[1]), line("evidence", match[2])) if match else (config.today().isoformat(), text)
     if at > config.today().isoformat():
         raise ValueError("evidence cannot be in the future")
-    if inferred and not _has_evidence_note(config, text):
-        raise ValueError("inferred evidence needs a [[link]] to an existing note outside the agent directory and prepared drafts")
+    if inferred and not _grounded(config, at, text):
+        raise ValueError("inferred evidence needs a [[link]] to an existing note outside the agent directory and prepared "
+                         "drafts, or evidence:<source> naming a synced source with the person's own rows from that day "
+                         "or the three before (`brain evidence --source <source> --since <date>`)")
     return f"- **Evidence:** {at} · {text}"
 
 
@@ -571,8 +588,8 @@ def decay(config: Config, today: date, report: list[str] | None = None, *, vault
         if goal.origin != "inferred":
             continue
         try:
-            latest = max((ev["at"] for ev in goal.evidence if _has_evidence_note(
-                config, ev["text"] + (f" [[{ev['link']}]]" if ev["link"] else ""), vault)),
+            latest = max((ev["at"] for ev in goal.evidence if _grounded(
+                config, ev["at"], ev["text"] + (f" [[{ev['link']}]]" if ev["link"] else ""), vault)),
                 default=goal.said_at or today.isoformat())
             if (today - date.fromisoformat(latest)).days >= 30:
                 change(config, goal.gid, "set-aside", why="No new evidence for 30 days")
