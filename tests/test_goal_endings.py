@@ -159,6 +159,166 @@ def test_superseding_requires_different_active_target_without_writes(vault, caps
     assert snapshot(tmp_path) == before
 
 
+@pytest.mark.parametrize("ending", ["reached", "set-aside", "superseded-by"])
+def test_superseding_requires_active_source_without_writes(vault, capsys, tmp_path, ending):
+    cfg = Config.load(vault)
+    pair(cfg)
+    goals.new(cfg, "Swim", "Learn to swim")
+    goals.change(cfg, "G-1", ending, text="G-3", why="Finished")
+    before = snapshot(tmp_path)
+    with pytest.raises(SystemExit, match="only an active goal can be superseded; reopen it first"):
+        run(vault, capsys, "G-1", "superseded-by", "G-2")
+    assert snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize("operation", ["reached", "superseded-by"])
+@pytest.mark.parametrize("basis", ["duplicate", "latest", "said"])
+def test_intellect_ending_evidence_must_be_new_without_writes(vault, tmp_path, monkeypatch, operation, basis):
+    cfg = Config.load(vault)
+    pair(cfg)
+    existing = "2026-11-01 · Signed up · [[Training]]"
+    if basis != "said":
+        goals.change(cfg, "G-1", "evidence", text=existing)
+        goals.change(cfg, "G-1", "evidence", text="2026-11-06 · Still training · [[Training]]")
+    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
+    value = existing if basis == "duplicate" else "2026-11-05 · Finished · [[Training]]"
+    before = snapshot(tmp_path)
+    with pytest.raises(ValueError, match="new evidence|latest evidence"):
+        goals.change(cfg, "G-1", operation, text="G-2", evidence=[
+            f"{TODAY} · New finish · [[Training]]", value])
+    assert snapshot(tmp_path) == before
+
+
+def test_probe_reused_inferred_evidence_cannot_end_goal(vault, capsys, tmp_path, monkeypatch):
+    cfg = Config.load(vault)
+    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
+    value = "2026-11-01 · Signed up · [[Training]]"
+    goals.new(cfg, "Race", "Run a marathon", inferred=True, evidence=[value])
+    before = snapshot(tmp_path)
+    with pytest.raises(SystemExit, match="new evidence"):
+        run(vault, capsys, "G-1", "reached", "--evidence", value)
+    assert snapshot(tmp_path) == before
+
+
+@pytest.mark.parametrize("operation", ["reached", "superseded-by"])
+def test_new_ending_evidence_may_share_latest_evidence_date(vault, monkeypatch, operation):
+    cfg = Config.load(vault)
+    pair(cfg)
+    goals.change(cfg, "G-1", "evidence", text="2026-11-06 · Still training · [[Training]]")
+    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
+    goal = goals.change(cfg, "G-1", operation, text="G-2",
+                        evidence=["2026-11-06 · Finished · [[Training]]"])
+    assert goal.state["state"] != "active"
+    assert goal.evidence[0]["text"] == "Finished"
+
+
+@pytest.mark.parametrize("operation", ["reached", "superseded-by", "set-aside"])
+@pytest.mark.parametrize("change", ["edit", "reopen"])
+@pytest.mark.parametrize("from_app", [False, True])
+@pytest.mark.parametrize("age", [13, 14])
+def test_intellect_endings_respect_person_changes_after_intellect_edit(
+        vault, tmp_path, monkeypatch, operation, change, from_app, age):
+    cfg = Config.load(vault)
+    changed_at = str(TODAY - timedelta(days=age))
+    monkeypatch.setenv("BRAIN_TODAY", changed_at)
+    pair(cfg)
+    if change == "reopen":
+        goals.change(cfg, "G-1", "reached")
+    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night" if from_app else "cli:owner")
+    goals.change(cfg, "G-1", change, title="My race", why="Still pursuing it", from_app=from_app)
+    monkeypatch.setenv("BRAIN_TODAY", str(TODAY))
+    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
+    goals.change(cfg, "G-1", "edit", title="Race plan")
+    goal = entries(cfg)["G-1"]
+    assert goal.state["owner_updated"] == changed_at
+    assert goal.state["updated"] == str(TODAY)
+    before = snapshot(tmp_path)
+    kwargs = dict(text="G-2", why="Finished", evidence=[f"{TODAY} · Finished · [[Training]]"])
+    if age < 14:
+        with pytest.raises(ValueError, match="person.*14 days"):
+            goals.change(cfg, "G-1", operation, **kwargs)
+        assert snapshot(tmp_path) == before
+    else:
+        assert goals.change(cfg, "G-1", operation, **kwargs).state["state"] != "active"
+
+
+def test_intellect_edit_alone_does_not_protect_goal(vault, monkeypatch):
+    cfg = Config.load(vault)
+    pair(cfg)
+    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
+    goals.change(cfg, "G-1", "edit", title="Race plan")
+    goal = goals.change(cfg, "G-1", "set-aside", why="Training stopped")
+    assert goal.state["state"] == "set_aside"
+
+
+@pytest.mark.parametrize("operation", ["reached", "superseded-by", "set-aside"])
+@pytest.mark.parametrize("from_app", [False, True])
+def test_intellect_endings_stop_after_three_goals_today_but_person_can_end(
+        vault, tmp_path, monkeypatch, operation, from_app):
+    cfg = Config.load(vault)
+    for n in range(5):
+        goals.new(cfg, f"Aim {n}", f"Goal {n}")
+    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
+    for gid, ending in (("G-1", "reached"), ("G-2", "superseded-by"), ("G-3", "set-aside")):
+        goals.change(cfg, gid, ending, text="G-5", why="Stale" if ending == "set-aside" else None,
+                     evidence=[f"{TODAY} · Finished · [[Training]]"])
+    assert f"- **Superseded:** {TODAY} — Replaced by G-5" in entries(cfg)["G-2"].body
+    goals.change(cfg, "G-1", "reopen", why="Again", from_app=True)
+    before = snapshot(tmp_path)
+    with pytest.raises(ValueError, match="three goals.*today"):
+        goals.change(cfg, "G-4", operation, text="G-5", why="Finished",
+                     evidence=[f"{TODAY} · Finished · [[Training]]"])
+    assert snapshot(tmp_path) == before
+    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night" if from_app else "cli:owner")
+    assert goals.change(cfg, "G-4", operation, text="G-5", why="Finished", from_app=from_app).state["state"] != "active"
+
+
+def test_decay_bypasses_ending_limit_but_its_set_asides_count(vault, monkeypatch):
+    cfg = Config.load(vault)
+    for n in range(4):
+        old = str(TODAY - timedelta(days=40 + n))
+        monkeypatch.setenv("BRAIN_TODAY", old)
+        goals.new(cfg, f"Aim {n}", f"Goal {n}", inferred=True,
+                  evidence=[f"{old} · Training · [[Training]]"])
+    monkeypatch.setenv("BRAIN_TODAY", str(TODAY))
+    goals.new(cfg, "Swim", "Learn to swim")
+    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
+    assert goals.decay(cfg, TODAY) == ["G-1", "G-2", "G-3", "G-4"]
+    with pytest.raises(ValueError, match="three goals.*today"):
+        goals.change(cfg, "G-5", "set-aside", why="Stale")
+    monkeypatch.setenv("BRAIN_TODAY", str(TODAY + timedelta(days=1)))
+    assert goals.change(cfg, "G-5", "set-aside", why="Stale").state["state"] == "set_aside"
+
+
+@pytest.mark.parametrize("linked_by", ["task", "hub"])
+@pytest.mark.parametrize("file_goal,library_goal,expected", [
+    ("G-3", "G-1", "G-3"), (None, "G-3", "G-3"),
+    ("G-1", "G-3", "G-2"), (None, "G-1", "G-2"), (None, None, None),
+])
+def test_superseding_relinks_only_works_currently_owned_by_source(
+        vault, tmp_path, linked_by, file_goal, library_goal, expected):
+    cfg = Config.load(vault)
+    pair(cfg)
+    goals.new(cfg, "Swim", "Learn to swim")
+    if linked_by == "task":
+        tasks.new_task(cfg, "Plan", '"Make a plan"', goal="G-1", work="plan")
+    else:
+        fm.write(vault / "Training.md", {"kind": "hub", "work": "plan"}, "# Training\n- **Goal:** G-1\n")
+    work = tmp_path / "home/works/plan/GOAL.md"
+    work.parent.mkdir(parents=True)
+    if file_goal:
+        fm.write(work, {"goal": file_goal}, "# Work\n")
+    listing = tmp_path / "home/works/LIBRARY.md"
+    listing.write_text("# Library\n- Plan | plan | document | active | editable | unknown | "
+                       "created 2026-11-01 | opened never" + (f" | goal {library_goal}" if library_goal else "") + "\n")
+    goals.change(cfg, "G-1", "superseded-by", text="G-2")
+    assert (works.goal_for("plan") or works.parse(works.library())[0].goal) == expected
+    if linked_by == "task":
+        assert next(task for task in tasks.all_tasks(cfg) if task.work == "plan").goal == "G-2"
+    else:
+        assert fm.hub_goal(fm.read(vault / "Training.md")[1]) == "G-2"
+
+
 def test_due_is_read_only_and_missed_asks_repeat_after_fourteen_days(vault, capsys, tmp_path, monkeypatch):
     cfg = Config.load(vault)
     pair(cfg)

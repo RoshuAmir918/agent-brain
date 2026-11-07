@@ -23,6 +23,7 @@ KINDS = ("reach", "become")
 ORIGINS = ("said", "inferred")
 WORDS = re.compile(r'^- \*\*In their words:\*\* "(.*)" \((\d{4}-\d{2}-\d{2}|unknown)\)$', re.M)
 EVIDENCE = re.compile(r"^- \*\*Evidence:\*\* (\d{4}-\d{2}-\d{2}) · (.+)$", re.M)
+ENDING = re.compile(r"^- \*\*(?:Reached|Superseded|Set-Aside):\*\* (\d{4}-\d{2}-\d{2}) — ", re.M)
 ACTIVE_DESCRIPTION = "What the owner is working toward, said or inferred from repeated, dated evidence."
 LEGACY_DESCRIPTION = "What the owner has chosen to cultivate: called a goal in their words, or returned to on a second day."
 TEMPLATE = "# Goals\n\n## Aspirations\n\n## Active goals\n\n## Adopted practices\n\n## Set aside\n"
@@ -174,8 +175,9 @@ def problems(config: Config) -> list[str]:
                 day(goal.said_at)
             if goal.state.get("by"):
                 day(goal.state["by"])
-            if goal.state.get("missed_asked"):
-                day(goal.state["missed_asked"])
+            for key in ("missed_asked", "updated", "owner_updated"):
+                if goal.state.get(key):
+                    day(goal.state[key])
             if goal.state.get("inferred"):
                 datetime.fromisoformat(goal.state["inferred"])
             for evidence in goal.evidence:
@@ -467,7 +469,7 @@ def _add_evidence(config: Config, goal: Goal, text: str) -> None:
 def change(config: Config, gid: str, operation: str, *, text: str | None = None, title: str | None = None,
            words: str | None = None, by: str | None = None, clear_by: bool = False, kind: str | None = None,
            why: str | None = None, said: str | None = None, evidence: list[str] | None = None,
-           from_app: bool = False) -> Goal | Task:
+           from_app: bool = False, from_decay: bool = False) -> Goal | Task:
     if operation in ("keep", "not-a-goal", "to-task"):
         _require_owner(config, from_app)
     if errors := problems(config):
@@ -477,8 +479,18 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
     if goal is None:
         raise ValueError(f"{gid} is not a goal; use `brain goals list`")
     today = config.today().isoformat()
+    if operation == "superseded-by" and goal.state["state"] != "active":
+        raise ValueError("only an active goal can be superseded; reopen it first")
+    if operation in ("reached", "superseded-by", "set-aside") and not _owner(config, from_app) and not from_decay:
+        updated = goal.state.get("owner_updated")
+        if updated and (config.today() - date.fromisoformat(updated)).days < 14:
+            raise ValueError("the person reopened or edited this goal within 14 days; leave it active")
+        if sum(any(match[1] == today for match in ENDING.finditer(entry.body))
+               for entry in load(config) + archived(config)) >= 3:
+            raise ValueError("three goals already have an ending dated today; leave further endings for another night")
     if operation in ("edit", "reopen") and _owner(config, from_app):
         goal.state["origin"] = "said"
+        goal.state["owner_updated"] = today
     if operation == "edit":
         if title is not None:
             goal.title = line("title", title, 80)
@@ -506,6 +518,7 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
     elif operation == "keep":
         goal.state["origin"] = "said"
         goal.state["updated"] = today
+        goal.state["owner_updated"] = today
         goal.state.pop("nudged", None)
         goal.body += f"- **Kept:** {today} — you kept it\n"
     elif operation in ("not-a-goal", "to-task"):
@@ -537,8 +550,8 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
             raise ValueError("a goal must be superseded by a different active goal")
         require_active(config, text or "")
         target = next(entry for entry in load(config) if entry.gid == text)
-        reason = line("why", why, 200) if why is not None else None
-        evidence_lines = _ending_evidence(config, evidence, from_app)
+        reason = line("why", why, 200) if why is not None else f"Replaced by {target.gid}"
+        evidence_lines = _ending_evidence(config, goal, evidence, from_app)
         for value in evidence_lines:
             _add_evidence(config, goal, value)
         for match in reversed(list(EVIDENCE.finditer(goal.body))):
@@ -548,8 +561,7 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
         goal.state["superseded_by"] = target.gid
         goal.state.pop("nudged", None)
         goal.body += f"- **Became:** [[{config.link(config.human_goals)}#{target.gid} — {target.title}]] {target.gid} — {target.title}\n"
-        if reason:
-            goal.body += f"- **Superseded:** {today} — {reason}\n"
+        goal.body += f"- **Superseded:** {today} — {reason}\n"
         target.body += f"- **Earlier as:** {gid} — {goal.title}\n"
         _write(config, data, body, target)
         data, body = read(config)
@@ -558,7 +570,7 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
         if operation == "reopen" and goal.state["state"] != "active" and goal.origin == "inferred" and sum(g.origin == "inferred" for g in active(config)) >= 5:
             raise ValueError("at most 5 active inferred goals; set aside another first")
         if operation == "reached":
-            for value in _ending_evidence(config, evidence, from_app):
+            for value in _ending_evidence(config, goal, evidence, from_app):
                 _add_evidence(config, goal, value)
         if operation == "reopen" and _owner(config, from_app):
             goal.state["updated"] = today
@@ -571,11 +583,21 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
     return _write(config, data, body, goal, from_app=from_app)
 
 
-def _ending_evidence(config: Config, evidence: list[str] | None, from_app: bool) -> list[str]:
+def _ending_evidence(config: Config, goal: Goal, evidence: list[str] | None, from_app: bool) -> list[str]:
     intellect = not _owner(config, from_app)
     if intellect and not evidence:
         raise ValueError("an intellect ending a goal needs --evidence '<date> · <what> · [[note]] or evidence:<source>'")
-    return [_evidence(config, value, inferred=intellect) for value in evidence or []]
+    lines = [_evidence(config, value, inferred=intellect) for value in evidence or []]
+    if intellect:
+        existing = {match[0] for match in EVIDENCE.finditer(goal.body)}
+        latest = max((ev["at"] for ev in goal.evidence),
+                     default=goal.said_at or goal.state.get("inferred", "")[:10])
+        for value in lines:
+            if value in existing:
+                raise ValueError("an intellect ending a goal needs new evidence, not a line already on the goal")
+            if EVIDENCE.fullmatch(value)[1] < latest:
+                raise ValueError("ending evidence cannot predate the goal's latest evidence or said/inferred date")
+    return lines
 
 
 def _relink(config: Config, gid: str, target: str) -> None:
@@ -600,11 +622,13 @@ def _relink(config: Config, gid: str, target: str) -> None:
             fm.write(config.vault_path / rel, note.data, body)
             if note.data.get("work"):
                 slugs.add(note.data["work"])
-    slugs.update(work.slug for work in works.parse(works.library() or "")
-                 if work.status in ("active", "draft", "kept") and (works.goal_for(work.slug) or work.goal) == gid)
+    library = works.parse(works.library() or "")
+    work_goals = {work.slug: work.goal for work in library}
+    slugs.update(work.slug for work in library if work.status in ("active", "draft", "kept"))
     home = runtime.configured()
     for slug in sorted(slugs):
-        if home is not None and works.SLUG.fullmatch(slug) and (home / "works" / slug).is_dir():
+        if (home is not None and works.SLUG.fullmatch(slug) and (home / "works" / slug).is_dir()
+                and (works.goal_for(slug) or work_goals.get(slug)) == gid):
             works.set_goal(config, slug, target)
 
 
@@ -676,7 +700,7 @@ def decay(config: Config, today: date, report: list[str] | None = None, *, vault
                 config, ev["at"], ev["text"] + (f" [[{ev['link']}]]" if ev["link"] else ""), vault)),
                 default=goal.said_at or today.isoformat())
             if (today - date.fromisoformat(latest)).days >= 30:
-                change(config, goal.gid, "set-aside", why="No new evidence for 30 days")
+                change(config, goal.gid, "set-aside", why="No new evidence for 30 days", from_decay=True)
                 expired.append(goal.gid)
         except Exception as error:
             report.append(f"goal: {goal.gid} decay skipped: {error}")
