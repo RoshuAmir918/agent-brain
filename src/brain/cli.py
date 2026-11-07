@@ -747,6 +747,8 @@ def cmd_task(args):
             raise ValueError("task ACTION must be done, drop, yours, reopen, set or view")
         elif args.source is not None or args.json:
             raise ValueError("--source and --json go with task new")
+        elif (args.left is not None or args.then) and args.action != "done":
+            raise ValueError("--left and --then go with task T-nnn done")
         elif args.action != "set" and (set(values) - {"why"} or args.state is not None or args.clear
                                        or args.reviewed is not None or args.report is not None or args.title is not None):
             raise ValueError("field flags, --state, --title, --reviewed, --report and --clear go with task T-nnn set")
@@ -781,7 +783,7 @@ def cmd_task(args):
                                             reviewed=args.reviewed, report=args.report, title=args.title)
             else:
                 task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
-                                       args.why or "the owner closed it in their app")
+                                       args.why or "the owner closed it in their app", args.left, args.then or ())
             if before is not None and before.task_state == "waiting_for_owner" and task.task_state != "waiting_for_owner":
                 # The ask it stood for is answered or moot: it leaves Needs you with it.
                 needs.settle_tasks(args.config, args.config.today(), [(task.tid, before.body)],
@@ -1454,6 +1456,9 @@ def main(argv=None):
     s.add_argument("--clear", nargs="+", choices=(*tasks_mod.FIELDS, "handoff"), metavar="FIELD", action="extend",
                    help="remove fields (" + ", ".join(tasks_mod.FIELDS) + "); handoff takes the task back from its worker")
     s.add_argument("--title", help="with set: rename the task")
+    s.add_argument("--left", metavar="TEXT", help="with done: what is not done, or only attempted")
+    s.add_argument("--then", metavar="STAGE", action="append",
+                   help=f"with done: a next stage the owner could start, as its title; up to {tasks_mod.MAX_THEN}")
     s.add_argument("--report", metavar="WHERE", help="with set: where a handed-off task reports (demiurge:<conversation id>, or Home)")
     s.add_argument("--reviewed", metavar="TEXT", help="with set: append a dated Reviewed line (the evening's decision and why)")
     s.add_argument("--source", help="with new: the owner's words or a note name")
