@@ -1,9 +1,10 @@
 """An organisation's intellect talks only to its members: the door admits them, the engine trusts it. Each session
 says who the member is, that what they say is the team's, and that their work is theirs; the operator may also change
 the intellect's setup. A personal intellect is unchanged."""
+import json
 from datetime import datetime
 
-from brain import access_log, fm, identity, journal, session_context
+from brain import access_log, cli, fm, identity, journal, session_context
 from brain.config import Config
 from brain.vault import Vault
 
@@ -35,6 +36,19 @@ def test_the_operator_may_change_the_setup_and_a_maintainer_or_routine_is_no_mem
     assert [identity.role(vault, config, platform, ids) for platform, ids in (
         ("cron", ()), ("cron", ("job",)), ("subagent", ("child",)), ("slack", ("U0OPS",)))] == [
         "unknown", "unknown", "unknown", "maintainer"]
+
+
+def test_session_context_json_says_member_or_operator_not_by_wording(vault, capsys):
+    config_for(vault, "enterprise", 'owner_user_ids = ["slack:U0ROSHAN"]\n')
+    flags = ["session-context", "--vault", str(vault), "--platform", "slack", "--json"]
+    cli.main([*flags, "--user-id", "U0KIM", "--user-name", "Kim Lee"])
+    member = json.loads(capsys.readouterr().out)
+    assert "a member of Harbor." in member["block"] and (member["owner"], member["member"]) == (False, True)
+    cli.main([*flags, "--user-id", "U0ROSHAN"])
+    operator = json.loads(capsys.readouterr().out)
+    assert "and its operator." in operator["block"] and (operator["owner"], operator["member"]) == (True, False)
+    cli.main(["session-context", "--vault", str(vault), "--platform", "cron", "--json"])
+    assert json.loads(capsys.readouterr().out)["member"] is False
 
 
 def test_a_personal_intellect_still_treats_an_unknown_speaker_as_a_stranger(vault):
