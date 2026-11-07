@@ -2,7 +2,7 @@ import pytest
 import json
 from datetime import date
 
-from brain import cli, compile_context, coverage, fm, portrait, state, validate
+from brain import cli, compile_context, coverage, fm, image, portrait, state, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -75,13 +75,13 @@ def test_stamp_ids_new_lines_once_keeps_existing_and_never_reuses_a_retired_id(v
     path = write_portrait(vault)
     (vault / "human/History.md").write_text("- 2026-10-01 · retired: Was a chess player ^beef\n")
     tokens = iter(["3f2a", "beef", "0001", "0002", "0003"])
-    monkeypatch.setattr(portrait.secrets, "token_hex", lambda n: next(tokens))
+    monkeypatch.setattr(image.secrets, "token_hex", lambda n: next(tokens))
     config = Config.load(vault)
-    assert portrait.stamp(config) == 3
+    assert image.stamp(config) == 3
     lines = portrait.load(config)
     assert [line.id for line in lines] == ["3f2a", "0001", "0002", "0003"]
     assert "Wants to start climbing · guess · low · 2026-11-02 · [[START]] ^0001\n  - horizon: now" in path.read_text()
-    assert portrait.stamp(config) == 0
+    assert image.stamp(config) == 0
 
 
 def test_context_carries_the_portrait_after_current_with_its_rule(vault):
@@ -141,7 +141,7 @@ def test_an_organisation_may_say_how_it_decides(vault):
 def test_stamping_reads_how_it_decides_as_a_section(vault):
     enterprise(vault)
     path = write_portrait(vault, "## How it decides\n- Founders decide scope · said · high · 2026-11-02 · [[START]]\n")
-    assert portrait.stamp(Config.load(vault)) == 1
+    assert image.stamp(Config.load(vault)) == 1
     assert path.read_text().count(" ^") == 1
 
 
