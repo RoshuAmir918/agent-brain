@@ -9,6 +9,7 @@ from pathlib import Path
 from . import access_log, fm, ledger, loops, needs, tasks
 from .lock import vault_lock
 from .config import Config
+from .record import RECORD_SCHEMA, UNCAPTURED
 from .identity import role
 from .vault import Vault
 
@@ -37,9 +38,9 @@ def _coerce(record: dict) -> dict:
 
 
 def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
-                 user_id: str = "", user_id_alt: str = "") -> Path:
+                 user_id: str = "", user_id_alt: str = "") -> Path | None:
     """Records open loops, keeping only touched notes that exist; a `needsYou` becomes an ask in CURRENT; requests from
-    anyone but the owner go to the access log."""
+    anyone but the owner go to the access log. A record of nothing that captures nothing writes nothing (None)."""
     record = _coerce(record)
     outcome = record.get("outcome")
     headline = _clean(record.get("headline"))
@@ -47,6 +48,8 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
         raise ValueError(f"invalid outcome {outcome!r}; choose from " + ", ".join(ledger.OUTCOMES))
     if not headline:
         raise ValueError("missing headline")
+    if outcome == "nothing" and not any(record.get(key) for key in RECORD_SCHEMA["properties"] if key not in UNCAPTURED):
+        return None
     local = config.local(at)
     from .state import _public   # the export's boundary: a profile or the owner's notes are never named here
     vault = Vault(config.vault_path)

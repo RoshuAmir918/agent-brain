@@ -341,3 +341,21 @@ def test_one_malformed_archive_ledger_or_portrait_is_skipped_not_fatal(vault):
     assert "MALFORMED" not in json.dumps(state.build(config, TODAY))
     assert {f"{rel}: frontmatter" for rel in (config.agent("Tasks Archive/T-090.md"), config.human_portrait)} <= {
         problem.split(" is not")[0] for problem in validate.hygiene(Vault(vault))}
+
+
+def test_the_stamp_changes_with_what_the_state_reads_and_nothing_else(vault, capsys):
+    config = Config.load(vault)
+
+    def stamp():
+        cli.main(["state", "--stamp", "--vault", str(vault)])
+        return capsys.readouterr().out.strip()
+
+    first = stamp()
+    assert first == stamp() == state.stamp(config)
+    (vault / ".context.md").write_text("compiled")
+    assert stamp() == first
+    note(vault, "Plans/Garden.md", "# Garden\n", kind="draft", tier="warm")
+    second = stamp()
+    assert second != first
+    (vault / "Plans/Garden.md").rename(vault / "Plans/Gardens.md")
+    assert stamp() not in (first, second)

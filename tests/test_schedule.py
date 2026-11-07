@@ -206,6 +206,10 @@ def test_cli_responsibility_and_needs_set_merge_list_clear(config, capsys):
     row = json.loads(capsys.readouterr().out)["alerts"]
     assert row["responsibility"] == "chicken-alerts" and row["needs"] == ["computer"]
     assert schedule.load(config)["alerts"].prompt == "Check alerts"
+    cli(config, "set", "pings", "--every", "2h")
+    capsys.readouterr()
+    cli(config, "list", "--json")
+    assert json.loads(capsys.readouterr().out)["pings"]["prompt"] == "Run pings."
     cli(config, "set", "alerts", "--responsibility", "", "--needs", "")
     routine = schedule.load(config)["alerts"]
     assert routine.responsibility is None and routine.needs == []

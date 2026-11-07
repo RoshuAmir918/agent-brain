@@ -43,10 +43,11 @@ def path(config: Config, tid: str):
 
 
 def read(config: Config, tid: str) -> dict | None:
+    """The task's view as the kit allows it; a hand-edited file outside the kit is no view."""
     p = path(config, tid)
     try:
-        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
-    except (OSError, json.JSONDecodeError):
+        return validate(p.read_text(encoding="utf-8")) if p.exists() else None
+    except (OSError, ValueError):
         return None
 
 
