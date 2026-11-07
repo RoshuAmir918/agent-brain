@@ -171,3 +171,64 @@ def stamp(config: Config) -> int:
         if count:
             fm.write(path, data, "".join(out))
     return count
+
+
+VERDICTS = ("right", "wrong", "not-this")
+
+
+def mark(config: Config, line_id: str, verdict: str, words: str = "") -> str:
+    """The owner's answer to one line of the reveal. Right makes it `said`; wrong retires it to History, with the
+    owner's words kept as a `Not` line when they give some; not this retires it and records in `Not` that its source is
+    not to be drawn on for it."""
+    if verdict not in VERDICTS:
+        raise ValueError(f"verdict {verdict!r}; one of {', '.join(VERDICTS)}")
+    path = config.vault_path / config.human_portrait
+    if not path.is_file():
+        raise ValueError("no portrait yet")
+    words, today = " ".join(words.split()), config.today().isoformat()
+    with vault_lock(config):
+        data, body = fm.read(path)
+        lines = body.splitlines(keepends=True)
+        section, start = None, None
+        for index, raw in enumerate(lines):
+            if raw.startswith("## "):
+                section = HEADINGS.get(raw[3:].strip(), raw[3:].strip())
+            match = LINE.match(raw.rstrip("\r\n")) if section in SECTIONS else None
+            if match and match["id"] == line_id:
+                start, claim = index, match
+                break
+        if start is None:
+            raise ValueError(f"no portrait line ^{line_id}")
+        end = start + 1
+        while end < len(lines) and DETAIL.match(lines[end].rstrip("\r\n")):
+            end += 1
+        if verdict == "right":
+            details = [raw for raw in lines[start + 1:end] if DETAIL.match(raw.rstrip("\r\n"))["key"] != "test"]
+            lines[start:end] = [f"- {claim['text']} · said · {claim['confidence']} · {today} · {claim['source']} ^{line_id}\n",
+                                *details]
+            fm.write(path, data, "".join(lines))
+            return f"^{line_id} is now said"
+        retired = "".join(lines[start:end]).rstrip("\n")
+        del lines[start:end]
+        if verdict == "not-this" or words:
+            text = words or f"not this, from {claim['source']}: {claim['text']}"
+            source = claim["source"] if verdict == "not-this" else f"[[{path.with_name('History').relative_to(config.vault_path).as_posix()}]]"
+            entry = f"- {text} · said · high · {today} · {source}\n"
+            heading = next((i for i, raw in enumerate(lines) if raw.startswith("## Not")), None)
+            if heading is None:
+                lines.append(("" if not lines or lines[-1].endswith("\n") else "\n") + "\n## Not\n")
+                heading = len(lines) - 1
+            following = next((i for i in range(heading + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+            while following > heading + 1 and not lines[following - 1].strip():
+                following -= 1
+            lines.insert(following, entry)
+        fm.write(path, data, "".join(lines))
+        history = path.with_name("History.md")
+        note = (f"- {today} · {verdict} by {config.human_name}" + (f": \"{words}\"" if words else "") + "\n"
+                + "".join(f"  {raw}\n" for raw in retired.splitlines()))
+        if history.is_file():
+            hdata, hbody = fm.read(history)
+            fm.write(history, hdata, hbody.rstrip("\n") + "\n" + note)
+        else:
+            fm.write(history, {"kind": "log", "tier": "cold"}, f"# Portrait history\n\n{note}")
+    return f"^{line_id} retired to History" + (" with a Not line" if verdict == "not-this" or words else "")

@@ -153,9 +153,74 @@ def test_the_state_export_shows_an_organisation_its_stated_and_seen_lines_only(v
     assert all("against" not in line for line in exported)
 
 
-def test_the_state_export_never_carries_a_persons_portrait(vault):
+def test_the_state_export_carries_a_persons_whole_portrait_as_owner_portrait_alone(vault):
     write_portrait(vault)
-    assert state.build(Config.load(vault), date(2026, 11, 6))["portrait"] is None
+    exported = state.build(Config.load(vault), date(2026, 11, 6))
+    assert exported["portrait"] is None
+    assert [line["basis"] for line in exported["ownerPortrait"]] == ["said", "guess", "seen", "said"]
+    assert all("against" not in line for line in exported["ownerPortrait"])
+
+
+GUESS = BODY.replace("Wants to start climbing · guess · low · 2026-11-02 · [[START]]",
+                     "Wants to start climbing · guess · low · 2026-11-02 · [[START]] ^91c0")
+
+
+def test_right_makes_a_guess_said_today_and_drops_its_test(vault, monkeypatch):
+    path = write_portrait(vault, GUESS)
+    monkeypatch.setattr(Config, "today", lambda self: date(2026, 11, 7))
+    assert portrait.mark(Config.load(vault), "91c0", "right") == "^91c0 is now said"
+    lines = portrait.parse(fm.read(path)[1])[0]
+    climbing = next(line for line in lines if line.id == "91c0")
+    assert (climbing.basis, climbing.evidence, climbing.rank, climbing.horizon, climbing.test) == ("said", "2026-11-07", 2, "now", "")
+    assert climbing.against == "hasn't mentioned it since Oct 20"
+    assert not (vault / "human/History.md").exists()
+
+
+def test_wrong_retires_the_line_and_keeps_the_owners_words_as_a_not_line(vault, monkeypatch):
+    path = write_portrait(vault, GUESS)
+    monkeypatch.setattr(Config, "today", lambda self: date(2026, 11, 7))
+    portrait.mark(Config.load(vault), "91c0", "wrong", "I boulder already,  not interested in gyms")
+    lines = portrait.parse(fm.read(path)[1])[0]
+    assert "91c0" not in {line.id for line in lines}
+    assert [(line.section, line.text, line.basis, line.source) for line in lines if line.section == "Not"] == [
+        ("Not", "Not a runner", "said", "[[START]]"),
+        ("Not", "I boulder already, not interested in gyms", "said", "[[human/History]]")]
+    history = (vault / "human/History.md").read_text()
+    assert '- 2026-11-07 · wrong by ' in history and "Wants to start climbing" in history and "test: hold a beginner" in history
+
+
+def test_wrong_without_words_only_retires(vault):
+    path = write_portrait(vault, GUESS)
+    portrait.mark(Config.load(vault), "91c0", "wrong")
+    assert [line.text for line in portrait.parse(fm.read(path)[1])[0] if line.section == "Not"] == ["Not a runner"]
+
+
+def test_not_this_records_the_source_not_to_draw_on_and_makes_a_not_section_when_missing(vault):
+    path = write_portrait(vault, GUESS.split("## Not")[0])
+    portrait.mark(Config.load(vault), "3f2a", "not-this")
+    body = fm.read(path)[1]
+    lines, problems = portrait.parse(body)
+    assert problems == [] and "3f2a" not in {line.id for line in lines}
+    assert [(line.text, line.source) for line in lines if line.section == "Not"] == [
+        ("not this, from [[START]]: Move to Lisbon within the year", "[[START]]")]
+
+
+def test_mark_refuses_unknown_ids_and_verdicts_and_the_cli_says_so(vault, capsys):
+    write_portrait(vault, GUESS)
+    config = Config.load(vault)
+    for line_id, verdict, error in (("ffff", "right", "no portrait line ^ffff"), ("91c0", "maybe", "verdict 'maybe'")):
+        try:
+            portrait.mark(config, line_id, verdict)
+            raise AssertionError("no error")
+        except ValueError as raised:
+            assert error in str(raised)
+    cli.main(["portrait", "mark", "^91c0", "right", "--vault", str(vault)])
+    assert capsys.readouterr().out.strip() == "^91c0 is now said"
+    try:
+        cli.main(["portrait", "mark", "91c0", "--vault", str(vault)])
+        raise AssertionError("no exit")
+    except SystemExit as exit:
+        assert "ID right|wrong|not-this" in str(exit)
 
 
 def test_validate_reports_portrait_problems(vault):

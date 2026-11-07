@@ -1060,6 +1060,14 @@ def cmd_tellable(args):
 def cmd_portrait(args):
     if args.action != "seed" and (args.reviews or args.plans or args.account or args.days is not None or args.clear_backfill):
         raise SystemExit("brain portrait: --reviews, --plans, --account, --days and --clear-backfill go with seed")
+    if args.action == "mark":
+        if len(args.target) != 2:
+            raise SystemExit("brain portrait mark: ID right|wrong|not-this")
+        try:
+            print(portrait.mark(args.config, args.target[0].lstrip("^"), args.target[1], args.words or ""))
+        except ValueError as error:
+            raise SystemExit(f"brain portrait mark: {error}")
+        return
     if args.action == "coverage":
         data = seed.coverage(Vault(args.config.vault_path), args.config.today())
         print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else seed.render_coverage(data))
@@ -1555,8 +1563,11 @@ def main(argv=None):
     s.add_argument("--reviews", metavar="DIR"); s.add_argument("--author", metavar="LOGIN")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_reception)
     s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
-    s.add_argument("action", nargs="?", choices=["seed", "coverage"],
-                   help="seed: what to read to seed the portrait; coverage: what it knows and from where")
+    s.add_argument("action", nargs="?", choices=["seed", "coverage", "mark"],
+                   help="seed: what to read to seed the portrait; coverage: what it knows and from where; "
+                        "mark ID right|wrong|not-this: the owner's answer to one line")
+    s.add_argument("target", nargs="*", metavar="ID VERDICT", help="mark: the line id and right, wrong or not-this")
+    s.add_argument("--words", help="mark: the owner's own words, kept as a Not line for wrong and not-this")
     s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments, for Taste")
     s.add_argument("--plans", metavar="DIR", help="seed: one file per project with the issues done on it, for After and Energy")
     s.add_argument("--account", metavar="ADDRESS|all", help="seed: the owner's synced mail and calendar")

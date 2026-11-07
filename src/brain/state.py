@@ -357,7 +357,8 @@ def build(config: Config, today: date) -> dict:
             "shareable": _shareable(vault, hubs, recent, routine_hubs),
             "waitingOnComputer": [task["id"] for task in task_entries if task["open"] and task["resume"] == "computer"],
             "responsibilities": responsibility_entries,
-            # an organisation's stage is the whole team's, so it shows what was stated and seen; a person's portrait is
-            # theirs alone and waits for an owner-only view
+            # an organisation's stage is the whole team's, so it shows what was stated and seen; a person's portrait,
+            # guesses included, is `ownerPortrait`, which the app serves to its owner and nobody else
             "portrait": [line.public() for line in portrait.shown(portrait.load(config))]
-            if config.edition == "enterprise" else None}
+            if config.edition == "enterprise" else None,
+            "ownerPortrait": [line.public() for line in portrait.load(config)] if config.edition != "enterprise" else None}

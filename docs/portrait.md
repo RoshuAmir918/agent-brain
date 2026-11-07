@@ -159,6 +159,7 @@ Signup says it plainly: the intellect reads your mail, your calendar and whateve
 - `brain portrait --top N` prints the top After lines with their `for:` lists, for explore and prime.
 - `brain portrait seed --reviews DIR` runs an organisation's seed arithmetic over merged pull requests' review comments (which to read, in what window, what repeats where) and prints the reading list; the judgment is in the `seed` skill. `brain portrait seed --plans DIR` does the same over the tracker's projects and finished issues, for After and Energy. `brain portrait seed --account <address|all> [--days N] [--json]` reads a person's synced owner mail and calendar, classifying whose each item is; without `--days` it reads everything synced.
 - `brain reception set <id> <outcome>`, `brain reception --summary`.
+- `brain portrait mark <id> right|wrong|not-this [--words TEXT]`: the owner's answer to one line, from the reveal card or the standing portrait surface. Right makes the line `said`; wrong retires it to History and keeps the owner's words as a `Not` line; not this retires it and records in `Not` that its source is not to be drawn on.
 - `brain state --json` gains `portrait` (lines with ids, no `against:` text) and `reception` (the last 30 days), with the Demiurge reveal card that reads them. Demiurge shows them to the owner only: a maintainer's read-only view of the brain never includes the portrait.
 
 ## 8. Skills
