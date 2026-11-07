@@ -244,17 +244,17 @@ def add_ask(config: Config, day: date, text: str, source: str | None, force: boo
 
 
 def _add_ask(config: Config, day: date, text: str, source: str | None, force: bool = False, why: str = "", *,
-             distinct_source: bool = False) -> bool:
+             distinct_source: bool = False, kind: str = "ask") -> bool:
     path = config.vault_path / "CURRENT.md"
     data, body = fm.read(path) if path.exists() else ({}, "")
     text = " ".join(text.replace("·", "-").split())   # the separator, inside the text, would break the bullet
-    from .needs import _section, open_asks, replace_task_asks, task_of
-    asks = open_asks(body)
-    if any(item.text.casefold() == text.casefold() and (not distinct_source or item.source == source) for item in asks):
+    from .needs import _section, parse_section, replace_task_asks, task_of
+    asks = parse_section(body)
+    if any(item.kind == kind and item.text.casefold() == text.casefold() and (not distinct_source or item.source == source) for item in asks):
         return True   # already asked; the first one stands until it is resolved
-    if tid := task_of(source or ""):
+    if kind == "ask" and (tid := task_of(source or "")):
         body = replace_task_asks(config, body, tid, day)
-    bullet = f"- {day.isoformat()} · ask · {text}" + (f" · [[{source}]]" if source else "")
+    bullet = f"- {day.isoformat()} · {kind} · {text}" + (f" · [[{source}]]" if source else "")
     why = " ".join(why.split())
     if why:
         bullet += f"\n  - why: {why}"

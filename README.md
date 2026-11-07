@@ -25,6 +25,7 @@ A vault is a git repo with a `brain.toml` naming its folders and the two display
 | `brain schedule list` / `set` / `pause` / `resume` / `remove` | manage the declared routines in `Runtime/schedule.toml` |
 | `brain digest --date <day> --write` | one file of that day's turns between owner and agent, with what the agent read before each reply |
 | `brain retrieve "<query>"` | deterministic candidates: index-line scoring, one-hop spread over links, cold grep |
+| `brain goals new` / `list` / `show` / `G-n edit` / `evidence` / `reached` / `set-aside` / `reopen` | the person's goals, progress and the work toward them |
 | `brain compile-context --write` | the session-start context file |
 | `brain install-skills` / `install-scripts` | render the routines into the vault; put the cron scripts in `$AGENT_HOME/scripts` |
 | `brain update` / `migrate-check` / `migrate-done` | nightly self-upgrade and the agent's part of a migration |

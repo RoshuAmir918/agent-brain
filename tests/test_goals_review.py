@@ -1,0 +1,310 @@
+"""Review regressions, including the six reproduction scripts and seeded template."""
+from dataclasses import replace
+from datetime import date, timedelta
+from pathlib import Path
+import re
+
+import pytest
+
+from brain import cli, fm, goals, state, tasks, validate
+from brain.config import Config
+from brain.vault import Vault
+from conftest import snapshot
+
+TODAY = date(2026, 11, 7)
+FIXTURES = Path(__file__).parent / "fixtures/goals"
+
+
+@pytest.fixture(autouse=True)
+def session(monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
+    for name in ("AGENT_HOME", "BRAIN_RUN", "DEMIURGE_TASK", "DEMIURGE_CONVERSATION", "BRAIN_SPEAKER"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def seed(vault, body):
+    cfg = Config.load(vault)
+    path = vault / cfg.human_goals
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+    return cfg, path
+
+
+def run(vault, capsys, *args):
+    cli.main([*args, "--vault", str(vault)])
+    return capsys.readouterr().out
+
+
+def test_t1_real_template_first_and_second_new(vault):
+    cfg, path = seed(vault, (FIXTURES / "seeded-template.md").read_text())
+    before = fm.read(path)[1]
+    goals.new(cfg, "Marathon", "Run sub-3")
+    assert not goals.problems(cfg)
+    goals.new(cfg, "Read", "Read more")
+    assert not goals.problems(cfg)
+    body = goals.read(cfg)[1]
+    for marker in ("What the owner has chosen", "### [Goal]", "- **What and why:** [their words, dated]"):
+        assert marker in body and body.index(marker) < body.index("### G-1")
+    for _, start, end in reversed(goals.parse_register(body)[0]):
+        body = body[:start] + body[end:]
+    assert re.sub(r"\n{3,}", "\n\n", body).rstrip() == before.rstrip()
+
+
+def test_t1_set_aside_keeps_legacy_lines_outside_blocks(vault):
+    legacy = "Goals with no evidence for ninety days.\n\n- Learn Rust (2026-08-01)\n"
+    cfg, path = seed(vault, goals.TEMPLATE.replace("## Set aside\n", "## Set aside\n" + legacy))
+    goals.new(cfg, "Marathon", "Run sub-3")
+    goals.change(cfg, "G-1", "set-aside", why="injured")
+    assert legacy in path.read_text()
+    assert path.read_text().index("Learn Rust") < path.read_text().index("### G-1")
+    assert not goals.problems(cfg)
+    assert legacy.strip() not in goals.load(cfg)[0].body
+
+
+def test_free_text_between_and_after_blocks_never_changes_digests_or_moves(vault):
+    cfg, path = seed(vault, goals.TEMPLATE)
+    goals.new(cfg, "One", "One")
+    goals.new(cfg, "Two", "Two")
+    body = path.read_text().replace("### G-2", "None.\n\n### G-2").replace("## Adopted practices", "Section epilogue.\n\n## Adopted practices")
+    path.write_text(body)
+    assert not goals.problems(cfg)
+    goals.new(cfg, "Three", "Three")
+    assert path.read_text().index("### G-2") < path.read_text().index("### G-3") < path.read_text().index("Section epilogue.")
+    goals.change(cfg, "G-1", "set-aside", why="Later")
+    assert "None." in path.read_text().split("## Active goals", 1)[1].split("## Adopted", 1)[0]
+    assert all("None." not in goal.body and "Section epilogue." not in goal.body for goal in goals.load(cfg))
+    assert not goals.problems(cfg)
+
+
+@pytest.mark.parametrize("field", ["title", "words"])
+@pytest.mark.parametrize("marker", ["-->", "<!--"])
+@pytest.mark.parametrize("operation", ["new", "edit"])
+def test_t1_comment_delimiters_refuse_with_teaching_message(vault, field, marker, operation):
+    cfg, _ = seed(vault, goals.TEMPLATE)
+    goals.new(cfg, "Reading", "Read more")
+    before = snapshot(vault)
+    values = {"title": "Reading", "words": "Read more", field: "Learn A " + marker + "B"}
+    with pytest.raises(ValueError, match="HTML comment.*plain text"):
+        if operation == "new":
+            goals.new(cfg, **values)
+        else:
+            goals.change(cfg, "G-1", "edit", **values)
+    assert snapshot(vault) == before
+
+
+def test_t1_empty_seeded_template_migrates_to_zero_goals_without_writes(vault):
+    cfg, _ = seed(vault, (FIXTURES / "seeded-template.md").read_text())
+    before = snapshot(vault)
+    report = goals.migrate(cfg)
+    assert any("left in place" in item and "[Goal]" in item for item in report)
+    goals.migrate(cfg, apply=True)
+    assert not goals.load(cfg) and snapshot(vault) == before
+
+
+def test_t2_t5_roshan_migration_words_evidence_and_new(vault):
+    cfg, path = seed(vault, (FIXTURES / "roshan.md").read_text())
+    report = goals.migrate(cfg)
+    assert any("left in place" in item and "**Approach:**" in item for item in report)
+    goals.migrate(cfg, apply=True)
+    engineering, reading, intellect = goals.load(cfg)
+    assert engineering.words == "I want real depth as an engineer, not just shipping"
+    assert reading.words == "Read more widely, fiction too."
+    assert reading.said_at == "2026-10-16"
+    assert intellect.words == "An intellect I can think with"
+    assert [item["at"] for item in engineering.evidence] == ["2026-10-30", "2026-10-28", "2026-10-20"]
+    assert reading.evidence == [{"at": "2026-10-25", "text": 'finished "Piranesi"', "link": None}]
+    assert '- **Approach:** [[Systems reading plan]], one paper a week; started: 2026-10-15' in path.read_text()
+    assert 'Prompted by reading "Designing Data-Intensive Applications".' in path.read_text()
+    goals.new(cfg, "Marathon", "Run sub-3")
+    assert len(goals.load(cfg)) == 4 and not goals.problems(cfg)
+
+
+def test_t3_bullets_responsibility_and_full_words(vault):
+    cfg, path = seed(vault, (FIXTURES / "bullets.md").read_text())
+    fm.write(vault / "Ledger.md", {"kind": "hub", "skill": "brain-watch", "records": "watch"}, "# Ledger\n")
+    report = goals.migrate(cfg, responsibilities=["Save me money=Ledger"])
+    assert any("responsibility: Save me money" in item for item in report)
+    goals.migrate(cfg, apply=True, responsibilities=["Save me money=Ledger"])
+    help_goal, ledger, meetings = goals.load(cfg)
+    assert help_goal.words == "when I mention an idea, flesh it out"
+    assert ledger.words == 'Ship Ledger by 2027-01-01 — "get Ledger in front of 10 users" (2026-10-22)'
+    assert ledger.state["by"] == "2027-01-01"
+    assert ledger.evidence[0]["text"] == "3 users onboarded"
+    assert meetings.said_at == "2026-10-25"
+    assert "## Projects\n### Ledger\n- budget app" in path.read_text()
+    assert "watch subscriptions" in (vault / "Ledger.md").read_text()
+    assert not goals.problems(cfg)
+
+
+def test_t4_mixed_bullets_and_headings_migrate_in_file_order(vault):
+    cfg, _ = seed(vault, (FIXTURES / "mixed.md").read_text())
+    goals.migrate(cfg, apply=True)
+    assert [goal.title for goal in goals.load(cfg)] == ["Help me build out ideas (2026-10-20)", "Save me money (2026-10-21)", "Ledger", "Find me cheaper flights (2026-10-23)"]
+    assert [goal.gid for goal in goals.load(cfg)] == ["G-1", "G-2", "G-3", "G-4"]
+    assert not goals.problems(cfg)
+
+
+def test_t6_contract_argv_special_titles_words_and_edit(vault, capsys):
+    titles = ["G-1", "list", 'Run 5k: sub-20 "fast" (2026-01-01)', "Lire plus — été ☀️ 日本語", "x" * 80, "edit", 'He said "go" (unknown)']
+    for title in titles:
+        run(vault, capsys, "goals", "new", title, "--words", 'words "q" (2026-01-01)', "--from-app")
+    run(vault, capsys, "goals", "G-2", "edit", "--title", "G-9", "--words", 'new "w"', "--from-app")
+    run(vault, capsys, "goals", "G-3", "reached", "--why", "G-1: done; ok", "--from-app")
+    cfg = Config.load(vault)
+    entries = {goal.gid: goal for goal in goals.load(cfg)}
+    assert entries["G-2"].title == "G-9" and entries["G-2"].words == 'new "w"'
+    assert entries["G-3"].state["state"] == "reached"
+    assert entries["G-1"].words == 'words "q" (2026-01-01)'
+    assert not goals.problems(cfg)
+
+
+def test_migration_long_plain_bullet_placeholder_chunks_and_unconverted_text(vault):
+    words = "Get better at saying no to meetings and spend more time reading and learning how to build durable systems with friends"
+    cfg, path = seed(vault, "# Goals\n## Active goals\nA description.\n\n### Empty\n- [words]\n- [evidence]\n\n- " + words + "\n\nUnconverted prose.\n\n## Set aside\n")
+    report = goals.migrate(cfg)
+    assert all(any(text in item and "left in place" in item for item in report) for text in ("A description.", "### Empty", "Unconverted prose."))
+    goals.migrate(cfg, apply=True)
+    goal, = goals.load(cfg)
+    assert goal.words == words and len(goal.title) <= 80
+    assert words.startswith(goal.title + " ")
+    assert "### Empty\n- [words]\n- [evidence]" in path.read_text()
+    assert "Unconverted prose." in path.read_text() and not goals.problems(cfg)
+
+
+def test_migration_reports_a_bullet_that_cannot_fit_at_a_word_boundary(vault):
+    words = "x" * 81
+    cfg, _ = seed(vault, '# Goals\n## Active goals\n- ' + words + '\n')
+    before = snapshot(vault)
+    report = goals.migrate(cfg, apply=True)
+    assert any("cannot migrate" in item and "left in place" in item for item in report)
+    assert not goals.load(cfg) and snapshot(vault) == before
+
+
+def test_migration_invalid_dates_report_and_undated_nudge(vault, monkeypatch):
+    cfg, _ = seed(vault, '# Goals\n## Active goals\n### Race by 2027-02-30\n- **What and why:** Run well (2026-02-30)\n- **Progress:** 2026-02-30 · Impossible\n\n### Reading\n- **What and why:** Read more\n')
+    report = goals.migrate(cfg, apply=True)
+    assert any("invalid date" in item and "2027-02-30" in item for item in report)
+    race, reading = goals.load(cfg)
+    assert race.state.get("by") is None and race.said_at is None and race.evidence == []
+    assert reading.said_at is None and not goals.problems(cfg)
+    with pytest.raises(ValueError, match="60 days"):
+        goals.change(cfg, reading.gid, "nudge")
+    monkeypatch.setenv("BRAIN_TODAY", (TODAY + timedelta(days=60)).isoformat())
+    goals.change(cfg, reading.gid, "nudge")
+
+
+def test_migration_keeps_unconverted_details_bounded_beside_existing_blocks(vault):
+    cfg, path = seed(vault, goals.TEMPLATE)
+    goals.new(cfg, "Reading", "Read more")
+    path.write_text(path.read_text().replace("## Adopted practices", '### Engineering\n- **What and why:** Build depth\n- **Approach:** One paper a week\n\n## Adopted practices'))
+    before = snapshot(vault)
+    report = goals.migrate(cfg)
+    assert any("left in place: ### Engineering" in item for item in report)
+    assert snapshot(vault) == before
+    goals.migrate(cfg, apply=True)
+    assert not goals.problems(cfg)
+    assert '### Engineering\n- **Approach:** One paper a week' in path.read_text()
+    assert all("Approach" not in goal.body for goal in goals.load(cfg))
+
+
+@pytest.mark.parametrize("words_lines,expected", [("", "Reading"), ('- **What and why:** Read widely\n- **In their words:** "Read beyond my field" (2026-10-20)\n', "Read beyond my field")])
+def test_migration_words_precedence_and_heading_fallback_leave_other_text(vault, words_lines, expected):
+    approach = '- **Approach:** Finish "Piranesi" first\n'
+    cfg, path = seed(vault, '# Goals\n## Active goals\n### Reading\n' + words_lines + approach)
+    goals.migrate(cfg, apply=True)
+    goal, = goals.load(cfg)
+    assert goal.words == expected and approach in path.read_text()
+    assert not goals.problems(cfg)
+
+
+@pytest.mark.parametrize("label", ["Progress", "Progress looks like", "Evidence"])
+@pytest.mark.parametrize("bold", [True, False])
+def test_migration_dated_progress_labels_and_later_quotes_are_not_words(vault, label, bold):
+    label = f"**{label}:**" if bold else label + ":"
+    cfg, _ = seed(vault, f'# Goals\n## Active goals\n### Reading\n- {label} 2026-10-25 — finished "Piranesi"\n')
+    goals.migrate(cfg, apply=True)
+    goal, = goals.load(cfg)
+    assert goal.words == "Reading" and goal.said_at is None
+    assert goal.evidence == [{"at": "2026-10-25", "text": 'finished "Piranesi"', "link": None}]
+
+
+@pytest.mark.parametrize("speaker,allowed", [("", False), ("demiurge:visitor", False), ("subagent:run", False), ("demiurge:owner", True), ("cron:morning", True)])
+def test_capture_is_only_for_named_owner_or_morning(vault, monkeypatch, speaker, allowed):
+    cfg = replace(Config.load(vault), human_name="Mira", owner_user_ids=["demiurge:owner"])
+    assert "Ask Mira once" in goals.context(cfg)
+    monkeypatch.setenv("BRAIN_SPEAKER", speaker)
+    before = snapshot(vault)
+    if allowed:
+        assert goals.asked(cfg) and not goals.asked(cfg)
+    else:
+        with pytest.raises(ValueError, match="owner|Mira"):
+            goals.asked(cfg)
+        assert snapshot(vault) == before
+
+
+@pytest.mark.parametrize("speaker,allowed", [("demiurge:owner", True), ("cron:morning", True), ("demiurge:visitor", False)])
+def test_capture_cli_requires_owner_or_morning(vault, capsys, monkeypatch, speaker, allowed):
+    config_path = vault.parent / "brain.toml"
+    config_path.write_text(config_path.read_text() + 'human_name = "Mira"\nowner_user_ids = ["demiurge:owner"]\n')
+    monkeypatch.setenv("BRAIN_SPEAKER", speaker)
+    before = snapshot(vault)
+    if allowed:
+        assert goals.QUESTION in run(vault, capsys, "goals", "asked")
+        assert goals.QUESTION not in run(vault, capsys, "goals", "asked")
+    else:
+        with pytest.raises(SystemExit, match="only for Mira"):
+            run(vault, capsys, "goals", "asked")
+        assert snapshot(vault) == before
+
+
+@pytest.mark.parametrize("platform,user_id,visible", [("cli", "", True), ("cron", "", True), ("demiurge", "visitor", False)])
+def test_session_context_preview_has_no_writes_or_lock_and_ack_is_explicit(vault, capsys, monkeypatch, platform, user_id, visible):
+    cfg = Config.load(vault)
+    goals.new(cfg, "Reading", "Read more", from_app=True)
+    before = snapshot(vault)
+    args = ("session-context", "--platform", platform, "--user-id", user_id)
+    def refuse_lock(*args):
+        pytest.fail("a read-only session-context must not open or create a write lock")
+    with monkeypatch.context() as preview:
+        preview.setattr(cli, "vault_lock", refuse_lock)
+        for _ in range(2):
+            assert ("added this in the app" in run(vault, capsys, *args)) == visible
+    assert snapshot(vault) == before and goals.capture(cfg)["app"]
+    assert ("added this in the app" in run(vault, capsys, *args, "--ack-notices")) == visible
+    assert bool(goals.capture(cfg)["app"]) == (not visible)
+
+
+@pytest.mark.parametrize("mode", ["routine", "worker"])
+def test_run_marker_guards_without_agent_home(vault, monkeypatch, mode):
+    monkeypatch.setenv("BRAIN_RUN", mode)
+    with pytest.raises(ValueError, match="No goal, no unasked work"):
+        tasks.new_task(Config.load(vault), "Unasked", "Some note")
+
+
+@pytest.mark.parametrize("goal_state", ["active", "reached", "set-aside", "missing"])
+def test_worker_follow_up_inherits_only_active_goal(vault, monkeypatch, goal_state):
+    cfg = Config.load(vault)
+    goals.new(cfg, "Reading", "Read more")
+    parent = tasks.new_task(cfg, "Reading list", '"Make a list"', goal="G-1")
+    if goal_state == "missing":
+        (vault / cfg.human_goals).unlink()
+    elif goal_state != "active":
+        goals.change(cfg, "G-1", goal_state, why="Done for now")
+    monkeypatch.setenv("DEMIURGE_TASK", parent.tid)
+    follow_up = tasks.new_task(cfg, "Order the books", "Reading list")
+    assert follow_up.goal == ("G-1" if goal_state == "active" else None)
+
+
+@pytest.mark.parametrize("hub_goal", [None, "G-1", "G-999"])
+def test_hub_export_and_validation_use_only_hub_level_goal(vault, hub_goal):
+    cfg = Config.load(vault)
+    goals.new(cfg, "Reading", "Read more")
+    goals.new(cfg, "Depth", "Build depth")
+    body = "# Library\n" + (f"- **Goal:** {hub_goal}\n" if hub_goal else "")
+    body += "\n## Improvements\n### Proposal\n- **Goal:** G-2\n\n## Later\n- **Goal:** G-888\n"
+    fm.write(vault / "Library.md", {"kind": "hub", "tier": "warm", "goal": "G-2"}, body)
+    exported = state.build(cfg, TODAY)["goals"]
+    assert [entry["links"]["hubs"] for entry in exported] == [["Library"] if hub_goal == "G-1" else [], []]
+    problems = validate.goal_problems(Vault(vault))
+    assert bool(problems) == (hub_goal == "G-999")
+    assert all("G-888" not in item for item in problems)

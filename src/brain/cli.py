@@ -35,6 +35,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import nullcontext
 from dataclasses import asdict, replace
 from datetime import date, datetime
 from pathlib import Path
@@ -42,6 +43,7 @@ from pathlib import Path
 from . import activation as act
 from . import access, attribute, audit, compile_context, consults, digest, fm, health, ideas, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
 from . import tasks as tasks_mod
+from . import goals
 from .tasks import load_tasks, quiet
 from .vault import Vault
 from .config import FORMS, SECTIONS, Config
@@ -261,12 +263,16 @@ def cmd_compile_context(a):
             raise SystemExit(f"--sections takes a comma-separated list of {', '.join(SECTIONS)}; got {a.sections!r}")
         if a.write:
             raise SystemExit("--sections prints a run's context; .context.md is always the whole of it")
-    if a.write:
-        result = compile_context.write(vault, Path(a.out) if a.out else None)
-    else:
-        text = compile_context.build(vault, only)
-        print(text, end="")
-        result = compile_context.summary(text, a.config.context.hot_words)
+    with vault_lock(a.config):
+        events = goals.capture(a.config)["app"]
+        if a.write:
+            result = compile_context.write(vault, Path(a.out) if a.out else None)
+        else:
+            text = compile_context.build(vault, only)
+            print(text, end="")
+            result = compile_context.summary(text, a.config.context.hot_words)
+        if not a.write and events and a.config.edition == "personal" and "goals" in a.config.context.sections and (only is None or "goals" in only):
+            goals.acknowledge(a.config, events)
     print(result, file=sys.stderr)
 
 
@@ -303,8 +309,12 @@ def speaker() -> str | None:
 
 
 def cmd_needs_you(args):
-    if args.source and not args.ask:
-        raise SystemExit("brain needs-you: --source goes with --ask")
+    if args.source and not (args.ask or args.confirm):
+        raise SystemExit("brain needs-you: --source goes with --ask or --confirm")
+    if args.confirm:
+        with vault_lock(args.config):
+            journal._add_ask(args.config, args.config.today(), args.confirm, args.source, why=args.why or "", kind="confirm")
+        return
     if args.ask:
         from .needs import vague_ask
         if (reason := vague_ask(args.ask)):
@@ -489,15 +499,16 @@ def cmd_consult(args):
 
 def cmd_ideas(args):
     config, today = args.config, args.config.today()
-    if (args.source is not None or args.why is not None or args.needs is not None) and args.add is None:
-        raise SystemExit("brain ideas: --source, --why and --needs go with --add")
+    if (args.source is not None or args.why is not None or args.needs is not None or args.goal is not None) and args.add is None:
+        raise SystemExit("brain ideas: --source, --why, --needs and --goal go with --add")
     if args.answer and args.respond is None:
         raise SystemExit("brain ideas: --answer goes with --respond")
     try:
         if args.add is not None:
             if not args.source:
+                goals.guard(config, args.goal, "")
                 raise ValueError("--add needs --source NOTE")
-            if not ideas.add(config, today, args.add, args.source, args.why or "", args.needs or ""):
+            if not ideas.add(config, today, args.add, args.source, args.why or "", args.needs or "", args.goal):
                 raise ValueError(ideas.add_refusal(config, today, args.add) or "idea could not be added")
             print(f"added idea: {args.add}")
             return
@@ -626,12 +637,73 @@ def cmd_channels(args):
         print("no channels registered")
 
 
+def cmd_goals(args):
+    config = args.config
+    which, action = args.which, args.action
+    operations = ("edit", "evidence", "reached", "set-aside", "reopen", "nudge", "link")
+    if which in operations and action and goals.ID.fullmatch(action):
+        which, action = action, which
+    try:
+        operation = action if goals.ID.fullmatch(which) else which
+        if (args.dry_run or args.apply or args.responsibility) and which != "migrate":
+            raise ValueError("--dry-run, --apply and --responsibility go with migrate")
+        if args.json and which not in ("list", "show"):
+            raise ValueError("--json goes with list or show")
+        if args.from_app and operation not in ("new", "edit", "reached", "set-aside", "reopen"):
+            raise ValueError("--from-app goes with new, edit, reached, set-aside or reopen")
+        allowed = {"new": {"words", "reach", "by"}, "edit": {"title", "words", "kind", "by", "clear_by"},
+                   "evidence": {"text"}, "link": {"text"}, "reached": {"why"}, "set-aside": {"why"}, "reopen": {"why"}}
+        supplied = {name for name in ("words", "title", "why", "reach", "kind", "by", "clear_by", "text") if getattr(args, name)}
+        if supplied - allowed.get(operation, set()):
+            raise ValueError(f"{operation} does not take " + ", ".join(sorted(supplied - allowed.get(operation, set()))))
+        if which in ("list", "asked", "migrate") and action is not None:
+            raise ValueError(f"{which} takes no positional arguments")
+        if which in ("list", "show"):
+            entries = goals.load(config)
+            if which == "show":
+                entries = [entry for entry in entries if entry.gid == action]
+                if not entries:
+                    raise ValueError(f"{action} is not a goal; use `brain goals list`")
+            if args.json:
+                print(json.dumps([entry.public() for entry in entries], ensure_ascii=False, indent=2))
+            else:
+                for entry in entries:
+                    print(entry.render().rstrip() if which == "show" else f"{entry.gid} · {entry.state.get('state')} · {entry.title}")
+                if not entries:
+                    print("no goals")
+            return
+        with vault_lock(config):
+            if which == "asked":
+                print(goals.QUESTION if goals.asked(config) else "Already asked, or active goals exist; do not ask again.")
+                return
+            if which == "migrate":
+                if not (args.dry_run or args.apply):
+                    raise ValueError("migrate needs --dry-run or --apply; review the dry run first")
+                print("\n".join(goals.migrate(config, apply=args.apply, responsibilities=args.responsibility)))
+                return
+            if which == "new":
+                entry = goals.new(config, action or "", args.words or "", reach=args.reach, by=args.by, from_app=args.from_app)
+            elif goals.ID.fullmatch(which) and action in operations:
+                if action == "link":
+                    goals.link_note(config, which, args.text or "")
+                    print(f"{which} linked: {args.text}")
+                    return
+                entry = goals.change(config, which, action, text=args.text, title=args.title, words=args.words,
+                                     by=args.by, clear_by=args.clear_by, kind=args.kind, why=args.why, from_app=args.from_app)
+            else:
+                raise ValueError("use new, list, show G-n, asked, migrate, or G-n edit|evidence|reached|set-aside|reopen|nudge|link")
+        print(f"{entry.gid} · {entry.state['state']} · {entry.title}")
+    except ValueError as error:
+        raise SystemExit(f"brain goals: {error}")
+
+
 def cmd_task(args):
     try:
         values = {name: getattr(args, name) for name in tasks_mod.FIELDS if getattr(args, name) is not None
                   and not (name == "work" and args.tid == "new")}
         if args.tid == "new":
             if not args.source:
+                goals.guard(args.config, args.goal, "")
                 raise ValueError("task new needs --source")
             if args.clear:
                 raise ValueError("--clear goes with task T-nnn set")
@@ -714,6 +786,11 @@ def cmd_completed(args):
 
 def cmd_works(args):
     try:
+        if args.action == "goal":
+            with vault_lock(args.config):
+                works.set_goal(args.config, args.slug, args.goal)
+            print(f"{args.slug} toward {args.goal}")
+            return
         view = works.write_view(args.slug, sys.stdin.read())
     except (ValueError, RuntimeError, OSError) as error:
         print(error, file=sys.stderr)
@@ -875,7 +952,7 @@ def cmd_state(args):
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
         print(" · ".join(f"{len(data[key])} {key}" for key in
-                         ("tasks", "hubs", "routines", "triggers", "ledger", "journal", "needsYou", "outputs", "loops", "loopsClosed")))
+                         ("tasks", "hubs", "goals", "routines", "triggers", "ledger", "journal", "needsYou", "outputs", "loops", "loopsClosed")))
 
 
 def cmd_reception(args):
@@ -987,6 +1064,15 @@ def cmd_session_context(args):
                                  platform=args.platform, user_id=args.user_id,
                                  user_id_alt=args.user_id_alt, user_name=args.user_name,
                                  chat_id=args.chat_id)
+    owner = session_context.is_owner(args.config, args.platform, tuple(value for value in (args.user_id, args.user_id_alt) if value))
+    routine = args.platform == "cron" and not (args.user_id or args.user_id_alt)
+    if args.config.edition == "personal" and "goals" in args.config.context.sections and (owner or routine):
+        with vault_lock(args.config) if args.ack_notices else nullcontext():
+            events = goals.capture(args.config)["app"]
+            if events:
+                text = (text + "\n\n" if text else "") + "## Goals changed in the app\n\n" + goals.notices(args.config)
+                if args.ack_notices:
+                    goals.acknowledge(args.config, events)
     if text:
         print(text)
 
@@ -1209,6 +1295,7 @@ def main(argv=None):
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true")
     mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored; never refused)")
+    mode.add_argument("--confirm", metavar="TEXT", help="record what you went ahead with, for the person to correct")
     mode.add_argument("--stale", action="store_true", help="asks unanswered for 14 days or more, for the evening to decide or retire")
     mode.add_argument("--overflow", action="store_true", help="asks past the five shown, lowest-ranked first, for the evening to decide tonight")
     mode.add_argument("--resolve", metavar="ID_OR_TEXT", help="remove an answered item from CURRENT's Needs you and record the evidence")
@@ -1273,7 +1360,22 @@ def main(argv=None):
     mode.add_argument("--respond", metavar="ID_OR_TEXT")
     s.add_argument("--source", metavar="NOTE"); s.add_argument("--why", metavar="TEXT")
     s.add_argument("--needs", metavar="TEXT"); s.add_argument("--answer", choices=ideas.ANSWERS)
+    s.add_argument("--goal", metavar="G-n")
     s.set_defaults(fn=cmd_ideas)
+    s = sub.add_parser("goals", help="the person's goals; only this command writes goal blocks", parents=[vault])
+    s.add_argument("which", help="new, list, show, asked, migrate, or G-n")
+    s.add_argument("action", nargs="?", help="title with new; id with show; operation with G-n")
+    s.add_argument("text", nargs="?", help="dated evidence, or a note with link")
+    s.add_argument("--words"); s.add_argument("--title"); s.add_argument("--why")
+    s.add_argument("--reach", action="store_true"); s.add_argument("--kind", choices=goals.KINDS)
+    by = s.add_mutually_exclusive_group()
+    by.add_argument("--by"); by.add_argument("--clear-by", action="store_true")
+    s.add_argument("--from-app", action="store_true"); s.add_argument("--json", action="store_true")
+    mode = s.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true"); mode.add_argument("--apply", action="store_true")
+    s.add_argument("--responsibility", action="append", default=[], metavar="TITLE=HUB",
+                   help="with migrate: an instruction judged to belong to an existing responsibility")
+    s.set_defaults(fn=cmd_goals)
     s = sub.add_parser("channels", help="the channel registry; `sync` registers connect grants; `mail --since` lists new owner mail headers", parents=[vault])
     s.add_argument("action", nargs="?", choices=("sync", "mail")); s.add_argument("--run", action="store_true"); s.add_argument("--profile", default="")
     s.add_argument("--since", help="with mail: ISO datetime or YYYY-MM-DD, in the owner's zone unless offset is given")
@@ -1317,6 +1419,8 @@ def main(argv=None):
     actions = s.add_subparsers(dest="action", required=True)
     p = actions.add_parser("view", help="save a work's summary from JSON on stdin; an empty view removes it", parents=[vault])
     p.add_argument("slug"); p.set_defaults(fn=cmd_works)
+    p = actions.add_parser("goal", help="link a local work to an active goal", parents=[vault])
+    p.add_argument("slug"); p.add_argument("--goal", required=True); p.set_defaults(fn=cmd_works)
     s = sub.add_parser("continue", help="handed-off tasks due now, least recently worked first; text exits 1 when none", parents=[vault])
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--due", action="store_true")
@@ -1376,6 +1480,7 @@ def main(argv=None):
     s = sub.add_parser("session-context", parents=[vault])
     for option in ("platform", "user-id", "user-id-alt", "user-name", "chat-id"):
         s.add_argument("--" + option, default="")
+    s.add_argument("--ack-notices", action="store_true", help="acknowledge displayed app-change notices for this owner or routine session")
     s.set_defaults(fn=cmd_session_context)
     s = sub.add_parser("simulate", parents=[vault]); s.add_argument("--h", type=int); s.add_argument("--w", type=int)
     s.set_defaults(fn=cmd_simulate)
