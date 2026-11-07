@@ -565,7 +565,8 @@ FACTS = {"asked": "Asked {name}: {text}", "confirmed": "{name} confirmed: {text}
 
 
 def _log(config: Config, consult: Consult, now: datetime, outcome: str, person: str,
-         to: str = "", answer: str = "") -> None:
+         to: str = "", answer: str = "", said: str = "") -> None:
+    """`said` reaches only the evidence row: a decision's words already live in the area note, not the Answered log."""
     asked = config.local(datetime.fromisoformat(consult.asked)) if consult.asked else now
     hours = "-" if outcome in ("overruled", "asked", "cited", "acted", "reversed") else f"{(now.timestamp() - asked.timestamp()) / 3600:.1f}h"
     text = consult.text.replace("·", "-")
@@ -578,7 +579,7 @@ def _log(config: Config, consult: Consult, now: datetime, outcome: str, person: 
     needs.answered(config, now.date(), bullet)
     fact = FACTS[outcome].format(name=routing.name(config, person) if person != "-" else "Someone",
                                  to=routing.name(config, to) if to else "", text=consult.text.removeprefix(ACTED))
-    _evidence(now.date(), outcome, fact + (f"; {answer}" if answer else ""), person, consult.area, f"consult:{consult.id}",
+    _evidence(now.date(), outcome, fact + (f"; {answer or said}" if answer or said else ""), person, consult.area, f"consult:{consult.id}",
               id=consult.id, to=to, hours="" if hours == "-" else hours)
 
 
@@ -703,7 +704,7 @@ def answer(config: Config, which: str, outcome: str, answer: str, by: str, to: s
             if consult.source:
                 bullet += f" · [[{consult.source}]]"
             _area_note(config, consult.area, "Decisions", bullet + f" · id:{consult.id}\n  - asked: {consult.text}")
-            _log(config, consult, now, outcome, by)
+            _log(config, consult, now, outcome, by, said=answer)
             _remove(config, consult)
         return consult
 
