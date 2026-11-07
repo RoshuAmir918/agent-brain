@@ -1337,8 +1337,7 @@ def cmd_migrate_check(args):
 
 
 def cmd_migrate_done(args):
-    print(f"migrated to {install.migrate_done(args.config, args.defer)}"
-          + (f"; {len(args.defer)} step(s) left for a maintainer in {install.DEFERRED}" if args.defer else ""))
+    print(f"migrated to {install.migrate_done(args.config)}")
 
 
 def cmd_install_scripts(args):
@@ -1775,10 +1774,7 @@ def main(argv=None):
     s = sub.add_parser("update", parents=[vault]); s.set_defaults(fn=cmd_update)
     s = sub.add_parser("migrate-check", parents=[vault]); s.set_defaults(fn=cmd_migrate_check)
     s = sub.add_parser("redact", parents=[vault]); s.add_argument("paths", nargs="+"); s.set_defaults(fn=cmd_redact)
-    s = sub.add_parser("migrate-done", parents=[vault])
-    s.add_argument("--defer", action="append", default=[], metavar="STEP",
-                   help="a step left for a maintainer (repeatable); it goes to <runtime_dir>/deferred-steps.md, never to the owner's Needs you")
-    s.set_defaults(fn=cmd_migrate_done)
+    s = sub.add_parser("migrate-done", parents=[vault]); s.set_defaults(fn=cmd_migrate_done)
     s = sub.add_parser("install-scripts", parents=[vault]); s.set_defaults(fn=cmd_install_scripts)
     s = sub.add_parser("paths", parents=[vault])
     s.add_argument("path", choices=("soul", "skills", "scripts", "records", "vault", "repo", "agent", "python", "schedule")); s.set_defaults(fn=cmd_paths)

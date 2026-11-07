@@ -27,15 +27,14 @@ def test_a_member_is_named_told_the_policy_and_owns_their_work(vault):
     assert identity.role(Vault(config.vault_path), config, "slack", ("U0KIM",)) == "member"
 
 
-def test_the_operator_may_change_the_setup_and_a_maintainer_or_routine_is_no_member(vault):
-    config = config_for(vault, "enterprise", 'owner_user_ids = ["slack:U0ROSHAN"]\nmaintainers = ["slack:U0OPS"]\n')
+def test_the_operator_may_change_the_setup_and_a_routine_is_no_member(vault):
+    config = config_for(vault, "enterprise", 'owner_user_ids = ["slack:U0ROSHAN"]\n')
     text = session(config, platform="slack", user_id="U0ROSHAN", user_name="Roshan")
     assert "a member of Acme and its operator." in text and "brain-setup" in text
-    assert "member of Acme" not in session(config, platform="slack", user_id="U0OPS", user_name="Ops")
     vault = Vault(config.vault_path)
     assert [identity.role(vault, config, platform, ids) for platform, ids in (
-        ("cron", ()), ("cron", ("job",)), ("subagent", ("child",)), ("slack", ("U0OPS",)))] == [
-        "unknown", "unknown", "unknown", "maintainer"]
+        ("cron", ()), ("cron", ("job",)), ("subagent", ("child",)))] == [
+        "unknown", "unknown", "unknown"]
 
 
 def test_session_context_json_says_member_or_operator_not_by_wording(vault, capsys):

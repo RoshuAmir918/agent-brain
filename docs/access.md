@@ -19,8 +19,7 @@ From most to least specific:
 3. **`known`**: anyone with a confirmed profile. A profile marked "identity unconfirmed" gets only what `anyone` may.
 4. **`anyone`**: everyone, strangers included.
 
-The owner and the maintainers in `brain.toml` sit outside the table: the owner may know everything, a maintainer what
-the maintainer context says.
+The owner sits outside the table and may know everything.
 
 ## Subjects and levels
 

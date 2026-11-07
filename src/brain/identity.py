@@ -91,15 +91,13 @@ def is_owner(config: Config, platform: str, user_ids: tuple[str, ...]) -> bool:
 
 
 def role(vault: Vault, config: Config, platform: str, user_ids: tuple[str, ...]) -> str:
-    """'owner', 'maintainer', 'intellect', 'member', 'person' or 'unknown'.
+    """'owner', 'intellect', 'member', 'person' or 'unknown'.
 
     In an organisation's intellect anyone else the runtime names is a member: the door (Slack's bridge, the stage's
     sign-in) admits only members, so the engine trusts it. A routine's own run and a registered intellect never are;
     nor is a speaker the runtime does not name. A personal intellect knows a person by exactly one profile."""
     if is_owner(config, platform, user_ids):
         return "owner"
-    if listed(config.maintainers, platform, user_ids):
-        return "maintainer"
     if not user_ids or platform in ROUTINE_PLATFORMS:
         return "unknown"
     agents = matching_agents(vault, config, user_ids, platform)
