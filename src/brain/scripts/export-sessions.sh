@@ -17,32 +17,17 @@ else
   DATE="$(TZ="$ZONE" date -v-1d +%F 2>/dev/null || TZ="$ZONE" date -d yesterday +%F)"
 fi
 mkdir -p "$OUT" "$RECORDS"
-git pull --rebase --autostash -q origin main
+brain pull >/dev/null
 
 brain export-sessions --date "$DATE"
 
 brain digest --date "$DATE" --write
 # Transcripts and digests are pushed: scrub pasted credentials (key shapes, secret-named assignments) first.
 brain redact "$OUT" "$VAULT/Conversations/Digests" >/dev/null || { echo "export-sessions: redaction failed; nothing committed" >&2; exit 1; }
-git add "$OUT" "$VAULT/Conversations/Digests" "$(dirname "$(brain paths skills)")"   # exports, digests, and engine state such as engine-version and a pending migration
-if ! git diff --cached --quiet; then
-  git commit -q -m "archive($DATE): session export"
-fi
-
-# Publish whatever is pending, including commits an earlier failed run left behind. Large pushes have hit HTTP 400;
-# retry once with a bigger post buffer before giving up.
-publish() {
-  git push -q origin HEAD:main && return 0
-  sleep 5
-  git -c http.postBuffer=52428800 push -q origin HEAD:main && return 0
-  sleep 15
-  git -c http.version=HTTP/1.1 -c http.postBuffer=104857600 push -q origin HEAD:main
-}
-git fetch -q origin main
-if [ -n "$(git rev-list origin/main..HEAD)" ]; then
-  if ! publish; then
-    echo "export-sessions: archive committed locally but not published; will retry next run" >&2
-    exit 1
-  fi
+# Exports, digests, and engine state such as engine-version and a pending migration. The push publishes whatever is
+# pending, including commits an earlier failed run left behind, and retries a large push before giving up.
+if ! brain commit --push -m "archive($DATE): session export" -- "$OUT" "$VAULT/Conversations/Digests" "$(dirname "$(brain paths skills)")" >/dev/null; then
+  echo "export-sessions: archive not committed or not published; will retry next run" >&2
+  exit 1
 fi
 "$(dirname "$0")/refresh.sh"

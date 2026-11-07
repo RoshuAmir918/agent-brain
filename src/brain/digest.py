@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -69,7 +70,10 @@ def select_session(record: dict, source: str, day: date, config: Config) -> Sess
             reads, retrievals = tuple(dict.fromkeys(pending_reads)), tuple(pending_retrievals)
             pending_reads, pending_retrievals = [], []
         if stamp and stamp.date() == day and role in ("user", "assistant") and text:
-            speaker = record["speaker"].get("userName", "") if role == "user" and not record.get("owner") else ""
+            speaker = ""
+            if role == "user" and not record.get("owner"):   # never the owner's name for someone else's words
+                who = record["speaker"]
+                speaker = who.get("userName") or (who.get("userId") and f"{who['platform']}:{who['userId']}") or "unknown speaker"
             turns.append(Turn(role, text, stamp, reads, retrievals, speaker))
     turns.sort(key=lambda turn: turn.timestamp.timestamp())
     return Session(record["id"], record["speaker"]["platform"], turns)
@@ -92,7 +96,11 @@ def json_sources(directory: Path) -> list[Path]:
 def json_sessions(paths: list[Path], day: date, config: Config, include_routines: bool = False) -> tuple[list[Session], dict]:
     found, skipped = [], {"evaluation": 0, "routine": 0}
     for path in paths:
-        record = sessions.read(path)
+        try:
+            record = sessions.read(path)
+        except ValueError as error:
+            print(f"digest: skipped {error}", file=sys.stderr)
+            continue
         kind = session_tools.session_kind(record)
         if kind == "evaluation" or (kind == "routine" and not include_routines):
             skipped[kind] += 1

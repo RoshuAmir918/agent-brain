@@ -202,3 +202,19 @@ def test_recent_says_when_there_is_nothing_to_read_or_a_file_it_cannot_read(conf
     cli.cmd_journal_recent(type("A", (), {"config": config, "count": 30})())
     out = capsys.readouterr().out
     assert out.startswith("0 rows:") and "1 line(s)" in out and "older format" in out
+
+
+def test_a_correction_that_reverses_an_earlier_line_is_kept(config):
+    profile = config.vault_path / config.human_profile
+    profile.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(profile, {"kind": "profile"}, "# Owner\n\n## Working together\n- 2026-10-20: Do not send short replies.\n")
+    journal.append_entry(config, record(workingTogether=["Send short replies"]), "cli", AT)
+    assert "- 2026-10-28: Send short replies" in fm.read(profile)[1]
+
+
+def test_malformed_record_items_are_dropped_before_anything_is_written(config):
+    journal.append_entry(config, record(loops=[{"kind": "owed"}, "Send it.", {"kind": "promised", "text": "Check rooms."}],
+                                        closed=[{"loop": "x"}, 3], ready="L-1", noted="Pat moved", workingTogether=7,
+                                        touched=[None, "Lisbon trip"]), "demiurge", AT)
+    [item] = loops.open_loops(config)
+    assert (item.text, item.source) == ("Check rooms.", "Lisbon trip")

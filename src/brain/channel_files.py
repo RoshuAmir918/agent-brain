@@ -169,9 +169,13 @@ def parse_calendar(text: str, account: str, config: Config) -> list[CalendarEven
 
 def calendar(vault: Vault, days: int = 7) -> str:
     today = vault.config.today()
-    found = {}
+    found, missing = {}, []
     for account, folder in synced_accounts(vault):
-        for offset in range(days + 1):
+        if not folder.is_dir():   # an account without the Calendar scope has a folder but no calendar/
+            missing.append(account)
+            continue
+        # The sync names each file for the host's date, which may be a day off the owner's: read one more on each side.
+        for offset in range(-1, days + 2):
             path = folder / "calendar" / f"{today + timedelta(days=offset)}.md"
             try:
                 events = parse_calendar(path.read_text(encoding="utf-8"), account, vault.config)
@@ -193,9 +197,13 @@ def calendar(vault: Vault, days: int = 7) -> str:
         return head + "- I can't see the calendar: no Google account of the owner's is connected."
     if seen["problem"].endswith(("not set up", "not run yet")):
         return head + f"- I can't see the calendar: {seen['problem']}."
+    if missing and len(missing) == len(owner_accounts(vault)):
+        return head + f"- I can't see the calendar: nothing has synced for {', '.join(missing)}."
     lines = [event.line(today) for event in events] or [f"- Nothing on the calendar for the next {days} days."]
     if seen["problem"]:
         lines.append(f"- Note: {seen['problem']}.")
+    if missing:
+        lines.append(f"- Note: nothing has synced for {', '.join(missing)}, so its calendar is not here.")
     return head + "\n".join(lines)
 
 
@@ -299,13 +307,17 @@ def mail(vault: Vault, since: datetime) -> dict:
     named = accounts(vault)
     owners = set(named)
     filtered = dict(category=0, sent=0, before_since=0, invalid=0)
-    messages, notices = [], {}
+    messages, notices, missing = [], {}, []
+    # The sync names each folder for the host's date, which may be a day off the owner's; the timestamp check is exact.
+    floor = (since.date() - timedelta(days=1)).isoformat()
     for account, folder in synced_accounts(vault, owner_only=False):
         directory = folder / "mail"
+        if not folder.is_dir():   # an account without the mail scope has a folder but no mail/
+            missing.append(account)
         if not directory.is_dir():
             continue
         for day in sorted(directory.iterdir()):
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day.name) or day.name < since.date().isoformat() or not day.is_dir():
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day.name) or day.name < floor or not day.is_dir():
                 continue
             for path in sorted(day.glob("*.md")):
                 try:
@@ -347,7 +359,10 @@ def mail(vault: Vault, since: datetime) -> dict:
     newest = lambda item: (datetime.fromisoformat(item["date"]), item["path"])
     messages.sort(key=newest, reverse=True)
     grouped = sorted(notices.values(), key=newest, reverse=True)
-    return {"coverage": coverage(vault), "messages": messages[:MAIL_LIMIT], "notices": grouped[:NOTICE_LIMIT], "filtered": filtered,
+    seen = coverage(vault)
+    if seen is not None and missing:
+        seen["problem"] = "; ".join(filter(None, (seen["problem"], f"nothing has synced for {', '.join(missing)}")))
+    return {"coverage": seen, "messages": messages[:MAIL_LIMIT], "notices": grouped[:NOTICE_LIMIT], "filtered": filtered,
             "omitted": max(0, len(messages) - MAIL_LIMIT) + max(0, len(grouped) - NOTICE_LIMIT)}
 
 

@@ -126,3 +126,22 @@ def test_retrieval_full_form_of_a_task_match_is_its_entry(retrieval_vault, capsy
     row = json.loads(capsys.readouterr().out)[0]
     assert row["path"].startswith("memory/agent/Tasks.md#T-001") and "ORIGINAL_FULL_BODY" in row["text"]
     assert "### T-001" not in row["text"]
+
+
+def test_a_warm_task_gives_its_archived_entry_and_an_archived_only_task_is_found(retrieval_vault):
+    from datetime import date
+    from brain.tasks import Task, write_archive
+    config = retrieval_vault.config
+    path = retrieval_vault.root / "agent/Tasks.md"
+    data, body = fm.read(path)
+    warm = Task("T-002", "Warm task", "ARCHIVED_FULL_BODY\n", {"status": "open", "tier": "warm"})
+    write_archive(config, warm, "warm", date(2026, 10, 5))
+    write_archive(config, Task("T-003", "Gone task", "GONE_BODY\n", {"status": "completed"}), "closed", date(2026, 10, 5))
+    fm.write(path, data, body + "\n" + warm.render_line(config))
+    vault = Vault(retrieval_vault.root)
+    found = retrieve.search(vault, "t-002")[0]
+    assert found.path == "memory/agent/Tasks.md#T-002 — Warm task"
+    assert "ARCHIVED_FULL_BODY" in retrieve.text(vault, found, "full")
+    [gone] = retrieve.search(vault, "t-003")
+    assert gone.path == "memory/agent/Tasks Archive/T-003.md#T-003"
+    assert "GONE_BODY" in retrieve.text(vault, gone, "full") and retrieve.text(vault, gone, "snippet") == "Gone task"

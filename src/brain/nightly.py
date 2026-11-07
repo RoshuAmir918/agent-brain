@@ -27,6 +27,9 @@ MARK_START = "<!-- brain:active-threads start -->"
 MARK_END = "<!-- brain:active-threads end -->"
 
 
+NIGHT_KEYS = ("uses", "uses_inferred", "tier", "activation")   # the frontmatter the night owns on every note
+
+
 def mechanical(vault: Vault, rel: str) -> bool:
     """Notes whose frontmatter the script owns: not logs, dreams or immutable daily archives."""
     return not DAILY.fullmatch(rel) and vault.kind_for(rel) not in ("log", "dream")
@@ -158,11 +161,15 @@ def retier(vault: Vault, today: date, report: list[str]) -> set[str]:
 
 # ---------- triggers
 
-def fire_triggers(vault: Vault, tasks: list[Task], today: date, report: list[str]) -> set[str]:
-    note = vault.notes.get(vault.config.agent("Triggers.md"))
-    if note is None:
-        return set()
-    new, rep = triggers.process(note.body, today, {rel: n.data.get("tier") for rel, n in vault.notes.items()}, vault.config)
+def fire_triggers(vault: Vault, tasks: list[Task], today: date, report: list[str]) -> str | None:
+    """Process Triggers.md as it is on disk now, crediting fired commitments to tasks. The caller holds the vault lock
+    and writes the new body only after the tasks, so an interrupted night retries a trigger instead of losing its use.
+    Returns the new body, or None when nothing changed."""
+    path = vault.root / vault.config.agent("Triggers.md")
+    if not path.exists():
+        return None
+    body = fm.read(path)[1]
+    new, rep = triggers.process(body, today, {rel: n.data.get("tier") for rel, n in vault.notes.items()}, vault.config)
     for fired in rep["fired"]:
         if fired.cls == "commitment":
             ids = set(re.findall(r"\bT-\d{3}\b", fired.source))
@@ -174,13 +181,8 @@ def fire_triggers(vault: Vault, tasks: list[Task], today: date, report: list[str
         report.append(f"trigger mentioned once, source cold: {t.id}")
     for t in rep["retired"]:
         report.append(f"trigger retired: {t.id}")
-    if new == note.body:
-        return set()
-    note.body = new
-    return {vault.config.agent("Triggers.md")}
+    return None if new == body else new
 
-
-# ---------- tasks
 
 def place(config: Config, t: Task, today: date, cold_open: list, report: list[str]) -> str:
     """Tier one open task and return its register text: full entry, one line, or nothing."""
@@ -387,25 +389,34 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
         report.extend(f"attribute: {use.line()}" for use in attribute.sessions(vault, sessions_dir, write=True))
     changed |= fold_uses(vault, tasks + archived, today, report)
     changed |= retier(vault, today, report)
-    changed |= fire_triggers(vault, tasks + archived, today, report)
-    # Persist task uses before consuming the triggers that supplied them. If
-    # task processing is interrupted, the still-active trigger can safely retry.
     with vault_lock(config):
-        # Until here the night changes only frontmatter (uses, tiers). Other writers change bodies at any hour (an ask
-        # reaching CURRENT, a worker's task write): keep each body as it is on disk now, save our frontmatter.
-        for rel in changed - {vault.config.agent("Triggers.md")}:
-            fm.write(vault.root / rel, vault.notes[rel].data, fm.read(vault.root / rel)[1])
+        # Until here the night changes only frontmatter (uses, tiers). Other writers change bodies and other keys at any
+        # hour (an ask reaching CURRENT, a worker's task write): keep each note as it is on disk now, set the night's keys.
+        for rel in changed:
+            path = vault.root / rel
+            if not path.exists():
+                continue
+            data, body = fm.read(path)
+            ours = vault.notes[rel].data
+            night = {key: value for key, value in ours.items() if key in NIGHT_KEYS or key not in data}
+            if data.get("tier") == "private":
+                night.pop("tier", None)
+            fm.write(path, {**data, **night}, body)
     with vault_lock(config):
-        # Workers write tasks day and night: process the register as it is now, carrying the uses credited above.
+        # Workers write tasks day and night: process the register as it is now, adding the uses credited above.
         credited = {t.tid: t.state for t in tasks + archived}
         tasks, archived = load_tasks(config)
         for t in tasks + archived:
             for key in ("uses", "inferred"):
-                if credited.get(t.tid, {}).get(key):
-                    t.state[key] = credited[t.tid][key]
+                days = {x for value in (t.state.get(key, ""), credited.get(t.tid, {}).get(key, "")) for x in value.split(",") if x}
+                if days:
+                    t.state[key] = ",".join(sorted(days, reverse=True)[:30])
+        fired = fire_triggers(vault, tasks + archived, today, report)
         open_tasks, _ = process_tasks(config, today, tasks, archived, report)
-    if vault.config.agent("Triggers.md") in changed:
-        vault.notes[vault.config.agent("Triggers.md")].save()
+        if fired is not None:   # consumed only after the task uses it supplied are saved
+            rel = config.agent("Triggers.md")
+            fm.write(vault.root / rel, fm.read(vault.root / rel)[0], fired)
+            changed.add(rel)
     with vault_lock(config):   # the after-session writer adds asks to CURRENT at any hour
         rebuild_current(config, open_tasks, today, report)
         if ask_library(config, today, report, library_records):

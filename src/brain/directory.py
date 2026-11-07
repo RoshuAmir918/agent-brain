@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 from . import install, runtime
 from .config import Config
 from .identity import profile_ids, profiles
+from .lock import vault_lock
 from .vault import Vault
 
 
@@ -39,8 +40,9 @@ def sync(config: Config, payload: dict, today: date) -> list[str]:
         finally:
             staged.unlink(missing_ok=True)
     count = len(directory["intellects"])
-    return [f"synced {len(directory['people'])} people, {count} intellect{'s' if count != 1 else ''}"] \
-        + reconcile(Vault(config.vault_path), directory, today)
+    with vault_lock(config):   # profiles are read and rewritten as they are now, not as an earlier snapshot had them
+        added = reconcile(Vault(config.vault_path), directory, today)
+    return [f"synced {len(directory['people'])} people, {count} intellect{'s' if count != 1 else ''}"] + added
 
 
 def load(config: Config) -> dict | None:

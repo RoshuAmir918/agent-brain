@@ -266,3 +266,12 @@ def test_sections_are_checked_and_never_written(context_vault):
     for bad in (["--sections", "current,nonsense"], ["--sections", ","], ["--sections", "current", "--write"]):
         with pytest.raises(SystemExit):
             cli.main(["compile-context", "--vault", str(context_vault), *bad])
+
+
+def test_only_real_month_names_are_dates():
+    from datetime import date
+    from brain.compile_context import DATE, mentioned
+    for text in ("Maybe 3 people", "the market 12 times", "decided 5 things", "Junior 2"):
+        assert DATE.search(text) is None, text
+    found = [mentioned(m, date(2026, 11, 1)) for m in DATE.finditer("May 3, Sept. 4th and December 25, 2026")]
+    assert found == [date(2027, 5, 3), date(2026, 9, 4), date(2026, 12, 25)]

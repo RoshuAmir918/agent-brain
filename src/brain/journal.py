@@ -59,10 +59,30 @@ def parse(text: str) -> list[Entry]:
     return entries
 
 
+# The record's list fields: whether an item may be a plain string, and the string keys an object item needs.
+LISTS = {"touched": (True, ()), "ready": (True, ()), "resolved": (True, ()), "workingTogether": (True, ()),
+         "noted": (True, ()), "loops": (False, ("kind", "text")), "closed": (True, ("loop", "outcome", "why"))}
+
+
+def _coerce(record: dict) -> dict:
+    """The harness does not enforce the record's schema: keep only well-formed fields and items, before anything is
+    written, so one malformed item never stops the capture halfway."""
+    out = {key: value if isinstance(value, str) or value is None else None
+           for key, value in record.items() if key not in LISTS and key != "access"}
+    out["access"] = record.get("access")
+    for key, (plain, required) in LISTS.items():
+        value = record.get(key)
+        out[key] = [item for item in value if plain and isinstance(item, str) or required and isinstance(item, dict)
+                    and all(isinstance(item.get(name), str) for name in required)
+                    and all(v is None or isinstance(v, str) for v in item.values())] if isinstance(value, list) else []
+    return out
+
+
 def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
                  user_id: str = "", user_id_alt: str = "") -> Path:
     """Records open loops, keeping only touched notes that exist; a `needsYou` becomes an ask in CURRENT; requests from
     anyone but the owner go to the access log."""
+    record = _coerce(record)
     outcome = record.get("outcome")
     headline = _clean(record.get("headline"))
     if outcome not in ledger.OUTCOMES:
@@ -156,14 +176,16 @@ def promote_touched(config: Config, vault: Vault, touched: list[str], today: dat
 HEADING = re.compile(r"^##[ \t]+Working together\b[^\n]*$", re.M)
 
 
-def _plain_words(text: str) -> set[str]:
-    return set(re.findall(r"[a-z0-9']+", text.lower()))
+def _plain_line(text: str) -> str:
+    """A line as said, for spotting an exact repeat: no bullet or date, case, punctuation or spacing."""
+    text = re.sub(r"^\s*[-*+]\s*(?:\d{4}-\d{2}-\d{2}:\s*)?", "", text)
+    return " ".join(re.findall(r"\w+", text.casefold()))
 
 
 def working_together(config: Config, day: date, lines) -> list[str]:
     """The owner's corrections and directions about how to work with them, written to the profile's Working together
-    section in the session they were given, so every later session obeys them. A line whose words another line already
-    holds is a duplicate and is skipped; the night merges what remains."""
+    section in the session they were given, so every later session obeys them. Only an exact repeat is skipped: a line
+    that reverses an earlier one is the correction itself, and the night merges what remains."""
     new = [text for text in dict.fromkeys(_clean(line) for line in (lines or []) if isinstance(line, str)) if text]
     path = config.vault_path / config.human_profile
     if not new or not path.exists():
@@ -177,14 +199,14 @@ def working_together(config: Config, day: date, lines) -> list[str]:
         following = re.search(r"^##?[ \t]+", body[heading.end():], re.M)
         end = heading.end() + following.start() if following else len(body)
         section = body[heading.end():end]
-        held = [_plain_words(line) for line in section.splitlines() if line.strip()]
+        held = {_plain_line(line) for line in section.splitlines() if line.strip()}
         added = []
         for text in new:
-            words = _plain_words(text)
-            if words and any(words <= other for other in held):
+            plain = _plain_line(text)
+            if not plain or plain in held:
                 continue
             added.append(f"- {day.isoformat()}: {text}")
-            held.append(words)
+            held.add(plain)
         if added:
             section = section.rstrip("\n") + "\n" + "\n".join(added) + "\n"
             body = body[:heading.end()] + section + ("\n" + body[end:].lstrip("\n") if body[end:].strip() else "")

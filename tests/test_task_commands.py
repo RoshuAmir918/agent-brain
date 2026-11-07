@@ -307,24 +307,25 @@ def test_writes_are_atomic_and_validate_reports_nul_bytes(vault):
 
 def test_brain_commit_stages_scoped_paths_under_the_repo_lock(vault, capsys, monkeypatch):
     import subprocess
-    from brain import lock
     repo = Config.load(vault).repo
     git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout
     if not (repo / ".git").exists():
         git("init", "-q"); git("config", "user.email", "t@e.x"); git("config", "user.name", "t")
         git("add", "-A"); git("commit", "-qm", "base")
     held = []
-    real = lock.repo_lock
+    real = brain_cli.repo_lock
     def watching(config):
         held.append(config.repo)
         return real(config)
-    monkeypatch.setattr(lock, "repo_lock", watching)
-    (vault / "One.md").write_text("one\n"); (vault / "Two.md").write_text("two\n")
+    monkeypatch.setattr(brain_cli, "repo_lock", watching)
+    (vault / "One.md").write_text("one\n"); (vault / "Two.md").write_text("two\n"); (vault / "Staged.md").write_text("s\n")
+    git("add", str(vault / "Staged.md"))
     brain_cli.main(["commit", "-m", "test: one only", str(vault / "One.md"), "--vault", str(vault)])
     assert capsys.readouterr().out.startswith("committed ")
     assert held == [repo]
     shown = git("show", "--name-only", "--format=%s", "HEAD")
-    assert "test: one only" in shown and "One.md" in shown and "Two.md" not in shown
+    assert "test: one only" in shown and "One.md" in shown and "Two.md" not in shown and "Staged.md" not in shown
+    assert "Staged.md" in git("diff", "--cached", "--name-only")
     brain_cli.main(["commit", "-m", "nothing", str(vault / "One.md"), "--vault", str(vault)])
     assert capsys.readouterr().out.strip() == "nothing to commit"
 

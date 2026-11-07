@@ -222,12 +222,12 @@ def defaults(config: Config) -> dict[str, Routine]:
     edition, and the owner's day (people, prime, the morning briefing) for a personal one. Times are the owner's zone."""
     p = config.skill_prefix
     routines = {
-        "session-export": Routine(cron="30 0 * * *", prompt="", script=f"{p}export.sh", agent=False),
+        "session-export": Routine(cron="30 0 * * *", prompt="", script="export-sessions.sh", agent=False),
         "attribution": Routine(cron="30 1 * * *", skills=[f"{p}attribute"], prompt="Run attribution for yesterday."),
         "sleep1": Routine(cron="30 2 * * *", skills=[f"{p}sleep1"], prompt="Run Sleep 1 for yesterday."),
         "rem": Routine(cron="30 3 * * *", skills=[f"{p}rem"], prompt="Run REM."),
         "sleep2": Routine(cron="0 4 * * *", skills=[f"{p}sleep2"], prompt="Run Sleep 2."),
-        "context-refresh": Routine(cron="15 * * * *", prompt="", script=f"{p}refresh.sh", agent=False),
+        "context-refresh": Routine(cron="15 * * * *", prompt="", script="refresh.sh", agent=False),
         "improve": Routine(cron="30 7 * * *", skills=[f"{p}improve"], prompt="Run Improve."),
         "watch": Routine(cron="*/15 6-22 * * *", skills=[f"{p}watch"], deliver="demiurge", monitor="watch-signal.sh"),
         "explore": Routine(cron="30 8-22/2 * * *", skills=[f"{p}explore"], prompt="Run the explore pass.", deliver="demiurge"),

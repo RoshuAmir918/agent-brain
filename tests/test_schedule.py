@@ -467,3 +467,12 @@ def test_import_skips_every_migration_run_and_keeps_the_live_one_of_two_jobs_wit
     cli(config, "import")
     routines = schedule.load(config)
     assert set(routines) == {"watch"} and routines["watch"].cron == "*/15 * * * *"
+
+
+@pytest.mark.parametrize("edition", ["personal", "enterprise"])
+def test_every_default_script_and_monitor_is_installed(config, edition):
+    from brain import install
+    installed = {path.name for path in install.scripts()}
+    for name, routine in schedule.defaults(replace(config, edition=edition)).items():
+        for script in (routine.script, routine.monitor):
+            assert script is None or script in installed, (name, script)

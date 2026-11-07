@@ -74,3 +74,9 @@ def test_audit_counts_no_active_notes_when_directory_is_disabled(audited, monkey
     assert audit.report(audited, DAY)["context"] == {"active_notes": 0, "active_note_words": 0,
                                                    "compiled_context_words": 0}
 
+
+
+def test_a_malformed_shard_is_skipped_and_named(audited, tmp_path, capsys):
+    (tmp_path / "agent-home/records/sessions/jsonl/broken.json").write_text("{", encoding="utf-8")
+    [job] = audit.report(audited, DAY, days=14)["routines"]
+    assert job["runs"] == 2 and "broken.json: invalid session JSON" in capsys.readouterr().err

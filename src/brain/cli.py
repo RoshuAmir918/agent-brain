@@ -36,6 +36,7 @@ import os
 import subprocess
 import sys
 from contextlib import nullcontext
+import time
 from dataclasses import asdict, replace
 from datetime import date, datetime
 from pathlib import Path
@@ -47,7 +48,7 @@ from . import goals
 from .tasks import load_tasks, quiet
 from .vault import Vault
 from .config import FORMS, SECTIONS, Config
-from .lock import vault_lock
+from .lock import repo_lock, vault_lock
 from .nightly import preview, run
 from . import install
 from . import signals
@@ -62,57 +63,60 @@ def sh(repo: Path, *args: str) -> str:
 
 def commit(root: Path, message: str, paths: list[str] | None = None) -> str:
     """Stage and commit under the repository lock: the given paths, or else the agent's notes and session context.
-    Returns the short SHA, or '' when there was nothing to commit."""
-    from .lock import repo_lock
+    Only those paths are committed; anything else already staged stays staged. Returns the short SHA, or '' when there
+    was nothing to commit."""
     config = Config.load(root)
     repo = config.repo
+    if paths:
+        spec = [str(Path(p).resolve()) for p in paths]
+    else:
+        tree = root.relative_to(repo).as_posix()
+        context = [".context.md"] if (repo / ".context.md").exists() else []   # a fresh vault has none until compiled
+        spec = [tree, f":(exclude){tree}/.brain", *context]
     with repo_lock(config):
-        if paths:
-            sh(repo, "add", "-A", "--", *[str(Path(p).resolve()) for p in paths])
-        else:
-            tree = root.relative_to(repo).as_posix()
-            context = [".context.md"] if (repo / ".context.md").exists() else []   # a fresh vault has none until compiled
-            sh(repo, "add", "-A", "--", tree, f":(exclude){tree}/.brain", *context)
-        if not sh(repo, "diff", "--cached", "--name-only"):
+        sh(repo, "add", "-A", "--", *spec)
+        staged = [name for name in sh(repo, "diff", "--cached", "--name-only", "--no-renames", "-z", "--", *spec).split("\0") if name]
+        if not staged:
             return ""
-        sh(repo, "commit", "-q", "-m", message)
+        # The staged names, not the spec: a pathspec git does not know (an empty folder) would fail the commit.
+        sh(repo, "commit", "-q", "-m", message, "--", *(f":(literal){name}" for name in staged))
         return sh(repo, "rev-parse", "--short", "HEAD")
 
 
+def _pull(repo: Path, suffix: str = "") -> None:
+    """Pull with rebase; caller holds the repository lock. Only a rebase that stopped is a conflict, and it is aborted;
+    anything else (no credentials, no network) is git's own error, already printed, and is said as such."""
+    try:
+        sh(repo, "pull", "--rebase", "--autostash", "-q", "origin", "main")
+    except subprocess.CalledProcessError:
+        if any(Path(sh(repo, "rev-parse", "--path-format=absolute", "--git-path", name)).exists()
+               for name in ("rebase-merge", "rebase-apply")):
+            subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
+            sys.exit(f"pull --rebase conflicted; resolve it by hand{suffix}")
+        sys.exit(f"pull failed (git's error is above: credentials or network, not a conflict){suffix}")
+
+
 def push(root: Path) -> None:
-    from .lock import repo_lock
     config = Config.load(root)
     repo = config.repo
     with repo_lock(config):
-        try:
-            sh(repo, "pull", "--rebase", "--autostash", "-q", "origin", "main")   # rows written after the commit wait
-        except subprocess.CalledProcessError:
-            # Only a rebase that stopped is a conflict; anything else (no credentials, no network) is git's own error,
-            # already printed above, and is said as such.
-            git_dir = repo / ".git"
-            if (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists():
-                subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
-                sys.exit("pull --rebase conflicted; resolve it by hand, nothing was pushed")
-            sys.exit("pull failed (git's error is above: credentials or network, not a conflict); nothing was pushed")
-        try:
-            sh(repo, "push", "-q", "origin", "HEAD:main")
-        except subprocess.CalledProcessError:
-            sys.exit("push failed (git's error is above); the commit is kept locally")
+        _pull(repo, ", nothing was pushed")   # rows written after the commit wait
+        # Large pushes have hit HTTP 400: retry with a bigger post buffer, then over HTTP/1.1, before giving up.
+        for wait, options in ((0, ()), (5, ("-c", "http.postBuffer=52428800")),
+                              (15, ("-c", "http.version=HTTP/1.1", "-c", "http.postBuffer=104857600"))):
+            time.sleep(wait)
+            try:
+                sh(repo, *options, "push", "-q", "origin", "HEAD:main")
+                return
+            except subprocess.CalledProcessError:
+                pass
+        sys.exit("push failed (git's error is above); the commit is kept locally")
 
 
 def cmd_pull(a):
     """`brain pull`: bring the vault up to date under the repository lock."""
-    from .lock import repo_lock
-    repo = a.config.repo
     with repo_lock(a.config):
-        try:
-            sh(repo, "pull", "--rebase", "--autostash", "-q", "origin", "main")
-        except subprocess.CalledProcessError:
-            git_dir = repo / ".git"
-            if (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists():
-                subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
-                sys.exit("pull --rebase conflicted; resolve it by hand")
-            sys.exit("pull failed (git's error is above: credentials or network, not a conflict)")
+        _pull(a.config.repo)
     print("up to date")
 
 
@@ -681,7 +685,8 @@ def cmd_channels(args):
                 sys.exit(1)
         else:
             out = sys.stdin.read()
-        added = registry.sync(args.config, vault, out.splitlines(), args.config.today(), args.profile or None)
+        with vault_lock(args.config):
+            added = registry.sync(args.config, out.splitlines(), args.profile or None)
         for row in added:
             print(f"added {row.channel}: {row.reach} ({row.granted})")
         if not added:
@@ -1385,7 +1390,7 @@ def main(argv=None):
     mode.add_argument("--json", action="store_true")
     mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored; never refused)")
     mode.add_argument("--confirm", metavar="TEXT", help="record what you went ahead with, for the person to correct")
-    mode.add_argument("--stale", action="store_true", help="asks unanswered for 14 days or more, for the evening to decide or retire")
+    mode.add_argument("--stale", action="store_true", help=f"asks unanswered for {needs.STALE_DAYS} days or more, for the evening to decide or retire")
     mode.add_argument("--overflow", action="store_true", help="asks past the five shown, lowest-ranked first, for the evening to decide tonight")
     mode.add_argument("--resolve", metavar="ID_OR_TEXT", help="remove an answered item from CURRENT's Needs you and record the evidence")
     mode.add_argument("--dismiss", metavar="ID_OR_TEXT", help="the owner said no: drop the item, act on nothing, never raise it again")

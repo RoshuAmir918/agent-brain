@@ -221,3 +221,13 @@ def test_default_sessions_dir_falls_back_to_the_vault_until_records_exist(tmp_pa
     assert digest.default_sessions_dir(config) == legacy
     (home / "records" / "sessions").mkdir(parents=True)
     assert digest.default_sessions_dir(config) == home / "records" / "sessions"
+
+
+def test_a_non_owner_without_a_name_is_labelled_by_id_never_as_the_owner(template_config):
+    record = harness_session("stranger", [message("user", "Hello there", "2026-10-20T15:00:00Z")], platform="slack", owner=False)
+    record["speaker"]["userId"] = "U9"
+    [turn] = digest.select_session(record, "stranger.json", DAY, template_config).turns
+    assert turn.speaker == "slack:U9"
+    del record["speaker"]["userId"]
+    [turn] = digest.select_session(record, "stranger.json", DAY, template_config).turns
+    assert turn.speaker == "unknown speaker"
