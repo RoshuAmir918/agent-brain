@@ -130,7 +130,7 @@ Signup says it plainly: the intellect reads your mail, your calendar and whateve
 
 - `brain portrait [--json]` prints the portrait with line ids, basis, confidence and last evidence.
 - `brain portrait --top N` prints the top After lines with their `for:` lists, for explore and prime.
-- `brain portrait seed --account <reach>` runs the seed pass's arithmetic (which files to read, in what window) and prints the reading list; the judgment is in the `seed` skill.
+- `brain portrait seed --reviews DIR` runs an organisation's seed arithmetic over merged pull requests' review comments (which to read, in what window, what repeats where) and prints the reading list; the judgment is in the `seed` skill. A person's form, over a connected account, comes with the mail seed.
 - `brain reception set <id> <outcome>`, `brain reception --summary`.
 - `brain state --json` gains `portrait` (lines with ids, no `against:` text) and `reception` (the last 30 days), with the Demiurge reveal card that reads them. Demiurge shows them to the owner only: a maintainer's read-only view of the brain never includes the portrait.
 
@@ -148,7 +148,7 @@ Built in this order, each its own engine release, so that the moment that wins (
 
 1. **0.55.0, the note.** The format, `brain portrait [--top N] [--json]`, line ids stamped by the night, `brain validate`'s checks, and the portrait in `.context.md` after CURRENT. Nothing writes the note yet, and an owner may.
 2. **0.56.0, the company portrait.** The same note in an enterprise vault, in its context with the team's rule, and its stated and seen lines in the state export for the stage.
-3. **0.57.0, seeding Taste from corrections.** For an organisation, Taste from its review rules and the comments on its recent merged pull requests, After from its stated goals and initiatives, each batch confirmed by the people whose words it rests on. For a person, the mail seed and the reveal as one batched confirm, first on a vault starting from zero, then on Orphan's.
+3. **0.57.0, seeding an organisation's Taste from corrections.** Taste from its review rules and the comments on its recent merged pull requests, with the evidence kept and one confirm to the operator. Confirmation by each reviewer whose comments a line rests on waits for consults, which route a question to a person. After from stated goals and initiatives, and a person's mail seed and reveal, follow as their own releases.
 4. **Demiurge with 0.58.0, reception.** The reveal card and the standing portrait surface; the runtime reporting opens and replies; the reception ledger, its pending rows, nightly settlement and `--summary`. They ship together because without the runtime's reports nearly every row settles to `unknown` and the ledger teaches nothing.
 5. **0.59.0, rewiring and migration.** People, Explore, Prime and Sleep 2 work from the portrait, `owner_card` drops the Impression, and existing vaults migrate, as below.
 

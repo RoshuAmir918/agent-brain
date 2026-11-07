@@ -20,8 +20,8 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
     cli.main(args)
     assert capsys.readouterr().out == str(config.skills_path) + "\n"
     templates = [path for path in files("brain").joinpath("skills").iterdir()
-                 if path.joinpath("SKILL.md").is_file()]
-    assert len(templates) == 14
+                 if path.joinpath("SKILL.md").is_file() and "editions: [enterprise]" not in path.joinpath("SKILL.md").read_text()]
+    assert len(templates) == 14   # a personal vault's; the seed skill is an organisation's
     assert len(list(config.skills_path.glob("*/SKILL.md"))) == len(templates)
     for routine in templates:
         text = (config.skills_path / (prefix + routine.name) / "SKILL.md").read_text()

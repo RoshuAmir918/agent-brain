@@ -167,6 +167,8 @@ Held work lives under `<agent_dir>/Prepared/`: things made or drafted for the ow
 
 **Checks.** `brain validate` names an unknown section, a malformed line, an unknown basis, confidence or horizon, a field on the wrong section, an After line without a horizon, a section over eight lines, the note over 700 words, an id used twice, and a `guess` whose last evidence is more than 30 days old. There is no cap on the share of guesses: a seeded portrait is all guesses, and the labels, tests and retirement are what keep them honest.
 
+**Seeding an organisation's Taste.** `brain portrait seed --reviews DIR [--days 90] [--json]` reads one file per merged pull request (frontmatter `pr`, `title`, `author`, `merged`; then one line per review comment, `- YYYY-MM-DD · <reviewer> · <path, empty for a review body> · <comment>`), keeps those merged within the window, drops the comments a PR's own author wrote, and prints the reading list: how many PRs and corrections, comments per reviewer (bots marked) and per area (a path's first two folders), and the PRs to read, most corrected first. Unreadable files and comment lines are named, never fatal. The judgment is the enterprise-only `seed` skill's: it fetches the files read-only with `gh` into `$AGENT_HOME/channels/<owner>-<repo>/reviews/` when they are missing, turns a correction made on two or more PRs into a `seen` Taste line (a repository rule stating it makes it `said`), keeps the evidence in `<agent_dir>/Seeds/`, and leaves the operator one confirm. Reviewer counts say where to read; they are never a measure of a person.
+
 `brain portrait [--json]` prints the claims with their ids, section, basis, confidence, evidence date and horizon; `--top N` prints only the top N After lines with their `for:` lists, for explore and prime. `--json` gives every field but `against:`.
 
 ## Responsibilities
@@ -357,6 +359,7 @@ brain nightly --date 2026-10-10 --write --commit --push
 brain nightly --date 2026-10-10 --sessions-dir "$AGENT_HOME/records/sessions" --write
 brain validate
 brain portrait [--top N] [--json]
+brain portrait seed --reviews DIR [--days 90] [--json]
 brain attribute --file <record.md> --ts <iso> [--reason <text>] [--write]
 brain attribute [--sessions-dir <dir>] [--write]
 brain digest --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]
