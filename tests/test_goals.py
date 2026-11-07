@@ -347,3 +347,20 @@ def test_a_workers_follow_up_inherits_the_task_it_works_on(vault, capsys, monkey
     monkeypatch.setenv("DEMIURGE_TASK", "T-999")
     with pytest.raises(SystemExit):
         run(vault, capsys, "task", "new", "Unrelated", "--source", "Some note")
+
+
+def test_words_keep_the_day_they_were_said(vault, capsys):
+    out = run(vault, capsys, "goals", "new", "Reading", "--words", "Read widely", "--said", "2026-10-26")
+    assert "G-1" in out
+    cfg = Config.load(vault)
+    assert goals.load(cfg)[0].said_at == "2026-10-26"
+    run(vault, capsys, "goals", "G-1", "edit", "--said", "2026-10-20")
+    goal = goals.load(cfg)[0]
+    assert goal.said_at == "2026-10-20" and goal.words == "Read widely"
+    run(vault, capsys, "goals", "G-1", "edit", "--words", "Read more widely")
+    assert goals.load(cfg)[0].said_at == TODAY.isoformat()
+    with pytest.raises(SystemExit) as error:
+        run(vault, capsys, "goals", "new", "Later", "--words", "x", "--said", "2027-01-01")
+    assert "can't be in the future" in str(error.value)
+    with pytest.raises(SystemExit):
+        run(vault, capsys, "goals", "G-1", "evidence", "2026-11-01 · read", "--said", "2026-10-01")

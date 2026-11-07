@@ -688,9 +688,9 @@ def cmd_goals(args):
             raise ValueError("--json goes with list or show")
         if args.from_app and operation not in ("new", "edit", "reached", "set-aside", "reopen"):
             raise ValueError("--from-app goes with new, edit, reached, set-aside or reopen")
-        allowed = {"new": {"words", "reach", "by"}, "edit": {"title", "words", "kind", "by", "clear_by"},
+        allowed = {"new": {"words", "reach", "by", "said"}, "edit": {"title", "words", "kind", "by", "clear_by", "said"},
                    "evidence": {"text"}, "link": {"text"}, "reached": {"why"}, "set-aside": {"why"}, "reopen": {"why"}}
-        supplied = {name for name in ("words", "title", "why", "reach", "kind", "by", "clear_by", "text") if getattr(args, name)}
+        supplied = {name for name in ("words", "title", "why", "reach", "kind", "by", "clear_by", "said", "text") if getattr(args, name)}
         if supplied - allowed.get(operation, set()):
             raise ValueError(f"{operation} does not take " + ", ".join(sorted(supplied - allowed.get(operation, set()))))
         if which in ("list", "asked", "migrate") and action is not None:
@@ -722,14 +722,14 @@ def cmd_goals(args):
                 print("\n".join(goals.migrate(config, apply=args.apply)))
                 return
             if which == "new":
-                entry = goals.new(config, action or "", args.words or "", reach=args.reach, by=args.by, from_app=args.from_app)
+                entry = goals.new(config, action or "", args.words or "", reach=args.reach, by=args.by, said=args.said, from_app=args.from_app)
             elif goals.ID.fullmatch(which) and action in operations:
                 if action == "link":
                     goals.link_note(config, which, args.text or "")
                     print(f"{which} linked: {args.text}")
                     return
                 entry = goals.change(config, which, action, text=args.text, title=args.title, words=args.words,
-                                     by=args.by, clear_by=args.clear_by, kind=args.kind, why=args.why, from_app=args.from_app)
+                                     by=args.by, clear_by=args.clear_by, kind=args.kind, why=args.why, said=args.said, from_app=args.from_app)
             else:
                 raise ValueError("use new, list, show G-n, asked, migrate, or G-n edit|evidence|reached|set-aside|reopen|nudge|link")
         print(f"{entry.gid} · {entry.state['state']} · {entry.title}")
@@ -1422,6 +1422,7 @@ def main(argv=None):
     s.add_argument("action", nargs="?", help="title with new; id with show; operation with G-n")
     s.add_argument("text", nargs="?", help="dated evidence, or a note with link")
     s.add_argument("--words"); s.add_argument("--title"); s.add_argument("--why")
+    s.add_argument("--said", help="YYYY-MM-DD: when the person said their words, if not today")
     s.add_argument("--reach", action="store_true"); s.add_argument("--kind", choices=goals.KINDS)
     by = s.add_mutually_exclusive_group()
     by.add_argument("--by"); by.add_argument("--clear-by", action="store_true")
