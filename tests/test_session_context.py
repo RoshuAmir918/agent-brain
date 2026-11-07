@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 import pytest
@@ -200,6 +201,19 @@ def test_cli_prints_unknown_context_and_nothing_without_identity(people_vault, c
         "This session is with an unknown person (slack NOPE, name shown as not provided).")
     cli.main(["session-context", "--vault", str(people_vault.root)])
     assert capsys.readouterr().out == ""
+
+
+def test_cli_json_carries_the_block_and_whether_the_speaker_is_the_owner(people_vault, capsys):
+    root = str(people_vault.root)
+    cli.main(["session-context", "--vault", root, "--platform", "slack", "--user-id", "U_OWNER", "--json"])
+    owner = json.loads(capsys.readouterr().out)
+    assert owner == {"block": session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_OWNER"),
+                     "owner": True, "member": False}
+    cli.main(["session-context", "--vault", root, "--platform", "slack", "--user-id", "U_ALICE", "--json"])
+    alice = json.loads(capsys.readouterr().out)
+    assert alice["block"] and not alice["owner"] and not alice["member"]
+    cli.main(["session-context", "--vault", root, "--json"])
+    assert json.loads(capsys.readouterr().out) == {"block": "", "owner": False, "member": False}
 
 
 def test_maintainer_context_is_the_health_report_without_profiles_or_rules(people_vault):

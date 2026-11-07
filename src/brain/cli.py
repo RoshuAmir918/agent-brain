@@ -20,7 +20,7 @@ Usage:
   brain access <who> [--vault <path>] [--json]
   brain tellable <who> [--vault <path>] [--json]
   brain state [--vault <path>] [--json]
-  brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>]
+  brain session-context [--vault <path>] [--platform <name>] [--user-id <id>] [--user-id-alt <id>] [--user-name <name>] [--chat-id <id>] [--json]
   brain simulate [--h 7 --w 28]
   brain install-skills [--vault <path>]
   brain install-scripts
@@ -1110,7 +1110,8 @@ def cmd_health(args):
 
 
 def cmd_session_context(args):
-    text = session_context.build(Vault(args.config.vault_path), args.config,
+    vault = Vault(args.config.vault_path)
+    text = session_context.build(vault, args.config,
                                  platform=args.platform, user_id=args.user_id,
                                  user_id_alt=args.user_id_alt, user_name=args.user_name,
                                  chat_id=args.chat_id)
@@ -1123,7 +1124,11 @@ def cmd_session_context(args):
                 text = (text + "\n\n" if text else "") + "## Goals changed in the app\n\n" + goals.notices(args.config)
                 if args.ack_notices:
                     goals.acknowledge(args.config, events)
-    if text:
+    if args.json:
+        who = identity.role(vault, args.config, args.platform,
+                            tuple(value for value in (args.user_id, args.user_id_alt) if value))
+        print(json.dumps({"block": text, "owner": who == "owner", "member": who == "member"}, ensure_ascii=False))
+    elif text:
         print(text)
 
 
@@ -1540,7 +1545,7 @@ def main(argv=None):
     for option in ("platform", "user-id", "user-id-alt", "user-name", "chat-id"):
         s.add_argument("--" + option, default="")
     s.add_argument("--ack-notices", action="store_true", help="acknowledge displayed app-change notices for this owner or routine session")
-    s.set_defaults(fn=cmd_session_context)
+    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_session_context)
     s = sub.add_parser("simulate", parents=[vault]); s.add_argument("--h", type=int); s.add_argument("--w", type=int)
     s.set_defaults(fn=cmd_simulate)
 
