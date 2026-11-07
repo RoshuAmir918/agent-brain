@@ -420,6 +420,18 @@ def cmd_evidence(args):
     if runtime.configured() is None:
         raise SystemExit("brain evidence: AGENT_HOME is not set")
     rows = evidence.read(args.source or "", args.hint or "", date.fromisoformat(args.since) if args.since else None)
+    if args.about is not None:
+        recalled = evidence.recall(args.about, rows, args.config.today(), args.limit)
+        if args.json:
+            print(json.dumps([dict(asdict(entry.row), date=entry.row.date.isoformat(), hints=list(entry.row.hints),
+                                   score=entry.score, shared=list(entry.shared), outcomes=list(entry.outcomes))
+                              for entry in recalled], ensure_ascii=False, indent=2))
+            return
+        for entry in recalled:
+            print(f"{entry.score:g} · {entry.row.source}: {evidence.render(entry.row)[2:]}"
+                  + (f" · outcomes: {' > '.join(entry.outcomes)}" if entry.outcomes else "")
+                  + f" · shares: {', '.join(entry.shared)}")
+        return
     if args.json:
         print(json.dumps([dict(asdict(row), date=row.date.isoformat(), hints=list(row.hints)) for row in rows],
                          ensure_ascii=False, indent=2))
@@ -1556,6 +1568,8 @@ def main(argv=None):
     s = sub.add_parser("evidence", help="read the evidence sources wrote, newest first", parents=[vault])
     s.add_argument("--source"); s.add_argument("--hint", help="a portrait facet or a knowledge area")
     s.add_argument("--since", metavar="YYYY-MM-DD"); s.add_argument("--json", action="store_true")
+    s.add_argument("--about", metavar="TEXT", help="recall: the facts sharing the names in a choice, rarest and newest first")
+    s.add_argument("--limit", type=int, default=20, help="with --about: how many facts (default 20)")
     s.set_defaults(fn=cmd_evidence)
     s = sub.add_parser("source", help="the evidence sources: list them, or extract one", parents=[vault])
     s.add_argument("target", metavar="list|ID"); s.add_argument("action", nargs="?", choices=["extract"])

@@ -93,3 +93,34 @@ def test_seeded_history_is_evidence_too(home, enterprise):
     assert consults.record_evidence(enterprise, rows) == 1
     [found] = evidence.read(source="consults")
     assert (found.verb, found.whose, found.pointer, found.fact) == ("approved", f"other:{KIM}", "github:pr/12", "#12 Terraform deploys")
+
+
+def test_recall_prefers_the_specific_fresh_fact_over_the_general_one(home):
+    evidence.append("consults", [
+        Evidence(date(2026, 6, 1), "approved", f"Noah approved #{n}, a migration on forms", f"other:{NOAH}", ("data",),
+                 f"github:pr/{n}") for n in range(100, 110)])
+    evidence.append("consults", [
+        Evidence(date(2026, 10, 8), "changed", "#391 creates the analytics_events table", f"other:{KIM}", ("data",), "github:pr/391"),
+        Evidence(date(2026, 10, 30), "changed", "#410 writes signups to analytics_events", f"other:{KIM}", ("data",), "github:pr/410"),
+        Evidence(date(2026, 9, 1), "said", "Lunch order for the offsite", "own", ("ops",), "chat:1")])
+    found = evidence.recall("Add a migration backfilling `analytics_events`", evidence.read(), date(2026, 11, 7))
+    assert [entry.row.pointer for entry in found[:2]] == ["github:pr/410", "github:pr/391"]
+    assert "analytics_events" in found[0].shared
+    assert all(entry.row.pointer != "chat:1" for entry in found)
+    assert evidence.recall("the", evidence.read(), date(2026, 11, 7)) == []
+
+
+def test_recall_shows_a_consult_once_with_how_it_ended(home, enterprise):
+    entry = ask(enterprise, text="Backfill analytics_events before the export?")
+    consults.answer(enterprise, entry.id, "redirected", "Kim made that table.", NOAH, to=KIM)
+    consults.answer(enterprise, entry.id, "confirmed", "Backfill it.", KIM)
+    [found] = evidence.recall("backfill analytics_events", evidence.read(), TODAY)
+    assert found.outcomes == ("asked", "redirected", "confirmed") and found.row.extra["id"] == entry.id
+
+
+def test_cli_recall_json(home, vault, capsys):
+    evidence.append("consults", [Evidence(date(2026, 10, 30), "changed", "#410 writes to analytics_events",
+                                          f"other:{KIM}", ("data",), "github:pr/410", {"id": "x1"})])
+    cli.main(["evidence", "--vault", str(vault), "--about", "analytics_events", "--json"])
+    [found] = json.loads(capsys.readouterr().out)
+    assert found["pointer"] == "github:pr/410" and "analytics_events" in found["shared"] and found["outcomes"] == ["changed"]
