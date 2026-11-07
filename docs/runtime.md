@@ -129,6 +129,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.104.0: goals gain weekly accounts, readable activity with expandable records, effort weights and permanent "Not this" corrections. The owner can change weights or correct items from the app; people writes the account and explore/improve read steering before choosing work. The state export includes weight, this/last week's account and bounded recent activity. No migration.
 - 0.98.0: shareable experiences hold only what a friend could act on (no account, login, shipping or billing paperwork, one line per place), and past trips are no longer whereabouts; the migration prunes each vault's tellable note.
 - 0.97.0: the owner's own things go on their plate. `brain task new … --state yours` creates one, and `--due YYYY-MM-DD` (new or set) records the day they named, exported as the task row's `due`; the app reminds them of a dated one. The recall skill captures "I have to do X eventually" this way, never as a handoff, a loop or an ask, and never brings it up on a schedule. No migration.
 - 0.88.0: no maintainer role. `brain.toml`'s `maintainers` is ignored, a former maintainer's id is identified like anyone else's, and `brain migrate-done --defer` and `deferred-steps.md` are gone: a migration step may edit SOUL.md or the runtime config unattended. Machinery is run outside conversations (engine commands in the vault, or a prompt run as the agent's own routine).
