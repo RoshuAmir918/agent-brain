@@ -40,6 +40,8 @@ def extract(ctx, since) -> list[Evidence]: ...
 
 ## 4. Evidence
 
+This is the engine's one evidence contract: the portrait's sources and the knowledge model's domain packs (`docs/knowledge.md`) both write it.
+
 Evidence is kept outside the vault, in `$AGENT_HOME/evidence/<source>/YYYY-MM.md`, like channel files: it can be large, it is never indexed into Demiurge, and it can be thrown away and rebuilt by extracting again. One line per item:
 
 ```md
@@ -50,9 +52,9 @@ Evidence is kept outside the vault, in `$AGENT_HOME/evidence/<source>/YYYY-MM.md
 - 2026-11-04 · wrote · Shared a sublet listing with the owner · other:a friend · places · imessage:link/91e0
 ```
 
-The fields are date, a verb (`said`, `did`, `went`, `bought`, `booked`, `shared`, `talks`, `plans`, `corrected`, `reviewed`, `decided`), the fact in one plain sentence, whose it is, one or more facet hints, and a pointer the source can resolve back to its input. Counts and rankings a source computes (closeness, how often a site is shared, effort by project) are evidence too, as `talks` or `did` lines with the number in the fact.
+The fields are date, a verb, the fact in one plain sentence, whose it is, one or more hints, and a pointer the source can resolve back to its input. Verbs are an open set: each source declares the verbs it emits (the personal sources use `said`, `did`, `went`, `bought`, `booked`, `shared`, `talks`, `plans`, `corrected`, `reviewed`, `decided`). A hint names a portrait facet or a knowledge area (`docs/knowledge.md`), so the image and routing read the same evidence filtered the same way. A source that needs a structured value beyond the fact (stakes, say) adds optional trailing `key=value` fields to the row; there is never a second format. Counts and rankings a source computes (closeness, how often a site is shared, effort by project) are evidence too, as `talks` or `did` lines with the number in the fact.
 
-`brain evidence [--source S] [--facet F] [--since DATE] [--json]` reads it back, newest first, so the judging step reads a few hundred lines for one area, not a source's whole output.
+`brain evidence [--source S] [--hint H] [--since DATE] [--json]` reads it back, newest first, so the judging step reads a few hundred lines for one area, not a source's whole output.
 
 ## 5. Facets: the image
 
@@ -82,7 +84,7 @@ audience: owner
 
 **Caps per facet, not per person.** Forty lines and 1,500 words a facet, eight a section within it. The image as a whole has no cap; what enters every session is the compiled portrait, below.
 
-**The judging step** is the seed skill, split by facet instead of by source: for each facet with new evidence since its last pass, read `brain evidence --facet F --since <last>`, then add, revise, promote or retire lines in that facet only. A run touches as many facets as have new evidence, and one facet's pass never edits another. The People review keeps doing the daily part (conversations, receptions, confirms), now writing into the facet a line belongs to.
+**The judging step** is the seed skill, split by facet instead of by source: for each facet with new evidence since its last pass, read `brain evidence --hint F --since <last>`, then add, revise, promote or retire lines in that facet only. A run touches as many facets as have new evidence, and one facet's pass never edits another. The People review keeps doing the daily part (conversations, receptions, confirms), now writing into the facet a line belongs to.
 
 ## 6. The portrait, compiled
 
@@ -101,7 +103,7 @@ The owner's page shows the compiled portrait first, as now. Each section opens i
 
 ## 8. How it grows
 
-- **A new source** is one module under `src/brain/sources/` with its tests, and one line in the facet hints it emits. Nothing else changes. iMessage is the first built this way: its metadata and links exporter already produces closeness and links, which become `talks` and `shared` evidence.
+- **A new source** is one module under `src/brain/sources/` with its tests, declaring the verbs and hints it emits. Nothing else changes. iMessage is the first built this way: its metadata and links exporter already produces closeness and links, which become `talks` and `shared` evidence.
 - **A new facet** appears by itself when evidence clusters, or by the owner asking ("keep a page on my climbing"), and is one note.
 - **A new kind of fact** a facet needs (a field beyond the line grammar) is a later decision; the grammar stays the same across facets so every tool reads every facet.
 
