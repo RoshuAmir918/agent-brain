@@ -42,7 +42,7 @@ def test_format_round_trip_free_sections_and_archive(vault):
     goal = goals.new(cfg, "Marathon", "Sub-3, 2:55 as a stretch", reach=True, by="2027-04-20")
     assert goals.parse_register(goal.render())[1][0].render() == goal.render()
     assert goal.public() == {"id": "G-1", "title": "Marathon", "kind": "reach", "origin": "said", "state": "active",
-                             "by": "2027-04-20", "words": "Sub-3, 2:55 as a stretch", "saidAt": "2026-11-07",
+                             "by": "2027-04-20", "supersededBy": None, "words": "Sub-3, 2:55 as a stretch", "saidAt": "2026-11-07",
                              "evidence": [], "links": {key: [] for key in ("tasks", "works", "drafts", "ideas", "hubs")}}
     for count in range(12):
         at = (TODAY - timedelta(days=11-count)).isoformat()
@@ -214,7 +214,7 @@ def test_export_contract_links_privacy_and_accepted_idea(vault, capsys, tmp_path
     run(vault, capsys, "works", "goal", "race-notes", "--goal", "G-1")
     exported = json.loads(run(vault, capsys, "state", "--json"))
     goal = exported["goals"][0]
-    assert set(goal) == {"id", "title", "kind", "origin", "state", "by", "words", "saidAt", "evidence", "links"}
+    assert set(goal) == {"id", "title", "kind", "origin", "state", "by", "supersededBy", "words", "saidAt", "evidence", "links"}
     assert len(goal["evidence"]) == 5 and goal["evidence"][0] == {"at": "2026-11-06", "text": "Run 5", "link": "Training"}
     assert goal["links"] == {"tasks": ["T-001", "T-002"], "works": ["marathon-plan", "race-notes"],
                               "drafts": ["Drafts/Race day", "agent/Prepared/Taper week"], "ideas": [exported["idea"]["id"]], "hubs": ["Training"]}
