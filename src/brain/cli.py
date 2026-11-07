@@ -392,6 +392,24 @@ def cmd_owners(args):
 def cmd_evidence(args):
     if runtime.configured() is None:
         raise SystemExit("brain evidence: AGENT_HOME is not set")
+    if args.action == "import":
+        if not args.source:
+            raise SystemExit("brain evidence import: --source NAME")
+        rows = []
+        for number, line in enumerate(sys.stdin, 1):
+            if not line.strip():
+                continue
+            try:
+                rows.append(evidence.from_json(json.loads(line)))
+            except (ValueError, TypeError) as error:   # json.JSONDecodeError is a ValueError
+                raise SystemExit(f"brain evidence import: line {number}: {error}; nothing imported")
+        try:
+            added = evidence.append(args.source, rows)
+        except ValueError as error:
+            raise SystemExit(f"brain evidence import: {error}")
+        print(json.dumps({"source": args.source, "rows": len(rows), "new": added}) if args.json
+              else f"{args.source}: {len(rows)} rows, {added} new")
+        return
     rows = evidence.read(args.source or "", args.hint or "", date.fromisoformat(args.since) if args.since else None)
     if args.about is not None:
         recalled = evidence.recall(args.about, rows, args.config.today(), args.limit)
@@ -440,7 +458,7 @@ def cmd_source(args):
     if args.action != "extract":
         raise SystemExit(f"brain source {args.target}: say extract")
     home = Path(args.home).expanduser() if args.home else runtime.configured()
-    if home is None:
+    if home is None and not args.jsonl:
         raise SystemExit("brain source: AGENT_HOME is not set; pass --home DIR to keep this evidence somewhere")
     config = getattr(args, "config", None)
     today = config.today() if config else date.today()
@@ -450,6 +468,10 @@ def cmd_source(args):
         rows = registry[args.target].extract(ctx)
     except ValueError as error:
         raise SystemExit(f"brain source {args.target}: {error}")
+    if args.jsonl:   # for a machine that holds no evidence: carried elsewhere and read with `brain evidence import`
+        for row in rows:
+            print(json.dumps(evidence.to_json(row), ensure_ascii=False))
+        return
     added = evidence.append(args.target, rows, home)
     print(f"{args.target}: {len(rows)} rows read, {added} new → {evidence.folder(home) / args.target}")
 
@@ -1560,6 +1582,8 @@ def main(argv=None):
     s = sub.add_parser("owners", help="the area's ownership hints", parents=[vault])
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_owners)
     s = sub.add_parser("evidence", help="read the evidence sources wrote, newest first", parents=[vault])
+    s.add_argument("action", nargs="?", choices=["import"],
+                   help="import: rows as JSON lines on stdin, from a source run on another machine; repeats are skipped")
     s.add_argument("--source"); s.add_argument("--hint", help="a portrait facet or a knowledge area")
     s.add_argument("--since", metavar="YYYY-MM-DD"); s.add_argument("--json", action="store_true")
     s.add_argument("--about", metavar="TEXT", help="recall: the facts sharing the names in a choice, rarest and newest first")
@@ -1570,6 +1594,7 @@ def main(argv=None):
     s.add_argument("--since", metavar="YYYY-MM-DD", help="extract: only what is this recent")
     s.add_argument("--input", metavar="PATH", help="extract: where the raw input is, when not the source's default")
     s.add_argument("--home", metavar="DIR", help="extract: the agent workspace to keep evidence in (default AGENT_HOME)")
+    s.add_argument("--jsonl", action="store_true", help="extract: print the rows as JSON lines instead of keeping them")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_source)
     s = sub.add_parser("consult", help="consult a colleague and keep their words by area (enterprise)", parents=[vault])
     actions = s.add_subparsers(dest="consult_cmd", required=True)

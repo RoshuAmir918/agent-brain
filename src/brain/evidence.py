@@ -66,6 +66,35 @@ def parse(line: str, source: str = "") -> Evidence | None:
                     parts[5], extra, source)
 
 
+def to_json(row: Evidence) -> dict:
+    """A row as one JSON object, the shape `brain evidence import` reads: how evidence crosses machines."""
+    return {"date": row.date.isoformat(), "verb": row.verb, "fact": row.fact, "whose": row.whose,
+            "hints": list(row.hints), "pointer": row.pointer, "extra": dict(row.extra)}
+
+
+def from_json(data: object) -> Evidence:
+    """A row from its JSON object, checked as strictly as a row written here: anything malformed is refused."""
+    if not isinstance(data, dict):
+        raise ValueError("a row is a JSON object")
+    missing = [key for key in ("date", "verb", "fact", "whose", "hints", "pointer") if key not in data]
+    if missing:
+        raise ValueError(f"missing {', '.join(missing)}")
+    unknown = set(data) - {"date", "verb", "fact", "whose", "hints", "pointer", "extra"}
+    if unknown:
+        raise ValueError(f"unknown field {', '.join(sorted(unknown))}")
+    hints, extra = data["hints"], data.get("extra") or {}
+    if not isinstance(hints, list) or not hints or not all(isinstance(hint, str) for hint in hints):
+        raise ValueError("hints is a non-empty list of strings")
+    if not isinstance(extra, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in extra.items()):
+        raise ValueError("extra maps strings to strings")
+    if not all(isinstance(data[key], str) for key in ("date", "verb", "fact", "whose", "pointer")):
+        raise ValueError("date, verb, fact, whose and pointer are strings")
+    row = Evidence(date.fromisoformat(data["date"]), data["verb"], data["fact"], data["whose"], tuple(hints),
+                   data["pointer"], extra)
+    render(row)   # the same checks as any row written here
+    return row
+
+
 def folder(home: Path | None = None) -> Path | None:
     home = home or runtime.configured()
     return home / "evidence" if home else None
