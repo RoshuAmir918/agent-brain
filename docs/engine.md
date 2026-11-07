@@ -171,6 +171,8 @@ Held work lives under `<agent_dir>/Prepared/`: things made or drafted for the ow
 
 **Seeding an organisation's direction.** `brain portrait seed --plans DIR [--days 30] [--json]` reads one file per project from the tracker (frontmatter `project`, `state` and optionally `initiative`, `target`, `lead`; then one line per issue, `- YYYY-MM-DD · done|opened · <key> · <title>`; `_unplanned.md` holds issues in no project). It ranks the open projects (planned, started, paused, backlog) by horizon from their target date (`now` within this quarter, `year` within twelve months, `longer` past that, none without a target), counts the issues finished in the window per project and outside any project, with each one's share, and names the projects due this quarter, not paused, with nothing finished. The skill writes After from it (one line per direction, `said` where the tracker states it, `guess` where only inferred, which reaches only the operator) and Energy as `seen` lines, including where effort and After disagree. Effort is counted by project, never by person.
 
+**Learning the company.** The `seed` skill is the intellect's onboarding: it researches the organisation from everything public (its site, writing, founders on the record, press, job listings, customers, market) and everything the operator connected (docs, meetings, shared chat, shared inboxes, the CRM, the tracker, reviews), keeps the detail in `Company/` hubs and the conclusions in the portrait. Everything in an enterprise portrait is the team's, so confidential material (board, investors, finances, compensation, HR, legal, individual performance, contract terms) never enters it; a direction it reveals goes only to the operator. Each source read leaves a Seeds note with `source:` (one of `site`, `writing`, `founders`, `press`, `jobs`, `customers`, `market`, `reviews`, `plans`, `chat`, `mail`, `docs`, `meetings`, `crm`), `read:` and, for a connected channel, `channel:`. `brain portrait coverage [--json]` reads them back: each section's lines by basis and newest evidence, each kind of source's last reading (`never`, `stale` past ninety days, or `fresh`), and the live channels in the registry no seed has read.
+
 `brain portrait [--json]` prints the claims with their ids, section, basis, confidence, evidence date and horizon; `--top N` prints only the top N After lines with their `for:` lists, for explore and prime. `--json` gives every field but `against:`.
 
 ## Responsibilities
@@ -363,6 +365,7 @@ brain validate
 brain portrait [--top N] [--json]
 brain portrait seed --reviews DIR [--days 90] [--json]
 brain portrait seed --plans DIR [--days 30] [--json]
+brain portrait coverage [--json]
 brain attribute --file <record.md> --ts <iso> [--reason <text>] [--write]
 brain attribute [--sessions-dir <dir>] [--write]
 brain digest --date YYYY-MM-DD [--sessions-dir <dir>] [--write] [--max-words 25000]

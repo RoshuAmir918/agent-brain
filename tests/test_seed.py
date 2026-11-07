@@ -150,3 +150,39 @@ def test_cli_seeds_from_plans_and_takes_one_source_at_a_time(vault, plans, revie
         cli.main(["portrait", "seed", "--vault", str(vault), "--plans", str(plans), "--reviews", str(reviews)])
     with pytest.raises(SystemExit, match="go with seed"):
         cli.main(["portrait", "--vault", str(vault), "--plans", str(plans)])
+
+
+def test_coverage_shows_what_the_portrait_knows_and_what_was_never_read(vault, capsys, monkeypatch):
+    from brain import channels
+    from brain.vault import Vault
+    monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
+    (vault / "human").mkdir()
+    fm.write(vault / "human/Portrait.md", {"kind": "orientation", "tier": "hot", "pinned": True},
+             "## After\n- Win larger sponsors · said · high · 2026-11-01 · [[START]]\n  - horizon: now\n"
+             "- Moving upmarket · guess · low · 2026-11-02 · [[START]]\n  - horizon: year\n"
+             "## Taste\n- Thin routers · seen · medium · 2026-10-26 · [[START]]\n")
+    (vault / "agent/Seeds").mkdir()
+    fm.write(vault / "agent/Seeds/2026-11-06 site.md", {"kind": "log", "source": "site", "read": "2026-11-06"}, "x\n")
+    fm.write(vault / "agent/Seeds/2026-07-01 lumen-app.md",
+             {"kind": "log", "source": "reviews", "read": "2026-07-01", "channel": "GitHub lumen/app"}, "x\n")
+    fm.write(vault / "agent/Seeds/odd.md", {"kind": "log", "source": "gossip", "read": "2026-11-01"}, "x\n")
+    config = Config.load(vault)
+    fm.write(vault / "agent/Channels.md", {"kind": "orientation", "tier": "hot"}, "# Channels\n")
+    channels.save(config, [channels.Channel("GitHub lumen/app", "shared", "lumen/app", "gh", "code", "", "2026-10-01", "live"),
+                           channels.Channel("Slack", "shared", "lumen", "demiurge", "channels", "", "2026-10-01", "live"),
+                           channels.Channel("Old Drive", "shared", "", "", "", "", "2026-01-01", "revoked")])
+    data = seed.coverage(Vault(vault), TODAY)
+    after, taste, cares = data["sections"][0], data["sections"][2], data["sections"][1]
+    assert (after["lines"], after["said"], after["guess"], after["newest"]) == (2, 1, 1, "2026-11-02")
+    assert taste["seen"] == 1 and cares["lines"] == 0
+    status = {s["source"]: (s["read"], s["status"]) for s in data["sources"]}
+    assert status["site"] == ("2026-11-06", "fresh") and status["reviews"] == ("2026-07-01", "stale")
+    assert status["founders"] == ("", "never") and len(status) == 14
+    assert data["unreadChannels"] == ["Slack"]
+    assert data["problems"] == ["agent/Seeds/odd.md: needs frontmatter source (one of site, writing, founders, press, jobs, "
+                                "customers, market, reviews, plans, chat, mail, docs, meetings, crm) and read (YYYY-MM-DD)"]
+    cli.main(["portrait", "coverage", "--vault", str(vault)])
+    out = capsys.readouterr().out
+    assert "- After: 2 lines (1 said, 0 seen, 1 guess), newest 2026-11-02" in out and "- Cares about: empty" in out
+    assert "- site: read 2026-11-06" in out and "- reviews: read 2026-07-01, stale" in out and "- jobs: never read" in out
+    assert "Connected and never read for the portrait: Slack" in out

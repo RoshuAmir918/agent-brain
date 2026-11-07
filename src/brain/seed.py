@@ -174,3 +174,54 @@ def render_direction(data: dict) -> str:
         out += ["", "Due this quarter with nothing done in the window: " + ", ".join(data["unattended"])]
     out += [f"problem: {problem}" for problem in data["problems"]]
     return "\n".join(out)
+
+
+PUBLIC = ("site", "writing", "founders", "press", "jobs", "customers", "market")
+INTERNAL = ("reviews", "plans", "chat", "mail", "docs", "meetings", "crm")
+STALE_DAYS = 90
+
+
+def coverage(vault, today: date) -> dict:
+    """How much the portrait knows and from where: each section's lines, each kind of source's last reading (from the
+    `source` and `read` keys of the Seeds notes), and the connected channels no seed has read yet."""
+    from . import channels, portrait
+    config = vault.config
+    lines = portrait.load(config)
+    sections = [{"section": name, "lines": len(found := [line for line in lines if line.section == name]),
+                 "said": sum(line.basis == "said" for line in found), "seen": sum(line.basis == "seen" for line in found),
+                 "guess": sum(line.basis == "guess" for line in found),
+                 "newest": max((line.evidence for line in found), default="")} for name in portrait.SECTIONS]
+    read: dict[str, str] = {}
+    covered: set[str] = set()
+    problems = []
+    prefix = config.agent("Seeds/")
+    for rel, note in sorted(vault.notes.items()):
+        if not rel.startswith(prefix):
+            continue
+        kind, when = str(note.data.get("source") or ""), str(note.data.get("read") or "")
+        if kind not in PUBLIC + INTERNAL or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", when):
+            problems.append(f"{rel}: needs frontmatter source (one of {', '.join(PUBLIC + INTERNAL)}) and read (YYYY-MM-DD)")
+            continue
+        read[kind] = max(read.get(kind, ""), when)
+        if note.data.get("channel"):
+            covered.add(str(note.data["channel"]).casefold())
+    floor = (today - timedelta(days=STALE_DAYS)).isoformat()
+    sources = [{"source": kind, "where": "public" if kind in PUBLIC else "internal", "read": read.get(kind, ""),
+                "status": "never" if kind not in read else "stale" if read[kind] < floor else "fresh"}
+               for kind in PUBLIC + INTERNAL]
+    unread = [row.channel for row in channels.live(channels.load(vault)) if row.channel.casefold() not in covered]
+    return {"sections": sections, "sources": sources, "unreadChannels": unread, "problems": problems}
+
+
+def render_coverage(data: dict) -> str:
+    out = ["Portrait:"]
+    out += [f"- {s['section']}: " + (f"{s['lines']} lines ({s['said']} said, {s['seen']} seen, {s['guess']} guess), newest {s['newest']}"
+                                     if s["lines"] else "empty") for s in data["sections"]]
+    for where in ("public", "internal"):
+        out += ["", f"Sources, {where}:"]
+        out += [f"- {s['source']}: " + (f"read {s['read']}" + (", stale" if s["status"] == "stale" else "") if s["read"] else "never read")
+                for s in data["sources"] if s["where"] == where]
+    if data["unreadChannels"]:
+        out += ["", "Connected and never read for the portrait: " + ", ".join(data["unreadChannels"])]
+    out += [f"problem: {problem}" for problem in data["problems"]]
+    return "\n".join(out)
