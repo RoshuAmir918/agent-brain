@@ -150,8 +150,8 @@ def upcoming(vault: Vault, days: int = UPCOMING_DAYS) -> str:
              "Dates named anywhere in the vault's notes. Raise one when it bears on the request or on the owner's plans; "
              "a due date the vault cannot show as done is worth one sentence.", ""]
     lines += [f"- {when:%a %b %-d} · {text} · [[{rel}]]" for (when, text), rel in items] or ["- nothing dated"]
-    calendar = channel_files.calendar(vault, days)
-    return "\n".join(lines) + ("\n\n" + calendar if calendar else "")
+    blocks = [block for block in (channel_files.calendar(vault, days), channel_files.canvas(vault, days)) if block]
+    return "\n\n".join(["\n".join(lines), *blocks])
 
 
 def mentioned(m: re.Match, today: date) -> date | None:

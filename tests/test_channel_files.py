@@ -274,3 +274,59 @@ def test_mail_coverage_line_names_accounts_and_last_sync(synced):
     text = channel_files.render_mail(channel_files.mail(Vault(vault), datetime(2026, 11, 4)))
     assert text.splitlines()[0].startswith("coverage: echo@example.com (own), friend@example.com (shared), mira@example.com (owner), missing@example.com (owner), other@example.com (owner); last sync 2026-11-04")
     assert " · mira@example.com (owner) · " in text
+
+
+def canvas_school(root, host="school.instructure.com"):
+    school = root / host
+    (school / "courses" / "10").mkdir(parents=True, exist_ok=True)
+    (school / "courses.md").write_text("# Courses\n\n## Math\n\nid: 10\n")
+    (school / "courses" / "10" / "assignments.md").write_text(
+        "# Assignments: Math (10)\n\n"
+        "## Essay\n\nid: 1\ndue: 2026-11-06 23:59 -08:00\npoints: 20\nsubmission: unsubmitted\nscore: \ngraded: \nurl: u\n\n"
+        "## Quiz\n\nid: 2\ndue: 2026-11-05 10:00 -08:00\npoints: 10\nsubmission: submitted\nscore: \ngraded: \nurl: u\n\n"
+        "## Lab 3\n\nid: 3\ndue: 2026-11-01 10:00 -08:00\npoints: 20\nsubmission: graded, late\nscore: 18\ngraded: 2026-11-03 09:30 -08:00\nurl: u\n\n"
+        "## Old lab\n\nid: 4\ndue: 2026-10-01 10:00 -08:00\npoints: 20\nsubmission: graded\nscore: 19\ngraded: 2026-10-02 09:30 -08:00\nurl: u\n\n"
+        "## Reading log\n\nid: 5\ndue: 2026-10-30 10:00 -08:00\npoints: 5\nsubmission: unsubmitted, missing\nscore: \ngraded: \nurl: u\n\n"
+        "## Far essay\n\nid: 6\ndue: 2026-11-30 10:00 -08:00\npoints: 5\nsubmission: unsubmitted\nscore: \ngraded: \nurl: u\n\n")
+    return school
+
+
+def announcement(school, day, id, title, posted):
+    path = school / "courses" / "10" / "announcements" / day / f"{id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(path, {"title": title, "author": "Prof", "posted": posted, "course": "Math", "id": id, "url": "u"}, "BODY_MUST_NEVER_APPEAR")
+
+
+def test_canvas_lists_due_missing_new_grades_and_recent_announcements(synced):
+    vault, root = synced
+    school = canvas_school(root)
+    announcement(school, "2026-11-03", 7, "Midterm moved", "2026-11-03 12:00 -08:00")
+    announcement(school, "2026-10-20", 8, "Old news", "2026-10-20 12:00 -08:00")
+    text = channel_files.canvas(Vault(vault))
+    assert text.startswith("## Canvas: due in the next 7 days, and what changed")
+    assert "Fri Nov 6 23:59 · Essay (Math) · unsubmitted" in text
+    assert "Quiz" not in text and "Far essay" not in text            # handed in, or beyond the window
+    assert "- Missing: Reading log (Math)" in text
+    assert "Graded Tue Nov 3: Lab 3 (Math) · 18/20" in text
+    assert "Old lab" not in text                                    # graded long ago is not news
+    assert "Announcement Tue Nov 3: Midterm moved (Math)" in text
+    assert "Old news" not in text and "BODY_MUST_NEVER_APPEAR" not in text
+
+
+def test_canvas_is_silent_without_a_school_and_says_so_when_nothing_is_due(synced):
+    vault, root = synced
+    assert channel_files.canvas(Vault(vault)) == ""
+    (root / "mira@example.com").mkdir(parents=True)                  # a Google folder is not a school
+    assert channel_files.canvas(Vault(vault)) == ""
+    school = root / "empty.instructure.com"
+    (school / "courses").mkdir(parents=True)
+    (school / "courses.md").write_text("# Courses\n\nNo active courses.\n")
+    assert "Nothing due on Canvas in the next 7 days" in channel_files.canvas(Vault(vault))
+
+
+def test_canvas_block_reaches_the_session_context_beside_the_calendar(synced):
+    vault, root = synced
+    canvas_school(root)
+    calendar_file(root, event())
+    text = compile_context.upcoming(Vault(vault))
+    assert text.index("## Calendar") < text.index("## Canvas")
