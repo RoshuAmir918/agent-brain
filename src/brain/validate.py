@@ -170,16 +170,31 @@ def owner_profile(vault: Vault) -> list[str]:
 
 def portrait_hygiene(vault: Vault) -> list[str]:
     from . import portrait
-    rel = vault.config.human_portrait
+    config = vault.config
+    rel = config.human_portrait
     note = vault.notes.get(rel)
-    if not note:
-        return []
-    found = portrait.hygiene(note.body, vault.config.today(), rel, vault.config.edition == "enterprise")
-    if vault.config.edition == "personal":
+    company = config.edition == "enterprise"
+    found = []
+    if note and note.data.get("compiled"):
+        if note.data["compiled"] != portrait.digest(note.body):
+            found.append(f"{rel}: edited by hand; it is compiled from {portrait.folder(config).name}/, so edit the facet "
+                         "and run `brain portrait compile`")
+    elif note:
+        found += portrait.hygiene(note.body, config.today(), rel, company)
+    prefix = portrait.folder(config).relative_to(config.vault_path).as_posix() + "/"
+    owners: dict[str, str] = {}
+    for facet_rel, facet in sorted(vault.notes.items()):
+        if facet_rel.startswith(prefix) and "/" not in facet_rel[len(prefix):]:
+            found += portrait.facet_hygiene(facet.data, facet.body, config.today(), facet_rel, company)
+            for line in portrait.parse(facet.body)[0]:
+                if line.id and owners.setdefault(line.id, facet_rel) != facet_rel:
+                    found.append(f"{facet_rel} · {line.text}: id ^{line.id} is also in {owners[line.id]}; "
+                                 "give the newer claim no id and the night assigns one")
+    if config.edition == "personal":
         from . import goals
-        known = {goal.gid for goal in goals.load(vault.config) + goals.archived(vault.config)}
-        found += [f"{rel} · After · {line.text}: goal {line.goal} is not in {vault.config.human_goals}"
-                  for line in portrait.load(vault.config) if line.goal and line.goal not in known]
+        known = {goal.gid for goal in goals.load(config) + goals.archived(config)}
+        found += [f"{rel} · After · {line.text}: goal {line.goal} is not in {config.human_goals}"
+                  for line in portrait.image(config) if line.goal and line.goal not in known]
     return found
 
 

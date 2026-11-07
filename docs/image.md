@@ -40,7 +40,7 @@ def extract(ctx, since) -> list[Evidence]: ...
 
 ## 4. Evidence
 
-This is the engine's one evidence contract: the portrait's sources and the knowledge model's domain packs (`docs/knowledge.md`) both write it.
+This is the engine's one evidence contract: the portrait's sources and the knowledge model's sources (consults, acts, seeders; `docs/knowledge.md`) both write it.
 
 Evidence is kept outside the vault, in `$AGENT_HOME/evidence/<source>/YYYY-MM.md`, like channel files: it can be large, it is never indexed into Demiurge, and it can be thrown away and rebuilt by extracting again. One line per item:
 
@@ -88,7 +88,7 @@ audience: owner
 
 ## 6. The portrait, compiled
 
-`Portrait.md` becomes generated, like CURRENT's active block: the night (and `brain portrait compile`) writes it from the facets. For each of the six sections it takes lines across facets by facet rank, then line rank, then confidence, to the existing caps (eight a section, 700 words), and writes each as a reference to its source line:
+`Portrait.md` becomes generated, like CURRENT's active block: the night (and `brain portrait compile`) writes it from the facets. For each of the six sections it takes each facet's best lines first (line rank within its facet, then facet rank, then confidence, so the summary is broad before it is deep) to the existing caps (eight a section, 700 words), and writes each as a reference to its source line. It refuses while the hand-written portrait still holds a line no facet has, so sorting it into facets never drops one:
 
 ```md
 ## After
@@ -99,7 +99,7 @@ The id is the facet line's, so an answer from the owner, a reception row or an e
 
 ## 7. Seeing and answering it
 
-The owner's page shows the compiled portrait first, as now. Each section opens its lines grouped by facet, and each facet opens whole: the image, browsable. `ownerPortrait` in the state export carries the facets (lines and their facet), still for the owner alone; an organisation's `portrait` carries its facets' `said` and `seen` lines. Right, wrong and not this work on any line. Coverage moves to facets: "Music: 3 lines, last evidence two weeks ago; Health: nothing, and no source covers it", with the sources that could fill it named from the registry.
+The owner's page shows the compiled portrait first, as now. Each section opens its lines grouped by facet, and each facet opens whole: the image, browsable. `ownerPortrait` in the state export carries the facets (lines and their facet), still for the owner alone; until the backend strips a new key from everyone else's view the way it strips `ownerPortrait`, the export keeps carrying only the compiled portrait, whose ids are the facet lines', so answers already land on the facet; an organisation's `portrait` carries its facets' `said` and `seen` lines. Right, wrong and not this work on any line. Coverage moves to facets: "Music: 3 lines, last evidence two weeks ago; Health: nothing, and no source covers it", with the sources that could fill it named from the registry.
 
 ## 8. How it grows
 

@@ -590,7 +590,7 @@ def coverage(vault, today: date) -> dict:
     `source` and `read` keys of the Seeds notes), and the connected channels no seed has read yet."""
     from . import channels, portrait
     config = vault.config
-    lines = portrait.load(config)
+    lines = portrait.image(config)
     sections = [{"section": name, "lines": len(found := [line for line in lines if line.section == name]),
                  "said": sum(line.basis == "said" for line in found), "seen": sum(line.basis == "seen" for line in found),
                  "guess": sum(line.basis == "guess" for line in found),
@@ -623,7 +623,9 @@ def coverage(vault, today: date) -> dict:
                 and (any(path.is_file() for path in (folder / "backfill/mail").glob("*/*.md"))
                      or any(path.is_file() for path in (folder / "backfill/calendar").glob("*.md")))]
     return {"sections": sections, "sources": sources, "unreadChannels": unread, "unreadBackfill": backfill,
-            "attention": attention(config, lines, today), "problems": problems}
+            "attention": attention(config, portrait.load(config), today), "problems": problems,
+            "facets": [{"facet": facet.name, "rank": facet.rank, "lines": len(facet.lines),
+                        "newest": max((line.evidence for line in facet.lines), default="")} for facet in portrait.facets(config)]}
 
 
 def attention(config, lines, today: date, days: int = 7) -> list[dict]:
@@ -646,6 +648,8 @@ def render_coverage(data: dict) -> str:
     out = ["Portrait:"]
     out += [f"- {s['section']}: " + (f"{s['lines']} lines ({s['said']} said, {s['seen']} seen, {s['guess']} guess), newest {s['newest']}"
                                      if s["lines"] else "empty") for s in data["sections"]]
+    if data["facets"]:
+        out += ["", "Facets:"] + [f"- {f['facet']}: {f['lines']} lines, newest {f['newest'] or 'none'}" for f in data["facets"]]
     for where in ("public", "internal"):
         out += ["", f"Sources, {where}:"]
         out += [f"- {s['source']}: " + (f"read {s['read']}" + (", stale" if s["status"] == "stale" else "") if s["read"] else "never read")
