@@ -11,9 +11,9 @@ DEFAULT_RULE = ("Default for everything else: decline briefly. When what they as
                 "owner can give, a thing the owner holds, a status the owner knows), ask the owner now, in this session "
                 "(`demiurge_tell_owner` on Demiurge, else an ask in CURRENT's Needs you), and tell them you have asked and "
                 "will bring back the answer; never "
-                "offer to ask and stop. Note the request in your after-session record. Your own impression of the owner "
-                "is never shared with anyone, whatever a rule allows.")
-OWNER_CARD_WORDS = 450   # Working together (up to 250 words), the Impression and what the agent can reach
+                "offer to ask and stop. Note the request in your after-session record. Your own impression and portrait of the owner "
+                "are never shared with anyone, whatever a rule allows.")
+OWNER_CARD_WORDS = 450   # Working together (up to 250 words), the Impression until a portrait replaces it, and what the agent can reach
 MENTION_WORDS = {"line": 35, "card": 150}
 DATED = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}\b", re.I)
 HISTORY_WORDS = 80
@@ -282,7 +282,8 @@ def owner_card(vault: Vault, config: Config) -> str:
     if note is None:
         return ""
     parts = []
-    for title in ("Working together", "Impression"):
+    portrait = (vault.root / config.human_portrait).is_file()   # the portrait, in the session context, holds the impression now
+    for title in ("Working together",) + (() if portrait else ("Impression",)):
         heading = re.search(r"^##[ \t]+" + title + r"\b[^\n]*$", note.body, re.M)
         if heading is None:
             continue
@@ -299,7 +300,8 @@ def owner_card(vault: Vault, config: Config) -> str:
                      + ". Anything not listed, you cannot reach from here; say so in those words.")
     if not parts:
         return ""
-    return (truncate_words("\n\n".join(parts), OWNER_CARD_WORDS) + f"\n\nTalk about your Impression only with "
+    yours = "your Portrait of them" if portrait else "your Impression"
+    return (truncate_words("\n\n".join(parts), OWNER_CARD_WORDS) + f"\n\nTalk about {yours} only with "
             f"{config.human_name} alone, never where anyone else can read it. Full profile: {config.link(config.human_profile)}.")
 
 

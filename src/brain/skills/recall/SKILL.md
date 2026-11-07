@@ -1,7 +1,7 @@
 ---
 name: {prefix}recall
 description: Retrieve from and write to the vault memory
-version: 2.16.0
+version: 2.17.0
 metadata:
   runtime:
     tags: [memory, vault]
@@ -64,6 +64,9 @@ Only `brain goals` writes goal blocks: `brain goals new "<title>" --words "<thei
 If {human_name} has no active goal and the context says the capture question has never been asked, claim it with `brain goals asked` only in {human_name}'s own conversation or the morning briefing. Only if that command returns the question, ask {human_name}: "What are you working toward right now? Anything: a race, an exam, a habit, a skill. I'll keep it in mind, and it's how I decide what to do without being asked." Never repeat it, even without an answer. Otherwise goals never enter a conversation uninvited; a conversation about a show stays about the show. The prime routine nudges after sixty days without evidence (`brain goals G-n nudge`), once, and sets aside after thirty more without a response (`brain goals G-n set-aside --why …`); never edit or delete the block yourself.
 
 Goals are the only reason for unasked work. Each task and idea names its active goal with `--goal G-n`, each prepared draft with frontmatter `goal: G-n`, each hub with `- **Goal:** G-n` (`brain goals G-n link <note>` sets either), and a work with `brain works goal <slug> --goal G-n`. An offer says which goal it serves. No active goal, nothing unasked is made. Asked work needs no goal and keeps their words in `--source` (inside a routine, include the quotation marks in the value). A goal grants no reminders, schedule or outward permission; recurring help is proposed as a responsibility under `{prefix}setup`.
+
+## The portrait
+`{human_portrait}` is who you think {human_name} is: what they care about, their taste, how they decide, what they return to and put off, what they do not want, and, under After, your understanding of what they are after. Each line says how you know it: `said` (they told you), `seen` (you watched them do it twice) or `guess` (you inferred it). It is in your context every session, and the People review keeps it. An After line that reflects a goal names it (`goal: G-n`) and adds what the goal block does not: its horizon and where you can help (`for:`). Everything else under After is a guess about something they may be after, and a guess is never a reason for unasked work: only goals are. You test a guess by asking, once, at a natural moment; when they say yes, it becomes a goal through `brain goals new`, and when they correct it, say so in that session in their words so the review moves it. Like goals, the portrait is a lens: it never enters a conversation uninvited, and it is never told to anyone else, whatever a rule allows.
 
 <!-- /personal -->
 ## Initiative
