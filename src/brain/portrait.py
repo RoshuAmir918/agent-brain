@@ -100,12 +100,15 @@ def parse(body: str) -> tuple[list[Line], list[str]]:
 
 def load(config: Config) -> list[Line]:
     path = config.vault_path / config.human_portrait
-    return parse(fm.read(path)[1])[0] if path.is_file() else []
+    try:
+        return parse(fm.read(path)[1])[0] if path.is_file() else []
+    except fm.Malformed:
+        return []   # validate names it
 
 
 def shown(lines: list[Line]) -> list[Line]:
     """What everyone in an organisation may see: what was stated and what was seen, never a guess about direction."""
-    return [line for line in lines if line.basis != "guess"]
+    return [line for line in lines if line.basis in ("said", "seen")]
 
 
 def top(lines: list[Line], n: int) -> list[Line]:
@@ -145,7 +148,10 @@ def stamp(config: Config) -> int:
     if not path.is_file():
         return 0
     with vault_lock(config):
-        data, body = fm.read(path)
+        try:
+            data, body = fm.read(path)
+        except fm.Malformed:
+            return 0   # validate names it
         history = path.with_name("History.md")
         taken = set(ID.findall(body)) | (set(ID.findall(history.read_text(encoding="utf-8"))) if history.is_file() else set())
         section, count, out = None, 0, []

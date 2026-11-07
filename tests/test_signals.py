@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from brain import cli, install, loops, session_tools, signals, tasks, validate
+from brain import channels, cli, fm, install, loops, session_tools, signals, tasks, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -25,6 +25,13 @@ def monitor(vault, tmp_path, monkeypatch):
     config = Config.load(vault)
     tasks.set_fields(config, "T-001", config.today(), values={"delivers": "notes in Home"})
     return config, home, clock
+
+
+def register(config, *accounts, status="live"):
+    rows = [channels.Channel(account, "owner", account, f"`$AGENT_HOME/channels/{account}/`", "", "", "", status).render()
+            for account in accounts]
+    fm.write(config.vault_path / config.agent("Channels.md"), {"kind": "orientation"},
+             channels.HEADER + "\n" + "\n".join(rows) + "\n")
 
 
 @contextmanager
@@ -73,6 +80,7 @@ def test_watch_changes_when_loop_becomes_due_and_closes(monitor):
 
 def test_watch_changes_for_new_channel_files_and_sorts_rows(monitor):
     config, home, clock = monitor
+    register(config, "a-account", "z-account")
     initial = signals.watch(config)
     mail = home / "channels/z-account/mail/2026-10-28"
     calendar = home / "channels/a-account/calendar"
@@ -317,6 +325,7 @@ def test_a_new_run_failure_changes_the_signal_only_while_something_is_due(monito
 
 def test_a_rewritten_calendar_day_changes_the_signal(monitor):
     config, home, clock = monitor
+    register(config, "a")
     calendar = home / "channels/a/calendar"
     calendar.mkdir(parents=True)
     (calendar / "2026-12-04.md").write_text("One event")
@@ -336,9 +345,9 @@ def test_only_conversation_user_turns_are_unanswered(monitor):
 
 def test_watch_wakes_for_people_and_bots_but_not_promotions_or_sent_mail(monitor):
     config, home, clock = monitor
+    register(config, "owner@example.com")
     mail = home / "channels/owner@example.com/mail/2026-10-28"
     mail.mkdir(parents=True)
-    from brain import fm
     fm.write(mail / "a.md", {"from": "Alex <alex@example.com>", "labels": ["INBOX"]}, "body")
     first = signals.watch(config)
     assert "1 worth a look, newest 2026-10-28/a.md" in first
@@ -351,3 +360,16 @@ def test_watch_wakes_for_people_and_bots_but_not_promotions_or_sent_mail(monitor
     fm.write(mail / "promo.md", {"from": "Shop <deals@shop.com>", "labels": ["CATEGORY_PROMOTIONS"]}, "body")
     fm.write(mail / "sent.md", {"from": "Owner <owner@example.com>", "labels": ["SENT"]}, "body")
     assert signals.watch(config) == third
+
+
+def test_watch_reads_only_live_registry_rows(monitor):
+    config, home, clock = monitor
+    for account in ("live", "revoked", "stray"):
+        (home / f"channels/{account}/calendar").mkdir(parents=True)
+        (home / f"channels/{account}/calendar/2026-10-28.md").write_text("Events")
+    register(config, "live")
+    with (config.vault_path / config.agent("Channels.md")).open("a") as stream:
+        stream.write(channels.Channel("revoked", "owner", "revoked", "`$AGENT_HOME/channels/revoked/`",
+                                      "", "", "", "revoked").render() + "\n")
+    rows = signals.watch(config).split("channels:\n")[1].split("unanswered:")[0]
+    assert rows.startswith("live/calendar: ") and "revoked" not in rows and "stray" not in rows

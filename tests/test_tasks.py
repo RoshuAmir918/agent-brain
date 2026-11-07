@@ -258,7 +258,7 @@ def test_task_command_marks_yours_completes_and_drops(vault, capsys):
     registered, _ = load_tasks(Config.load(vault))
     assert registered[0].task_state == "completed" and "— Roshan sent it" in registered[0].body
     with pytest.raises(SystemExit):
-        cli.main(["task", "T-001", "drop", "--vault", str(vault)])
+        cli.main(["task", "T-001", "drop", "--vault", str(vault), "--by-owner"])
     assert "is not an open task" in capsys.readouterr().err
 
 

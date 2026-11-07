@@ -8,7 +8,7 @@ from datetime import date
 from pathlib import Path
 from statistics import median
 
-from . import directory, fm, needs, owners, session_context, tasks
+from . import directory, fm, identity, needs, owners, tasks
 from .config import Config
 from .retrieve import tokens
 
@@ -49,14 +49,17 @@ def area_path(config: Config, area: str) -> Path:
 def identities(config: Config) -> dict[str, str]:
     """Map explicit person-profile ids to Slack, then Demiurge, then their first other id."""
     out = {}
-    line = session_context._qualified_id_line("github", r"(?P<id>[A-Za-z0-9-]+)")
-    email = session_context._qualified_id_line("email", r"(?P<id>[A-Za-z0-9.!#$%&'*+=?^{}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
+    line = identity.qualified_id_line("github", r"(?P<id>[A-Za-z0-9-]+)")
+    email = identity.qualified_id_line("email", r"(?P<id>[A-Za-z0-9.!#$%&'*+=?^{}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})")
     # Only person profiles, read directly: loading the whole vault per call made ranking scale with the vault.
     for path in sorted((config.vault_path / config.people_dir).rglob("Profile.md")):
-        data, body = fm.read(path)
-        if data.get("kind") == "log":   # a moved or retired stub, never an identity (as directory.profiles)
+        try:
+            data, body = fm.read(path)
+        except fm.Malformed:
+            continue   # skipped as the vault skips it
+        if data.get("kind") == "log":   # a moved or retired stub, never an identity (as identity.profiles)
             continue
-        ids = session_context.profile_ids(body)
+        ids = identity.profile_ids(body)
         ids += ["github:" + match["id"] for match in re.finditer(line, body)]
         ids += ["email:" + match["id"].casefold() for match in re.finditer(email, body)]
         if ids:

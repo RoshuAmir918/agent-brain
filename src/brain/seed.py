@@ -233,8 +233,8 @@ def load(folder: Path, today: date, days: int = DAYS) -> tuple[list[Review], lis
     """Merged PRs within the window, with the comments their author did not write, and what could not be read."""
     reviews, problems, floor = [], [], (today - timedelta(days=days)).isoformat()
     for path in sorted(folder.glob("*.md")):
-        data, body = fm.read(path)
         try:
+            data, body = fm.read(path)
             review = Review(int(data["pr"]), str(data.get("title", "")), str(data["author"]), str(data["merged"]), path)
             date.fromisoformat(review.merged)
         except (KeyError, TypeError, ValueError):
@@ -516,7 +516,11 @@ def load_plans(folder: Path, today: date, days: int) -> tuple[list[Project], lis
     could not be read. `_unplanned.md` holds issues done in no project."""
     projects, unplanned, problems, floor = [], [], [], (today - timedelta(days=days)).isoformat()
     for path in sorted(folder.glob("*.md")):
-        data, body = fm.read(path)
+        try:
+            data, body = fm.read(path)
+        except fm.Malformed as error:
+            problems.append(f"{path.name}: frontmatter is not valid YAML ({error})")
+            continue
         done = []
         for line in body.splitlines():
             if not line.startswith("- "):

@@ -10,16 +10,20 @@ import yaml
 FM_RE = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n?", re.S)
 
 
+class Malformed(ValueError):
+    """A header that is present but not a YAML mapping. Never read as body: a writer would bury it, and its tier."""
+
+
 def split(text: str) -> tuple[dict, str]:
     m = FM_RE.match(text)
     if not m:
         return {}, text
     try:
         data = yaml.safe_load(m.group(1)) or {}
-    except yaml.YAMLError:
-        return {}, text
+    except yaml.YAMLError as error:
+        raise Malformed(str(error).splitlines()[0]) from error
     if not isinstance(data, dict):
-        return {}, text
+        raise Malformed(f"frontmatter is a {type(data).__name__}, not a mapping")
     return data, text[m.end():]
 
 
@@ -31,7 +35,10 @@ def join(data: dict, body: str) -> str:
 
 
 def read(path: Path) -> tuple[dict, str]:
-    return split(path.read_text(encoding="utf-8"))
+    try:
+        return split(path.read_text(encoding="utf-8"))
+    except Malformed as error:
+        raise Malformed(f"{path}: {error}") from error
 
 
 def write(path: Path, data: dict, body: str) -> None:

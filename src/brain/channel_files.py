@@ -199,16 +199,18 @@ def calendar(vault: Vault, days: int = 7) -> str:
     return head + "\n".join(lines)
 
 
-def canvas_schools() -> list[Path]:
-    """The owner's synced Canvas schools: folders under $AGENT_HOME/channels named for a host (no '@'), with courses."""
+def canvas_schools(vault: Vault) -> list[Path]:
+    """The owner's synced Canvas schools: folders under $AGENT_HOME/channels named for a host (no '@'), with courses,
+    that a live registry row reaches. Files left by a pending, revoked or unregistered school are never read."""
     home = runtime.configured()
     if not home:
         return []
+    named = {match[1] for row in channels.live(channels.load(vault)) if (match := FOLDER.search(row.reach))}
     try:
         folders = sorted((Path(home) / "channels").iterdir())
     except OSError:
         return []
-    return [f for f in folders if "@" not in f.name and "." in f.name and (f / "courses.md").is_file()]
+    return [f for f in folders if f.name in named and "@" not in f.name and "." in f.name and (f / "courses.md").is_file()]
 
 
 def canvas_time(value: str, config: Config) -> datetime | None:
@@ -238,7 +240,7 @@ def parse_assignments(text: str, config: Config) -> list[dict]:
 def canvas(vault: Vault, days: int = 7) -> str:
     """What is due on the owner's Canvas, what is missing, and what changed: new grades and announcements. Empty when
     no Canvas is synced, since most owners have none."""
-    schools = canvas_schools()
+    schools = canvas_schools(vault)
     if not schools:
         return ""
     config = vault.config

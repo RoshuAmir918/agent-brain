@@ -9,7 +9,8 @@ from pathlib import PurePosixPath
 
 from . import access, fm, goals, health, ideas, journal, ledger, loops, needs, portrait, responsibilities, schedule, tasks, triggers, views, works
 from .config import Config
-from .session_context import legacy, profile_ids
+from .identity import profile_ids
+from .session_context import legacy
 from .vault import Vault
 
 
@@ -20,6 +21,8 @@ def _public(vault: Vault, source: str) -> bool:
                 config.people_dir, config.agents_dir, config.runtime_dir)
     if path.is_absolute() or ".." in path.parts or any(path.is_relative_to(folder) for folder in excluded):
         return False
+    if path.as_posix() in vault.malformed or path.as_posix() + ".md" in vault.malformed:
+        return False   # its tier is unreadable, so it may be private
     note = vault.notes.get(path.as_posix()) or vault.notes.get(path.as_posix() + ".md")
     return note is None or (note.data.get("tier") != "private" and note.data.get("kind") != "conversation")
 
@@ -48,7 +51,10 @@ def _tasks(vault: Vault) -> list[dict]:
     for path in sorted((config.vault_path / config.agent("Tasks Archive")).glob("T-*.md")):
         task = tasks.read_archived_task(config, path)
         if task is None:
-            body = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
+            try:
+                body = re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", fm.read(path)[1], flags=re.M)
+            except fm.Malformed:
+                continue   # its tier is unreadable, so it may be private
             parsed = tasks.parse_register(body)[1]
             task = parsed[0] if parsed else None
         if task is not None and task.tid not in seen:
@@ -187,7 +193,7 @@ def _routines(config: Config, hubs: list[dict], rows: list[tuple[str, str, int, 
     return sorted(out.values(), key=lambda routine: (routine["name"].casefold(), routine["name"]))
 
 
-def _shareable(vault: Vault, hubs: list[dict], recent: list[dict]) -> dict:
+def _shareable(vault: Vault, hubs: list[dict], recent: list[dict], routine_hubs: dict[str, str]) -> dict:
     """What each audience may see. A vault still on the old table shows nothing: its deny-wins rows are prose."""
     config = vault.config
     unmigrated = legacy(vault, config)
@@ -199,10 +205,12 @@ def _shareable(vault: Vault, hubs: list[dict], recent: list[dict]) -> dict:
                         if note.data.get("skill") and note.data.get("records")]
     receipts = []
     for receipt in recent:
-        hub = next((hub for hub in responsibilities if _matches_routine(config, hub, receipt["routine"])), None)
-        if hub and hub["source"] not in hub_subjects:
+        # The schedule's own owner first, as the routines export resolves it; then the name matching the ledger uses.
+        source = routine_hubs.get(receipt["routine"].casefold()) or next(
+            (hub["source"] for hub in responsibilities if _matches_routine(config, hub, receipt["routine"])), None)
+        if source and source not in hub_subjects:
             continue
-        subject = hub_subjects[hub["source"]] if hub else "plans"
+        subject = hub_subjects[source] if source else "plans"
         receipts.append((subject, {key: receipt[key] for key in ("at", "routine", "account")}))
     groups = access.groups(vault, config)
     audiences = [("group:" + PurePosixPath(rel).stem, access.Audience("group", rel)) for rel in groups]
@@ -218,7 +226,7 @@ def _shareable(vault: Vault, hubs: list[dict], recent: list[dict]) -> dict:
                  "receipts": [receipt for subject, receipt in receipts if tell.get(subject) == "details"][:20]}
         if audience.kind == "group":
             entry["members"] = [{"profile": rel, "ids": profile_ids(vault.notes[rel].body)}
-                                for rel in groups[audience.target]]
+                                for rel in groups[audience.target] if access.confirmed(vault.notes[rel])]
         out[key] = entry
     return out
 
@@ -311,6 +319,8 @@ def build(config: Config, today: date) -> dict:
     hubs = _hubs(vault, task_entries)
     responsibility_entries = responsibilities.discover(vault)
     routine_owners = responsibilities.link(responsibility_entries, schedule.load(config))
+    hub_of = {entry["id"]: entry["hub"] for entry in responsibility_entries}
+    routine_hubs = {name.casefold(): hub_of[owner] for name, owner in routine_owners.items() if owner in hub_of}
     public_ids = {entry["id"] for entry in responsibility_entries if _public(vault, entry["hub"])}
     responsibility_entries = [entry for entry in responsibility_entries if _public(vault, entry["hub"])]
     rows = _rows(vault)
@@ -356,7 +366,7 @@ def build(config: Config, today: date) -> dict:
             "loops": _loops(vault, loops.open_loops(config)),
             "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
             "idea": owner_idea, "ideasOpen": ideas_open, "channels": _channels(vault),
-            "shareable": _shareable(vault, hubs, recent),
+            "shareable": _shareable(vault, hubs, recent, routine_hubs),
             "waitingOnComputer": [task["id"] for task in task_entries if task["open"] and task["resume"] == "computer"],
             "responsibilities": responsibility_entries,
             # an organisation's stage is the whole team's, so it shows what was stated and seen; a person's portrait is

@@ -10,6 +10,7 @@ from pathlib import Path
 from . import access_log, fm, ledger, loops, needs, tasks
 from .lock import vault_lock
 from .config import Config
+from .identity import role
 from .vault import Vault
 
 HEADER = ("---\nkind: log\ntier: cold\n---\n\n"
@@ -71,10 +72,10 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     local = config.local(at)
     from .state import _public   # the export's boundary: a profile or the owner's notes are never named here
     vault = Vault(config.vault_path)
-    from .session_context import is_member, is_owner
     ids = tuple(value for value in (user_id, user_id_alt) if value)
     # In an organisation's intellect a member is the owner of their own conversation and tasks.
-    owner = is_owner(config, platform, ids) or is_member(config, platform, ids)
+    owner = role(vault, config, platform, ids) in ("owner", "member")
+    speaker = f"{platform}:{ids[-1]}" if ids and platform not in ("", "cli") else None
     touched = [title for title in dict.fromkeys(_clean(title) for title in record.get("touched") or [])
                if title and (target := vault.resolve(title)) and _public(vault, target)]
     for loop in record.get("loops") or []:
@@ -107,7 +108,7 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
             if len(matched) == 1:
                 try:
                     needs.resolve(config, matched[0].id, because="answered in conversation", today=local.date(),
-                                  owner_engaged=owner)
+                                  owner_engaged=owner, by=speaker)
                 except ValueError:
                     pass   # already gone, or an item that resolves where it lives
     if needs_you := _clean(record.get("needsYou")):
@@ -118,14 +119,15 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
             add_ask(config, local.date(), needs_you, touched[0] if touched else None)
     if owner:
         working_together(config, local.date(), record.get("workingTogether"))
-        promote_touched(config, vault, record.get("touched") or [], local.date())
+        promote_touched(config, vault, record.get("touched") or [], local.date(), speaker)
     noted(config, local, record.get("noted"), None if owner else (_clean(record.get("speaker")) or user_id or "someone"))
     access_log.append(config, record.get("access"), platform, at, user_id=user_id, user_id_alt=user_id_alt)
     return loops.path_for(config)
 
 
-def promote_touched(config: Config, vault: Vault, touched: list[str], today: date) -> None:
-    """Only the owner's touch of a task's own entry promotes it; a whole-register link is ambiguous."""
+def promote_touched(config: Config, vault: Vault, touched: list[str], today: date, by: str | None = None) -> None:
+    """Only the owner's touch of a task's own entry promotes it; a whole-register link is ambiguous. In an organisation,
+    a member touching someone else's task (`by` is not its owner) leaves it as it is."""
     targets = set()
     for title in touched:
         target, _, anchor = _clean(title).partition("#")
@@ -137,7 +139,7 @@ def promote_touched(config: Config, vault: Vault, touched: list[str], today: dat
     with vault_lock(config):
         registered, archived = tasks.load_tasks(config)
         for task in registered + archived:
-            if not task.handoff:
+            if not task.handoff or task.owner and by and by != task.owner:
                 continue
             own_archive = config.agent(f"Tasks Archive/{task.tid}.md")
             if any((source == own_archive and (not anchor or anchor == task.tid or

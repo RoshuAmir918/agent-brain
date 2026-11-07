@@ -2,7 +2,7 @@ from dataclasses import replace
 
 import pytest
 
-from brain import cli, fm, session_context
+from brain import cli, fm, identity, session_context
 from brain.vault import Vault
 
 
@@ -127,25 +127,37 @@ def test_alternative_id_can_resolve_a_single_profile(people_vault):
 
 @pytest.mark.parametrize("user_id", ["U_FRONTMATTER_ONLY", "ALICE", "U_ALICE-more", "U_ALICE_suffix"])
 def test_profile_resolution_uses_whole_body_tokens(people_vault, user_id):
-    assert session_context.matching_profiles(people_vault, people_vault.config, (user_id,)) == []
+    assert identity.matching_profiles(people_vault, people_vault.config, (user_id,)) == []
+
+
+def test_a_retired_log_stub_is_never_an_identity(people_vault):
+    root = people_vault.root
+    for folder in ("people/Alicia", "agents/Old"):
+        (root / folder).mkdir(parents=True)
+    fm.write(root / "people/Alicia/Profile.md", {"kind": "log"}, "# Moved to Alice\nSlack: U_ALICE\n")
+    fm.write(root / "agents/Old/Profile.md", {"kind": "log"}, "# Retired\nSlack: U_OLDBOT\n")
+    vault = Vault(root)
+    assert [note.rel for note in identity.matching_profiles(vault, vault.config, ("U_ALICE",), "slack")] == [
+        "people/Alice/Profile.md"]
+    assert identity.matching_agents(vault, vault.config, ("U_OLDBOT",), "slack") == []
 
 
 def test_id_matching_respects_hyphen_and_word_boundaries(people_vault):
     person = people_vault.notes["people/Alice/Profile.md"]
     person.body = "prefixU_ALICE U_ALICE-suffix U_ALICE_suffix"
-    assert session_context.matching_profiles(people_vault, people_vault.config, ("U_ALICE",)) == []
+    assert identity.matching_profiles(people_vault, people_vault.config, ("U_ALICE",)) == []
     person.body += " <@U_ALICE>"
-    assert session_context.matching_profiles(people_vault, people_vault.config, ("U_ALICE",)) == [person]
+    assert identity.matching_profiles(people_vault, people_vault.config, ("U_ALICE",)) == [person]
 
 
 def test_profile_scan_uses_configured_people_directory_and_direct_children(people_vault):
-    config = replace(people_vault.config, people_dir="contacts/people")
+    people_vault.config = config = replace(people_vault.config, people_dir="contacts/people")
     person = people_vault.notes.pop("people/Alice/Profile.md")
     person.rel = "contacts/people/Alice/Profile.md"
     people_vault.notes[person.rel] = person
-    assert session_context.matching_profiles(people_vault, config, ("U_ALICE",)) == [person]
-    config = replace(config, people_dir="contacts")
-    assert session_context.matching_profiles(people_vault, config, ("U_ALICE",)) == []
+    assert identity.matching_profiles(people_vault, config, ("U_ALICE",)) == [person]
+    people_vault.config = config = replace(config, people_dir="contacts")
+    assert identity.matching_profiles(people_vault, config, ("U_ALICE",)) == []
 
 
 def test_profile_truncation_keeps_250_words_and_a_full_path_pointer(people_vault):
@@ -229,7 +241,7 @@ def test_qualified_platform_line_wins_over_a_prose_mention(demiurge_vault):
                                   "Demiurge: `k57orpheus`", "**Demiurge**: k57orpheus"])
 def test_permanent_id_matches_a_qualified_line_by_alt_id(demiurge_vault, line):
     demiurge_vault.notes["people/Orpheus/Profile.md"].body = f"# Orpheus\n{line}\n"
-    assert session_context.matching_profiles(
+    assert identity.matching_profiles(
         demiurge_vault, demiurge_vault.config, ("renamed", "k57orpheus"), "demiurge") == [
         demiurge_vault.notes["people/Orpheus/Profile.md"]]
 
@@ -237,15 +249,15 @@ def test_permanent_id_matches_a_qualified_line_by_alt_id(demiurge_vault, line):
 def test_qualified_line_needs_the_sessions_platform_and_a_whole_id(demiurge_vault):
     orpheus = demiurge_vault.notes["people/Orpheus/Profile.md"]
     orpheus.body = "- Demiurge: `k57orpheus2`\n- Slack: k57orpheus\n"
-    assert session_context.has_qualified_id(orpheus.body, "demiurge", ("k57orpheus",)) is False
-    assert session_context.has_qualified_id(orpheus.body, "slack", ("k57orpheus",)) is True
+    assert identity.has_qualified_id(orpheus.body, "demiurge", ("k57orpheus",)) is False
+    assert identity.has_qualified_id(orpheus.body, "slack", ("k57orpheus",)) is True
 
 
 def test_email_local_part_is_not_a_handle(people_vault):
     people_vault.notes["people/Alice/Profile.md"].body = "# Alice\nEmail: orpheus@gmail.com\n"
-    assert session_context.matching_profiles(people_vault, people_vault.config, ("orpheus",), "demiurge") == []
+    assert identity.matching_profiles(people_vault, people_vault.config, ("orpheus",), "demiurge") == []
     people_vault.notes["people/Alice/Profile.md"].body += "Handle @orpheus\n"
-    assert session_context.matching_profiles(people_vault, people_vault.config, ("orpheus",), "demiurge") == [
+    assert identity.matching_profiles(people_vault, people_vault.config, ("orpheus",), "demiurge") == [
         people_vault.notes["people/Alice/Profile.md"]]
 
 
@@ -328,8 +340,8 @@ def test_an_anything_grant_is_shown_subject_by_subject_so_a_deny_is_not_hidden(p
 
 
 def test_an_id_given_for_one_platform_never_identifies_a_speaker_on_another(people_vault):
-    assert session_context.matching_profiles(people_vault, people_vault.config, ("U_ALICE",), "slack")
-    assert session_context.matching_profiles(people_vault, people_vault.config, ("U_ALICE",), "demiurge") == []
+    assert identity.matching_profiles(people_vault, people_vault.config, ("U_ALICE",), "slack")
+    assert identity.matching_profiles(people_vault, people_vault.config, ("U_ALICE",), "demiurge") == []
 
 
 def test_the_owners_profile_is_never_matched_as_a_person(people_vault, tmp_path):
@@ -339,7 +351,7 @@ def test_the_owners_profile_is_never_matched_as_a_person(people_vault, tmp_path)
     owner.parent.mkdir()
     fm.write(owner, {"kind": "hub"}, "# Mira\nSlack: U_MIRA_ALT\n## Impression\n- Private.\n")
     vault = Vault(people_vault.root)
-    assert session_context.matching_profiles(vault, vault.config, ("U_MIRA_ALT",), "slack") == []
+    assert identity.matching_profiles(vault, vault.config, ("U_MIRA_ALT",), "slack") == []
 
 
 def test_the_owner_hears_how_to_work_with_them_and_what_the_agent_thinks_of_them(people_vault):
@@ -383,7 +395,7 @@ def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault
     assert "never hold it for a briefing" in block and "A relay grants nothing" in block
     assert "unknown person" not in block
     slack = session_context.build(vault, vault.config, platform="slack", user_id="k57nameless")
-    assert slack.startswith("This session is with Nameless (slack k57nameless), an intellect")   # any id line, when no platform-qualified one matches
+    assert "unknown person" in slack and "an intellect" not in slack   # an id is only its own platform's
 
 
 def test_a_stranger_on_demiurge_is_told_to_look_the_sender_up_first(people_vault):

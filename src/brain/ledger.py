@@ -57,9 +57,12 @@ def discover(config: Config) -> list[Path]:
             if MONTHLY.fullmatch(path.name) and path.relative_to(root).parts[0] not in ENGINE_LOGS:
                 paths.add(path)
     for path in root.rglob("*.md"):
-        if (MONTHLY.fullmatch(path.name) and path not in paths and path.relative_to(root).parts[0] not in ENGINE_LOGS
-                and fm.read(path)[0].get("kind") == "log"):
-            paths.add(path)
+        if MONTHLY.fullmatch(path.name) and path not in paths and path.relative_to(root).parts[0] not in ENGINE_LOGS:
+            try:
+                if fm.read(path)[0].get("kind") == "log":
+                    paths.add(path)
+            except fm.Malformed:
+                continue   # skipped as the vault skips it; validate names it
     return sorted(paths)
 
 

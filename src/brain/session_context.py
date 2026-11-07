@@ -4,7 +4,11 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
+from . import access, channels as registry, directory, health
+from .access import table_cells
 from .config import Config
+from .identity import matching_agents, matching_profiles, role
+from .install import deferred_path, deferred_steps
 from .vault import Note, Vault, WIKILINK_RE
 
 DEFAULT_RULE = ("Default for everything else: decline briefly. When what they ask needs the owner (an answer only the "
@@ -20,68 +24,6 @@ HISTORY_WORDS = 80
 WORD_LIMIT = 400
 PROFILE_WORD_LIMIT = 250
 TELLABLE_HEADING = "What you may tell {name} about {owner}, and nothing else:"
-
-
-TOKEN_END = r"(?![\w-])(?![@.]\w)"
-
-
-def contains_token(text: str, token: str) -> bool:
-    if not token:
-        return False
-    return re.search(r"(?<![\w-])(?<!\w@)" + re.escape(token) + TOKEN_END, text) is not None
-
-
-def _qualified_id_line(platform: str, ids: str) -> str:
-    return (r"(?m)^[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?(?i:" + platform + ")"
-            + r"(?:\*\*)?[ \t]*:[ \t]*(?:\*\*)?[ \t]*`?(?:" + ids + ")`?" + TOKEN_END)
-
-
-def has_qualified_id(text: str, platform: str, user_ids: tuple[str, ...]) -> bool:
-    ids = "|".join(re.escape(user_id) for user_id in user_ids if user_id)
-    return bool(platform and ids and re.search(_qualified_id_line(re.escape(platform), ids), text))
-
-
-def profile_ids(text: str) -> list[str]:
-    """Only explicit platform id lines, never prose or email addresses."""
-    line = _qualified_id_line(r"(?P<platform>demiurge|slack|telegram|discord)", r"(?P<id>[^\s`]+)")
-    return list(dict.fromkeys(f"{match['platform'].casefold()}:{match['id']}" for match in re.finditer(line, text)
-                             if re.fullmatch(r"[\w-]+", match["id"])))
-
-
-PLATFORMS = ("slack", "demiurge", "telegram", "discord", "whatsapp", "signal", "email")
-
-
-def has_id_line(text: str, user_ids: tuple[str, ...]) -> bool:
-    """An id on any platform's id line (`- **Slack:** `U…``), never in prose: a profile that mentions someone is not them."""
-    ids = "|".join(re.escape(user_id) for user_id in user_ids if user_id)
-    return bool(ids and re.search(_qualified_id_line("|".join(PLATFORMS), ids), text))
-
-
-def unqualified_for(body: str, platform: str) -> str:
-    """The profile without lines that give an id for another platform: an id is only that platform's."""
-    other = re.compile(r"^[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?([A-Za-z][\w-]*)(?:\*\*)?[ \t]*:", re.M)
-    return "\n".join(line for line in body.splitlines()
-                     if not (platform and (m := other.match(line)) and m[1].casefold() in PLATFORMS
-                             and m[1].casefold() != platform.casefold()))
-
-
-def matching_profiles(vault: Vault, config: Config, user_ids: tuple[str, ...], platform: str = "") -> list[Note]:
-    """Profiles under the people directory, never the owner's own; a platform-qualified id line wins."""
-    profiles = [note for rel, note in sorted(vault.notes.items())
-                if PurePosixPath(rel).parent.parent == PurePosixPath(config.people_dir)
-                and PurePosixPath(rel).name == "Profile.md" and rel != config.human_profile]
-    qualified = [note for note in profiles if has_qualified_id(note.body, platform, user_ids)]
-    return qualified or [note for note in profiles
-                         if any(contains_token(unqualified_for(note.body, platform), user_id) for user_id in user_ids)]
-
-
-def matching_agents(vault: Vault, config: Config, user_ids: tuple[str, ...], platform: str = "") -> list[Note]:
-    """Registered intellects under the agents directory, by a platform-qualified id line, else any id line."""
-    profiles = [note for rel, note in sorted(vault.notes.items())
-                if PurePosixPath(rel).parent.parent == PurePosixPath(config.agents_dir)
-                and PurePosixPath(rel).name == "Profile.md"]
-    qualified = [note for note in profiles if has_qualified_id(note.body, platform, user_ids)]
-    return qualified or [note for note in profiles if has_id_line(note.body, user_ids)]
 
 
 def relay_rule(config: Config) -> str:
@@ -114,7 +56,6 @@ def intellect_owner(agent: Note) -> tuple[str, str]:
 
 
 def intellect_context(vault: Vault, config: Config, agent: Note, identity: str) -> str:
-    from . import access
     name = PurePosixPath(agent.rel).parent.name.replace("_", " ")
     ref, owner = intellect_owner(agent)
     ref = ref.removeprefix(config.vault + "/")
@@ -143,28 +84,6 @@ def lookup_rule(config: Config) -> str:
             f"from the agents template with its handle, owner, Demiurge id and today as first seen, and continue as with a "
             f"registered intellect. Identity doubt is about a claim that contradicts the directory, not a sender the vault "
             f"has not recorded yet. " + relay_rule(config))
-
-
-def listed(entries: list[str], platform: str, user_ids: tuple[str, ...]) -> bool:
-    for entry in entries:
-        label, separator, value = entry.partition(":")
-        if separator and re.fullmatch(r"[A-Za-z][\w-]*", label):
-            if label.casefold() == platform.casefold() and value in user_ids:
-                return True
-        elif entry in user_ids:
-            return True
-    return False
-
-
-def is_owner(config: Config, platform: str, user_ids: tuple[str, ...]) -> bool:
-    return platform == "cli" or listed(config.owner_user_ids, platform, user_ids)
-
-
-def is_member(config: Config, platform: str, user_ids: tuple[str, ...]) -> bool:
-    """In an organisation's intellect, anyone the runtime names is a member: the door (Slack's bridge, the stage's
-    sign-in) admits only members, so the engine trusts it. A maintainer and the routine's own runs are not members."""
-    return (config.edition == "enterprise" and bool(user_ids) and platform not in ("", "cron")
-            and not listed(config.maintainers, platform, user_ids))
 
 
 def member_context(config: Config, platform: str, user_ids: tuple[str, ...], user_name: str, operator: bool) -> str:
@@ -198,12 +117,6 @@ def matches_audience(vault: Vault, audience: str, targets: set[str]) -> bool:
              else PurePosixPath(rel).stem for rel in targets}
     names = {name.casefold() for name in names | {"anyone"}}
     return plain.strip().strip("*").casefold() in names
-
-
-def table_cells(line: str) -> list[str]:
-    protected = WIKILINK_RE.sub(lambda match: match[0].replace("|", r"\|"), line)
-    return [cell.replace(r"\|", "|").strip()
-            for cell in re.split(r"(?<!\\)\|", protected.strip().strip("|"))]
 
 
 def disclosure_rows(vault: Vault, config: Config, person: Note, *, include_headers: bool = False) -> list[str]:
@@ -291,7 +204,6 @@ def owner_card(vault: Vault, config: Config) -> str:
         section = note.body[heading.start():heading.end() + (following.start() if following else len(note.body))].strip()
         if len(section.split()) > 1:
             parts.append(section)
-    from . import channels as registry
     reach = [f"{row.channel} ({row.whose}" + (f", {row.identity}" if row.identity else "") + ")"
              + (f": read {row.read}" if row.read else "") + (f"; write {row.write}" if row.write else "")
              for row in registry.live(registry.load(vault))]
@@ -307,14 +219,12 @@ def owner_card(vault: Vault, config: Config) -> str:
 
 def legacy(vault: Vault, config: Config) -> bool:
     """A vault not yet migrated to the 0.14 table (tell and do columns, no allow/deny rows) keeps today's raw rows."""
-    from . import access
     found = access.rules(vault, config)
     return not found or any(rule.legacy for rule in found)
 
 
 def resolved(vault: Vault, config: Config, person: str | None, name: str) -> str:
     """What this person may learn and ask for, as `brain access` resolves it, in a few lines."""
-    from . import access
     result = access.resolve(vault, config, person)
     groups = ", ".join(PurePosixPath(rel).stem for rel in result.groups)
     lines = [f"What {name} may learn, resolved from {config.link(f'{config.people_dir}/Disclosure.md')}"
@@ -335,7 +245,6 @@ def resolved(vault: Vault, config: Config, person: str | None, name: str) -> str
 
 
 def maintainer_context(config: Config, identity: str) -> str:
-    from . import health
     return "\n\n".join([
         f"This session is with a maintainer of this brain ({identity}), not the owner. {config.human_name} appointed "
         f"them in brain.toml to keep the machinery running; a maintainer may be a person or another agent. Talk to them "
@@ -384,7 +293,6 @@ def migration_notice(config: Config) -> str:
 
 
 def deferred_notice(config: Config) -> str:
-    from .install import deferred_path, deferred_steps
     steps = deferred_steps(config)
     if not steps:
         return ""
@@ -400,38 +308,34 @@ def with_notice(text: str, config: Config) -> str:
 def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = "",
           user_id_alt: str = "", user_name: str = "", chat_id: str = "") -> str:
     user_ids = tuple(value for value in (user_id, user_id_alt) if value)
-    if config.edition == "enterprise" and (is_owner(config, platform, user_ids) or is_member(config, platform, user_ids)):
-        if not is_owner(config, platform, user_ids) and matching_agents(vault, config, user_ids, platform):
-            return intellect_context(vault, config, matching_agents(vault, config, user_ids, platform)[0],
-                                     f"{platform} {user_id or user_id_alt}")
-        return with_notice(member_context(config, platform, user_ids, user_name, is_owner(config, platform, user_ids)), config)
-    if is_owner(config, platform, user_ids):
+    who = role(vault, config, platform, user_ids)
+    identity = f"{platform or 'platform unknown'} {user_id or user_id_alt or 'id unavailable'}"
+    if who == "member" or who == "owner" and config.edition == "enterprise":
+        return with_notice(member_context(config, platform, user_ids, user_name, who == "owner"), config)
+    if who == "owner":
         return with_notice("\n\n".join(part for part in (f"This session is with {config.human_name}, the owner.",
                                                           owner_card(vault, config)) if part), config)
-    identity = f"{platform or 'platform unknown'} {user_id or user_id_alt or 'id unavailable'}"
-    if listed(config.maintainers, platform, user_ids):
+    if who == "maintainer":
         return with_notice("\n\n".join(part for part in (maintainer_context(config, identity), deferred_notice(config))
                                        if part), config)
+    if who == "intellect":
+        return intellect_context(vault, config, matching_agents(vault, config, user_ids, platform)[0], identity)
+    if who == "person":
+        return known_context(vault, config, matching_profiles(vault, config, user_ids, platform)[0], identity)
     if platform == "cron" and not user_ids:
         return migration_notice(config)   # the agent's own routine run: no one to identify
     if not platform and not user_ids:
         return ""
     profiles = matching_profiles(vault, config, user_ids, platform)
-    if len(profiles) == 1:
-        return known_context(vault, config, profiles[0], identity)
     agents = matching_agents(vault, config, user_ids, platform)
-    if len(agents) == 1 and not profiles:
-        return intellect_context(vault, config, agents[0], identity)
-    from . import access
     blocks = []
     open_to_anyone = (f"{config.people_dir}/Disclosure.md" in vault.notes and not legacy(vault, config)
                       and any(v.tell != "none" or v.do != "no" for v in access.resolve(vault, config, None).subjects.values()))
-    if profiles:
+    if len(profiles) > 1:
         paths = ", ".join(config.link(person.rel) for person in profiles)
         blocks.append("Identity is ambiguous; matching profiles: " + truncate_words(paths, 250)
                       + ". Treat as unknown.")
     if not profiles and not agents and platform.casefold() == "demiurge":
-        from . import directory
         for sender_id in user_ids:
             entry = directory.lookup(config, sender_id)
             if entry and entry["id"].casefold() == sender_id.split(":", 1)[-1].casefold():

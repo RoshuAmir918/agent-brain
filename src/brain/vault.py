@@ -92,11 +92,12 @@ class Vault:
         self.config = Config.load(self.root)
         self._paths: set[str] = set()
         self.notes: dict[str, Note] = {}
+        self.malformed: dict[str, str] = {}
         self._by_stem: dict[str, list[str]] = {}
         self.load()
 
     def load(self) -> None:
-        self.notes.clear(); self._by_stem.clear(); self._paths = set()
+        self.notes.clear(); self.malformed.clear(); self._by_stem.clear(); self._paths = set()
         for p in sorted(self.root.rglob("*.md")):
             if any(part in SKIP_DIRS for part in p.relative_to(self.root).parts):
                 continue
@@ -107,7 +108,11 @@ class Vault:
             self._by_stem.setdefault(p.stem, []).append(rel)
             if is_dream_path(rel, self.config):
                 continue
-            data, body = fm.read(p)
+            try:
+                data, body = fm.read(p)
+            except fm.Malformed as error:
+                self.malformed[rel] = str(error)   # kept out of the notes: nothing reads or rewrites it until fixed
+                continue
             self.notes[rel] = Note(rel, p, data, body)
 
     def kind_for(self, rel: str) -> str:

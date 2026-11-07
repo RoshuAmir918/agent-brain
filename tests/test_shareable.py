@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from brain import access, fm, session_context, state
+from brain import access, fm, identity, state
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -147,7 +147,7 @@ def test_group_members_expose_only_profile_paths_and_explicit_platform_ids(shari
     ("Kevin mentioned Slack: U_KEVIN", []), ("Name: Kevin", []),
 ])
 def test_member_id_lines_do_not_export_email_addresses_or_prose(line, expected):
-    assert session_context.profile_ids(line) == expected
+    assert identity.profile_ids(line) == expected
 
 
 @pytest.mark.parametrize("missing_disclosure", [False, True])
@@ -269,3 +269,22 @@ def test_an_unknown_hub_subject_is_a_validation_problem(sharing):
     note(sharing.vault_path, "Private/Life.md", subject="private")
     assert "Private/Life.md: unknown subject 'private'; add it under ## Subjects in Disclosure.md or use one there" \
         in validate.access_problems(Vault(sharing.vault_path))
+
+
+def test_a_receipt_follows_its_routines_scheduled_owner_into_privacy(sharing):
+    note(sharing.vault_path, "Health/Clinic.md", subject="health", skill="brain-clinic", records="care", tier="private")
+    schedule = sharing.vault_path / sharing.runtime_dir / "schedule.toml"
+    schedule.parent.mkdir(parents=True, exist_ok=True)
+    schedule.write_text('[routines.unmatched]\nevery = "24h"\nresponsibility = "care"\n')
+    exported = json.dumps(state.build(sharing, TODAY)["shareable"])
+    assert "Plan receipt." not in exported and "Records alias receipt." in exported
+
+
+def test_an_unconfirmed_profile_gets_no_person_or_group_grants_and_is_no_exported_member(sharing):
+    note(sharing.vault_path, KEVIN, "# Kevin (identity unconfirmed)\n- **Demiurge:** `k57kevin`\n")
+    vault = Vault(sharing.vault_path)
+    result = access.resolve(vault, sharing, KEVIN)
+    assert result.groups == [] and result.subjects["anything"].tell == "none"
+    assert result.subjects["work"].tell_rule == "D-ANYONE" and result.subjects["finances"].tell == "none"
+    members = state.build(sharing, TODAY)["shareable"]["group:Close friends"]["members"]
+    assert members == []

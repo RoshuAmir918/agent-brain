@@ -1,3 +1,5 @@
+import pytest
+
 from brain import nightly
 from brain.redact import redact, redact_paths
 
@@ -31,3 +33,15 @@ def test_the_redact_command_rewrites_only_files_that_held_a_credential(tmp_path,
     assert list(redact_paths([sessions])) == [sessions / "a.md"]
     assert "[REDACTED:google-api-key]" in (sessions / "a.md").read_text(encoding="utf-8")
     assert redact_paths([sessions]) == {}
+
+
+@pytest.mark.parametrize("text,kept", [
+    ("API_KEY=abc123def456ghi789jkl", "API_KEY=[REDACTED:secret]"),
+    ("PASSWORD: abc123def456ghi789jkl", "PASSWORD: [REDACTED:secret]"),
+    ("db_password=abc123def456ghi789jkl", "db_password=[REDACTED:secret]"),
+    ('{"DB_PASSWORD": "abc123def456ghi789jkl"}', '{"DB_PASSWORD": "[REDACTED:secret]"}'),
+    ("key sk-proj-" + "a" * 24 + " here", "key [REDACTED:openai-key] here"),
+    ("key sk-proj-yourcompany" + "a9" * 10 + " here", "key [REDACTED:openai-key] here"),
+])
+def test_bare_lowercase_quoted_and_letter_only_secrets_are_scrubbed(text, kept):
+    assert redact(text) == (kept, 1)

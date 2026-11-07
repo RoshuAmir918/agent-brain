@@ -156,7 +156,13 @@ def test_a_turn_must_say_why_it_closes_a_task_and_close_flags_are_never_dropped(
         cli(vault, capsys, "T-001", "drop", "--why", "moot", "--reviewed", "dropped")
     assert "go with task T-nnn set" in capsys.readouterr().err
     monkeypatch.delenv("DEMIURGE_CONVERSATION")
-    cli(vault, capsys, "T-001", "done")   # the owner's own Done in the app
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "T-001", "done")   # a routine or another platform's turn: nothing says the owner closed it
+    assert "needs --why" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "T-001", "yours", "--by-owner")
+    assert "--by-owner goes with" in capsys.readouterr().err
+    cli(vault, capsys, "T-001", "done", "--by-owner")   # the owner's own Done in the app
     assert "the owner closed it in their app" in find(Config.load(vault), "T-001").body
 
 

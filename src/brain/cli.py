@@ -41,7 +41,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, consults, digest, fm, health, ideas, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
+from . import access, attribute, audit, compile_context, consults, digest, fm, health, identity, ideas, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
 from . import tasks as tasks_mod
 from . import goals
 from .tasks import load_tasks, quiet
@@ -308,6 +308,11 @@ def speaker() -> str | None:
     return value if tasks_mod.PERSON.fullmatch(value) else None
 
 
+def in_conversation() -> bool:
+    """A turn in a Demiurge conversation, not a background worker's: the only agent turn whose edits are engagement."""
+    return bool(os.environ.get("DEMIURGE_CONVERSATION", "").strip()) and not os.environ.get("DEMIURGE_TASK", "").strip()
+
+
 def cmd_needs_you(args):
     if args.source and not (args.ask or args.confirm):
         raise SystemExit("brain needs-you: --source goes with --ask or --confirm")
@@ -335,9 +340,8 @@ def cmd_needs_you(args):
             raise SystemExit("brain needs-you: --resolve needs --because \"<the evidence>\"")
         with vault_lock(args.config):
             try:
-                owner = bool(os.environ.get("DEMIURGE_CONVERSATION", "").strip()
-                             and not os.environ.get("DEMIURGE_TASK", "").strip())
-                item = needs.resolve(args.config, args.resolve, args.because, args.config.today(), owner_engaged=owner)
+                item = needs.resolve(args.config, args.resolve, args.because, args.config.today(),
+                                     owner_engaged=in_conversation(), by=speaker())
             except ValueError as error:
                 print(error, file=sys.stderr)
                 sys.exit(1)
@@ -621,8 +625,8 @@ def cmd_people(args):
     if entry is None:
         print("not in the directory")
         sys.exit(1)
-    profiles = [note.rel for note in directory.profiles(Vault(args.config.vault_path))
-                if f"demiurge:{entry['id']}" in session_context.profile_ids(note.body)]
+    profiles = [note.rel for note in identity.profiles(Vault(args.config.vault_path))
+                if f"demiurge:{entry['id']}" in identity.profile_ids(note.body)]
     if args.json:
         print(json.dumps(dict(entry, profiles=profiles), ensure_ascii=False, indent=2))
         return
@@ -759,8 +763,9 @@ def cmd_task(args):
             view = views.write(args.config, args.tid, sys.stdin.read())
             print(f"{args.tid} view saved: {len(view['pieces'])} pieces" if view else f"{args.tid} view removed")
             return
-        in_turn = bool(os.environ.get("DEMIURGE_CONVERSATION", "").strip() or os.environ.get("DEMIURGE_TASK", "").strip())
-        if args.action in ("done", "drop", "reopen") and not args.why and (in_turn or args.action == "reopen"):
+        if args.by_owner and (args.tid == "new" or args.action not in ("done", "drop")):
+            raise ValueError("--by-owner goes with task T-nnn done or drop")
+        if args.action in ("done", "drop", "reopen") and not args.why and not args.by_owner:
             # Without --why only the owner's own Done or Drop in the app closes a task, and it says so.
             raise ValueError(f"task {args.action} needs --why \"<the evidence or the reason>\"")
         with vault_lock(args.config):
@@ -787,10 +792,10 @@ def cmd_task(args):
                 needs.settle_tasks(args.config, args.config.today(), [(task.tid, before.body)],
                                    f"{task.tid} is {task.task_state.replace('_', ' ')}")
             # A conversation's task edit is engagement; worker writes never are.
-            if os.environ.get("DEMIURGE_CONVERSATION", "").strip() and not os.environ.get("DEMIURGE_TASK", "").strip():
+            if in_conversation():
                 from . import continuation
                 continuation._mark_engaged(args.config, task.tid, args.source if args.tid == "new" else
-                                           args.next or args.delivers or args.status or args.why)
+                                           args.next or args.delivers or args.status or args.why, speaker())
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -846,7 +851,7 @@ def cmd_handoff(args):
         with vault_lock(args.config):
             task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work, owner=owner)
             from . import continuation
-            continuation._mark_engaged(args.config, task.tid)
+            continuation._mark_engaged(args.config, task.tid, by=speaker())
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -898,15 +903,11 @@ def cmd_continue(args):
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return
         if args.engaged:
-            # A task's budget follows its own owner's engagement: in an organisation, someone else asking about it
-            # is interest, not the owner steering it.
             by = args.by or speaker()
-            task = next((t for t in sum(load_tasks(args.config), []) if t.tid == args.engaged), None)
-            if task is not None and task.owner and by and by != task.owner:
-                print(f"{args.engaged} not engaged: {by} is not its owner ({task.owner})")
-                return
-            continuation.mark_engaged(args.config, args.engaged, args.instruction)
-            print(f"{args.engaged} engaged")
+            if continuation.mark_engaged(args.config, args.engaged, args.instruction, by):
+                print(f"{args.engaged} engaged")
+            else:
+                print(f"{args.engaged} not engaged: {by} is not its owner")
             return
         if args.chunk or args.pace or args.checkpoint:
             if args.chunk:
@@ -1113,7 +1114,7 @@ def cmd_session_context(args):
                                  platform=args.platform, user_id=args.user_id,
                                  user_id_alt=args.user_id_alt, user_name=args.user_name,
                                  chat_id=args.chat_id)
-    owner = session_context.is_owner(args.config, args.platform, tuple(value for value in (args.user_id, args.user_id_alt) if value))
+    owner = identity.is_owner(args.config, args.platform, tuple(value for value in (args.user_id, args.user_id_alt) if value))
     routine = args.platform == "cron" and not (args.user_id or args.user_id_alt)
     if args.config.edition == "personal" and "goals" in args.config.context.sections and (owner or routine):
         with vault_lock(args.config) if args.ack_notices else nullcontext():
@@ -1459,6 +1460,8 @@ def main(argv=None):
     s.add_argument("--source", help="with new: the owner's words or a note name")
     s.add_argument("--work", metavar="SLUG", help="with new or set: Library work slug")
     s.add_argument("--json", action="store_true", help="with new: print {id, title}")
+    s.add_argument("--by-owner", action="store_true",
+                   help="with done or drop: the owner's own Done or Drop in their app, the only close without --why")
     s.set_defaults(fn=cmd_task)
     s = sub.add_parser("completed", help="tasks completed recently, newest first, for the follow-on check", parents=[vault])
     s.add_argument("--days", type=int, default=7); s.add_argument("--json", action="store_true")

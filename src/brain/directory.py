@@ -9,8 +9,8 @@ from pathlib import Path, PurePosixPath
 
 from . import install, runtime
 from .config import Config
-from .session_context import profile_ids
-from .vault import Note, Vault
+from .identity import profile_ids, profiles
+from .vault import Vault
 
 
 def path() -> Path:
@@ -68,16 +68,6 @@ def lookup(config: Config, ident: str) -> dict | None:
     matches = by_id or [row for row in entries if row.get("handle")
                         and row["handle"].casefold() == ident.removeprefix("@").casefold()]
     return matches[0] if len(matches) == 1 else None
-
-
-def profiles(vault: Vault, kind: str | None = None) -> list[Note]:
-    roots = [PurePosixPath(root) for label, root in (("person", vault.config.people_dir),
-                                                   ("intellect", vault.config.agents_dir))
-             if kind is None or label == kind]
-    # A profile that declares itself a log is a moved or retired stub pointing at the real one: never an identity.
-    return [note for rel, note in sorted(vault.notes.items()) if PurePosixPath(rel).name == "Profile.md"
-            and note.data.get("kind") != "log"
-            and any(PurePosixPath(rel).is_relative_to(root) for root in roots)]
 
 
 def describe(entry: dict) -> str:

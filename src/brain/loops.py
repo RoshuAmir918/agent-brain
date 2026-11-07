@@ -8,8 +8,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import fm, needs
+from . import directory, fm, needs
 from .config import Config
+from .identity import is_owner, profile_ids
 from .lock import vault_lock
 from .needs import _plain
 
@@ -82,9 +83,6 @@ def _profile_names(path: Path, data: dict, body: str) -> tuple[set[str], set[str
 
 
 def _counterpart(config: Config, kind: str, who: str) -> None:
-    from . import directory
-    from .session_context import is_owner, profile_ids
-
     if not who:
         if kind in ("owed", "waiting"):
             raise ValueError(f"{kind} loops need a counterpart (with)")
@@ -98,7 +96,10 @@ def _counterpart(config: Config, kind: str, who: str) -> None:
     first_names: dict[str, set[Path]] = {}
     for root in (config.people_dir, config.agents_dir):
         for path in (config.vault_path / root).rglob("Profile.md"):
-            data, body = fm.read(path)
+            try:
+                data, body = fm.read(path)
+            except fm.Malformed:
+                continue   # skipped as the vault skips it
             if data.get("kind") == "log":
                 continue   # a moved or retired stub is not an identity
             names, first = _profile_names(path, data, body)

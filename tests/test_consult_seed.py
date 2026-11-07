@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from brain import cli, consults, fm, owners, routing, seed, session_context
+from brain import cli, consults, fm, identity, owners, routing, seed
 from brain.config import Config
 from conftest import snapshot
 
@@ -286,8 +286,8 @@ def test_identities_read_only_explicit_person_ids_with_canonical_priority(enterp
         "github:sam": "demiurge:sam-id", "discord:lee-discord": "discord:lee-discord",
         "github:lee": "discord:lee-discord", "github:only": "github:only"}
     assert snapshot(enterprise.repo) == before
-    assert session_context.profile_ids("- **GitHub:** kim\n") == []
-    assert "github" not in session_context.PLATFORMS
+    assert identity.profile_ids("- **GitHub:** kim\n") == []
+    assert "github" not in identity.PLATFORMS
 
 
 def test_github_history_and_slack_consults_merge_with_via_and_folder_word_matching(enterprise):
@@ -343,3 +343,8 @@ def test_agent_posted_comments_are_not_a_persons_review(enterprise, tmp_path):
     rows, _ = seed.routing_evidence(folder, TODAY)
     reviewed = {row.person for row in rows if row.kind == "reviewed"}
     assert reviewed == {"github:nathan"}
+
+
+def test_profile_ids_read_every_platform_identity_matches():
+    assert identity.profile_ids("- **WhatsApp:** 15551234\n- Signal: sig-1\n- Telegram: tg\n") == [
+        "whatsapp:15551234", "signal:sig-1", "telegram:tg"]
