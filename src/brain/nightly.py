@@ -373,7 +373,8 @@ def ask_library(config: Config, today: date, report: list[str], records_path: Pa
     return changed
 
 
-def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_records: Path | None = None) -> list[str]:
+def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_records: Path | None = None,
+        evidence_home: Path | None = None) -> list[str]:
     """Apply the whole night to the vault at root. Returns the report; exits 1 on validation failure."""
     report: list[str] = []
     vault = Vault(root)
@@ -446,6 +447,8 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
         rel = path.relative_to(config.vault_path).as_posix()
         changed.add(rel)
         report.append(f"ledger: collapsed nothing rows in {rel}")
+    from . import sources
+    report.extend(sources.nightly(vault, today, evidence_home))
     if stamped := portrait.stamp(config):
         changed.add(config.human_portrait)
         report.append(f"portrait: {stamped} new line id(s)")
@@ -501,4 +504,5 @@ def preview(root: Path, today: date, sessions_dir: Path | None = None) -> list[s
             else:
                 library_records.parent.mkdir(parents=True, exist_ok=True)
                 library_records.write_bytes(saved)
-        return run(shadow, today, sessions_dir, library_records=library_records)
+        # and keeps what the sources find in the copy, never the agent's evidence
+        return run(shadow, today, sessions_dir, library_records=library_records, evidence_home=Path(tmp) / "agent")

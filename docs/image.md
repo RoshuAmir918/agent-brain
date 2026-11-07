@@ -34,7 +34,7 @@ SOURCE = Source(id="imessage", editions=("personal",), runs="owner-mac", window_
 def extract(ctx, since) -> list[Evidence]: ...
 ```
 
-`brain source list` prints the registry with each source's last extraction and how much evidence it holds. Adding a source is one module and its tests: coverage, the seed's reading list and the owner's view of what has been read pick it up from the registry, with no list to edit.
+Sources that read what the runtime already holds (`runs="runtime"`: `mail`, `calendar`) are extracted by the night itself; a preview of the night keeps what they find in its disposable copy. `brain source list` prints the registry with each source's last extraction and how much evidence it holds. Adding a source is one module and its tests: coverage, the seed's reading list and the owner's view of what has been read pick it up from the registry, with no list to edit.
 
 **Rules every source keeps.** No raw message, email or document body is written, only derived facts with a pointer back. Codes, passwords, tracking and session parameters are dropped at extraction. Each item says whose it is (`own`, or `other:<who>`), from the source's structure where possible (sent mail and the owner's own messages are `own`; what someone else wrote is theirs), so the sharing rule holds by construction downstream. A source that reads the owner's private life (`sensitive=True`) runs only when the owner starts it, and its evidence is never indexed.
 

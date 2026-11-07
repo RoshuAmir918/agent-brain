@@ -223,6 +223,23 @@ def refresh(config: Config) -> None:
         pass   # validate and `brain portrait compile` name it
 
 
+def owner_lines(config: Config) -> list[dict]:
+    """The image for its owner's eyes: every facet's lines, most central facet first, each saying whether it is in the
+    compiled portrait (with its rank there) and its rank within its facet. Without facets, the portrait's own lines."""
+    compiled = {line.id: line for line in load(config) if line.id}
+    found = facets(config)
+    if not found:
+        return [line.public() | {"inPortrait": True} for line in load(config)]
+    out = []
+    for facet in found:
+        for line in facet.lines:
+            entry = line.public() | {"inPortrait": line.id in compiled, "facetRank": line.rank}
+            if line.id in compiled:
+                entry["rank"] = compiled[line.id].rank
+            out.append(entry)
+    return out
+
+
 def shown(lines: list[Line]) -> list[Line]:
     """What everyone in an organisation may see: what was stated and what was seen, never a guess about direction."""
     return [line for line in lines if line.basis in ("said", "seen")]

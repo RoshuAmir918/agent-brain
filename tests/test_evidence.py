@@ -124,3 +124,15 @@ def test_cli_recall_json(home, vault, capsys):
     cli.main(["evidence", "--vault", str(vault), "--about", "analytics_events", "--json"])
     [found] = json.loads(capsys.readouterr().out)
     assert found["pointer"] == "github:pr/410" and "analytics_events" in found["shared"] and found["outcomes"] == ["changed"]
+
+
+def test_an_answer_keeps_its_words_and_a_colleague_outside_owners_keeps_their_name(home, enterprise):
+    ana = enterprise.vault_path / enterprise.people_dir / "Ana_Silva" / "Profile.md"
+    ana.parent.mkdir(parents=True, exist_ok=True)
+    ana.write_text("---\nkind: person\n---\n# Ana Silva\n\n- **Slack:** U09ANA\n")
+    entry = ask(enterprise)
+    consults.answer(enterprise, entry.id, "redirected", "Ana tracks this.", NOAH, to="slack:U09ANA")
+    consults.answer(enterprise, entry.id, "changed", "Only on Fridays.", "slack:U09ANA")
+    changed, redirected, _ = evidence.read(source="consults")
+    assert redirected.fact.startswith("Noah redirected to Ana Silva:")
+    assert changed.fact.startswith("Ana Silva changed:") and changed.fact.endswith("; Only on Fridays.")
