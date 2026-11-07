@@ -11,9 +11,10 @@ from pathlib import Path
 
 from .. import fm, routing, tasks
 from ..routing import DAYS, Row
-from . import Source
+from ..evidence import Evidence
+from . import Context, Nothing, Source, globbed
 
-SOURCE = Source(id="reviews", editions=("enterprise",), runs="agent", where="internal", rank=8, needs="github", files=("reviews/*.md",),
+SOURCE = Source(id="reviews", editions=("enterprise",), runs="runtime", where="internal", rank=8, needs="github", files=("reviews/*.md",),
                 facets=("engineering",), about="merged pull requests and the corrections reviews keep making")
 
 COMMENT = re.compile(r"^- (?P<at>\d{4}-\d{2}-\d{2}) · (?P<by>[^·]+?) · (?P<path>[^·]*?) · (?P<text>.+?)\s*$")
@@ -22,6 +23,7 @@ BOT = re.compile(r"\[bot\]$|-bot$|^bot-", re.I)   # GitHub's REST API marks app 
 
 AGENT_POSTED = re.compile(r"\b(?:posted|written|generated) (?:by|with) (?:codex|claude|copilot|cursor|an? (?:ai )?agent)\b",
                           re.I)   # an agent's comment under a person's account is the agent's, not their review
+
 
 @dataclass
 class Review:
@@ -32,10 +34,12 @@ class Review:
     file: Path
     comments: list[tuple[str, str, str, str]] = field(default_factory=list)   # at, by, path, text
 
+
 def area(path: str) -> str:
     """Where in the code a correction landed: the first two folders, so `apps/api/src/x.ts` is `apps/api`."""
     parts = [part for part in path.strip().split("/") if part][:-1]
     return "/".join(parts[:2]) or "(top level)" if path.strip() else "(whole PR)"
+
 
 def load(folder: Path, today: date, days: int = DAYS) -> tuple[list[Review], list[str]]:
     """Merged PRs within the window, with the comments their author did not write, and what could not be read."""
@@ -59,14 +63,17 @@ def load(folder: Path, today: date, days: int = DAYS) -> tuple[list[Review], lis
         reviews.append(review)
     return reviews, problems
 
+
 def code_area(path: str) -> str:
     """Turn the first two code folders into a consult area."""
     name = " ".join(re.sub(r"[^a-z0-9 -]", " ", area(path).casefold()).split())
     return routing.area_name(name.lstrip(" -") or "top level")
 
+
 def _github(login: str) -> str:
     person = "github:" + login
     return person if tasks.PERSON.fullmatch(person) and not BOT.search(login) else ""
+
 
 def routing_evidence(folder: Path, today: date, days: int = DAYS) -> tuple[list[Row], list[str]]:
     """Read who changed, reviewed and approved each code area, with its PR as evidence."""
@@ -128,6 +135,7 @@ def routing_evidence(folder: Path, today: date, days: int = DAYS) -> tuple[list[
         rows.extend(Row(key, at, person, "reviewed", text, link) for (key, person), at in comments.items())
     return sorted(rows, key=lambda row: (row.area, row.day, row.person, row.kind, row.text, row.link)), problems
 
+
 def reading(folder: Path, today: date, days: int = DAYS) -> dict:
     reviews, problems = load(folder, today, days)
     comments = [(review, *comment) for review in reviews for comment in review.comments]
@@ -149,6 +157,7 @@ def reading(folder: Path, today: date, days: int = DAYS) -> dict:
         "problems": problems,
     }
 
+
 def render(data: dict) -> str:
     out = [f"{data['window']['from']} to {data['window']['to']}: {data['prs']} merged PRs, {data['withComments']} with "
            f"review comments, {data['comments']} comments by someone other than the PR's author, {data['byPeople']} of them "
@@ -161,3 +170,36 @@ def render(data: dict) -> str:
         out += [f"- #{r['pr']} {r['title']} · {r['byPeople']} by people, {r['comments']} in all · {r['file']}" for r in data["read"]]
     out += [f"problem: {problem}" for problem in data["problems"]]
     return "\n".join(out)
+
+
+WORDS = 30   # a correction is kept as its first words: enough to say what the team insists on
+
+
+def rows(reviews: list[Review]) -> list[Evidence]:
+    """Each correction a person made on a merged PR, dated the day they made it: how the organisation likes work done.
+    A bot's comment, or an agent's under a person's account, is not a person's taste."""
+    out = []
+    for review in reviews:
+        for at, by, path, text in review.comments:
+            if BOT.search(by) or AGENT_POSTED.search(text):
+                continue
+            words = text.split()
+            said = " ".join(words[:WORDS]) + (" …" if len(words) > WORDS else "")
+            out.append(Evidence(date.fromisoformat(at), "corrected", f"On #{review.number} {review.title}: {said}",
+                                f"other:{by}", ("engineering",), f"reviews:{review.file.parent.parent.name}#{review.number}",
+                                {"area": area(path)}))
+    return out
+
+
+def extract(ctx: Context) -> list[Evidence]:
+    from .. import runtime
+    home = runtime.configured()
+    folders = sorted(path for path in (home / "channels").glob("*") if path.is_dir()) if home else []
+    days = (ctx.today - ctx.since).days if ctx.since else DAYS
+    found = []
+    for folder in folders:
+        if globbed(SOURCE, folder):
+            found += load(folder / "reviews", ctx.today, days)[0]
+    if not found:
+        raise Nothing("no review files")
+    return rows(found)
