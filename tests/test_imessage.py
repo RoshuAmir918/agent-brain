@@ -152,3 +152,29 @@ def test_the_registry_finds_imessage_and_the_cli_extracts_it_into_the_workspace(
                   "--vault", str(tmp_path / "none")])
     with pytest.raises(SystemExit, match="no source 'fax'"):
         cli.main(["source", "fax", "extract", "--vault", str(tmp_path / "none")])
+
+
+def test_rows_cross_machines_as_json_lines_and_import_is_idempotent(messages, tmp_path, capsys, monkeypatch):
+    import io
+    db, book = messages
+    monkeypatch.setattr(imessage, "default_books", lambda: [book])
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("AGENT_HOME", raising=False)
+    cli.main(["source", "imessage", "extract", "--input", str(db), "--jsonl", "--vault", str(tmp_path / "none")])
+    lines = capsys.readouterr().out.splitlines()
+    assert lines and all(set(json.loads(line)) == {"date", "verb", "fact", "whose", "hints", "pointer", "extra"} for line in lines)
+    home = tmp_path / "agent"
+    monkeypatch.setenv("AGENT_HOME", str(home))
+    for expected in (len(lines), 0):   # the same batch twice adds nothing the second time
+        monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(lines) + "\n"))
+        cli.main(["evidence", "import", "--source", "imessage", "--vault", str(tmp_path / "none")])
+        assert capsys.readouterr().out.strip() == f"imessage: {len(lines)} rows, {expected} new"
+    assert len(evidence.read("imessage")) == len(lines)
+    bad = json.dumps({"date": "2026-11-01", "verb": "talks", "fact": "x", "whose": "theirs", "hints": ["people"], "pointer": "p"})
+    monkeypatch.setattr("sys.stdin", io.StringIO(lines[0] + "\n" + bad + "\n"))
+    with pytest.raises(SystemExit, match="line 2: evidence whose must be own or other:<who>; nothing imported"):
+        cli.main(["evidence", "import", "--source", "imessage", "--vault", str(tmp_path / "none")])
+    for row, error in (({"date": "2026-11-01"}, "missing verb"), ({**json.loads(lines[0]), "text": "hi"}, "unknown field text"),
+                       ({**json.loads(lines[0]), "hints": []}, "non-empty list")):
+        with pytest.raises(ValueError, match=error):
+            evidence.from_json(row)
