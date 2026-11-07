@@ -645,8 +645,8 @@ def cmd_goals(args):
         which, action = action, which
     try:
         operation = action if goals.ID.fullmatch(which) else which
-        if (args.dry_run or args.apply or args.responsibility) and which != "migrate":
-            raise ValueError("--dry-run, --apply and --responsibility go with migrate")
+        if (args.dry_run or args.apply) and which != "migrate":
+            raise ValueError("--dry-run and --apply go with migrate")
         if args.json and which not in ("list", "show"):
             raise ValueError("--json goes with list or show")
         if args.from_app and operation not in ("new", "edit", "reached", "set-aside", "reopen"):
@@ -672,6 +672,9 @@ def cmd_goals(args):
                 if not entries:
                     print("no goals")
             return
+        if which == "migrate" and args.dry_run:
+            print("\n".join(goals.migrate(config)))
+            return
         with vault_lock(config):
             if which == "asked":
                 print(goals.QUESTION if goals.asked(config) else "Already asked, or active goals exist; do not ask again.")
@@ -679,7 +682,7 @@ def cmd_goals(args):
             if which == "migrate":
                 if not (args.dry_run or args.apply):
                     raise ValueError("migrate needs --dry-run or --apply; review the dry run first")
-                print("\n".join(goals.migrate(config, apply=args.apply, responsibilities=args.responsibility)))
+                print("\n".join(goals.migrate(config, apply=args.apply)))
                 return
             if which == "new":
                 entry = goals.new(config, action or "", args.words or "", reach=args.reach, by=args.by, from_app=args.from_app)
@@ -1373,8 +1376,6 @@ def main(argv=None):
     s.add_argument("--from-app", action="store_true"); s.add_argument("--json", action="store_true")
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true"); mode.add_argument("--apply", action="store_true")
-    s.add_argument("--responsibility", action="append", default=[], metavar="TITLE=HUB",
-                   help="with migrate: an instruction judged to belong to an existing responsibility")
     s.set_defaults(fn=cmd_goals)
     s = sub.add_parser("channels", help="the channel registry; `sync` registers connect grants; `mail --since` lists new owner mail headers", parents=[vault])
     s.add_argument("action", nargs="?", choices=("sync", "mail")); s.add_argument("--run", action="store_true"); s.add_argument("--profile", default="")

@@ -1,6 +1,6 @@
 """Review regressions, including the six reproduction scripts and seeded template."""
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 import re
 
@@ -92,58 +92,6 @@ def test_t1_comment_delimiters_refuse_with_teaching_message(vault, field, marker
     assert snapshot(vault) == before
 
 
-def test_t1_empty_seeded_template_migrates_to_zero_goals_without_writes(vault):
-    cfg, _ = seed(vault, (FIXTURES / "seeded-template.md").read_text())
-    before = snapshot(vault)
-    report = goals.migrate(cfg)
-    assert any("left in place" in item and "[Goal]" in item for item in report)
-    goals.migrate(cfg, apply=True)
-    assert not goals.load(cfg) and snapshot(vault) == before
-
-
-def test_t2_t5_roshan_migration_words_evidence_and_new(vault):
-    cfg, path = seed(vault, (FIXTURES / "roshan.md").read_text())
-    report = goals.migrate(cfg)
-    assert any("left in place" in item and "**Approach:**" in item for item in report)
-    goals.migrate(cfg, apply=True)
-    engineering, reading, intellect = goals.load(cfg)
-    assert engineering.words == "I want real depth as an engineer, not just shipping"
-    assert reading.words == "Read more widely, fiction too."
-    assert reading.said_at == "2026-10-16"
-    assert intellect.words == "An intellect I can think with"
-    assert [item["at"] for item in engineering.evidence] == ["2026-10-30", "2026-10-28", "2026-10-20"]
-    assert reading.evidence == [{"at": "2026-10-25", "text": 'finished "Piranesi"', "link": None}]
-    assert '- **Approach:** [[Systems reading plan]], one paper a week; started: 2026-10-15' in path.read_text()
-    assert 'Prompted by reading "Designing Data-Intensive Applications".' in path.read_text()
-    goals.new(cfg, "Marathon", "Run sub-3")
-    assert len(goals.load(cfg)) == 4 and not goals.problems(cfg)
-
-
-def test_t3_bullets_responsibility_and_full_words(vault):
-    cfg, path = seed(vault, (FIXTURES / "bullets.md").read_text())
-    fm.write(vault / "Ledger.md", {"kind": "hub", "skill": "brain-watch", "records": "watch"}, "# Ledger\n")
-    report = goals.migrate(cfg, responsibilities=["Save me money=Ledger"])
-    assert any("responsibility: Save me money" in item for item in report)
-    goals.migrate(cfg, apply=True, responsibilities=["Save me money=Ledger"])
-    help_goal, ledger, meetings = goals.load(cfg)
-    assert help_goal.words == "when I mention an idea, flesh it out"
-    assert ledger.words == 'Ship Ledger by 2027-01-01 — "get Ledger in front of 10 users" (2026-10-22)'
-    assert ledger.state["by"] == "2027-01-01"
-    assert ledger.evidence[0]["text"] == "3 users onboarded"
-    assert meetings.said_at == "2026-10-25"
-    assert "## Projects\n### Ledger\n- budget app" in path.read_text()
-    assert "watch subscriptions" in (vault / "Ledger.md").read_text()
-    assert not goals.problems(cfg)
-
-
-def test_t4_mixed_bullets_and_headings_migrate_in_file_order(vault):
-    cfg, _ = seed(vault, (FIXTURES / "mixed.md").read_text())
-    goals.migrate(cfg, apply=True)
-    assert [goal.title for goal in goals.load(cfg)] == ["Help me build out ideas (2026-10-20)", "Save me money (2026-10-21)", "Ledger", "Find me cheaper flights (2026-10-23)"]
-    assert [goal.gid for goal in goals.load(cfg)] == ["G-1", "G-2", "G-3", "G-4"]
-    assert not goals.problems(cfg)
-
-
 def test_t6_contract_argv_special_titles_words_and_edit(vault, capsys):
     titles = ["G-1", "list", 'Run 5k: sub-20 "fast" (2026-01-01)', "Lire plus — été ☀️ 日本語", "x" * 80, "edit", 'He said "go" (unknown)']
     for title in titles:
@@ -156,76 +104,6 @@ def test_t6_contract_argv_special_titles_words_and_edit(vault, capsys):
     assert entries["G-3"].state["state"] == "reached"
     assert entries["G-1"].words == 'words "q" (2026-01-01)'
     assert not goals.problems(cfg)
-
-
-def test_migration_long_plain_bullet_placeholder_chunks_and_unconverted_text(vault):
-    words = "Get better at saying no to meetings and spend more time reading and learning how to build durable systems with friends"
-    cfg, path = seed(vault, "# Goals\n## Active goals\nA description.\n\n### Empty\n- [words]\n- [evidence]\n\n- " + words + "\n\nUnconverted prose.\n\n## Set aside\n")
-    report = goals.migrate(cfg)
-    assert all(any(text in item and "left in place" in item for item in report) for text in ("A description.", "### Empty", "Unconverted prose."))
-    goals.migrate(cfg, apply=True)
-    goal, = goals.load(cfg)
-    assert goal.words == words and len(goal.title) <= 80
-    assert words.startswith(goal.title + " ")
-    assert "### Empty\n- [words]\n- [evidence]" in path.read_text()
-    assert "Unconverted prose." in path.read_text() and not goals.problems(cfg)
-
-
-def test_migration_reports_a_bullet_that_cannot_fit_at_a_word_boundary(vault):
-    words = "x" * 81
-    cfg, _ = seed(vault, '# Goals\n## Active goals\n- ' + words + '\n')
-    before = snapshot(vault)
-    report = goals.migrate(cfg, apply=True)
-    assert any("cannot migrate" in item and "left in place" in item for item in report)
-    assert not goals.load(cfg) and snapshot(vault) == before
-
-
-def test_migration_invalid_dates_report_and_undated_nudge(vault, monkeypatch):
-    cfg, _ = seed(vault, '# Goals\n## Active goals\n### Race by 2027-02-30\n- **What and why:** Run well (2026-02-30)\n- **Progress:** 2026-02-30 · Impossible\n\n### Reading\n- **What and why:** Read more\n')
-    report = goals.migrate(cfg, apply=True)
-    assert any("invalid date" in item and "2027-02-30" in item for item in report)
-    race, reading = goals.load(cfg)
-    assert race.state.get("by") is None and race.said_at is None and race.evidence == []
-    assert reading.said_at is None and not goals.problems(cfg)
-    with pytest.raises(ValueError, match="60 days"):
-        goals.change(cfg, reading.gid, "nudge")
-    monkeypatch.setenv("BRAIN_TODAY", (TODAY + timedelta(days=60)).isoformat())
-    goals.change(cfg, reading.gid, "nudge")
-
-
-def test_migration_keeps_unconverted_details_bounded_beside_existing_blocks(vault):
-    cfg, path = seed(vault, goals.TEMPLATE)
-    goals.new(cfg, "Reading", "Read more")
-    path.write_text(path.read_text().replace("## Adopted practices", '### Engineering\n- **What and why:** Build depth\n- **Approach:** One paper a week\n\n## Adopted practices'))
-    before = snapshot(vault)
-    report = goals.migrate(cfg)
-    assert any("left in place: ### Engineering" in item for item in report)
-    assert snapshot(vault) == before
-    goals.migrate(cfg, apply=True)
-    assert not goals.problems(cfg)
-    assert '### Engineering\n- **Approach:** One paper a week' in path.read_text()
-    assert all("Approach" not in goal.body for goal in goals.load(cfg))
-
-
-@pytest.mark.parametrize("words_lines,expected", [("", "Reading"), ('- **What and why:** Read widely\n- **In their words:** "Read beyond my field" (2026-10-20)\n', "Read beyond my field")])
-def test_migration_words_precedence_and_heading_fallback_leave_other_text(vault, words_lines, expected):
-    approach = '- **Approach:** Finish "Piranesi" first\n'
-    cfg, path = seed(vault, '# Goals\n## Active goals\n### Reading\n' + words_lines + approach)
-    goals.migrate(cfg, apply=True)
-    goal, = goals.load(cfg)
-    assert goal.words == expected and approach in path.read_text()
-    assert not goals.problems(cfg)
-
-
-@pytest.mark.parametrize("label", ["Progress", "Progress looks like", "Evidence"])
-@pytest.mark.parametrize("bold", [True, False])
-def test_migration_dated_progress_labels_and_later_quotes_are_not_words(vault, label, bold):
-    label = f"**{label}:**" if bold else label + ":"
-    cfg, _ = seed(vault, f'# Goals\n## Active goals\n### Reading\n- {label} 2026-10-25 — finished "Piranesi"\n')
-    goals.migrate(cfg, apply=True)
-    goal, = goals.load(cfg)
-    assert goal.words == "Reading" and goal.said_at is None
-    assert goal.evidence == [{"at": "2026-10-25", "text": 'finished "Piranesi"', "link": None}]
 
 
 @pytest.mark.parametrize("speaker,allowed", [("", False), ("demiurge:visitor", False), ("subagent:run", False), ("demiurge:owner", True), ("cron:morning", True)])

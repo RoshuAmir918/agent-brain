@@ -2,10 +2,11 @@
 import json
 from dataclasses import replace
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 
-from brain import cli, compile_context, fm, goals, ideas, needs, state, tasks, validate, works
+from brain import cli, compile_context, fm, goals, ideas, state, tasks, validate, works
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -272,107 +273,52 @@ def test_capture_asked_once_even_without_an_answer_and_nudge_operations(vault, c
     assert "nudged" not in goals.load(cfg)[0].state
 
 
-ROSHAN = '''# Goals
-## Aspirations
-Maybe music.
-## Active goals
-### Engineering depth
-- **In their words:** "Depth as an engineer." (2026-10-30)
-- **Evidence:** 2026-11-01 · Read the database paper · [[Systems]]
-### Reading
-- **In their words:** "Read more widely." (2026-10-30)
-- **Evidence:** 2026-11-02 · Finished a novel
-### A refined intellect
-- **In their words:** "An intellect I can think with." (2026-10-30)
-## Adopted practices
-Read at breakfast.
-## Set aside
-An old wish.
-'''
-ROHAN = '''# Goals
-## Active goals
-### Build out my ideas
-- **In their words:** "Help me build out ideas." (2026-10-30)
-### Save me money
-- **In their words:** "Save me money." (2026-10-30)
-### Ship Ledger
-- **In their words:** "Ship Ledger." (2026-10-30)
-- Kind: reach; by=2027-01-01
-- **Evidence:** 2026-11-02 · First prototype
-## Adopted practices
-## Set aside
-'''
-
-
-@pytest.mark.parametrize("fixture,count,mappings", [(ROSHAN, 3, []), (ROHAN, 1, ["Build out my ideas=Ideas lab", "Save me money=Ledger"]),
-                                                    (goals.TEMPLATE, 0, [])])
-def test_migrate_real_shaped_fixtures_dry_run_apply_and_retry(vault, capsys, fixture, count, mappings):
+@pytest.mark.parametrize("fixture", ["seeded-template.md", "none.md"])
+def test_migrate_empty_active_goals_writes_nothing(vault, capsys, monkeypatch, fixture):
     cfg = Config.load(vault)
-    path = note(vault, cfg.human_goals, fixture, kind="orientation")
-    for title in ("Ideas lab", "Ledger"):
-        note(vault, title + ".md", "# " + title, kind="hub", skill="brain-watch", records="watch")
-    flags = [flag for mapping in mappings for flag in ("--responsibility", mapping)]
+    path = vault / cfg.human_goals
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes((Path(__file__).parent / "fixtures/goals" / fixture).read_bytes())
     before = snapshot(vault)
-    first = run(vault, capsys, "goals", "migrate", "--dry-run", *flags)
-    assert run(vault, capsys, "goals", "migrate", "--dry-run", *flags) == first
+    def refuse_lock(*args):
+        pytest.fail("a dry run must not acquire a write lock")
+    with monkeypatch.context() as preview:
+        preview.setattr(cli, "vault_lock", refuse_lock)
+        assert run(vault, capsys, "goals", "migrate", "--dry-run") == "no legacy content in Active goals; nothing to migrate\n"
+    assert run(vault, capsys, "goals", "migrate", "--apply") == "no legacy content in Active goals; nothing to migrate\n"
+    assert not goals.load(cfg) and snapshot(vault) == before
+
+
+@pytest.mark.parametrize("fixture", ["roshan.md", "rohan.md"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_migrate_archives_original_clears_only_active_goals_and_is_idempotent(vault, capsys, fixture, newline):
+    cfg = Config.load(vault)
+    path = vault / cfg.human_goals
+    path.parent.mkdir(parents=True, exist_ok=True)
+    original = (Path(__file__).parent / "fixtures/goals" / fixture).read_text()
+    original = "---\nkind: orientation\ntier: hot\npinned: true\n---\n" + original
+    original = original.replace("\n", newline).encode()
+    path.write_bytes(original)
+    before = snapshot(vault)
+    archive_rel = cfg.agent("Goals Archive/Migration.md")
+    report = f"legacy content in Active goals; would archive to {archive_rel}\n"
+    assert run(vault, capsys, "goals", "migrate", "--dry-run") == report
+    assert run(vault, capsys, "goals", "migrate", "--dry-run") == report
     assert snapshot(vault) == before
-    run(vault, capsys, "goals", "migrate", "--apply", *flags)
-    entries = goals.load(cfg)
-    assert len(entries) == count and not goals.problems(cfg)
-    if not count:
-        assert snapshot(vault) == before and path.read_text() == fm.join({"tier": "warm", "kind": "orientation"}, fixture)
-        return
-    assert [goal.gid for goal in entries] == [f"G-{i+1}" for i in range(count)]
-    archive = vault / cfg.agent("Goals Archive/Migration.md")
-    assert fixture in archive.read_text()
-    if mappings:
-        assert entries[0].title == "Ship Ledger" and entries[0].state["kind"] == "reach"
-        assert entries[0].state["by"] == "2027-01-01"
-        assert "Help me build out ideas." in (vault / "Ideas lab.md").read_text()
-        assert "Save me money." in (vault / "Ledger.md").read_text()
-        run(vault, capsys, "needs-you", "--confirm", "I treated saving money as work you gave me, under Ledger.", "--source", "Ledger")
-        assert needs.items(cfg, TODAY)[0].kind == "confirm"
-    else:
-        assert entries[0].words == "Depth as an engineer." and entries[0].said_at == "2026-10-30"
-        assert entries[0].evidence == [{"at": "2026-11-01", "text": "Read the database paper", "link": "Systems"}]
-        assert all(text in goals.read(cfg)[1] for text in ("Maybe music.", "Read at breakfast.", "An old wish."))
+    assert run(vault, capsys, "goals", "migrate", "--apply") == f"archived original to {archive_rel}; Active goals cleared\n"
+    archive = vault / archive_rel
+    prefix = fm.join({"kind": "log", "tier": "cold"}, "").encode()
+    assert archive.read_bytes() == prefix + original
+    assert Vault(vault).kind_for(archive_rel) == "log"
+    head, rest = original.split(b"## Active goals" + newline.encode(), 1)
+    _, tail = rest.split(b"## Adopted practices", 1)
+    assert path.read_bytes() == head + b"## Active goals" + newline.encode() + goals.ACTIVE_DESCRIPTION.encode() + newline.encode() * 2 + b"## Adopted practices" + tail
+    assert not goals.load(cfg) and not goals.problems(cfg)
+    assert snapshot(vault).keys() == before.keys() | {archive_rel}
+    assert all(snapshot(vault)[rel] == digest for rel, digest in before.items() if rel != cfg.human_goals)
     after = snapshot(vault)
-    assert "nothing to migrate" in run(vault, capsys, "goals", "migrate", "--apply")
+    assert run(vault, capsys, "goals", "migrate", "--apply") == "no legacy content in Active goals; nothing to migrate\n"
     assert snapshot(vault) == after
-
-
-def test_migrate_bullets_retains_words_and_does_not_use_a_finish_date_as_said_at(vault):
-    cfg = Config.load(vault)
-    note(vault, cfg.human_goals, '''# Goals
-## Active goals
-- **Exam.** "Pass on 2027-06-01." (2026-10-30)
-  - Kind: reach; by=2027-06-01
-  - Evidence:
-    - 2026-11-01 · Practice score improved
-- **Reading.** "Read widely."
-## Adopted practices
-''', kind="orientation")
-    goals.migrate(cfg, apply=True)
-    exam, reading = goals.load(cfg)
-    assert exam.words == "Pass on 2027-06-01." and exam.said_at == "2026-10-30"
-    assert exam.state["by"] == "2027-06-01" and exam.evidence[0]["text"] == "Practice score improved"
-    assert reading.said_at is None and not goals.problems(cfg)
-
-
-def test_migrate_long_evidence_keeps_ten_and_archives_the_rest(vault):
-    cfg = Config.load(vault)
-    evidence = "".join(f"- **Evidence:** 2026-10-{count:02d} · Progress {count}\n" for count in range(1, 14))
-    note(vault, cfg.human_goals, '# Goals\n## Active goals\n### Reading\n- **In their words:** "Read widely." (2026-10-01)\n' + evidence,
-         kind="orientation")
-    before = snapshot(vault)
-    goals.migrate(cfg)
-    assert snapshot(vault) == before
-    goals.migrate(cfg, apply=True)
-    goal, = goals.load(cfg)
-    assert len(goal.evidence) == 10 and goal.evidence[0]["text"] == "Progress 13"
-    archive = (vault / cfg.agent("Goals Archive/G-1.md")).read_text()
-    assert "Progress 1\n" in archive and "Progress 3\n" in archive and "Earlier evidence" in goal.body
-    assert not goals.problems(cfg)
 
 
 def test_hub_link_keeps_each_proposals_own_goal(vault):

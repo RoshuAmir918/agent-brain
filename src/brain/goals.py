@@ -21,6 +21,7 @@ STATES = ("active", "reached", "set_aside")
 KINDS = ("reach", "become")
 WORDS = re.compile(r'^- \*\*In their words:\*\* "(.*)" \((\d{4}-\d{2}-\d{2}|unknown)\)$', re.M)
 EVIDENCE = re.compile(r"^- \*\*Evidence:\*\* (\d{4}-\d{2}-\d{2}) · (.+)$", re.M)
+ACTIVE_DESCRIPTION = "What the owner has chosen to cultivate: called a goal in their words, or returned to on a second day."
 TEMPLATE = "# Goals\n\n## Aspirations\n\n## Active goals\n\n## Adopted practices\n\n## Set aside\n"
 QUESTION = "What are you working toward right now? Anything: a race, an exam, a habit, a skill. I'll keep it in mind, and it's how I decide what to do without being asked."
 
@@ -386,194 +387,39 @@ def link_note(config: Config, gid: str, note: str) -> None:
     fm.write(path, data, body)
 
 
-def migrate(config: Config, *, apply: bool = False, responsibilities: list[str] = ()) -> list[str]:
-    """Deterministic mechanics only. The intellect supplies instruction→existing-hub judgments.
-
-    Keep a complete original note before replacing legacy text. Never infer a date,
-    finish line, responsibility, or task link from the meaning of someone's words.
-    """
+def migrate(config: Config, *, apply: bool = False) -> list[str]:
+    """Archive legacy content for the intellect to judge; never create goals."""
     from .needs import _section
-    from .tasks import note_name
     if config.edition != "personal":
         return ["organisation vault: no personal goals to migrate"]
-    data, body = read(config)
+    path = config.vault_path / config.human_goals
+    original = path.read_bytes().decode("utf-8") if path.exists() else TEMPLATE
+    _, body = fm.split(original)
     span = _section(body, "Active goals")
     if span is None:
         return ["no Active goals section; nothing to migrate"]
-    section = body[span[0]:span[1]]
-    # Collect headings and plain top-level bullets together, never treating a
-    # heading's metadata bullets as separate goals. Canonical blocks are opaque.
-    fields = re.compile(r"^(In their words|What and why|Progress looks like|Progress|Evidence|Kind|By|Approach|Current approach):\s*(.*)$", re.I)
-
-    def legacy_field(raw):
-        return fields.match(raw.strip().removeprefix("- ").replace("**", ""))
-
-    existing = [(start, end) for _, start, end in parse_register(section)[0]]
-    heads = [head for head in re.finditer(r"^(?:### |\- )(.+?)[ \t]*$", section, re.M)
-             if not any(start <= head.start() < end for start, end in existing)
-             and not (head[0].startswith("- ") and re.fullmatch(r"\[.*\]", head[1]))
-             and not (head[0].startswith("- ") and legacy_field(head[0]))]
-    legacy = []
-    for index, head in enumerate(heads):
-        limit = heads[index + 1].start() if index + 1 < len(heads) else len(section)
-        for start, _ in existing:
-            if head.end() < start < limit:
-                limit = start
-        end = _chunk_end(section, head.end() + 1, limit)
-        title = head[1].strip()
-        chunk = section[head.start():end]
-        content = [legacy_field(raw)[2] if legacy_field(raw) else raw.strip().removeprefix("- ")
-                   for raw in chunk.splitlines()[1:] if raw.strip()]
-        if (re.fullmatch(r"\[.*\]", title) or
-                (content and all(re.fullmatch(r"\[.*\]", value) for value in content)) or
-                title.casefold().strip("*_() .") in ("none", "none yet", "empty", "no active goals") or title.startswith("<!--")):
+    for raw in body[span[0]:span[1]].splitlines():
+        value = raw.strip()
+        if not value or value == ACTIVE_DESCRIPTION:
             continue
-        if head[0].startswith("- "):
-            bold = re.match(r"\*\*(.+?)\*\*(.*)", title)
-            title = bold[1].rstrip(":.") if bold else title
-        legacy.append((title, chunk, span[0] + head.start(), span[0] + end))
-    mappings = {}
-    for value in responsibilities:
-        title, separator, hub = value.partition("=")
-        if not separator or title not in {entry[0] for entry in legacy}:
-            raise ValueError("--responsibility needs an exact legacy title=existing hub from the dry run")
-        mappings[title] = note_name(config, hub)
-        hub_data, _ = fm.read(config.vault_path / (mappings[title] + ".md"))
-        if not hub_data.get("skill") or not hub_data.get("records"):
-            raise ValueError(f"{hub} is not a responsibility hub; use `brain responsibility` first")
-    next_id = max((int(goal.gid[2:]) for goal in load(config)), default=0) + 1
-    replacements, report, archives, converted = [], [], [], []
-    consumed = set()
-
-    def migration_day(value):
-        try:
-            return day(value)
-        except ValueError:
-            report.append(f"invalid date {value!r}; left undated (no by for an invalid finish date)")
-            return None
-
-    for title, chunk, start, end in legacy:
-        raw_lines = chunk.splitlines(keepends=True)
-        if title in mappings:
-            report.append(f"responsibility: {title} → [[{mappings[title]}]]; original text archived; add a Needs you confirm")
-            replacements.append((start, end, ""))
-            consumed.update(range(start, end))
+        value = re.sub(r"^(?:#{3,6} |[-*] )", "", value)
+        value = re.sub(r"^\*\*[^*]+:\*\*\s*", "", value)
+        if re.fullmatch(r"\[[^\[\]\n]*\]", value) or re.match(r"None\b", value, re.I):
             continue
-        parsed_fields = [legacy_field(raw) for raw in raw_lines]
-        words_index = next((i for i, match in enumerate(parsed_fields) if match and match[1].lower() == "in their words"), None)
-        if words_index is None:
-            words_index = next((i for i, match in enumerate(parsed_fields) if match and match[1].lower() == "what and why"), None)
-        first = raw_lines[0].strip()
-        plain_bullet = first.startswith("- ") and not first.startswith("- **")
-        provenance = parsed_fields[words_index][2] if words_index is not None else re.sub(r"^### |^- ", "", first)
-        # A quote in Progress or an Approach is never the owner's words.
-        words = provenance
-        if words_index is None and first.startswith("- **"):
-            bold = re.match(r"\*\*(.+?)\*\*(.*)", words)
-            words = bold[2].lstrip(" .:—–-") or bold[1]
-        quoted = re.match(r'["“](.*?)["”](?:\s|$)', words)
-        if plain_bullet and words_index is None:
-            words = provenance
-        elif quoted:
-            words = quoted[1]
-        else:
-            words = re.sub(r"\s*(?:\(\d{4}-\d{2}-\d{2}\)|(?:said|stated|recorded)[: ]+\d{4}-\d{2}-\d{2})[ .]*$", "", words, flags=re.I)
-        words = " ".join(words.split())
-        full_title = title
-        if len(title) > 80:
-            title = title[:81].rsplit(" ", 1)[0]
-        try:
-            title, words = line("title", title, 80), line("words", words, 500)
-        except ValueError as error:
-            report.append(f"cannot migrate {full_title!r}: {error}; left in place")
-            continue
-        said = re.search(r"\((\d{4}-\d{2}-\d{2})\)", provenance)
-        if not said:
-            said = re.search(r"\b(?:said|stated|recorded)[: ]+(\d{4}-\d{2}-\d{2})\b", provenance, re.I)
-        said_at = migration_day(said[1]) if said else None
-        by_match = re.search(r"(?:\bby[=: ]+|\*\*By:\*\*\s*)(\d{4}-\d{2}-\d{2})", chunk, re.I)
-        kind_match = re.search(r"(?:\bkind[=: ]+|\*\*Kind:\*\*\s*)(reach|become)\b", chunk, re.I)
-        state = {"kind": kind_match[1].lower() if kind_match else "reach" if by_match else "become", "state": "active"}
-        by = migration_day(by_match[1]) if by_match else None
-        if by:
-            state["by"] = by
-        evidence, used = [], {0}
-        extra_words_text = quoted and re.sub(r"^\s*\(\d{4}-\d{2}-\d{2}\)[ .]*", "", provenance[quoted.end():]).strip(" .")
-        if words_index is not None and not extra_words_text:
-            used.add(words_index)
-        evidence_header = None
-        for i, raw in enumerate(raw_lines[1:], 1):
-            field = parsed_fields[i]
-            if field:
-                label, value = field[1].lower(), field[2]
-                evidence_header = i if label in ("evidence", "progress", "progress looks like") else None
-                if label in ("kind", "by"):
-                    if (label == "kind" and kind_match and (not by_match or by)) or (label == "by" and by):
-                        used.add(i)
-            nested_bullet = raw.startswith(("  - ", "    - "))
-            if evidence_header is None and not (first.startswith("- ") and nested_bullet and not field):
-                continue
-            value = field[2] if field else raw.strip().removeprefix("- ").removeprefix("**")
-            match = re.match(r"(\d{4}-\d{2}-\d{2})(?:\*\*)?(?:\s*[·—:]\s*|\s+)(.+)", value)
-            if match and (at := migration_day(match[1])):
-                evidence.append(f"- **Evidence:** {at} · {match[2]}")
-                used.add(i)
-                if evidence_header is not None and not parsed_fields[evidence_header][2]:
-                    used.add(evidence_header)
-        evidence.sort(reverse=True)
-        if not said_at and not evidence:
-            state["updated"] = config.today().isoformat()
-        goal = Goal(f"G-{next_id}", title, f'- **In their words:** "{words}" ({said_at or "unknown"})\n' + "\n".join(evidence[:10]), state)
-        next_id += 1
-        report.append(f"{goal.gid}: {title} · {state['kind']} · said {said_at or 'unknown'} · {len(evidence)} evidence line(s)")
-        if first.startswith("### ") and any(raw.strip() for i, raw in enumerate(raw_lines) if i not in used):
-            # Keep the legacy heading with its unconverted details. Removing it
-            # could attach those bullets to a preceding canonical goal.
-            used.remove(0)
-        offset = start
-        for i, raw in enumerate(raw_lines):
-            if i in used:
-                replacements.append((offset, offset + len(raw), ""))
-                consumed.update(range(offset, offset + len(raw)))
-            offset += len(raw)
-        if len(evidence) > 10:
-            path = config.vault_path / config.agent(f"Goals Archive/{goal.gid}.md")
-            archives.append((path, f"# {goal.gid} — {title}\n\n" + "\n".join(evidence[10:]) + "\n"))
-            goal.body += f"\n- **Earlier evidence:** [[{config.link(config.agent(f'Goals Archive/{goal.gid}'))}|{goal.gid} archive]]\n"
-        converted.append(goal)
-    # Show every nonempty line that will remain, including placeholders, prose,
-    # and metadata which could not be represented as words or dated evidence.
-    offset = span[0]
-    for raw in section.splitlines(keepends=True):
-        if raw.strip() and offset not in consumed and not any(a <= offset - span[0] < b for a, b in existing):
-            report.append("left in place: " + raw.rstrip())
-        offset += len(raw)
-    if not replacements and not converted:
-        return report + ["no legacy active goals; nothing to migrate"]
+        break
+    else:
+        return ["no legacy content in Active goals; nothing to migrate"]
+    archive_rel = config.agent("Goals Archive/Migration.md")
     if not apply:
-        return report + ["dry run; nothing written. Review kinds, dates and instruction→responsibility judgments before --apply."]
-    archive = config.vault_path / config.agent("Goals Archive/Migration.md")
+        return [f"legacy content in Active goals; would archive to {archive_rel}"]
+    archive = config.vault_path / archive_rel
     if archive.exists():
         raise ValueError("a migration archive already exists; inspect it before migrating more legacy text")
     archive.parent.mkdir(parents=True, exist_ok=True)
-    fm.write(archive, {"kind": "log", "tier": "cold"}, "# Goals before 0.65.0\n\n" + body)
-    for path, content in archives:
-        fm.write(path, {}, content)
-    for title, chunk, _, _ in legacy:
-        if title in mappings:
-            path = config.vault_path / (mappings[title] + ".md")
-            hub_data, hub_body = fm.read(path)
-            fm.write(path, hub_data, hub_body.rstrip() + f"\n\n## Migrated instruction ({config.today()})\n\n" + chunk + "\n")
-    for start, end, replacement in sorted(replacements, reverse=True):
-        body = body[:start] + replacement + body[end:]
-    # Keep unconverted text where it was; canonical goals follow the legacy
-    # material so none of its bullets become part of a signed goal block.
-    active_span = _section(body, "Active goals")
-    blocks = [stop for _, start, stop in parse_register(body)[0] if active_span[0] <= start < active_span[1]]
-    pos = blocks[-1] if blocks else active_span[1]
-    if converted:
-        before, after = body[:pos], body[pos:]
-        separator = "" if before.endswith("\n\n") else "\n" if before.endswith("\n") else "\n\n"
-        body = before + separator + "\n".join(goal.render() for goal in converted) + ("" if after.startswith("\n") else "\n") + after
-    fm.write(config.vault_path / config.human_goals, data, body)
-    return report + ["applied; complete original in [[" + config.agent("Goals Archive/Migration") + "]]"]
+    fm.write(archive, {"kind": "log", "tier": "cold"}, original)
+    # Preserve everything outside Active goals, including frontmatter and line endings.
+    offset = len(original) - len(body)
+    newline = "\r\n" if "\r\n" in original else "\n"
+    cleared = original[:offset + span[0]] + "\n" + ACTIVE_DESCRIPTION + newline * 2 + original[offset + span[1]:]
+    fm.write(path, {}, cleared)
+    return [f"archived original to {archive_rel}; Active goals cleared"]
