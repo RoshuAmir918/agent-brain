@@ -51,11 +51,11 @@ def test_sync_registers_completed_connect_grants_once_and_keeps_the_rest_of_the_
 
 
 def test_validate_reports_vocabulary_budget_and_unregistered_credential_references(registry_vault):
-    fm.write(registry_vault / "Harbor.md", {"kind": "hub", "tier": "warm"}, "# Harbor\nRead `op://Echo/Harbor token/password` and `op://Echo/Gmail app password/password`; an unquoted op://Echo/Nope is not a reference.\n")
+    fm.write(registry_vault / "Acme.md", {"kind": "hub", "tier": "warm"}, "# Acme\nRead `op://Echo/Acme token/password` and `op://Echo/Gmail app password/password`; an unquoted op://Echo/Nope is not a reference.\n")
     (registry_vault / "agent/Channels").mkdir()
     fm.write(registry_vault / "agent/Channels/History.md", {"kind": "log", "tier": "cold"}, "- 2026-10-20 · op://Echo/Nothing here is fine, it is history.\n")
     problems = validate.channels(Vault(registry_vault))
-    assert problems == ["Harbor.md: credential reference op://Echo/Harbor token is not a registered channel's reach"]
+    assert problems == ["Acme.md: credential reference op://Echo/Acme token is not a registered channel's reach"]
     data, body = fm.read(registry_vault / "agent/Channels.md")
     fm.write(registry_vault / "agent/Channels.md", data, body.replace("| pending |", "| maybe |").replace("| own | echo@", "| mine | echo@") + "word " * 400)
     problems = validate.channels(Vault(registry_vault))

@@ -114,14 +114,14 @@ COMPANY = """# Portrait
 
 
 def enterprise(vault):
-    (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nedition = "enterprise"\nhuman_name = "Harbor"\n')
+    (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nedition = "enterprise"\nhuman_name = "Acme"\n')
 
 
 def test_an_organisation_has_a_portrait_in_its_context_with_the_team_rule(vault):
     enterprise(vault)
     write_portrait(vault, COMPANY)
     text = compile_context.build(Vault(vault))
-    assert "What you understand of Harbor" in text and "Ship the EDC migration tooling" in text
+    assert "What you understand of Acme" in text and "Ship the EDC migration tooling" in text
     assert "A guess about direction is never stated to the team" in text
     assert "never told to anyone else" not in text
     assert text.index("# Current") < text.index("Ship the EDC") < text.index("# Triggers")

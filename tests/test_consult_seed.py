@@ -36,8 +36,8 @@ def reviews(tmp_path):
     folder = tmp_path / "reviews"
     folder.mkdir()
     review(folder, comments=[
-        "2026-10-30 · nathan · apps/edc-frontend/x.ts · Reuse the field.",
-        "2026-11-01 · nathan · apps/edc-frontend/y.ts · Same here.",
+        "2026-10-30 · noah · apps/edc-frontend/x.ts · Reuse the field.",
+        "2026-11-01 · noah · apps/edc-frontend/y.ts · Same here.",
         "2026-10-31 · roshan ·  · Split the migration.",
         "2026-11-04 · kim · apps/author-only/x.ts · Done.",
         "2026-11-02 · review-bot · apps/edc-frontend/x.ts · Generated review.",
@@ -46,14 +46,14 @@ def reviews(tmp_path):
         "2026-11-02 · bad/name · apps/edc-frontend/x.ts · Invalid identity.",
     ], title="EDC · frontend\nform builder with reusable fields and validation plus many other changes across apps today",
            url="https://example.com/pull/101", merged_by="roshan",
-           approved=["nathan", "kim", "quiet-reviewer", "quiet-reviewer", "review-bot", "bad/name"],
+           approved=["noah", "kim", "quiet-reviewer", "quiet-reviewer", "review-bot", "bad/name"],
            files=["apps/edc-frontend/x.ts", "apps/edc-frontend/y.ts", "src/Foo_bar!/x.py", "README.md"])
     review(folder, 102, "sam", "2026-11-05", [
         "2026-11-03 · kim · apps/EDC-frontend/form.ts · Reuse the form.",
-        "2026-11-04 · nathan ·  · Looks good.",
+        "2026-11-04 · noah ·  · Looks good.",
         "2026-11-04 · sam · apps/author-only/x.ts · Fixed.",
     ])
-    review(folder, 103, comments=["2026-11-05 · nathan ·  · No paths to infer."])
+    review(folder, 103, comments=["2026-11-05 · noah ·  · No paths to infer."])
     review(folder, 90, merged="2026-08-07", files=["old/path/x.ts"])
     review(folder, 104, merged="2026-11-07", files=["future/path/x.ts"])
     return folder
@@ -70,9 +70,9 @@ def test_history_records_changes_approvals_and_latest_reviews_without_writing(re
     assert Counter(row.kind for row in rich) == dict(changed=3, approved=9, reviewed=4)
     assert {row.person for row in rich if row.kind == "changed"} == {GITHUB}
     assert {row.person for row in rich if row.kind == "approved"} == {
-        "github:nathan", "github:quiet-reviewer", "github:roshan"}
+        "github:noah", "github:quiet-reviewer", "github:roshan"}
     assert {row.day for row in rich if row.kind != "reviewed"} == {"2026-11-06"}
-    assert [(row.area, row.day) for row in rich if row.kind == "reviewed" and row.person == "github:nathan"] == [
+    assert [(row.area, row.day) for row in rich if row.kind == "reviewed" and row.person == "github:noah"] == [
         (AREA, "2026-11-01")]
     assert {row.area for row in rich if row.kind == "reviewed" and row.person == "github:roshan"} == {
         AREA, "src foo bar", "top level"}
@@ -80,7 +80,7 @@ def test_history_records_changes_approvals_and_latest_reviews_without_writing(re
     assert all(row.link == "https://example.com/pull/101" for row in rich)
     legacy = [row for row in rows if not row.link]
     assert {(row.area, row.person, row.kind) for row in legacy} == {
-        (AREA, "github:sam", "changed"), (AREA, GITHUB, "reviewed"), (AREA, "github:nathan", "reviewed")}
+        (AREA, "github:sam", "changed"), (AREA, GITHUB, "reviewed"), (AREA, "github:noah", "reviewed")}
     assert rows == sorted(rows, key=lambda row: (row.area, row.day, row.person, row.kind, row.text, row.link))
 
 
@@ -95,12 +95,12 @@ def test_code_areas_are_valid_consult_names(path, expected):
 
 
 @pytest.mark.parametrize("merger,expected", [
-    ("kim", {"github:nathan"}), ("nathan", {"github:nathan"}),
-    ("roshan", {"github:nathan", "github:roshan"}),
-    ("review-bot", {"github:nathan"}), ("bad/name", {"github:nathan"}),
+    ("kim", {"github:noah"}), ("noah", {"github:noah"}),
+    ("roshan", {"github:noah", "github:roshan"}),
+    ("review-bot", {"github:noah"}), ("bad/name", {"github:noah"}),
 ])
 def test_mergers_add_only_distinct_non_author_human_approvals(tmp_path, merger, expected):
-    review(tmp_path, files=["apps/edc-frontend/x.ts"], approved=["kim", "nathan"], merged_by=merger)
+    review(tmp_path, files=["apps/edc-frontend/x.ts"], approved=["kim", "noah"], merged_by=merger)
     rows, problems = seed.routing_evidence(tmp_path, TODAY)
     assert problems == []
     assert {row.person for row in rows if row.kind == "approved"} == expected
@@ -120,21 +120,21 @@ def test_window_uses_merge_date_and_includes_its_boundaries(reviews):
 
 
 def test_explicit_files_control_pr_areas_and_legacy_files_use_comment_paths(tmp_path):
-    review(tmp_path, author="review-bot", files=["apps/new/x.ts"], approved=["nathan"], comments=[
+    review(tmp_path, author="review-bot", files=["apps/new/x.ts"], approved=["noah"], comments=[
         "2026-11-05 · roshan ·  · Review body.",
         "2026-11-04 · kim · apps/old/x.ts · Line comment.",
     ])
     rows, problems = seed.routing_evidence(tmp_path, TODAY)
     assert problems == []
     assert {(row.area, row.person, row.kind) for row in rows} == {
-        ("apps new", "github:nathan", "approved"), ("apps new", "github:roshan", "reviewed"),
+        ("apps new", "github:noah", "approved"), ("apps new", "github:roshan", "reviewed"),
         ("apps old", GITHUB, "reviewed")}
 
 
 @pytest.mark.parametrize("extra,key", [
     ({"url": ["bad"]}, "url"), ({"url": "https://bad/\nlink"}, "url"),
     ({"url": "[[source]]"}, "url"), ({"merged_by": ["kim"]}, "merged_by"),
-    ({"approved": "kim"}, "approved"), ({"approved": ["nathan", None]}, "approved"),
+    ({"approved": "kim"}, "approved"), ({"approved": ["noah", None]}, "approved"),
     ({"files": "apps/api/x.py"}, "files"), ({"files": ["apps/api/x.py", None]}, "files"),
 ])
 def test_bad_new_keys_are_problems_without_breaking_the_taste_reader(tmp_path, extra, key):
@@ -147,7 +147,7 @@ def test_bad_new_keys_are_problems_without_breaking_the_taste_reader(tmp_path, e
 def test_reader_keeps_load_problems_and_skips_bad_comment_dates(tmp_path):
     (tmp_path / "bad.md").write_text("---\ntitle: no number\n---\n")
     review(tmp_path, files=["apps/api/x.py"], comments=[
-        "2026-99-01 · nathan · apps/api/x.py · Invalid date.", "malformed comment"])
+        "2026-99-01 · noah · apps/api/x.py · Invalid date.", "malformed comment"])
     rows, problems = seed.routing_evidence(tmp_path, TODAY)
     assert [row.kind for row in rows] == ["changed"]
     assert any("needs frontmatter" in problem for problem in problems)
@@ -157,7 +157,7 @@ def test_reader_keeps_load_problems_and_skips_bad_comment_dates(tmp_path):
 
 @pytest.mark.parametrize("extra", [{}, {"files": ["apps/api/x.py"]}])
 def test_pr_files_allow_blank_lines_and_headings_before_comments(tmp_path, extra):
-    review(tmp_path, comments=["2026-11-05 · nathan · apps/api/x.py · Reuse the service."], **extra)
+    review(tmp_path, comments=["2026-11-05 · noah · apps/api/x.py · Reuse the service."], **extra)
     path = tmp_path / "101.md"
     data, body = fm.read(path)
     fm.write(path, data, "\n# Comments\n\n" + body + "\n")
@@ -338,11 +338,11 @@ def test_agent_posted_comments_are_not_a_persons_review(enterprise, tmp_path):
     folder.mkdir()
     review(folder, author="kim", files=["apps/edc-frontend/x.ts"], comments=[
         "2026-11-02 · roshan · apps/edc-frontend/x.ts · Posted by Codex: move this into the service.",
-        "2026-11-03 · nathan · apps/edc-frontend/x.ts · Move this into the service.",
+        "2026-11-03 · noah · apps/edc-frontend/x.ts · Move this into the service.",
     ])
     rows, _ = seed.routing_evidence(folder, TODAY)
     reviewed = {row.person for row in rows if row.kind == "reviewed"}
-    assert reviewed == {"github:nathan"}
+    assert reviewed == {"github:noah"}
 
 
 def test_profile_ids_read_every_platform_identity_matches():

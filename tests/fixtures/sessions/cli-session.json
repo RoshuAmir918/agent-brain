@@ -43,7 +43,7 @@
         "type": "tool_call",
         "id": "call",
         "name": "terminal",
-        "arguments": "cat \"memory/Harbor Context.md\""
+        "arguments": "cat \"memory/Acme Context.md\""
       }
     },
     {
@@ -52,7 +52,7 @@
         "type": "tool_call",
         "id": "call",
         "name": "terminal",
-        "arguments": "{\"command\": \"python3 -m brain retrieve --vault ../ \\\"harbor CI\\\"\"}"
+        "arguments": "{\"command\": \"python3 -m brain retrieve --vault ../ \\\"acme CI\\\"\"}"
       }
     },
     {
@@ -76,7 +76,7 @@
         "type": "tool_call",
         "id": "call",
         "name": "mcp__vault__read",
-        "arguments": "{\"nested\": [{\"file_path\": \"memory/Harbor Context.md\"}]}"
+        "arguments": "{\"nested\": [{\"file_path\": \"memory/Acme Context.md\"}]}"
       }
     },
     {

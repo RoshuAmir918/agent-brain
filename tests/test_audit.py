@@ -14,7 +14,7 @@ DAY = date(2026, 10, 26)
 def audited(tmp_path, monkeypatch):
     (tmp_path / "brain.toml").write_text('[brain]\nlog_dirs = ["Results"]\n', encoding="utf-8")
     vault = tmp_path / "memory"; (vault / "agent").mkdir(parents=True)
-    fm.write(vault / "Harbor.md", {"kind": "hub", "tier": "hot", "activation": 3}, "# Harbor\nfour five six seven\n")
+    fm.write(vault / "Acme.md", {"kind": "hub", "tier": "hot", "activation": 3}, "# Acme\nfour five six seven\n")
     (vault / "agent/Explorations").mkdir()
     fm.write(vault / "agent/Explorations/2026-10.md", {"kind": "log"}, "# Explorations\n\n- 10-20 | inbound | nothing new | nothing found\n- 10-21 | mail | filed one note | filed\n")
     (vault / "agent/Results").mkdir()
@@ -58,7 +58,7 @@ def test_audit_counts_folders_ledgers_episodes_and_routines_without_contents(aud
     assert job["end_reasons"] == {"unknown": 2}
     text = audit.render(data)
     assert "explore: 2 runs" in text and "Results 2 files, 2 dated" in text
-    assert "Secret" not in text and "Alice" not in text and "Harbor" not in text
+    assert "Secret" not in text and "Alice" not in text and "Acme" not in text
 
 
 def test_audit_cli_json_and_window(audited, capsys):

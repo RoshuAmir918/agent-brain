@@ -98,12 +98,12 @@ def review(folder, number, author, merged, *comments):
 def test_burden_counts_peoples_corrections_on_the_intellects_prs_by_week(tmp_path):
     folder = tmp_path / "reviews"
     folder.mkdir()
-    review(folder, 1, "intellect", "2026-10-27", "2026-10-27 · nathan · a.ts · Use the service.",
-           "2026-10-27 · nathan · a.ts · And here.", "2026-10-27 · codex[bot] · a.ts · Nit.")
+    review(folder, 1, "intellect", "2026-10-27", "2026-10-27 · noah · a.ts · Use the service.",
+           "2026-10-27 · noah · a.ts · And here.", "2026-10-27 · codex[bot] · a.ts · Nit.")
     review(folder, 2, "intellect", "2026-10-29", "2026-10-29 · codex[bot] · b.ts · Nit.")
     review(folder, 3, "intellect", "2026-11-03", "2026-11-03 · priya · c.ts · Name it plainly.")
     review(folder, 4, "intellect", "2026-11-05")
-    review(folder, 5, "kim", "2026-11-05", "2026-11-05 · nathan · d.ts · Not the intellect's PR.")
+    review(folder, 5, "kim", "2026-11-05", "2026-11-05 · noah · d.ts · Not the intellect's PR.")
     data = reception.burden(folder, "Intellect", TODAY, weeks=3)
     assert [(w["week"], w["prs"], w["corrections"], w["perPr"], w["clean"]) for w in data["weeks"]] == [
         ("2026-10-19", 0, 0, None, None), ("2026-10-26", 2, 2, 1.0, 0.5), ("2026-11-02", 2, 1, 0.5, 0.5)]

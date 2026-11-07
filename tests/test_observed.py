@@ -12,14 +12,14 @@ from brain.vault import Vault
 from conftest import snapshot, harness_session, message, tool, write_shards
 
 DAY = date(2026, 10, 20)
-HARBOR = "memory/Harbor Context.md"
+ACME = "memory/Acme Context.md"
 PROFILE = "memory/people/Alice_Example/Profile.md"
 
 
 @pytest.fixture
 def observed_sessions(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("BRAIN_HOT_WORDS", "0")
-    for relative in ("Harbor Context.md", "people/Alice_Example/Profile.md", "Automatic Note.md", "On Demand Note.md", "Result Only.md"):
+    for relative in ("Acme Context.md", "people/Alice_Example/Profile.md", "Automatic Note.md", "On Demand Note.md", "Result Only.md"):
         path = vault / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         fm.write(path, {"tier": "hot", "pinned": relative == "Automatic Note.md", "uses": [], "uses_inferred": []}, "# Fixture\n")
@@ -38,7 +38,7 @@ def test_digest_appends_ordered_reads_and_retrieval_without_changing_text(vault,
     text, words = digest.build(Config.load(vault), DAY, observed_sessions)
     assert words == 22
     assert ("CLI morning answer.\nreads: " + PROFILE + ", memory/Automatic Note.md, "
-            + HARBOR + '\nretrieve: "harbor CI"') in text
+            + ACME + '\nretrieve: "acme CI"') in text
     assert text.count("\nreads:") == 1 and text.count("\nretrieve:") == 1
     assert "Result Only.md" not in text
 
@@ -49,7 +49,7 @@ def test_harness_observed_rows_exclude_automatic_load_and_tool_results(vault, ob
     assert [row.line() for row in rows if row.source == "observed"] == [
         "2026-10-20T00:01:00-07:00 | people/Alice_Example/Profile.md | "
         "opened on demand in session cli-session | observed",
-        "2026-10-20T00:01:00-07:00 | Harbor Context.md | "
+        "2026-10-20T00:01:00-07:00 | Acme Context.md | "
         "opened on demand in session cli-session | observed",
     ]
     assert [(row.target, row.source) for row in rows if row.source != "observed"] == [("T-001", "explicit")]
@@ -73,12 +73,12 @@ def test_observed_cli_write_is_idempotent_even_after_session_id_changes(vault, o
 def test_observed_deduplicates_across_sessions_but_not_dates(vault, observed_sessions):
     attribute.sessions(Vault(vault), observed_sessions, write=True)
     record = harness_session("another-session", [
-        tool("read_file", {"path": HARBOR}, "2026-10-20T23:00:00Z"),
-        tool("read_file", {"path": HARBOR}, "2026-10-21T08:00:00Z")])
+        tool("read_file", {"path": ACME}, "2026-10-20T23:00:00Z"),
+        tool("read_file", {"path": ACME}, "2026-10-21T08:00:00Z")])
     write_shards(observed_sessions, record)
     rows = attribute.sessions(Vault(vault), observed_sessions, write=True)
     assert [row.line() for row in rows] == [
-        "2026-10-21T01:00:00-07:00 | Harbor Context.md | "
+        "2026-10-21T01:00:00-07:00 | Acme Context.md | "
         "opened on demand in session another-session | observed"]
     assert attribute.sessions(Vault(vault), observed_sessions) == []
 
@@ -86,9 +86,9 @@ def test_observed_deduplicates_across_sessions_but_not_dates(vault, observed_ses
 @pytest.mark.parametrize("source", ["explicit", "inferred", "live"])
 def test_observed_deduplication_is_source_specific(vault, observed_sessions, source):
     attribute.append_log(vault / "agent/Use Log/2026-10.md", [attribute.Use(
-        "2026-10-20T00:00:00-07:00", "Harbor Context.md", "opened on demand in session cli-session", source)])
+        "2026-10-20T00:00:00-07:00", "Acme Context.md", "opened on demand in session cli-session", source)])
     rows = attribute.sessions(Vault(vault), observed_sessions)
-    assert len([row for row in rows if row.target == "Harbor Context.md" and row.source == "observed"]) == 1
+    assert len([row for row in rows if row.target == "Acme Context.md" and row.source == "observed"]) == 1
 
 
 @pytest.mark.parametrize("relative", sorted(Config(Path('.')).orientation) + [
@@ -124,13 +124,13 @@ def test_observed_reads_follow_enabled_directory_selection(vault, observed_sessi
 
 @pytest.mark.parametrize("name,arguments,reads,retrievals", [
     ("read_file", {"path": PROFILE}, [PROFILE], []),
-    ("read_file", {"path": HARBOR}, [HARBOR], []),
-    ("execute_code", {HARBOR: {"path": PROFILE}}, [HARBOR, PROFILE], []),
-    ("terminal", 'cat "' + HARBOR + '"', [HARBOR], []),
-    ("terminal", 'python3 -m brain retrieve --vault ../ "harbor CI"', [], ["harbor CI"]),
-    ("search_files", {"paths": [HARBOR, PROFILE, HARBOR]}, [HARBOR, PROFILE], []),
+    ("read_file", {"path": ACME}, [ACME], []),
+    ("execute_code", {ACME: {"path": PROFILE}}, [ACME, PROFILE], []),
+    ("terminal", 'cat "' + ACME + '"', [ACME], []),
+    ("terminal", 'python3 -m brain retrieve --vault ../ "acme CI"', [], ["acme CI"]),
+    ("search_files", {"paths": [ACME, PROFILE, ACME]}, [ACME, PROFILE], []),
     ("mcp__vault__read", {"nested": [json.dumps({"path": PROFILE})]}, [PROFILE], []),
-    ("exec_command", {"cmd": 'brain retrieve --json "' + HARBOR + '"', "path": PROFILE}, [], [HARBOR]),
+    ("exec_command", {"cmd": 'brain retrieve --json "' + ACME + '"', "path": PROFILE}, [], [ACME]),
 ])
 def test_harness_tool_arguments(name, arguments, reads, retrievals, template_config):
     assert session_tools.activity(tool(name, arguments)["item"], template_config) == (reads, retrievals)
@@ -138,27 +138,27 @@ def test_harness_tool_arguments(name, arguments, reads, retrievals, template_con
 
 @pytest.mark.parametrize("kind", ["message", "tool_result", "reasoning"])
 def test_only_tool_call_entries_are_reads(kind, template_config):
-    assert session_tools.activity({"type": kind, "text": HARBOR}, template_config) == ([], [])
+    assert session_tools.activity({"type": kind, "text": ACME}, template_config) == ([], [])
 
 
 def test_digest_resets_reads_at_text_turns_and_keeps_each_retrieval(template_config):
     record = harness_session("fixture", [
-        tool("read_file", {"path": HARBOR}), message("user", "Question"), message("assistant", "First"),
-        tool("terminal", 'brain retrieve "harbor CI"'), tool("terminal", 'brain retrieve "people"'),
+        tool("read_file", {"path": ACME}), message("user", "Question"), message("assistant", "First"),
+        tool("terminal", 'brain retrieve "acme CI"'), tool("terminal", 'brain retrieve "people"'),
         tool("read_file", {"path": PROFILE}), message("assistant", "Second"), message("assistant", "Third")])
     turns = digest.select_session(record, "fixture", DAY, template_config).turns
     assert [(turn.text, turn.reads, turn.retrievals) for turn in turns] == [
-        ("Question", (), ()), ("First", (HARBOR,), ()), ("Second", (PROFILE,), ("harbor CI", "people")), ("Third", (), ())]
+        ("Question", (), ()), ("First", (ACME,), ()), ("Second", (PROFILE,), ("acme CI", "people")), ("Third", (), ())]
 
 
 def test_explicit_sources_keep_session_reason_and_orientation_exclusion(vault, observed_sessions):
     stamp = "2026-10-20T12:00:00Z"
     record = harness_session("citations", [message("user", "Sources: T-999", stamp),
-        message("assistant", "Sources: [[START]] [[Harbor Context]] T-001 TR-002; no record found", stamp),
+        message("assistant", "Sources: [[START]] [[Acme Context]] T-001 TR-002; no record found", stamp),
         {"at": stamp, "item": {"type": "tool_result", "callId": "call", "output": "Sources: T-998"}}])
     replace_shards(observed_sessions, record)
     rows = attribute.sessions(Vault(vault), observed_sessions)
-    assert [row.target for row in rows] == ["Harbor Context.md", "T-001", "TR-002", "MISS"]
+    assert [row.target for row in rows] == ["Acme Context.md", "T-001", "TR-002", "MISS"]
     assert all(row.ts == "2026-10-20T05:00:00-07:00" and row.source == "explicit"
                and row.reason == "cited in session citations" for row in rows)
 
@@ -242,7 +242,7 @@ def test_half_weight_dates_keep_existing_semantics_without_explicit_rows(vault, 
 
 def test_harness_nightly_attributes_before_fold_and_is_idempotent(vault, observed_sessions):
     nightly.run(vault, DAY, observed_sessions)
-    assert fm.read(vault / "Harbor Context.md")[0]["uses_inferred"] == [str(DAY)]
+    assert fm.read(vault / "Acme Context.md")[0]["uses_inferred"] == [str(DAY)]
     assert fm.read(vault / "Automatic Note.md")[0]["uses_inferred"] == []
     assert load_tasks(Config.load(vault))[0][0].uses == [str(DAY), "2026-09-20"]
     before = snapshot(vault.parent)
