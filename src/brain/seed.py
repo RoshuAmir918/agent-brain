@@ -33,9 +33,14 @@ def personal(vault, today: date, account: str = "all", days: int | None = None) 
         dates.append(day.isoformat())
         return floor is None or floor <= day <= today
 
-    mails, problems = mail.read(vault, folders, owners)
-    events, unreadable = calendar.read(vault, folders)
-    problems += unreadable
+    mails, events, problems = [], [], []
+    for folder in folders:   # each account's mail, then its calendar, as the reading list has always reported them
+        found, unreadable = mail.read(vault, [folder], owners)
+        mails += found
+        problems += unreadable
+        found, unreadable = calendar.read(vault, [folder])
+        events += found
+        problems += unreadable
     sent, transactional, people = [], {}, []
     other = dict(forwarded=0, cc=0, group=0)
     for item in mails:

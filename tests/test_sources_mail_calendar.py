@@ -90,3 +90,26 @@ def test_a_source_declared_twice_is_refused(monkeypatch):
     monkeypatch.setattr(company, "SOURCES", (*company.SOURCES, company.SOURCES[0]))
     with pytest.raises(ValueError, match="'site' is declared twice"):
         sources.registry()
+
+
+def test_a_correspondent_goes_by_the_newest_name_the_owner_used(synced):
+    vault, root = synced
+    message(root, id="o1", day="2026-11-01", labels=["SENT"], date="Sun, 1 Nov 2026 09:00:00 -0800",
+            **{"from": "mira@example.com", "to": "Old Name <alex@example.com>"})
+    message(root, id="o2", labels=["SENT"], **{"from": "mira@example.com", "to": "New Name <alex@example.com>"})
+    message(root, id="o3", day="2026-11-03", labels=["SENT"], date="Tue, 3 Nov 2026 09:00:00 -0800",
+            **{"from": "mira@example.com", "to": "alex@example.com"})
+    row, = [row for row in mail.extract(ctx(vault)) if row.verb == "talks"]
+    assert row.fact == "Wrote to New Name 3 times, last 2026-11-04"
+
+
+def test_the_reading_list_reports_problems_account_by_account(synced):
+    from brain import seed
+    from brain.vault import Vault
+    vault, root = synced
+    bad = calendar_file(root, "")
+    bad.write_bytes(b"\xff\xfe not text")
+    message(root, account="other@example.com", date="not a date")
+    problems = seed.personal(Vault(vault), TODAY)["problems"]
+    assert [p.split(": ", 1)[1] for p in problems] == ["unreadable calendar", "unreadable mail headers (date, from, to, cc, subject, labels)"]
+    assert "mira@example.com" in problems[0] and "other@example.com" in problems[1]

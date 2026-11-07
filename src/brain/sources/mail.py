@@ -111,7 +111,7 @@ def pointer(kind: str, key: str) -> str:
 def rows(mails: list[Mail]) -> list[Evidence]:
     """Each row is dated by the newest mail it counts, so a rerun with nothing new writes the same rows."""
     out = []
-    written: dict[str, dict] = defaultdict(lambda: {"name": "", "count": 0, "newest": ""})
+    written: dict[str, dict] = defaultdict(lambda: {"name": "", "named": "", "count": 0, "newest": ""})
     notices: dict[str, dict] = defaultdict(lambda: {"count": 0, "newest": ""})
     for mail in mails:
         if mail.excluded:
@@ -121,7 +121,8 @@ def rows(mails: list[Mail]) -> list[Evidence]:
             for name, address in getaddresses([mail.to]):
                 if address:
                     entry = written[address.casefold()]
-                    entry["name"] = entry["name"] or name.strip()   # any display name the owner ever used for them
+                    if name.strip() and day >= entry["named"]:   # the newest display name the owner used for them
+                        entry["name"], entry["named"] = name.strip(), day
                     entry["count"] += 1
                     entry["newest"] = max(entry["newest"], day)
         elif mail.kind == "transactional":
