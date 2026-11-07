@@ -783,16 +783,22 @@ def cmd_state(args):
 
 def cmd_portrait(args):
     if args.action == "seed":
-        if not args.reviews:
-            raise SystemExit("brain portrait seed: --reviews DIR, the folder of merged PRs' review comments")
-        folder = Path(args.reviews).expanduser()
+        if bool(args.reviews) == bool(args.plans):
+            raise SystemExit("brain portrait seed: one of --reviews DIR (merged PRs' review comments, for Taste) or "
+                             "--plans DIR (projects and the issues done on them, for After and Energy)")
+        folder = Path(args.reviews or args.plans).expanduser()
         if not folder.is_dir():
             raise SystemExit(f"brain portrait seed: no folder {folder}")
-        data = seed.reading(folder, args.config.today(), args.days)
-        print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else seed.render(data))
+        today = args.config.today()
+        if args.reviews:
+            data = seed.reading(folder, today, args.days or seed.DAYS)
+        else:
+            data = seed.direction(folder, today, args.days or seed.PLAN_DAYS)
+        print(json.dumps(data, ensure_ascii=False, indent=2) if args.json
+              else seed.render(data) if args.reviews else seed.render_direction(data))
         return
-    if args.reviews or args.days != seed.DAYS:
-        raise SystemExit("brain portrait: --reviews and --days go with seed")
+    if args.reviews or args.plans or args.days is not None:
+        raise SystemExit("brain portrait: --reviews, --plans and --days go with seed")
     lines = portrait.load(args.config)
     if args.top is not None:
         lines = portrait.top(lines, args.top)
@@ -1153,9 +1159,10 @@ def main(argv=None):
     s = sub.add_parser("stale-tasks", help="open tasks gone quiet long enough for the evening review", parents=[vault])
     s.set_defaults(fn=cmd_stale_tasks)
     s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
-    s.add_argument("action", nargs="?", choices=["seed"], help="seed: what to read to seed an organisation's Taste")
-    s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments")
-    s.add_argument("--days", type=int, default=seed.DAYS, help=f"seed: PRs merged in the last N days (default {seed.DAYS})")
+    s.add_argument("action", nargs="?", choices=["seed"], help="seed: what to read to seed an organisation's portrait")
+    s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments, for Taste")
+    s.add_argument("--plans", metavar="DIR", help="seed: one file per project with the issues done on it, for After and Energy")
+    s.add_argument("--days", type=int, help=f"seed: the window in days (default {seed.DAYS} for reviews, {seed.PLAN_DAYS} for plans)")
     s.add_argument("--top", type=int, metavar="N", help="only the top N After lines, with what each asks attention to watch")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_portrait)
     s = sub.add_parser("state", parents=[vault])

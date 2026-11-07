@@ -85,3 +85,68 @@ def test_the_seed_skill_is_an_organisations_only(vault):
     install.skills(config)
     text = (config.skills_path / "brain-seed" / "SKILL.md").read_text()
     assert "human/Portrait.md" in text and "{" not in text.split("---", 2)[2].replace("```", "")
+
+
+def project(folder, name, state, target="", initiative="", lead="", *issues):
+    data = {"project": name, "state": state, **({"target": target} if target else {}),
+            **({"initiative": initiative} if initiative else {}), **({"lead": lead} if lead else {})}
+    fm.write(folder / f"{name}.md", data, "".join(f"- {line}\n" for line in issues))
+
+
+@pytest.fixture
+def plans(tmp_path):
+    folder = tmp_path / "plans"
+    folder.mkdir()
+    project(folder, "Migration tooling", "started", "2026-12-15", "Win larger sponsors", "nathan",
+            "2026-10-20 · done · ENG-1 · Import CSV")
+    project(folder, "Sponsor portal", "planned", "2027-06-30", "Win larger sponsors", "priya")
+    project(folder, "Audit trail v2", "started", "2026-12-01", "", "kim")
+    project(folder, "Mobile app", "backlog")
+    project(folder, "Old reports", "completed", "2026-09-01", "", "", "2026-10-25 · done · ENG-9 · Final fix")
+    project(folder, "Site billing", "paused", "2026-11-30")
+    project(folder, "Moonshot", "planned", "2028-03-01")
+    fm.write(folder / "_unplanned.md", {}, "- 2026-10-30 · done · ENG-5 · Fix login\n- 2026-11-01 · done · ENG-6 · Bump deps\n"
+                                           "- 2026-11-02 · opened · ENG-7 · Flaky test\n- 2026-08-01 · done · ENG-2 · Too old\n")
+    return folder
+
+
+def test_horizon_is_this_quarter_this_year_or_longer():
+    assert seed.horizon("2026-12-31", TODAY) == "now"
+    assert seed.horizon("2027-01-01", TODAY) == "year"
+    assert seed.horizon("2027-11-06", TODAY) == "year"
+    assert seed.horizon("2027-11-07", TODAY) == "longer"
+    assert seed.horizon("", TODAY) == ""
+    assert seed.horizon("2026-03-31", date(2026, 2, 1)) == "now" and seed.horizon("2026-04-01", date(2026, 2, 1)) == "year"
+
+
+def test_direction_ranks_open_projects_by_horizon_and_shows_where_effort_went(plans):
+    data = seed.direction(plans, TODAY)
+    assert [a["project"] for a in data["after"]] == ["Site billing", "Audit trail v2", "Migration tooling", "Sponsor portal",
+                                                     "Moonshot", "Mobile app"]
+    assert [a["horizon"] for a in data["after"]] == ["now", "now", "now", "year", "longer", ""]
+    assert data["energy"] == [{"project": "(no project)", "done": 2, "share": 67},
+                              {"project": "Migration tooling", "done": 1, "share": 33}]
+    assert data["unattended"] == ["Audit trail v2"]   # due this quarter, started, nothing done; paused Site billing is not
+    assert data["done"] == 3 and data["problems"] == []
+
+
+def test_direction_names_unreadable_projects(plans):
+    fm.write(plans / "bad.md", {"state": "started"}, "- yesterday · done · X · y\n")
+    problems = seed.direction(plans, TODAY)["problems"]
+    assert "bad.md: malformed issue line '- yesterday · done · X · y'" in problems
+    assert "bad.md: needs frontmatter project and state, and target as YYYY-MM-DD when set" in problems
+
+
+def test_cli_seeds_from_plans_and_takes_one_source_at_a_time(vault, plans, reviews, capsys, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
+    cli.main(["portrait", "seed", "--vault", str(vault), "--plans", str(plans)])
+    out = capsys.readouterr().out
+    assert "6 open projects, 3 issues done" in out
+    assert "- Migration tooling (Win larger sponsors) · started · target 2026-12-15 · now · lead nathan" in out
+    assert "- Mobile app · backlog · no target" in out
+    assert "- (no project) · 2 done · 67%" in out
+    assert "Due this quarter with nothing done in the window: Audit trail v2" in out
+    with pytest.raises(SystemExit, match="one of --reviews DIR"):
+        cli.main(["portrait", "seed", "--vault", str(vault), "--plans", str(plans), "--reviews", str(reviews)])
+    with pytest.raises(SystemExit, match="go with seed"):
+        cli.main(["portrait", "--vault", str(vault), "--plans", str(plans)])
