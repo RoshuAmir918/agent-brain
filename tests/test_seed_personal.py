@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from brain import channel_files, cli, fm, install, seed
+from brain import channel_files, cli, fm, install, seed, state, tasks
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -379,3 +379,43 @@ def test_backfill_skill_steps_render_only_for_personal_edition(vault, edition):
     if edition == 'personal':
         assert f'load `{config.skill_prefix}seed` and run it scoped to that account' in people
         assert people.index('unreadBackfill') < people.index("Read yesterday's digest")
+
+
+def test_hand_off_opens_one_seed_task_per_account_and_state_reports_it(vault, capsys, monkeypatch):
+    monkeypatch.setenv('BRAIN_TODAY', '2026-11-04')
+    argv = ['portrait', 'seed', '--account', 'New@Example.com', '--hand-off', '--json', '--vault', str(vault)]
+    cli.main(argv)
+    opened = json.loads(capsys.readouterr().out)
+    assert opened['status'] == 'opened' and opened['account'] == 'new@example.com'
+    task = next(t for t in tasks.load_tasks(Config.load(vault))[0] if t.tid == opened['task'])
+    assert task.handoff and 'new@example.com' in task.title and tasks.is_open(task)
+    cli.main(argv)
+    assert json.loads(capsys.readouterr().out) == {**opened, 'status': 'reading'}
+    assert seed.seeds(Vault(vault)) == [{'account': 'new@example.com', 'read': None, 'task': opened['task']}]
+    assert state.build(Config.load(vault), TODAY)['seeds'] == seed.seeds(Vault(vault))
+
+
+def test_hand_off_skips_an_account_a_seeds_note_has_read(vault, capsys):
+    (vault / 'agent/Seeds').mkdir()
+    fm.write(vault / 'agent/Seeds/2026-11-01 mira@example.com.md',
+             {'kind': 'log', 'source': 'mail', 'read': '2026-11-01', 'channel': 'Mira@example.com'}, '')
+    cli.main(['portrait', 'seed', '--account', 'mira@example.com', '--hand-off', '--vault', str(vault)])
+    assert capsys.readouterr().out.strip() == 'mira@example.com: read'
+    assert seed.seeds(Vault(vault)) == [{'account': 'mira@example.com', 'read': '2026-11-01', 'task': None}]
+    assert not any('seed:' in t.body for t in tasks.load_tasks(Config.load(vault))[0])
+
+
+@pytest.mark.parametrize('argv, message', [
+    (['--account', 'all', '--hand-off'], 'one account address'),
+    (['--account', 'a@example.com', '--hand-off', '--clear-backfill'], 'separate runs'),
+])
+def test_hand_off_refuses_all_and_clear_backfill(vault, argv, message):
+    with pytest.raises(SystemExit, match=message):
+        cli.main(['portrait', 'seed', *argv, '--vault', str(vault)])
+
+
+def test_hand_off_and_seeds_are_personal_only(vault):
+    (vault.parent / 'brain.toml').write_text('[brain]\nvault = "memory"\nedition = "enterprise"\n')
+    with pytest.raises(SystemExit, match='brain consult seed'):
+        cli.main(['portrait', 'seed', '--account', 'ops@example.com', '--hand-off', '--vault', str(vault)])
+    assert state.build(Config.load(vault), TODAY)['seeds'] is None

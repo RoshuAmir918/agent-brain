@@ -660,3 +660,55 @@ def render_coverage(data: dict) -> str:
                 for a in data["attention"]]
     out += [f"problem: {problem}" for problem in data["problems"]]
     return "\n".join(out)
+
+
+SEED_SOURCE = re.compile(r'^- \*\*Source:\*\* "seed:([^"\s]+)"$', re.M)
+
+
+def seeds(vault) -> list[dict]:
+    """Each owner account a seed has read or is reading: the last day a Seeds note recorded reading it, and the open
+    task reading it now, so the owner's app can say the first portrait is on its way."""
+    config = vault.config
+    read: dict[str, str] = {}
+    prefix = config.agent("Seeds/")
+    for rel, note in vault.notes.items():
+        account, when = str(note.data.get("channel") or "").casefold(), str(note.data.get("read") or "")
+        if rel.startswith(prefix) and account and re.fullmatch(r"\d{4}-\d{2}-\d{2}", when):
+            read[account] = max(read.get(account, ""), when)
+    reading = _reading(config)
+    return [{"account": account, "read": read.get(account), "task": reading.get(account)}
+            for account in sorted(read.keys() | reading.keys())]
+
+
+def _reading(config) -> dict[str, str]:
+    if not (config.vault_path / config.agent("Tasks.md")).exists():
+        return {}
+    registered, archived = tasks.load_tasks(config)
+    found: dict[str, str] = {}
+    for task in registered + archived:
+        if tasks.is_open(task) and (match := SEED_SOURCE.search(task.body)):
+            found.setdefault(match[1].casefold(), task.tid)
+    return found
+
+
+def hand_off_seed(vault, account: str, today: date) -> dict:
+    """A newly connected owner account gets one handed-off task that runs the seed for it, unless a seed has read it or
+    is reading it. The caller holds the vault lock."""
+    config = vault.config
+    if config.edition != "personal":
+        raise ValueError("a seed task is for a person's own accounts; an organisation seeds with brain consult seed")
+    account = account.strip().casefold()
+    if not channel_files.EMAIL.fullmatch(account):
+        raise ValueError("--hand-off needs one account address, not all")
+    known = next((row for row in seeds(vault) if row["account"] == account), None)
+    if known and known["task"]:
+        return {"account": account, "task": known["task"], "status": "reading"}
+    if known and known["read"]:
+        return {"account": account, "task": None, "status": "read"}
+    task = tasks.new_task(config, f"Learn {config.human_name} from {account}", f"seed:{account}", values={
+        "delivers": f"the portrait and tellable facts from {account}, a Seeds note for it, and the reveal confirm",
+        "next": f"until $AGENT_HOME/channels/{account}/backfill/.done exists the first sync is still running: set "
+                "--resume an hour out and end the chunk. Then register the account in Channels.md if it is not there, "
+                f"load the seed skill and run its personal pass for --account {account}"})
+    tasks.hand_off(config, task.tid, today)
+    return {"account": account, "task": task.tid, "status": "opened"}
