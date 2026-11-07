@@ -129,7 +129,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
-- 0.95.0: the owner's own things go on their plate. `brain task new … --state yours` creates one, and `--due YYYY-MM-DD` (new or set) records the day they named, exported as the task row's `due`; the app reminds them of a dated one. The recall skill captures "I have to do X eventually" this way, never as a handoff, a loop or an ask, and never brings it up on a schedule. No migration.
+- 0.97.0: the owner's own things go on their plate. `brain task new … --state yours` creates one, and `--due YYYY-MM-DD` (new or set) records the day they named, exported as the task row's `due`; the app reminds them of a dated one. The recall skill captures "I have to do X eventually" this way, never as a handoff, a loop or an ask, and never brings it up on a schedule. No migration.
 - 0.88.0: no maintainer role. `brain.toml`'s `maintainers` is ignored, a former maintainer's id is identified like anyone else's, and `brain migrate-done --defer` and `deferred-steps.md` are gone: a migration step may edit SOUL.md or the runtime config unattended. Machinery is run outside conversations (engine commands in the vault, or a prompt run as the agent's own routine).
 - 0.83.0: the evidence contract: `$AGENT_HOME/evidence/<source>/YYYY-MM.md` rows, read back with `brain evidence [--source] [--hint] [--since] [--json]`; every consult event is written into it.
 - 0.82.0: goals can be inferred from evidence, and the app can keep one, refuse it (`not-a-goal`) or turn it into a task (`to-task`); the migration does one inference pass.
