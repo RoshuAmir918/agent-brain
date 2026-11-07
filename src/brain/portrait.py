@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import fm
+from . import evidence, fm
 from .config import Config
 from .lock import vault_lock
 
@@ -452,3 +452,53 @@ def mark(config: Config, ident: str, verdict: str, words: str, today: date) -> L
     fm.write(path, data, body)
     refresh(config)
     return line
+
+
+PASSES = 3   # facet passes a night; the rest wait for the next
+
+
+def facet_name(hint: str) -> str:
+    """The facet a hint names: an existing facet in any letter case, or the hint with its first letter raised."""
+    return hint[:1].upper() + hint[1:]
+
+
+def due(config: Config, home: Path | None = None) -> list[dict]:
+    """The facets with evidence newer than their last judging pass, most new evidence first: the facet when it
+    exists, and the area a source's rows name when none covers it yet. A said-only facet takes no evidence."""
+    found = {facet.name.casefold(): facet for facet in facets(config)}
+    judged = {}
+    for key, facet in found.items():
+        try:
+            judged[key] = str(fm.read(config.vault_path / facet.rel)[0].get("judged") or "")
+        except fm.Malformed:
+            judged[key] = ""
+    counts: dict[str, dict] = {}
+    for row in evidence.read(home=home):
+        for hint in row.hints:
+            key = hint.casefold()
+            facet = found.get(key)
+            said_only = facet.sensitivity != "open" if facet else facet_name(hint) in SAID_ONLY
+            if said_only or row.date.isoformat() <= judged.get(key, ""):
+                continue
+            entry = counts.setdefault(key, {"facet": facet.name if facet else facet_name(hint), "exists": bool(facet),
+                                            "since": judged.get(key, ""), "new": 0, "newest": "", "sources": set()})
+            entry["new"] += 1
+            entry["newest"] = max(entry["newest"], row.date.isoformat())
+            entry["sources"].add(row.source)
+    out = sorted(counts.values(), key=lambda entry: (-entry["new"], entry["facet"]))
+    return [entry | {"sources": sorted(entry["sources"])} for entry in out]
+
+
+def judged(config: Config, name: str, through: date) -> Path:
+    """Record that a facet's pass has read its evidence through this date, creating the facet when it is new.
+    The caller holds the vault lock."""
+    name = " ".join(name.split())
+    if not name or "/" in name or name.startswith("."):
+        raise ValueError(f"facet name {name!r}; a plain name such as Music")
+    root, name = folder(config), facet_name(name)
+    path = next((p for p in root.glob("*.md") if p.stem.lower() == name.lower()), root / f"{name}.md") \
+        if root.is_dir() else root / f"{name}.md"
+    data, body = fm.read(path) if path.is_file() else (new_facet(config, name), f"# {name}\n")
+    root.mkdir(parents=True, exist_ok=True)
+    fm.write(path, {**data, "judged": through.isoformat()}, body)
+    return path

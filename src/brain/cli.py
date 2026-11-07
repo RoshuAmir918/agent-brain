@@ -1162,6 +1162,28 @@ def cmd_portrait(args):
         if not found:
             print("no facets yet")
         return
+    if args.action == "due":
+        found = portrait.due(args.config)
+        if args.json:
+            print(json.dumps(found, ensure_ascii=False, indent=2))
+            return
+        for entry in found:
+            print(f"{entry['facet']}{'' if entry['exists'] else ' (new)'} · {entry['new']} rows since "
+                  f"{entry['since'] or 'the start'} · newest {entry['newest']} · {', '.join(entry['sources'])}")
+        if not found:
+            print("no facet has new evidence")
+        return
+    if args.action == "judged":
+        if not args.id:
+            raise SystemExit("brain portrait judged: FACET [--through YYYY-MM-DD]")
+        try:
+            with vault_lock(args.config):
+                path = portrait.judged(args.config, args.id, date.fromisoformat(args.through) if args.through
+                                       else args.config.today())
+        except ValueError as error:
+            raise SystemExit(f"brain portrait judged: {error}")
+        print(f"{path.stem}: judged through {args.through or args.config.today().isoformat()}")
+        return
     if args.action == "move":
         if not (args.id and args.verdict):
             raise SystemExit("brain portrait move: ID and FACET")
@@ -1723,12 +1745,14 @@ def main(argv=None):
     s.add_argument("--reviews", metavar="DIR"); s.add_argument("--author", metavar="LOGIN")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_reception)
     s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
-    s.add_argument("action", nargs="?", choices=["seed", "coverage", "stamp", "mark", "compile", "facets", "move"],
+    s.add_argument("action", nargs="?", choices=["seed", "coverage", "stamp", "mark", "compile", "facets", "move", "due", "judged"],
                    help="seed: what to read to seed the portrait; coverage: what it knows and from where; "
                         "stamp: give new lines their ids now; mark ID right|wrong|not-this: the owner's answer to a line; "
-                        "compile: write the portrait from its facets; facets: list them; move ID FACET: a line to a facet")
+                        "compile: write the portrait from its facets; facets: list them; move ID FACET: a line to a facet; "
+                        "due: facets with evidence newer than their last pass; judged FACET: record a facet's pass")
     s.add_argument("id", nargs="?"); s.add_argument("verdict", nargs="?", metavar="VERDICT|FACET")
     s.add_argument("--words", metavar="TEXT", help="mark: the owner's own words, kept when a line is wrong")
+    s.add_argument("--through", metavar="YYYY-MM-DD", help="judged: the newest evidence the pass read (default today)")
     s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments, for Taste")
     s.add_argument("--plans", metavar="DIR", help="seed: one file per project with the issues done on it, for After and Energy")
     s.add_argument("--account", metavar="ADDRESS|all", help="seed: the owner's synced mail and calendar")

@@ -201,3 +201,31 @@ def test_nothing_is_lost_to_unstamped_lines_letter_case_or_a_blank_line_before_d
     places = (vault / "human/Portrait/Places.md").read_text()
     assert "  - horizon: year\n  - for: visas" in places
     assert "Unstamped aim" in (vault / "human/Portrait.md").read_text() and "visas" in (vault / "human/Portrait.md").read_text()
+
+
+def test_due_lists_facets_with_new_evidence_and_judged_moves_the_mark(config, vault, tmp_path, monkeypatch, capsys):
+    from brain import evidence
+    from brain.evidence import Evidence
+    home = tmp_path / "agent"
+    monkeypatch.setenv("AGENT_HOME", str(home))
+    sort_into_facets(config)
+    evidence.append("imessage", [
+        Evidence(date(2026, 11, 1), "talks", "Texts with Kim most days", "own", ("people",), "imessage:person/1"),
+        Evidence(date(2026, 11, 3), "shared", "Link to a bouldering gym", "other:Climbing crew", ("play", "places"), "imessage:link/2"),
+        Evidence(date(2026, 11, 4), "shared", "Link to a clinic", "own", ("health",), "imessage:link/3"),
+        Evidence(date(2026, 11, 5), "talks", "Group chat Climbing crew", "own", ("people",), "imessage:group/4")])
+    found = {entry["facet"]: entry for entry in portrait.due(config)}
+    assert set(found) == {"People", "Play", "Places"}   # health is said-only, never from evidence
+    assert (found["People"]["exists"], found["People"]["new"], found["People"]["newest"]) == (False, 2, "2026-11-05")
+    assert found["Play"]["exists"] and found["Play"]["since"] == "" and found["Play"]["sources"] == ["imessage"]
+    assert portrait.due(config)[0]["facet"] == "People"
+    cli.main(["portrait", "judged", "people", "--through", "2026-11-03", "--vault", str(vault)])
+    assert capsys.readouterr().out.strip() == "People: judged through 2026-11-03"
+    data = fm.read(vault / "human/Portrait/People.md")[0]
+    assert data["judged"] == "2026-11-03" and data["facet"] == "People" and data["audience"] == "owner"
+    assert {entry["facet"]: entry["new"] for entry in portrait.due(config)}["People"] == 1
+    cli.main(["portrait", "judged", "Play", "--vault", str(vault)])
+    cli.main(["portrait", "due", "--vault", str(vault)])
+    out = capsys.readouterr().out
+    assert "Play" not in out.split("\n", 1)[1] and "People · 1 rows since 2026-11-03 · newest 2026-11-05 · imessage" in out
+    assert validate.portrait_hygiene(Vault(vault)) == []
