@@ -182,6 +182,8 @@ def add(config: Config, today: date, text: str, source: str, why: str = "", need
             body = body[:span[1]].rstrip("\n") + "\n\n" + bullet + "\n\n" + body[span[1]:]
         path.parent.mkdir(parents=True, exist_ok=True)
         fm.write(path, data, body)
+        from . import reception
+        reception.record(config, "idea", text, source)
         return True
 
 
@@ -234,4 +236,6 @@ def respond(config: Config, which: str, today: date, answer: str) -> Item:
         else:
             line = f"- {today.isoformat()} · idea · {text} · {answer}" + (f" · {tid}" if tid else "") + f" · id:{item.id}"
         needs_mod._answered(config, today, line + f" · [[{item.source}]]")
+        from . import reception
+        reception.answered(config, "idea", item.text, "used" if answer == "yes" else f"declined:{answer}")
         return item

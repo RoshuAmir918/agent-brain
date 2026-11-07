@@ -1,6 +1,6 @@
 # Sharing
 
-*Draft, 2026-11-06; the first slice built in 0.63.0. Split out of `docs/portrait.md`, where it was section 6. Read with `docs/access.md` and Demiurge's `docs/network.md`.*
+*Draft, 2026-11-06; the first slice built in 0.64.0. Split out of `docs/portrait.md`, where it was section 6. Read with `docs/access.md` and Demiurge's `docs/network.md`.*
 
 ## Transparency and sharing
 
@@ -79,7 +79,7 @@ New vaults start with these rows, replacing the discreet defaults in `docs/acces
 
 `do` stays `no` everywhere except `ask` for close friends' `schedule` and `plans`. `health` and `finances` are widened only by the owner, per person or group, as today. `people` covers what the owner said about others and stays `none`; what others said is never told at all.
 
-An existing vault is never widened on its own. The 0.63.0 migration proposes these defaults as one `ask`, and skips any subject and audience where the owner has already set a rule, so a no that was said stays said.
+An existing vault is never widened on its own. The 0.64.0 migration proposes these defaults as one `ask`, and skips any subject and audience where the owner has already set a rule, so a no that was said stays said.
 
 ## Asking around
 

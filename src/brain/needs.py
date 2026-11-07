@@ -422,6 +422,9 @@ def dismiss(config: Config, which: str, today: date, reason: str = "no") -> Item
     text = item.text.replace("·", "-")
     _answered(config, today, f"- {today.isoformat()} · dismissed {reason} · {item.kind} · {text} · id:{item.id}"
               + (f" · [[{item.source}]]" if item.source != "CURRENT.md" else ""))
+    if item.kind == "ask":
+        from . import reception
+        reception.answered(config, "ask", item.text, f"declined:{reason}")
     return item
 
 
@@ -465,6 +468,9 @@ def resolve(config: Config, which: str, because: str, today: date, *, record_ans
     if item.source != "CURRENT.md":
         line += f" · [[{item.source}]]"
     _answered(config, today, line)
+    if item.kind == "ask":
+        from . import reception
+        reception.answered(config, "ask", item.text, "used")
     if record_answer:
         from . import continuation
         continuation.answered(config, item.source, item.text, because, owner_engaged)

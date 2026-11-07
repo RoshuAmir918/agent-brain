@@ -16,7 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from . import activation as act
-from . import attribute, compile_context, consults, fm, journal, ledger, needs, portrait, triggers, validate
+from . import attribute, compile_context, consults, fm, journal, ledger, needs, portrait, reception, triggers, validate
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import Config
@@ -404,6 +404,9 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
         removed = needs.expire_confirms(config, today)
         expired_consults = consults.expire_confirms(config, today)
         retired = needs.retire_asks(config, today)
+        settled = reception.settle(config, today)
+    report.extend(f"reception: nothing heard in {reception.SETTLE_DAYS} days, {row.outcome}: {row.kind} {row.what}"
+                  for row in settled)
     if expired_consults:
         changed.add(config.agent("Consults.md"))
         report.extend(f"consult: confirm accepted after {needs.CONFIRM_DAYS} days: {text}" for text in expired_consults)

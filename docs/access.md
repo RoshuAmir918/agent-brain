@@ -151,7 +151,7 @@ allows: that is an engine rule, not a default.
 
 ## Defaults
 
-Since 0.63.0 new vaults start with the generous defaults in `docs/sharing.md`, as starter rows the owner edits (the
+Since 0.64.0 new vaults start with the generous defaults in `docs/sharing.md`, as starter rows the owner edits (the
 friend rows are added once the owner names their close friends), and existing vaults are offered them once. What any
 rule lets an audience hear is drawn only from the owner's tellable note (`docs/sharing.md`).
 
