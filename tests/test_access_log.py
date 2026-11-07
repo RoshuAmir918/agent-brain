@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from brain import access_log, fm, journal, loops, needs, nightly, state, validate
+from brain import access_log, cli, fm, journal, loops, needs, state, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -227,7 +227,7 @@ def test_no_group_uses_them(config):
 def test_cli_journal_passes_identity_and_state_exports_the_access_item(config, monkeypatch, capsys):
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(
         {"headline": "Declined a schedule request.", "outcome": "progress", "access": [request()]})))
-    nightly.main(["journal", "append", "--vault", str(config.vault_path), "--platform", "slack",
+    cli.main(["journal", "append", "--vault", str(config.vault_path), "--platform", "slack",
                   "--user-id", "other", "--user-id-alt", "U_KEVIN", "--at", "2026-10-29 14:05"])
     [entry] = access_log.recent(config, TODAY, 14)
     assert entry.person == f"[[memory/{PERSON}]]"

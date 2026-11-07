@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from brain import nightly, tasks
+from brain import cli as brain_cli, tasks
 from brain.config import Config
 
 TODAY = date(2026, 11, 6)
@@ -17,7 +17,7 @@ def no_conversation(monkeypatch):
 
 
 def cli(vault, capsys, *args):
-    nightly.main(["task", *args, "--vault", str(vault)])
+    brain_cli.main(["task", *args, "--vault", str(vault)])
     return capsys.readouterr().out.strip()
 
 

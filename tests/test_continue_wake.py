@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from brain import continuation, fm, nightly, state, tasks, validate
+from brain import cli as brain_cli, continuation, fm, state, tasks, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -26,7 +26,7 @@ def resting(vault, tmp_path, monkeypatch):
 
 
 def cli(config, capsys, *args):
-    nightly.main(["continue", *args, "--vault", str(config.vault_path)])
+    brain_cli.main(["continue", *args, "--vault", str(config.vault_path)])
     return capsys.readouterr().out.strip()
 
 
@@ -165,7 +165,7 @@ def test_state_json_preserves_computer_and_lists_only_open_waits(resting, capsys
     for tid, resume, task_state in [("T-002", "computer", "ready"), ("T-003", "2026-11-07", "blocked"),
                                      ("T-004", "computer", "completed")]:
         tasks.append_task(config, tasks.Task(tid, "Other", f"- **Resume:** {resume}\n", {"state": task_state}))
-    nightly.main(["state", "--json", "--vault", str(config.vault_path)])
+    brain_cli.main(["state", "--json", "--vault", str(config.vault_path)])
     data = json.loads(capsys.readouterr().out)
     assert data["schema"] == 1
     assert data["waitingOnComputer"] == ["T-001", "T-002"]

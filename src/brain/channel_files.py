@@ -90,7 +90,7 @@ def coverage(vault: Vault) -> dict | None:
 def local_datetime(value: str, config: Config) -> datetime:
     """ISO dates/times use the owner's zone unless an explicit offset supplies it."""
     moment = datetime.fromisoformat(value)
-    return moment.replace(tzinfo=config.zone) if moment.tzinfo is None else moment.astimezone(config.zone)
+    return config.local(moment)
 
 
 def short_location(value: str) -> str:
@@ -209,7 +209,7 @@ def worth_a_look(data: dict, own: set[str]) -> str:
 
 def mail(vault: Vault, since: datetime) -> dict:
     config = vault.config
-    since = since.replace(tzinfo=config.zone) if since.tzinfo is None else since.astimezone(config.zone)
+    since = config.local(since)
     named = accounts(vault)
     owners = set(named)
     filtered = dict(category=0, sent=0, before_since=0, invalid=0)
@@ -229,7 +229,7 @@ def mail(vault: Vault, since: datetime) -> dict:
                         received = local_datetime(str(raw), config)
                     except ValueError:
                         received = parsedate_to_datetime(str(raw))
-                        received = received.replace(tzinfo=config.zone) if received.tzinfo is None else received.astimezone(config.zone)
+                        received = config.local(received)
                     labels = data.get("labels", [])
                     if not isinstance(labels, list) or not all(isinstance(label, str) for label in labels):
                         raise ValueError("invalid labels")

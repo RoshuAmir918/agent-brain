@@ -9,7 +9,7 @@ import sys
 import pytest
 
 from brain.config import Config
-from brain import attribute, compile_context, fm, nightly, triggers
+from brain import attribute, cli as brain_cli, compile_context, fm, nightly, triggers
 from brain.vault import Vault
 from brain.tasks import Task, load_tasks, parse_register, read_archive_body
 from conftest import git, nightly_argv, snapshot
@@ -63,18 +63,18 @@ def test_nightly_removes_retired_views_and_reports_only_existing_files(vault, ca
     for name in stale:
         (vault / name).write_text("STALE_GENERATED_VIEW\n")
     before = snapshot(vault.parent)
-    nightly.main(nightly_argv(vault, DAY))
+    brain_cli.main(nightly_argv(vault, DAY))
     preview = capsys.readouterr().out
     assert snapshot(vault.parent) == before
     for name in stale:
         assert f"index: removed generated {name}" in preview
-    nightly.main(nightly_argv(vault, DAY, "--write"))
+    brain_cli.main(nightly_argv(vault, DAY, "--write"))
     report = capsys.readouterr().out
     for name in ("Hot Set.md", "Warm Index.md"):
         assert not (vault / name).exists()
         assert (f"index: removed generated {name}" in report) == (name in stale)
     assert "STALE_GENERATED_VIEW" not in (vault.parent / ".context.md").read_text()
-    nightly.main(nightly_argv(vault, DAY, "--write"))
+    brain_cli.main(nightly_argv(vault, DAY, "--write"))
     assert "index: removed generated" not in capsys.readouterr().out
 
 
@@ -131,11 +131,11 @@ def test_same_night_is_idempotent_except_sleep_log(night_vault, cold_count):
         body += "\n" + Task(f"T-{10 + n:03d}", f"Cold task {n}", "- **Status:** waiting\n",
                             {"status": "open", "uses": "2026-01-01"}).render()
     fm.write(path, data, body)
-    nightly.main(nightly_argv(root, DAY, "--write"))
+    brain_cli.main(nightly_argv(root, DAY, "--write"))
     before = snapshot(root)
     log = root / "agent/Sleep Log/2026-10.md"
     previous = log.read_bytes()
-    nightly.main(nightly_argv(root, DAY, "--write"))
+    brain_cli.main(nightly_argv(root, DAY, "--write"))
     after = snapshot(root)
     assert {p for p in before.keys() | after.keys() if before.get(p) != after.get(p)} == {
         "agent/Sleep Log/2026-10.md"}
@@ -147,7 +147,7 @@ def test_interrupted_night_converges_to_clean_run(night_vault, tmp_path, monkeyp
     root, _ = night_vault
     clean = tmp_path / "clean/memory"
     shutil.copytree(root, clean)
-    nightly.main(nightly_argv(clean, DAY, "--write"))
+    brain_cli.main(nightly_argv(clean, DAY, "--write"))
     before = snapshot(root)
 
     def interrupted(*args, **kwargs):
@@ -157,9 +157,9 @@ def test_interrupted_night_converges_to_clean_run(night_vault, tmp_path, monkeyp
     with monkeypatch.context() as patch:
         patch.setattr(nightly, "process_tasks", interrupted)
         with pytest.raises(RuntimeError, match="interrupted after notes were saved"):
-            nightly.main(nightly_argv(root, DAY, "--write"))
+            brain_cli.main(nightly_argv(root, DAY, "--write"))
     assert snapshot(root) != before
-    nightly.main(nightly_argv(root, DAY, "--write"))
+    brain_cli.main(nightly_argv(root, DAY, "--write"))
 
     def contents(tree):
         return {p.relative_to(tree).as_posix(): p.read_bytes() for p in tree.rglob("*")
@@ -174,7 +174,7 @@ def test_task_identity_survives_hot_warm_hot_cold_hot(repo):
     log = root / "agent/Use Log/2026-10.md"
 
     def check(day, tier):
-        nightly.main(nightly_argv(root, day, "--write"))
+        brain_cli.main(nightly_argv(root, day, "--write"))
         register = fm.read(root / "agent/Tasks.md")[1]
         headings = re.findall(r"^### T-001 —", register, re.M)
         assert len(headings) == (0 if tier == "cold" else 1)
@@ -219,7 +219,7 @@ def test_duplicate_register_id_keeps_first_entry_and_reports(repo, capsys):
     assert len(registered) == 1 and not archived
     assert registered[0].title == "Sample"
     assert any("T-001 listed twice" in line for line in report)
-    nightly.main(nightly_argv(root, DAY, "--write"))
+    brain_cli.main(nightly_argv(root, DAY, "--write"))
     register = fm.read(path)[1]
     assert len(re.findall(r"^### T-001 —", register, re.M)) == 1
     assert "ORIGINAL_FULL_BODY" in register and "DUPLICATE_BODY" not in register
@@ -260,7 +260,7 @@ def test_use_log_ignores_junk_ineligible_rows_and_preserves_inferred_uses(repo):
     log.parent.mkdir()
     log.write_text("\n".join(rows) + "\n")
     assert len(attribute.read_log(log)) == len(rows) - 4
-    nightly.main(nightly_argv(root, DAY, "--write"))
+    brain_cli.main(nightly_argv(root, DAY, "--write"))
     data, _ = fm.read(root / "Hub.md")
     assert data["uses"] == ["2026-10-04", "2026-10-03"]
     assert data["uses_inferred"] == ["2026-10-02"]
@@ -270,7 +270,7 @@ def test_use_log_ignores_junk_ineligible_rows_and_preserves_inferred_uses(repo):
     assert {rel: (root / rel).read_bytes() for rel in ignored_paths} == immutable
     # Re-reading all rows on a later night adds eligible dates once, without a cursor.
     log.write_text(log.read_text().replace("live | unconfirmed", "live | confirmed"))
-    nightly.main(nightly_argv(root, "2026-10-06", "--write"))
+    brain_cli.main(nightly_argv(root, "2026-10-06", "--write"))
     data, _ = fm.read(root / "Hub.md")
     assert data["uses"] == ["2026-10-06", "2026-10-04", "2026-10-03", "2026-10-01"]
     assert data["uses_inferred"] == ["2026-10-02"]

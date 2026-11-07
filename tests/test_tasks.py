@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from brain import fm, nightly, validate
+from brain import cli, fm, nightly, validate
 from brain.config import Config
 from brain.tasks import (
     TASK_STATES, Task, archived_open_tasks, is_open, load_tasks, parse_register,
@@ -215,16 +215,16 @@ def test_handoff_line_is_parsed_and_written_once_after_the_first_field(vault, ca
     assert due(registered) == []
     with pytest.raises(ValueError):
         hand_off(Config.load(vault), "T-999", date(2026, 11, 3))
-    nightly.main(["continue", "--due", "--vault", str(vault)])
+    cli.main(["continue", "--due", "--vault", str(vault)])
     out = capsys.readouterr().out
     assert out.startswith("T-001 · handed off 2026-11-03 · Sample · next: ORIGINAL_FULL_BODY · report in the #lab room")
 
 
 def test_continue_exits_one_when_nothing_is_handed_off_and_handoff_cli_reports(vault, capsys):
     with pytest.raises(SystemExit) as exit:
-        nightly.main(["continue", "--due", "--vault", str(vault)])
+        cli.main(["continue", "--due", "--vault", str(vault)])
     assert exit.value.code == 1 and "nothing handed off is due" in capsys.readouterr().out
-    nightly.main(["handoff", "T-001", "--report", "Home", "--vault", str(vault)])
+    cli.main(["handoff", "T-001", "--report", "Home", "--vault", str(vault)])
     assert "T-001 handed off" in capsys.readouterr().out and "reported in Home" in open(vault / "agent/Tasks.md").read() or True
     from brain import state as state_mod
     exported = state_mod.build(Config.load(vault), date(2026, 11, 3))
@@ -248,15 +248,15 @@ def test_yours_is_open_never_owed_to_the_owner_and_never_continued(vault):
 
 
 def test_task_command_marks_yours_completes_and_drops(vault, capsys):
-    nightly.main(["task", "T-001", "yours", "--vault", str(vault)])
+    cli.main(["task", "T-001", "yours", "--vault", str(vault)])
     assert capsys.readouterr().out.startswith("T-001 yours: Sample")
     registered, _ = load_tasks(Config.load(vault))
     assert registered[0].task_state == "yours" and "ORIGINAL_FULL_BODY" in registered[0].body
-    nightly.main(["task", "T-001", "done", "--vault", str(vault), "--why", "Roshan sent it"])
+    cli.main(["task", "T-001", "done", "--vault", str(vault), "--why", "Roshan sent it"])
     registered, _ = load_tasks(Config.load(vault))
     assert registered[0].task_state == "completed" and "— Roshan sent it" in registered[0].body
     with pytest.raises(SystemExit):
-        nightly.main(["task", "T-001", "drop", "--vault", str(vault)])
+        cli.main(["task", "T-001", "drop", "--vault", str(vault)])
     assert "is not an open task" in capsys.readouterr().err
 
 

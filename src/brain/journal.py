@@ -68,7 +68,7 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
         raise ValueError(f"invalid outcome {outcome!r}; choose from " + ", ".join(ledger.OUTCOMES))
     if not headline:
         raise ValueError("missing headline")
-    local = at.replace(tzinfo=config.zone) if at.tzinfo is None else at.astimezone(config.zone)
+    local = config.local(at)
     from .state import _public   # the export's boundary: a profile or the owner's notes are never named here
     vault = Vault(config.vault_path)
     from .session_context import is_member, is_owner
@@ -151,7 +151,6 @@ def promote_touched(config: Config, vault: Vault, touched: list[str], today: dat
                 continuation._mark_engaged(config, task.tid)
 
 
-WORKING_TOGETHER_WORDS = 250   # the section loads in every session with the owner; past this it is merged at night
 HEADING = re.compile(r"^##[ \t]+Working together\b[^\n]*$", re.M)
 
 
@@ -214,7 +213,7 @@ def noted(config: Config, at: datetime, lines, speaker: str | None) -> Path | No
 
 
 def append_synthesis(config: Config, text: str, at: datetime) -> Path:
-    local = at.replace(tzinfo=config.zone) if at.tzinfo is None else at.astimezone(config.zone)
+    local = config.local(at)
     path = path_for(config, local.strftime("%Y-%m"))
     _append(config, path, f"\n## Synthesis {local:%Y-%m-%d %H:%M}\n\n{text.strip()}\n\n")
     return path
@@ -249,7 +248,7 @@ def _add_ask(config: Config, day: date, text: str, source: str | None, force: bo
     path = config.vault_path / "CURRENT.md"
     data, body = fm.read(path) if path.exists() else ({}, "")
     text = " ".join(text.replace("·", "-").split())   # the separator, inside the text, would break the bullet
-    from .needs import open_asks, replace_task_asks, task_of
+    from .needs import _section, open_asks, replace_task_asks, task_of
     asks = open_asks(body)
     if any(item.text.casefold() == text.casefold() and (not distinct_source or item.source == source) for item in asks):
         return True   # already asked; the first one stands until it is resolved
@@ -259,12 +258,11 @@ def _add_ask(config: Config, day: date, text: str, source: str | None, force: bo
     why = " ".join(why.split())
     if why:
         bullet += f"\n  - why: {why}"
-    heading = re.search(r"^## Needs you[ \t]*$", body, re.M)
-    if heading is None:
+    span = _section(body, "Needs you")
+    if span is None:
         body = body.rstrip("\n") + ("\n\n" if body.strip() else "") + "## Needs you\n\n" + bullet + "\n"
     else:
-        following = re.compile(r"^## ", re.M).search(body, heading.end())
-        end = following.start() if following else len(body)
+        end = span[1]
         before, after = body[:end].rstrip("\n"), body[end:]
         gap = "\n\n" if before.endswith("## Needs you") else "\n"
         body = before + gap + bullet + "\n" + ("\n" + after if after else "")

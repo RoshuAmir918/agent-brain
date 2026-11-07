@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from brain import audit, fm, nightly
+from brain import audit, cli, fm
 from brain.config import Config
 from conftest import harness_session, message, tool
 
@@ -62,10 +62,10 @@ def test_audit_counts_folders_ledgers_episodes_and_routines_without_contents(aud
 
 
 def test_audit_cli_json_and_window(audited, capsys):
-    nightly.main(["audit", "--vault", str(audited.vault_path), "--date", "2026-10-26", "--days", "3", "--json"])
+    cli.main(["audit", "--vault", str(audited.vault_path), "--date", "2026-10-26", "--days", "3", "--json"])
     data = json.loads(capsys.readouterr().out)
     assert data["routines"] == [] and data["days"] == 3
-    nightly.main(["audit", "--vault", str(audited.vault_path), "--date", "2026-10-26"])
+    cli.main(["audit", "--vault", str(audited.vault_path), "--date", "2026-10-26"])
     assert capsys.readouterr().out.startswith("# Audit: Agent, 2026-10-26, last 14 days\n")
 
 

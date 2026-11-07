@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import journal, needs, runtime, signals, state, tasks
+from . import fm, journal, needs, runtime, signals, state, tasks
 from .config import DAILY_CHUNKS, Config
 from .lock import vault_lock
 
@@ -91,11 +91,6 @@ def last_worked(config: Config) -> dict[str, str]:
     return {tid: row["at"] for tid, row in _progress(config).items() if isinstance(row.get("at"), str)}
 
 
-def _local_now(config: Config) -> datetime:
-    now = config.now()
-    return now.replace(tzinfo=config.zone) if now.tzinfo is None else now.astimezone(config.zone)
-
-
 def _count(row: dict, day: str) -> int:
     chunks = row.get("chunks", {})
     if isinstance(chunks, dict) and chunks.get("date") == day:
@@ -106,7 +101,7 @@ def _count(row: dict, day: str) -> int:
 
 
 def chunks_today(config: Config) -> dict[str, int]:
-    day = _local_now(config).date().isoformat()
+    day = config.local().date().isoformat()
     return {tid: _count(row, day) for tid, row in _progress(config).items()}
 
 
@@ -143,7 +138,7 @@ def _mark_engaged(config: Config, tid: str, instruction: str | None = None) -> N
             records = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             records = {}
-        records.setdefault(str(config.vault_path.resolve()), {})[tid] = _local_now(config).isoformat()
+        records.setdefault(str(config.vault_path.resolve()), {})[tid] = config.local().isoformat()
         staged = path.with_suffix(".json.tmp")
         staged.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
         staged.replace(path)
@@ -152,7 +147,7 @@ def _mark_engaged(config: Config, tid: str, instruction: str | None = None) -> N
         row.pop("circling", None)
         row.pop("budget_cap", None)
         if instruction:
-            row["instruction"] = {"at": _local_now(config).isoformat(), "text": instruction}
+            row["instruction"] = {"at": config.local().isoformat(), "text": instruction}
 
 
 def budget_for(config: Config, task, engaged: dict[str, str] | None = None) -> int:
@@ -163,7 +158,7 @@ def budget_for(config: Config, task, engaged: dict[str, str] | None = None) -> i
     if engaged.get(task.tid):
         anchors.append(engaged[task.tid][:10])
     try:
-        days = (_local_now(config).date() - date.fromisoformat(max(anchors))).days if anchors else 0
+        days = (config.local().date() - date.fromisoformat(max(anchors))).days if anchors else 0
     except ValueError:
         days = 0
     limit = config.daily_chunks if days <= 0 else max(1, config.daily_chunks >> days)
@@ -176,7 +171,7 @@ def budgets(config: Config, task_list) -> dict[str, int]:
 
 
 def budget_caps(config: Config) -> dict[str, int]:
-    day = _local_now(config).date().isoformat()
+    day = config.local().date().isoformat()
     return {tid: row["budget_cap"]["limit"] for tid, row in _progress(config).items()
             if row.get("budget_cap", {}).get("date") == day}
 
@@ -249,8 +244,8 @@ def stages(config: Config, task: tasks.Task, entries: list[tasks.Task] | None = 
     for stage in sorted(earlier.values(), key=lambda entry: entry.tid)[-5:]:
         closed, outcome = state._closing(stage)
         out.append({"id": stage.tid, "title": stage.title, "state": stage.task_state, "closed": closed,
-                    "delivers": stage.delivers, "outcome": outcome or state._field(stage.body, "Why"),
-                    "verified": state._field(stage.body, "Verified"), "next": state._field(stage.body, "Next", "Next action")})
+                    "delivers": stage.delivers, "outcome": outcome or fm.field(stage.body, "Why"),
+                    "verified": fm.field(stage.body, "Verified"), "next": fm.field(stage.body, "Next", "Next action")})
     return out
 
 
@@ -311,7 +306,7 @@ def answered(config: Config, source: str, question: str, because: str, owner_eng
                 _mark_engaged(config, match[0], text)
             else:
                 with _progress_records(config) as rows:
-                    rows.setdefault(match[0], {})["instruction"] = {"at": _local_now(config).isoformat(), "text": text}
+                    rows.setdefault(match[0], {})["instruction"] = {"at": config.local().isoformat(), "text": text}
 
 
 def _owner_instruction(config: Config, task: tasks.Task, row: dict) -> str | None:
@@ -325,7 +320,7 @@ def _owner_instruction(config: Config, task: tasks.Task, row: dict) -> str | Non
                     and re.search(r"\b" + re.escape(task.tid) + r"\b", parts[4])
                     and parts[3].startswith("because ") and parts[3] != "because the task now has a Delivers line"):
                 return f"{parts[2]} Answer: {parts[3].removeprefix('because ')}"
-    return state._field(task.body, "Source")
+    return fm.field(task.body, "Source")
 
 
 def review_context(config: Config, tid: str) -> dict:
@@ -339,8 +334,8 @@ def review_context(config: Config, tid: str) -> dict:
         count = chunks_today(config).get(tid, 0)
         limit = budget_caps(config).get(tid) if tasks.pace(task) == "daily" else budget_for(config, task)
         return {"id": task.tid, "title": task.title, "delivers": task.delivers, "work": task.work,
-                "status": state._field(task.body, "Status"), "next": state._field(task.body, "Next", "Next action"),
-                "source": state._field(task.body, "Source"),
+                "status": fm.field(task.body, "Status"), "next": fm.field(task.body, "Next", "Next action"),
+                "source": fm.field(task.body, "Source"),
                 "ownerInstruction": _owner_instruction(config, task, row),
                 "results": results, "lastReview": row.get("last_review"), "chunksToday": count,
                 "budgetLeft": None if limit is None else max(0, limit - count)}
@@ -370,7 +365,7 @@ def review(config: Config, tid: str, verdict: str, reason: str, *, ask: str | No
         limit = budget_for(config, task)
         with _progress_records(config) as rows:
             row = rows.setdefault(tid, {})
-            now = _local_now(config)
+            now = config.local()
             last = {"verdict": verdict, "at": now.isoformat(), "reason": reason}
             if verdict == "circling":
                 tasks.set_fields(config, tid, config.today(),
@@ -430,7 +425,7 @@ def checkpoint(config: Config, tid: str, text: str) -> None:
         try:
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folder, suffix=".tmp", delete=False) as stream:
                 staged = stream.name
-                json.dump({"task": tid, "at": _local_now(config).isoformat(), "text": text}, stream, ensure_ascii=False)
+                json.dump({"task": tid, "at": config.local().isoformat(), "text": text}, stream, ensure_ascii=False)
                 stream.write("\n")
             Path(staged).replace(path)
         finally:
@@ -467,7 +462,7 @@ def chunk(config: Config, tid: str) -> str:
             return f"{tid} progress not recorded: AGENT_HOME is not set"
         with _progress_records(config) as rows:
             previous = rows.get(tid)
-            now = _local_now(config)
+            now = config.local()
             day = now.date().isoformat()
             count = _count(previous or {}, day) + 1
             pushed = _work_commit(task.work)
@@ -507,7 +502,7 @@ def chunk(config: Config, tid: str) -> str:
                 current["work_commit"] = pushed[0]
             saved = _checkpoint(tid)
             result = (saved["text"] if saved and saved != (previous or {}).get("checkpoint") else
-                      state._field(task.body, "Status") or state._field(task.body, "Next", "Next action") or message)
+                      fm.field(task.body, "Status") or fm.field(task.body, "Next", "Next action") or message)
             if saved:
                 current["checkpoint"] = saved
             current["results"] = [*(previous or {}).get("results", []), {"at": now.isoformat(), "text": result}][-6:]

@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import compile_context, fm, nightly
+from brain import cli, compile_context, fm, nightly
 from brain.config import Config, Context
 from brain.vault import Vault
 
@@ -29,7 +29,7 @@ def toml(vault, context):
 
 
 def run(capsys, *argv):
-    nightly.main(list(argv))
+    cli.main(list(argv))
     return capsys.readouterr().out
 
 
@@ -49,7 +49,7 @@ def test_brain_today_pins_today_and_now_keeps_the_time_of_day(vault, monkeypatch
 def test_invalid_brain_today_fails_every_command(vault, monkeypatch, capsys, value):
     monkeypatch.setenv("BRAIN_TODAY", value)
     with pytest.raises(SystemExit):
-        nightly.main(["state", "--vault", str(vault)])
+        cli.main(["state", "--vault", str(vault)])
     assert "BRAIN_TODAY must be a date as YYYY-MM-DD" in capsys.readouterr().err
 
 
@@ -139,7 +139,7 @@ def test_hot_words_sets_the_directory_active_budget_and_context_warning(vault, m
     text = (vault.parent / ".context.md").read_text()
     assert "- [[memory/Active|Active]]" not in text
     assert "Active" in text.split("- Hubs and topics: ")[1].splitlines()[0]
-    nightly.main(["compile-context", "--vault", str(vault)])
+    cli.main(["compile-context", "--vault", str(vault)])
     assert "WARNING: over 3 words" in capsys.readouterr().err
 
 
@@ -171,7 +171,7 @@ def test_tier_thresholds_retier_notes(vault, monkeypatch):
 def test_invalid_settings_fail_loudly(vault, monkeypatch, capsys, name, value, message):
     monkeypatch.setenv(name, value)
     with pytest.raises(SystemExit):
-        nightly.main(["state", "--vault", str(vault)])
+        cli.main(["state", "--vault", str(vault)])
     assert message in capsys.readouterr().err
 
 

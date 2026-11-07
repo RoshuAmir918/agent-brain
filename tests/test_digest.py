@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from brain.config import Config
-from brain import digest, fm, nightly
+from brain import cli, digest, fm, nightly
 from brain.vault import Vault
 from conftest import snapshot, harness_session, message, tool, write_shards
 
@@ -29,7 +29,7 @@ def digest_sessions(vault, tmp_path, monkeypatch):
 
 def test_jsonl_preview_filters_roles_preserves_text_and_counts(vault, digest_sessions, capsys):
     before = snapshot(vault.parent)
-    nightly.main(["digest", "--vault", str(vault), "--date", str(DAY)])
+    cli.main(["digest", "--vault", str(vault), "--date", str(DAY)])
     captured = capsys.readouterr()
     text = captured.out
     generated = datetime.now(digest.PACIFIC).date()
@@ -92,14 +92,14 @@ def test_exact_word_cap_keeps_every_turn(vault, digest_sessions):
 def test_write_only_changes_digest_and_is_idempotent(vault, digest_sessions, capsys):
     args = ["digest", "--vault", str(vault), "--date", str(DAY), "--write"]
     before = snapshot(vault.parent)
-    nightly.main(args)
+    cli.main(args)
     output = vault / "Conversations/Digests/2026-10-20.md"
     assert capsys.readouterr().out == f"{output}: 22 words\n"
     after = snapshot(vault.parent)
     assert set(after) - set(before) == {"memory/Conversations/Digests/2026-10-20.md"}
     assert all(after[path] == checksum for path, checksum in before.items())
     modified = output.stat().st_mtime_ns
-    nightly.main(args)
+    cli.main(args)
     assert capsys.readouterr().out == f"{output}: 22 words\n"
     assert snapshot(vault.parent) == after and output.stat().st_mtime_ns == modified
 
@@ -107,7 +107,7 @@ def test_write_only_changes_digest_and_is_idempotent(vault, digest_sessions, cap
 def test_sessions_directory_override(vault, digest_sessions, tmp_path, capsys):
     external = tmp_path / "exports"
     digest_sessions.rename(external)
-    nightly.main(["digest", "--vault", str(vault), "--date", str(DAY), "--sessions-dir", str(external)])
+    cli.main(["digest", "--vault", str(vault), "--date", str(DAY), "--sessions-dir", str(external)])
     assert "from 2 sessions, 22 words" in capsys.readouterr().out
     assert not (vault / "Conversations/Digests").exists()
 
@@ -194,7 +194,7 @@ def test_unmarked_markdown_is_not_assigned_a_role(vault, tmp_path):
 @pytest.mark.parametrize("extra", [[], ["--date", "not-a-date"]])
 def test_digest_requires_a_valid_date(vault, extra):
     with pytest.raises(SystemExit) as caught:
-        nightly.main(["digest", "--vault", str(vault), *extra])
+        cli.main(["digest", "--vault", str(vault), *extra])
     assert caught.value.code == 2
 
 

@@ -45,6 +45,13 @@ def write(path: Path, data: dict, body: str) -> None:
         staged.unlink(missing_ok=True)
 
 
+def field(body: str, *names: str) -> str | None:
+    """The value of the first `**Name:**` line for any of `names`, case-insensitive, bold marks removed."""
+    match = re.search(r"^[ \t]*(?:-[ \t]+)?\*\*(?:" + "|".join(re.escape(name) for name in names) +
+                      r"):\*\*[ \t]*([^\r\n]*)", body, re.M | re.I)
+    return match[1].replace("**", "").strip() if match else None
+
+
 def first_line(body: str) -> str:
     """First non-heading, non-empty prose line, used for index lines."""
     for ln in body.splitlines():

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from brain import access, fm, nightly, validate
+from brain import access, cli, fm, validate
 from brain.vault import Vault
 
 ALICE = "people/Alice_Example/Profile.md"
@@ -231,7 +231,7 @@ def test_missing_disclosure_defaults_without_errors(access_vault):
 def test_cli_name_path_and_platform_id(access_vault, capsys, who, json_output):
     set_rules(access_vault, f"| D-001 | [[{FRIENDS}]] | schedule | details | ask |",
               tail="\n## Grant scope\nD-001 permits planning a visit only.\n")
-    nightly.main(["access", who, "--vault", str(access_vault.root)] + (["--json"] if json_output else []))
+    cli.main(["access", who, "--vault", str(access_vault.root)] + (["--json"] if json_output else []))
     captured = capsys.readouterr()
     assert captured.err == ""
     if json_output:
@@ -272,7 +272,7 @@ def test_cli_ambiguity_exits_with_matching_profiles(access_vault, who):
     note.body = "# Alicia\nDemiurge: k57alice\n"
     note.save()
     with pytest.raises(SystemExit) as error:
-        nightly.main(["access", who, "--vault", str(access_vault.root)])
+        cli.main(["access", who, "--vault", str(access_vault.root)])
     assert "ambiguous" in str(error.value)
     assert ALICE in str(error.value) and BOB in str(error.value)
     assert error.value.code != 0
@@ -281,7 +281,7 @@ def test_cli_ambiguity_exits_with_matching_profiles(access_vault, who):
 @pytest.mark.parametrize("json_output", [False, True])
 def test_cli_no_match_resolves_as_stranger_and_says_so(access_vault, capsys, json_output):
     set_rules(access_vault, "| D-001 | anyone | work | gist | |", "| D-002 | known | health | details | yes |")
-    nightly.main(["access", "Visitor", "--vault", str(access_vault.root)] + (["--json"] if json_output else []))
+    cli.main(["access", "Visitor", "--vault", str(access_vault.root)] + (["--json"] if json_output else []))
     captured = capsys.readouterr()
     if json_output:
         data = json.loads(captured.out)
@@ -344,7 +344,7 @@ def test_access_checks_are_on_demand_not_a_nightly_gate(access_vault, capsys):
     assert validate.run(access_vault, set(access_vault.notes)) == []
     assert validate.kinds(access_vault) == []
     with pytest.raises(SystemExit) as error:
-        nightly.main(["validate", "--vault", str(access_vault.root)])
+        cli.main(["validate", "--vault", str(access_vault.root)])
     assert error.value.code == 1
     out = capsys.readouterr().out
     assert out.startswith("people/Disclosure.md: D-001: unknown subject 'secret'\n") and "\n1 problems\n" in out

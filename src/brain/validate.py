@@ -194,8 +194,8 @@ def owner_questions(vault: Vault) -> list[str]:
     out = []
 
     def check(where: str, body: str) -> None:
-        ask = needs._task_field(body, "Ask")
-        why = needs._task_field(body, "Why") or ""
+        ask = fm.field(body, "Ask")
+        why = fm.field(body, "Why") or ""
         if not ask:
             out.append(f"{where}: no Ask line, the proposition the owner sees (and a Why line, what they get)")
             return

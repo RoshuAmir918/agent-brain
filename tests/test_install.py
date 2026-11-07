@@ -6,7 +6,7 @@ import subprocess
 
 import pytest
 
-from brain import fm, nightly
+from brain import cli, fm
 from brain.config import Config
 from conftest import snapshot
 
@@ -17,7 +17,7 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
     config_path.write_text('[brain]\nskill_prefix = "' + prefix + '"\n')
     config = Config.load(vault)
     args = ["install-skills", "--vault", str(vault)]
-    nightly.main(args)
+    cli.main(args)
     assert capsys.readouterr().out == str(config.skills_path) + "\n"
     templates = [path for path in files("brain").joinpath("skills").iterdir()
                  if path.joinpath("SKILL.md").is_file()]
@@ -29,14 +29,14 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
         assert fm.split(text)[0]["name"] == prefix + routine.name
         assert ".brain" not in text and "python3 -m brain" not in text
     before = snapshot(vault)
-    nightly.main(args)
+    cli.main(args)
     assert snapshot(vault) == before
 
 
 def test_install_scripts_copies_executable_package_resources(tmp_path, monkeypatch, capsys):
     home = tmp_path / "agent-home"
     monkeypatch.setenv("AGENT_HOME", str(home))
-    nightly.main(["install-scripts"])
+    cli.main(["install-scripts"])
     installed = sorted((home / "scripts").glob("*.sh"))
     assert [path.name for path in installed] == ["continue-daily-signal.sh", "continue-signal.sh", "export-sessions.sh", "refresh.sh", "watch-signal.sh"]
     refresh = (home / "scripts/refresh.sh").read_text()
@@ -48,7 +48,7 @@ def test_install_scripts_copies_executable_package_resources(tmp_path, monkeypat
         assert f"installed {path}" in output
         subprocess.run(["bash", "-n", str(path)], check=True)
     before = snapshot(home)
-    nightly.main(["install-scripts"])
+    cli.main(["install-scripts"])
     assert snapshot(home) == before
 
 
@@ -74,7 +74,7 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
         (folder / f"{sid}.json").write_text(json.dumps(session))
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-21")
     (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nupdate_source = ""\n')
-    nightly.main(["install-scripts"])
+    cli.main(["install-scripts"])
     subprocess.run(["bash", str(home / "scripts/export-sessions.sh")], cwd=tmp_path,
                    env=dict(os.environ), check=True, capture_output=True, text=True)
     assert (home / "SOUL.md").read_text() == "Fixture identity\n"
@@ -122,13 +122,13 @@ def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
 
 
 def test_responsibility_builds_three_homes_and_keeps_existing_files(tmp_path, monkeypatch):
-    from brain import install, nightly
+    from brain import cli, install
     from brain.config import Config
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
     (tmp_path / "brain.toml").write_text('[brain]\nhuman_name = "Mira"\nagent_name = "Pip"\n', encoding="utf-8")
     (tmp_path / "memory").mkdir()
     monkeypatch.chdir(tmp_path)
-    nightly.main(["responsibility", "Fantasy GM", "--skill", "brain-housekeeping"])
+    cli.main(["responsibility", "Fantasy GM", "--skill", "brain-housekeeping"])
     hub = tmp_path / "memory/Fantasy GM.md"
     skill = tmp_path / "memory/Runtime/skills/brain-housekeeping/SKILL.md"
     assert (tmp_path / "home/records/housekeeping").is_dir()
@@ -179,7 +179,7 @@ def test_update_without_runtime_installs_package_and_skips_scripts(vault, monkey
         pytest.fail("scripts must not be installed without a runtime")
     monkeypatch.setattr(install, "scripts", unexpected)
     before = snapshot(vault.parent)
-    nightly.main(["update", "--vault", str(vault)])
+    cli.main(["update", "--vault", str(vault)])
     assert calls == [([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
                       Config.load(vault).update_source], True)]
     assert capsys.readouterr().out == "scripts not reinstalled: AGENT_HOME is not set\n"
@@ -227,6 +227,17 @@ def test_migrate_check_writes_pending_prompt_and_done_clears_it(tmp_path, monkey
     assert install.recorded_version(config) == "1.0.0"
     assert install.migrate_done(config) == "1.2.0"
     assert not pending.exists() and install.recorded_version(config) == "1.2.0"
+
+
+def test_a_new_vault_records_the_installed_version_and_replays_nothing(tmp_path, monkeypatch):
+    from brain import install
+    from brain.config import Config
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    config = Config.load(tmp_path / "memory")
+    monkeypatch.setattr(install, "installed_version", lambda name: "1.2.0")
+    assert install.pending_migrations(config) == []
+    assert install.migrate_check(config) is None
+    assert install.recorded_version(config) == "1.2.0"
 
 
 def test_pending_migrations_selects_versions_in_range(tmp_path, monkeypatch):
@@ -288,11 +299,11 @@ def test_a_new_migration_starts_once_and_a_repeat_check_does_not_start_it_again(
 
 def test_show_skill_renders_one_routine_for_this_vault(vault, capsys):
     (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nhuman_name = "Mira"\nagent_name = "Echo"\nskill_prefix = "echo-"\n')
-    nightly.main(["show-skill", "morning", "--vault", str(vault)])
+    cli.main(["show-skill", "morning", "--vault", str(vault)])
     text = capsys.readouterr().out
     assert text.startswith("---\nname: echo-morning\n") and "What today is for Mira" in text and "{human_name}" not in text
     with pytest.raises(SystemExit):
-        nightly.main(["show-skill", "nope", "--vault", str(vault)])
+        cli.main(["show-skill", "nope", "--vault", str(vault)])
     assert "no such routine: nope" in capsys.readouterr().err
 
 

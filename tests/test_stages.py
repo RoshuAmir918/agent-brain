@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import continuation, fm, nightly, tasks, works
+from brain import cli as brain_cli, continuation, fm, tasks, works
 from brain.config import Config
 from brain.lock import vault_lock
 from conftest import snapshot
@@ -14,7 +14,7 @@ TODAY = date(2026, 11, 6)
 
 
 def cli(config, capsys, *args):
-    nightly.main([*args, "--vault", str(config.vault_path)])
+    brain_cli.main([*args, "--vault", str(config.vault_path)])
     return capsys.readouterr().out.strip()
 
 
@@ -232,7 +232,7 @@ def test_work_history_on_close_is_atomic_and_under_vault_lock(stages_config, cap
             assert held
         return original_write(path, data, body)
 
-    monkeypatch.setattr(nightly, "vault_lock", locked)
+    monkeypatch.setattr(brain_cli, "vault_lock", locked)
     monkeypatch.setattr(fm, "write", checked_write)
     cli(config, capsys, "task", "T-001", "done", "--why", "submitted with confirmations")
     expected = (old.rstrip() + "\n\n## 2026-11-06 · T-001 · Sample\n- Outcome: submitted with confirmations\n"

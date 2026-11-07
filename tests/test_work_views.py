@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from brain import fm, nightly, views
+from brain import cli, fm, views
 from conftest import snapshot
 
 
@@ -31,7 +31,7 @@ def work(tmp_path, monkeypatch):
 
 def view(vault, monkeypatch, spec, slug="offers"):
     monkeypatch.setattr("sys.stdin", io.StringIO(spec if isinstance(spec, str) else json.dumps(spec)))
-    nightly.main(["works", "view", slug, "--vault", str(vault)])
+    cli.main(["works", "view", slug, "--vault", str(vault)])
 
 
 def test_summary_is_clean_json_in_the_work(vault, work, monkeypatch, capsys):

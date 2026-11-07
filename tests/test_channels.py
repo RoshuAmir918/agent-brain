@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from brain import channels, fm, nightly, session_context, state, validate
+from brain import channels, cli, fm, session_context, state, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -45,7 +45,7 @@ def test_sync_registers_completed_connect_grants_once_and_keeps_the_rest_of_the_
     body = (registry_vault / "agent/Channels.md").read_text()
     assert body.count("| Calendar token |") == 1 and "## Destinations" in body and "Registry." in body
     assert channels.sync(Config.load(registry_vault), Vault(registry_vault), listing.splitlines(), date(2026, 11, 3), "echo") == []
-    nightly.main(["channels", "--vault", str(registry_vault)])
+    cli.main(["channels", "--vault", str(registry_vault)])
     out = capsys.readouterr().out
     assert "Calendar token · owner · live · reach op://Echo/Calendar token" in out and "Old Slack · own · revoked" in out
 

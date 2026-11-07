@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from brain import compile_context, fm, journal, needs, nightly, state, tasks, validate, works
+from brain import cli, compile_context, fm, journal, needs, nightly, state, tasks, validate, works
 from brain.config import Config, SECTIONS
 from brain.lock import vault_lock
 from brain.vault import Vault
@@ -219,15 +219,15 @@ def test_library_caps_work_lines_and_keeps_every_notice(vault, library_home):
 
 def test_library_sections_cli_and_explicit_vault_allowlist(vault, library_home, capsys, monkeypatch):
     write_library(library_home)
-    nightly.main(["compile-context", "--vault", str(vault), "--sections", "library"])
+    cli.main(["compile-context", "--vault", str(vault), "--sections", "library"])
     text = capsys.readouterr().out
     assert "## Library" in text and "### T-001" not in text and "## Directory" not in text
-    nightly.main(["compile-context", "--vault", str(vault), "--sections", "tasks"])
+    cli.main(["compile-context", "--vault", str(vault), "--sections", "tasks"])
     text = capsys.readouterr().out
     assert "### T-001" in text and "## Library" not in text
     config_file = vault.parent / "brain.toml"
     config_file.write_text(config_file.read_text() + '\n[context]\nsections = ["start", "tasks"]\n')
-    nightly.main(["compile-context", "--vault", str(vault), "--sections", "tasks,library"])
+    cli.main(["compile-context", "--vault", str(vault), "--sections", "tasks,library"])
     assert "## Library" not in capsys.readouterr().out
     monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "library")
     assert "## Library" in compile_context.build(Vault(vault))
@@ -257,16 +257,16 @@ def test_handoff_work_sets_replaces_and_preserves_full_entry(vault, archived, mo
         tasks.write_archive(config, task, "warm", DAY, whole=True)
         fm.write(vault / "agent/Tasks.md", {"tier": "hot"}, "# Tasks\n" + task.render_line(config))
     for slug in ("trip-plan", "trip-budget"):
-        nightly.main(["handoff", "T-001", "--work", slug, "--report", "Home", "--vault", str(vault)])
+        cli.main(["handoff", "T-001", "--work", slug, "--report", "Home", "--vault", str(vault)])
         capsys.readouterr()
         task = tasks.load_tasks(config)[0][0]
         assert task.work == slug and task.body.count("**Work:**") == 1
         assert "ORIGINAL_FULL_BODY" in task.body
         assert task.handoff == (DAY.isoformat(), "Home")
-    nightly.main(["handoff", "T-001", "--vault", str(vault)])
+    cli.main(["handoff", "T-001", "--vault", str(vault)])
     capsys.readouterr()
     assert tasks.load_tasks(config)[0][0].work == "trip-budget"
-    nightly.main(["continue", "--due", "--vault", str(vault)])
+    cli.main(["continue", "--due", "--vault", str(vault)])
     assert capsys.readouterr().out == (
         "T-001 · handed off 2026-11-05 · Sample · next: ORIGINAL_FULL_BODY · work: trip-budget\n")
     exported = state.build(config, DAY)["tasks"][0]
@@ -277,7 +277,7 @@ def test_handoff_work_sets_replaces_and_preserves_full_entry(vault, archived, mo
 def test_handoff_refuses_bad_slug_before_writing(vault, slug, capsys):
     before = snapshot(vault)
     with pytest.raises(SystemExit) as error:
-        nightly.main(["handoff", "T-001", "--work", slug, "--vault", str(vault)])
+        cli.main(["handoff", "T-001", "--work", slug, "--vault", str(vault)])
     assert error.value.code == 1
     assert "work slug must match [a-z0-9-]+" in capsys.readouterr().err
     assert snapshot(vault) == before
@@ -296,7 +296,7 @@ def test_validate_work_references_are_only_warnings_when_library_exists(vault, l
     assert validate.work_warnings(Vault(vault)) == []
     write_library(library_home)
     with pytest.raises(SystemExit) as error:
-        nightly.main(["validate", "--vault", str(vault)])
+        cli.main(["validate", "--vault", str(vault)])
     assert error.value.code == 0
     text = capsys.readouterr().out
     assert "warning: T-001: work 'missing-work' is not listed" in text

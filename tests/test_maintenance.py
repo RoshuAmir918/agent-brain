@@ -21,7 +21,7 @@ def maintenance(tmp_path, monkeypatch):
 
 
 def run(config, *args):
-    return subprocess.run([sys.executable, "-m", "brain.nightly", *args],
+    return subprocess.run([sys.executable, "-m", "brain.cli", *args],
                           cwd=config.repo, env=os.environ.copy(), text=True, capture_output=True)
 
 

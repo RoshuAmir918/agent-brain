@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from brain import nightly, runtime, schedule, validate
+from brain import cli as brain_cli, runtime, schedule, validate
 from brain.config import Config
 from brain.schedule import Routine
 from brain.vault import Vault
@@ -18,7 +18,7 @@ def config(vault, tmp_path, monkeypatch):
 
 
 def cli(config, *args):
-    return nightly.main(["schedule", *args, "--vault", str(config.vault_path)])
+    return brain_cli.main(["schedule", *args, "--vault", str(config.vault_path)])
 
 
 def write(config, text):
@@ -38,7 +38,7 @@ def test_path_sits_beside_engine_version_in_the_runtime_directory(config, capsys
     config = replace(config, runtime_dir="custom/Runtime")
     assert schedule.path(config) == config.vault_path / "custom/Runtime/schedule.toml"
     (config.repo / "brain.toml").write_text('[brain]\nruntime_dir = "custom/Runtime"\n')
-    nightly.main(["paths", "schedule", "--vault", str(config.vault_path)])
+    brain_cli.main(["paths", "schedule", "--vault", str(config.vault_path)])
     assert capsys.readouterr().out == str(schedule.path(config)) + "\n"
 
 
@@ -223,7 +223,7 @@ def test_unknown_responsibility_and_need_are_validate_warnings_not_errors(config
     monkeypatch.setattr(validate, "deliverable_warnings", lambda vault: [])
     capsys.readouterr()
     with pytest.raises(SystemExit) as error:
-        nightly.main(["validate", "--vault", str(config.vault_path)])
+        brain_cli.main(["validate", "--vault", str(config.vault_path)])
     assert error.value.code == 0
     output = capsys.readouterr().out
     assert output.count("warning:") == 2 and "0 problems\n2 warnings\n" in output
@@ -339,16 +339,8 @@ def test_schedule_hygiene_and_integration(config):
     assert validate.schedule_hygiene(vault) == []
 
 
-def test_continue_sunset_migration_preserves_other_routines_and_needs_no_heartbeat(config, monkeypatch):
-    from brain import health, install
-    install.record_version(config, "0.48.1")
-    monkeypatch.setattr(install, "installed_version", lambda name: "0.49.0")
-    migrations = install.pending_migrations(config)
-    assert [version for version, _ in migrations] == ["0.49.0"]
-    text = migrations[0][1]
-    assert "unattended: true" in text
-    assert all(command in text for command in ("brain schedule remove continue", "brain schedule remove continue-daily",
-                                               "brain install-skills", "brain validate", "brain migrate-done"))
+def test_continue_sunset_preserves_other_routines_and_needs_no_heartbeat(config):
+    from brain import health
     other = Routine(every="2h", prompt="Keep the owner's custom work", enabled=False)
     schedule.save(config, {"custom": other,
                            "continue": Routine(every="30m", skills=["brain-continue"], monitor="continue-signal.sh"),
@@ -423,7 +415,7 @@ def test_cli_holds_vault_lock_across_read_edit_and_write(config, monkeypatch):
         assert held
         return original_save(cfg, routines)
 
-    monkeypatch.setattr(nightly, "vault_lock", lock)
+    monkeypatch.setattr(brain_cli, "vault_lock", lock)
     monkeypatch.setattr(schedule, "vault_lock", lock)
     monkeypatch.setattr(schedule, "load", load)
     monkeypatch.setattr(schedule, "_save", save)

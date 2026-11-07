@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
-from brain import attribute, compile_context, digest, fm, install, nightly, retrieve
+from brain import attribute, cli, compile_context, digest, fm, install, nightly, retrieve
 from brain.config import Config
-from brain.tasks import Task, bounded_hot_body, read_archive_body, seed_uses_from_body
+from brain.tasks import Task, bounded_hot_body, read_archive_body
 from brain.vault import Vault
 from conftest import snapshot, harness_session, message, tool, write_shards
 
@@ -74,10 +74,10 @@ def test_alternate_layout_whole_night_and_preview(alternate, monkeypatch, capsys
     root = config.vault_path
     monkeypatch.chdir(root / config.agent_dir)
     before = snapshot(config.repo)
-    nightly.main(["nightly", "--date", "2026-10-20"])
+    cli.main(["nightly", "--date", "2026-10-20"])
     assert snapshot(config.repo) == before
     sessions = install.sessions_records_path()
-    nightly.main(["nightly", "--date", "2026-10-20", "--sessions-dir", str(sessions), "--write"])
+    cli.main(["nightly", "--date", "2026-10-20", "--sessions-dir", str(sessions), "--write"])
     directory = compile_context.directory(Vault(root))
     assert f"[[{config.link('Hot Hub')}|" in directory
     assert f"[[{config.link('Warm Hub')}|" in directory
@@ -108,15 +108,15 @@ def test_alternate_layout_whole_night_and_preview(alternate, monkeypatch, capsys
     assert vault.resolve("Archive/Receipt") == "../Archive/Receipt.md"
     assert all(candidate.path.startswith(config.vault + "/") for candidate in retrieve.search(vault, "project T-001 TR-001"))
     with pytest.raises(SystemExit) as validated:
-        nightly.main(["validate"])
+        cli.main(["validate"])
     assert validated.value.code == 0
     capsys.readouterr()
-    nightly.main(["paths", "soul"])
+    cli.main(["paths", "soul"])
     assert capsys.readouterr().out == str(config.soul_path) + "\n"
     text, _ = digest.build(config, date(2026, 10, 20))
     assert "**Owner Example**" in text and "**Guide**" in text
     assert f"reads: {config.link('Warm Hub.md')}" in text
-    nightly.main(["install-skills"])
+    cli.main(["install-skills"])
     for path in config.skills_path.glob("*/SKILL.md"):
         text = path.read_text()
         assert fm.split(text)[0]["name"] == path.parent.name
@@ -135,8 +135,6 @@ def test_alternate_plain_paths_and_task_evidence(alternate):
     task = Task("T-099", "Large", "- **Status:** open\n"
                 f"- **Latest evidence:** [[{config.link('Conversations/2026-10-19')}]]\n"
                 "- **Evidence:** " + "historical " * 200 + "\n")
-    seed_uses_from_body(task, date(2026, 10, 20), config)
-    assert task.uses == ["2026-10-19"]
     bounded = bounded_hot_body(task, config)
     assert f"[[{config.link(config.agent('Tasks Archive/T-099'))}|" in bounded
     assert "[[memory/" not in bounded
