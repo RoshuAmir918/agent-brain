@@ -11,8 +11,6 @@ from brain.config import Config
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
-    for name in ("DEMIURGE_CONVERSATION", "DEMIURGE_TASK", "DEMIURGE_WORKERS", "BRAIN_SPEAKER"):
-        monkeypatch.delenv(name, raising=False)
 
 
 def enterprise(vault):

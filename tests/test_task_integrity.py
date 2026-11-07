@@ -27,10 +27,8 @@ def register(vault):
 
 
 @pytest.fixture(autouse=True)
-def no_conversation(monkeypatch):
+def frozen_today(monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
-    monkeypatch.delenv("DEMIURGE_CONVERSATION", raising=False)
-    monkeypatch.delenv("DEMIURGE_TASK", raising=False)
 
 
 def test_the_night_keeps_a_worker_write_made_after_it_loaded_the_tasks(vault, monkeypatch, capsys):

@@ -225,7 +225,9 @@ def test_continue_exits_one_when_nothing_is_handed_off_and_handoff_cli_reports(v
         cli.main(["continue", "--due", "--vault", str(vault)])
     assert exit.value.code == 1 and "nothing handed off is due" in capsys.readouterr().out
     cli.main(["handoff", "T-001", "--report", "Home", "--vault", str(vault)])
-    assert "T-001 handed off" in capsys.readouterr().out and "reported in Home" in open(vault / "agent/Tasks.md").read() or True
+    assert "T-001 handed off" in capsys.readouterr().out
+    registered, _ = load_tasks(Config.load(vault))
+    assert registered[0].tid == "T-001" and registered[0].handoff[1] == "Home"
     from brain import state as state_mod
     exported = state_mod.build(Config.load(vault), date(2026, 11, 3))
     assert [task["handoff"] for task in exported["tasks"] if task["id"] == "T-001"] == [Config.load(vault).today().isoformat()]
