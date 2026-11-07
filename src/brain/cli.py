@@ -1169,7 +1169,8 @@ def cmd_session_context(args):
     if args.json:
         who = identity.role(vault, args.config, args.platform,
                             tuple(value for value in (args.user_id, args.user_id_alt) if value))
-        print(json.dumps({"block": text, "owner": who == "owner", "member": who == "member"}, ensure_ascii=False))
+        print(json.dumps({"block": text, "owner": who == "owner", "member": who == "member",
+                          "answering": session_context.answering(text, args.config)}, ensure_ascii=False))
     elif text:
         print(text)
 

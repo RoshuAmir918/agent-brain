@@ -24,6 +24,13 @@ PROFILE_WORD_LIMIT = 250
 TELLABLE_HEADING = "What you may tell {name} about {owner}, and nothing else:"
 
 
+def answering(block: str, config: Config) -> bool:
+    """Whether a session block is answered from what may be told alone: it carries the tellable heading. The runtime
+    reads this flag rather than matching the heading's wording."""
+    pattern = re.escape(TELLABLE_HEADING).replace(re.escape("{name}"), ".+").replace(re.escape("{owner}"), re.escape(config.human_name))
+    return re.search(rf"^{pattern}$", block, re.M) is not None
+
+
 def relay_rule(config: Config) -> str:
     human = config.human_name
     return (f"A request it relays for {human} is {human}'s mail, not your finding: ask {human} now, from this session. On "

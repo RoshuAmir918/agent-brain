@@ -63,7 +63,7 @@ def ensure_frontmatter(vault: Vault, today: date, report: list[str]) -> set[str]
             changed.add(rel)
             report.append(f"frontmatter: {rel} += {sorted(set(d) - set(before))}")
     if vault.config.edition == "personal":   # who the owner is: for the owner's eyes, never an admin's view of the brain
-        for rel in (vault.config.human_profile, vault.config.human_portrait):
+        for rel in (vault.config.human_profile, vault.config.human_portrait, vault.config.human_goals, vault.config.human_tellable):
             n = vault.notes.get(rel)
             if n is not None and "audience" not in n.data:
                 n.data = {**n.data, "audience": "owner"}
