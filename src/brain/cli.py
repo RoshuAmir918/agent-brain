@@ -39,7 +39,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, consults, digest, fm, health, ideas, journal, ledger, loops, needs, owners, portrait, retrieve, seed, session_context, state, validate, views, works
+from . import access, attribute, audit, compile_context, consults, digest, fm, health, ideas, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, validate, views, works
 from . import tasks as tasks_mod
 from .tasks import load_tasks, quiet
 from .vault import Vault
@@ -877,6 +877,32 @@ def cmd_state(args):
                          ("tasks", "hubs", "routines", "triggers", "ledger", "journal", "needsYou", "outputs", "loops", "loopsClosed")))
 
 
+def cmd_reception(args):
+    config, today = args.config, args.config.today()
+    try:
+        if args.action == "add":
+            if not (args.kind and args.what and args.source):
+                raise ValueError("add needs --kind, --what and --source")
+            with vault_lock(config):
+                print(reception.record(config, args.kind, args.what, args.source, args.portrait or ""))
+        elif args.action == "set":
+            if not (args.id and args.outcome):
+                raise ValueError("set needs ID and OUTCOME")
+            with vault_lock(config):
+                row = reception.set_outcome(config, args.id, args.outcome)
+            print(f"{row.id} {row.outcome}: {row.kind} {row.what}")
+        elif args.action == "burden":
+            if not (args.reviews and args.author):
+                raise ValueError("burden needs --reviews DIR and --author LOGIN")
+            data = reception.burden(Path(args.reviews).expanduser(), args.author, today, args.weeks)
+            print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else reception.render_burden(data))
+        else:
+            data = reception.summary(config, today, args.days)
+            print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else reception.render_summary(data))
+    except ValueError as error:
+        raise SystemExit(f"brain reception: {error}")
+
+
 def cmd_portrait(args):
     if args.action == "coverage":
         data = seed.coverage(Vault(args.config.vault_path), args.config.today())
@@ -1296,6 +1322,15 @@ def main(argv=None):
     s.add_argument("--daily", action="store_true"); s.set_defaults(fn=cmd_continue_signal)
     s = sub.add_parser("stale-tasks", help="open tasks gone quiet long enough for the evening review", parents=[vault])
     s.set_defaults(fn=cmd_stale_tasks)
+    s = sub.add_parser("reception", help="how each thing offered landed, and correction burden on the intellect's work",
+                       parents=[vault])
+    s.add_argument("action", nargs="?", choices=["summary", "add", "set", "burden"], default="summary")
+    s.add_argument("id", nargs="?"); s.add_argument("outcome", nargs="?")
+    s.add_argument("--kind", choices=reception.KINDS); s.add_argument("--what"); s.add_argument("--source")
+    s.add_argument("--portrait", metavar="ID", help="the portrait line this offer served")
+    s.add_argument("--days", type=int, default=30); s.add_argument("--weeks", type=int, default=8)
+    s.add_argument("--reviews", metavar="DIR"); s.add_argument("--author", metavar="LOGIN")
+    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_reception)
     s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
     s.add_argument("action", nargs="?", choices=["seed", "coverage"],
                    help="seed: what to read to seed an organisation's portrait; coverage: what it knows and from where")

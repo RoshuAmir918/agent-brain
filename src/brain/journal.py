@@ -267,6 +267,8 @@ def _add_ask(config: Config, day: date, text: str, source: str | None, force: bo
         gap = "\n\n" if before.endswith("## Needs you") else "\n"
         body = before + gap + bullet + "\n" + ("\n" + after if after else "")
     fm.write(path, data, body)
+    from . import reception
+    reception.record(config, "ask", text, source or "CURRENT")
     return True
 
 
