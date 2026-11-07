@@ -21,7 +21,7 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
     assert capsys.readouterr().out == str(config.skills_path) + "\n"
     templates = [path for path in files("brain").joinpath("skills").iterdir()
                  if path.joinpath("SKILL.md").is_file() and "editions: [enterprise]" not in path.joinpath("SKILL.md").read_text()]
-    assert len(templates) == 14   # a personal vault's; the seed skill is an organisation's
+    assert len(templates) == 15
     assert len(list(config.skills_path.glob("*/SKILL.md"))) == len(templates)
     for routine in templates:
         text = (config.skills_path / (prefix + routine.name) / "SKILL.md").read_text()
@@ -84,7 +84,7 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
     assert (vault / "Conversations/Sessions/s1.md").exists()
     assert (home / "records/sessions/cron_j_1.md").exists() and not (vault / "Conversations/Sessions/cron_j_1.md").exists()
     assert len(list((vault / "Conversations/Digests").glob("*.md"))) == 1
-    assert len(list((vault / "Runtime/skills").glob("*/SKILL.md"))) == 14
+    assert len(list((vault / "Runtime/skills").glob("*/SKILL.md"))) == 15
 
 
 def test_default_skills_are_written_once_and_core_skills_always(tmp_path):

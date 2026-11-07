@@ -123,6 +123,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.65.0: the person's seed. `brain portrait seed --account <address|all> [--days N] [--json]` classifies synced owner mail and calendar for the personal seed skill; `brain people friends [--json]` ranks close-friends candidates without granting access. The reveal is a confirm, with any group proposal a separate ask.
 - 0.64.0: the tellable note. `brain tellable <person|known|anyone> [--json]` returns only the owner's sourced facts at the resolved gist/detail level. Outside session contexts carry the fixed `TELLABLE_HEADING` block; the runtime uses it to withhold compiled context, prefetch and vault tools, keeping tools that reach the owner.
 - 0.49.1: every open task keeps a view. A task whose result has no shape shows its own plan (steps or a checklist from its Delivers, Next and blockers, and links to its work); the recall skill asks for one at creation, and a migration fills in the open tasks that have none.
 - 0.49.0: background workers take daily tasks too. Default text and JSON continue due lists and `continue-signal` include daily tasks from noon local until their first counted chunk that day, with existing gates and ordering. `--daily` stays compatible. Default schedules drop `continue` and `continue-daily`; an unattended migration removes both routines and refreshes skills. Validate and health no longer check their monitor heartbeats.
