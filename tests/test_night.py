@@ -305,3 +305,24 @@ def test_push_conflict_exits_without_pushing_or_leaving_rebase(night_vault, tmp_
     assert not (git_dir / "rebase-apply").exists()
     assert not (git_dir / "REBASE_HEAD").exists()
     assert git(root.parent, "status", "--porcelain") == ""
+
+
+def test_the_night_keeps_triggers_and_frontmatter_written_while_it_ran(night_vault, monkeypatch):
+    from datetime import date
+    root, _ = night_vault
+    real = nightly.retier
+
+    def meanwhile(vault, today, report):
+        changed = real(vault, today, report)
+        data, body = fm.read(root / "agent/Triggers.md")
+        fm.write(root / "agent/Triggers.md", data, body.replace(
+            "## Fired", "| TR-002 | commitment | 2026-12-01 | added meanwhile | T-002 | active | 2026-10-05 |\n\n## Fired"))
+        data, body = fm.read(root / "Warm Hub.md")
+        fm.write(root / "Warm Hub.md", {**data, "aliases": ["Meanwhile"]}, body + "Added meanwhile.\n")
+        return changed
+
+    monkeypatch.setattr(nightly, "retier", meanwhile)
+    nightly.run(root, date.fromisoformat(DAY))
+    assert "TR-002" in fm.read(root / "agent/Triggers.md")[1]
+    data, body = fm.read(root / "Warm Hub.md")
+    assert data["aliases"] == ["Meanwhile"] and "Added meanwhile." in body and data["uses"]

@@ -38,8 +38,8 @@ UPCOMING_ITEMS = 12
 AHEAD = re.compile(r"\b(due|deadline|until|flight|flying|trip|visit|leav|arriv|call|renew|expire|starts?|ends?|meet)", re.I)   # today's lines that look forward, not today's evidence
 MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november",
           "december")
-DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b|\b(" + "|".join(m[:3] for m in MONTHS) + r")[a-z]*\.? (\d{1,2})(?:st|nd|rd|th)?\b(?:,? (\d{4}))?",
-                  re.I)
+DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b|\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?"
+                  r"|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.? (\d{1,2})(?:st|nd|rd|th)?\b(?:,? (\d{4}))?", re.I)
 
 
 def repo_root(config: Config) -> Path:

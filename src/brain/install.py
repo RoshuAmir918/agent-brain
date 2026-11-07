@@ -13,6 +13,7 @@ from pathlib import Path
 
 from . import fm, runtime
 from .config import Config
+from .lock import vault_lock
 
 
 def scripts_path() -> Path:
@@ -74,35 +75,37 @@ def render_skill(config: Config, name: str) -> str:
 
 
 def skills(config: Config, force: bool = False) -> Path:
-    for routine in sorted(files("brain").joinpath("skills").iterdir(), key=lambda path: path.name):
-        template = routine.joinpath("SKILL.md")
-        if not template.is_file():
-            continue
-        target = config.skills_path / (config.skill_prefix + routine.name) / "SKILL.md"
-        text = template.read_text(encoding="utf-8")
-        if config.edition not in editions(text):
-            # Not this edition's: an earlier render (before the vault changed edition) is removed with its folder.
-            if target.exists() and routine.name in CORE:
-                shutil.rmtree(target.parent)
-            continue
-        if target.exists() and routine.name not in CORE and not force:
-            continue
-        text = for_edition(text, config.edition)
-        for token, value in config.template_values().items():
-            text = text.replace("{" + token + "}", value)
-        if target.exists():
-            current = target.read_text(encoding="utf-8")
-            previous = target.with_name("previous.md")
-            if routine.name in ADOPTED and not previous.exists() and not local_section(current) and current != text:
-                previous.write_text(current, encoding="utf-8")
-            local = local_section(current)
-            if local:
-                text = text.rstrip("\n") + "\n\n" + local
-                for token, value in config.template_values().items():
-                    text = text.replace("{" + token + "}", value)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
-    memory_spec(config)
+    """Skills and the Memory Spec keep the vault's own `## Local` sections, read and rewritten under the vault lock."""
+    with vault_lock(config):
+        for routine in sorted(files("brain").joinpath("skills").iterdir(), key=lambda path: path.name):
+            template = routine.joinpath("SKILL.md")
+            if not template.is_file():
+                continue
+            target = config.skills_path / (config.skill_prefix + routine.name) / "SKILL.md"
+            text = template.read_text(encoding="utf-8")
+            if config.edition not in editions(text):
+                # Not this edition's: an earlier render (before the vault changed edition) is removed with its folder.
+                if target.exists() and routine.name in CORE:
+                    shutil.rmtree(target.parent)
+                continue
+            if target.exists() and routine.name not in CORE and not force:
+                continue
+            text = for_edition(text, config.edition)
+            for token, value in config.template_values().items():
+                text = text.replace("{" + token + "}", value)
+            if target.exists():
+                current = target.read_text(encoding="utf-8")
+                previous = target.with_name("previous.md")
+                if routine.name in ADOPTED and not previous.exists() and not local_section(current) and current != text:
+                    previous.write_text(current, encoding="utf-8")
+                local = local_section(current)
+                if local:
+                    text = text.rstrip("\n") + "\n\n" + local
+                    for token, value in config.template_values().items():
+                        text = text.replace("{" + token + "}", value)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        memory_spec(config)
     return config.skills_path
 
 
@@ -238,9 +241,10 @@ def start_migration(config: Config) -> bool:
         from datetime import datetime, timedelta
         at = (datetime.now(config.zone) + timedelta(minutes=2)).replace(microsecond=0).isoformat()
         name = MIGRATION_ROUTINE + installed_version("agent-brain").replace(".", "-")
-        routines = schedule.load(config)
-        routines[name] = schedule.Routine(at=at, prompt=MIGRATION_RUN, workdir=str(config.repo))
-        schedule.save(config, routines)
+        with vault_lock(config):
+            routines = schedule.load(config)
+            routines[name] = schedule.Routine(at=at, prompt=MIGRATION_RUN, workdir=str(config.repo))
+            schedule._save(config, routines)
         return True
     print(f"migration not started: no declared schedule at {schedule.path(config)}", file=sys.stderr)
     return False
@@ -277,7 +281,8 @@ def migrate_done(config: Config, deferred: list[str] | None = None) -> str:
     if pending.exists():
         pending.unlink()
     from . import schedule
-    routines = schedule.load(config) if schedule.path(config).exists() else {}
-    if any(name.startswith(MIGRATION_ROUTINE) for name in routines):
-        schedule.save(config, {name: routine for name, routine in routines.items() if not name.startswith(MIGRATION_ROUTINE)})
+    with vault_lock(config):
+        routines = schedule.load(config) if schedule.path(config).exists() else {}
+        if any(name.startswith(MIGRATION_ROUTINE) for name in routines):
+            schedule._save(config, {name: routine for name, routine in routines.items() if not name.startswith(MIGRATION_ROUTINE)})
     return current

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from datetime import date, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
@@ -110,7 +111,11 @@ def routines(directory: Path, today: date, days: int) -> list[dict]:
     since = datetime.combine(today - timedelta(days=days), datetime.min.time()).timestamp()
     jobs: dict[str, list[dict]] = {}
     for path in digest.json_sources(directory) if directory.is_dir() else []:
-        record = sessions.read(path)
+        try:
+            record = sessions.read(path)
+        except ValueError as error:
+            print(f"audit: skipped {error}", file=sys.stderr)
+            continue
         if session_tools.session_kind(record) != "routine":
             continue
         started = digest.parse_timestamp(record["startedAt"])

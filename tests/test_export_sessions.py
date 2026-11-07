@@ -139,10 +139,13 @@ def test_install_paths_require_an_explicit_runtime(vault, monkeypatch, capsys):
     assert capsys.readouterr().out == str(vault) + '\n'
 
 
-def test_export_rejects_malformed_shard_before_writing(harness):
+def test_export_skips_a_malformed_shard_and_names_it(harness, capsys):
     config, home, source = harness
     (source / 'z-invalid.json').write_text('invalid')
-    before = snapshot(config.vault_path)
-    with pytest.raises(ValueError, match='invalid session JSON'):
-        sessions.export(config)
-    assert snapshot(config.vault_path) == before and not (home / 'records').exists()
+    broken = json.loads((source / 'night.json').read_text())
+    del broken['entries'][0]['at']
+    (source / 'y-broken.json').write_text(json.dumps(dict(broken, id='y-broken')))
+    assert sessions.export(config) == (6, 0)
+    err = capsys.readouterr().err
+    assert 'z-invalid.json: invalid session JSON' in err and 'y-broken.json: every session entry needs at' in err
+    assert not (home / 'records/sessions/jsonl/y-broken.json').exists()

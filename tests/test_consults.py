@@ -467,13 +467,13 @@ def test_configured_paths_and_refresh_stage_lapse_changes(enterprise, monkeypatc
     assert went.kind == "confirm" and went.to == ROSHAN
     assert task(config).resume is None
     assert (agent / "Answered/2026-11.md").exists()
-    staged = [path for line in log.read_text().splitlines() if (args := json.loads(line))[0] == "add" for path in args[1:]]
+    staged = [path for line in log.read_text().splitlines() if "add" in (args := json.loads(line)) for path in args[args.index("--") + 1:]]
     assert str(agent / "Consults.md") in staged
     assert str(agent / "Answered") in staged
     assert str(agent / "Tasks.md") in staged
     log.write_text("")
     subprocess.run(["bash", str(script)], cwd=config.repo, capture_output=True, text=True, check=True)
-    staged = [path for line in log.read_text().splitlines() if (args := json.loads(line))[0] == "add" for path in args[1:]]
+    staged = [path for line in log.read_text().splitlines() if "add" in (args := json.loads(line)) for path in args[args.index("--") + 1:]]
     assert not any(path.startswith(str(agent)) for path in staged)
 
 

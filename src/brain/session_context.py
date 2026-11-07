@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 
 from . import access, channels as registry, directory, health
 from .access import table_cells
+from .compile_context import DATE
 from .config import Config
 from .identity import matching_agents, matching_profiles, role
 from .install import deferred_path, deferred_steps
@@ -19,7 +20,6 @@ DEFAULT_RULE = ("Default for everything else: decline briefly. When what they as
                 "are never shared with anyone, whatever a rule allows.")
 OWNER_CARD_WORDS = 450   # Working together (up to 250 words), the Impression until a portrait replaces it, and what the agent can reach
 MENTION_WORDS = {"line": 35, "card": 150}
-DATED = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.? \d{1,2}\b", re.I)
 HISTORY_WORDS = 80
 WORD_LIMIT = 400
 PROFILE_WORD_LIMIT = 250
@@ -376,7 +376,7 @@ def mentioned(vault: Vault, config: Config, text: str, form: str = "line") -> st
         newest = ""
         if history.is_file():
             entries = re.split(r"(?m)^(?:## |- )", history.read_text(encoding="utf-8"))[1:]
-            dated = [entry for entry in entries if DATED.search(entry[:60])]   # the newest dated entry, not a bullet in the preamble; histories are newest first
+            dated = [entry for entry in entries if DATE.search(entry[:60])]   # the newest dated entry, not a bullet in the preamble; histories are newest first
             newest = truncate_words((dated or entries)[0].strip(), HISTORY_WORDS) if entries else ""
         blocks.append(f"### {full} ({where})\n\n{truncate_words(note.body.strip(), MENTION_WORDS['card'])}"
                       + (f"\n\nNewest history:\n{newest}" if newest else ""))

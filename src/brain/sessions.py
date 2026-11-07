@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -17,6 +18,15 @@ def read(path: Path, content: bytes | None = None) -> dict:
         raise ValueError(f"{path}: invalid session JSON: {error}") from error
     if not isinstance(record, dict) or not isinstance(record.get("entries"), list):
         raise ValueError(f"{path}: expected a harness session with entries")
+    speaker = record.get("speaker")
+    if not all(isinstance(record.get(key), str) for key in ("id", "day", "startedAt")) \
+            or not isinstance(speaker, dict) or not isinstance(speaker.get("platform"), str):
+        raise ValueError(f"{path}: a harness session needs id, day, startedAt and speaker.platform")
+    for entry in record["entries"]:
+        item = entry.get("item") if isinstance(entry, dict) else None
+        if not isinstance(entry.get("at") if isinstance(entry, dict) else None, str) \
+                or not isinstance(item, dict) or not isinstance(item.get("type"), str):
+            raise ValueError(f"{path}: every session entry needs at and item.type")
     return record
 
 
@@ -43,14 +53,19 @@ def export(config: Config, day: date | None = None) -> tuple[int, int]:
     planned = []
     for path in sorted(source.glob("*/*.json")):
         content = path.read_bytes()
-        record = read(path, content)
+        try:
+            record = read(path, content)
+        except ValueError as error:
+            print(f"export-sessions: skipped {error}", file=sys.stderr)
+            continue
         if day is not None and record["day"] != day.isoformat() and not any(
                 (stamp := parse_timestamp(entry["at"], config.zone)) and stamp.date() == day
                 for entry in record["entries"]):
             continue
         name = record["id"]
         if not re.fullmatch(r"[\w.-]+", name) or name in (".", ".."):
-            raise ValueError(f"{path}: invalid session id: {name!r}")
+            print(f"export-sessions: skipped {path}: invalid session id: {name!r}", file=sys.stderr)
+            continue
         target = records if record["speaker"]["platform"] == "cron" else config.vault_path / "Conversations/Sessions"
         planned += [(target / f"{name}.md", transcript(record).encode("utf-8")),
                     (records / "jsonl" / f"{name}.json", content)]

@@ -39,15 +39,26 @@ def test_sync_registers_completed_connect_grants_once_and_keeps_the_rest_of_the_
                "2026-11-02 22:00  g4  other      secret   done op://Other/Thing\n"
                "2026-11-01 08:00  g5  echo       secret   expired\n"
                "2026-10-20 10:00  g0  echo       secret   done op://Echo/Gmail app password\n")
-    added = channels.sync(Config.load(registry_vault), Vault(registry_vault), listing.splitlines(), date(2026, 11, 3), "echo")
+    added = channels.sync(Config.load(registry_vault), listing.splitlines(), "echo")
     assert [(row.channel, row.whose, row.reach, row.status) for row in added] == [("Calendar token", "owner", "op://Echo/Calendar token", "live")]
     assert added[0].granted == "Mira, 2026-11-03, connect grant g2"
     body = (registry_vault / "agent/Channels.md").read_text()
     assert body.count("| Calendar token |") == 1 and "## Destinations" in body and "Registry." in body
-    assert channels.sync(Config.load(registry_vault), Vault(registry_vault), listing.splitlines(), date(2026, 11, 3), "echo") == []
+    assert channels.sync(Config.load(registry_vault), listing.splitlines(), "echo") == []
     cli.main(["channels", "--vault", str(registry_vault)])
     out = capsys.readouterr().out
     assert "Calendar token · owner · live · reach op://Echo/Calendar token" in out and "Old Slack · own · revoked" in out
+
+
+def test_sync_creates_the_registry_and_adds_each_item_once(vault):
+    (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nhuman_name = "Mira"\n')
+    listing = ["2026-11-03 09:12  g2  echo  secret  done op://Echo/Calendar token",
+               "2026-11-03 09:13  g3  echo  secret  done op://Echo/Calendar token",
+               "2026-11-03 09:14  g4  echo  secret  done op://Echo/Calendar token/credential"]
+    added = channels.sync(Config.load(vault), listing)
+    assert [row.reach for row in added] == ["op://Echo/Calendar token"]
+    assert [row.reach for row in channels.load(Vault(vault))] == ["op://Echo/Calendar token"]
+    assert channels.sync(Config.load(vault), listing[2:]) == []
 
 
 def test_validate_reports_vocabulary_budget_and_unregistered_credential_references(registry_vault):

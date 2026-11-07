@@ -140,8 +140,10 @@ def test_location_shortening(value, expected):
 def test_missing_sync_adds_nothing(synced, monkeypatch):
     vault, root = synced
     baseline = compile_context.upcoming(Vault(vault)).split("\n\n## Calendar:")[0]
-    assert "Nothing on the calendar" in channel_files.calendar(Vault(vault))
-    assert channel_files.mail(Vault(vault), datetime(2026, 11, 4))["messages"] == []
+    assert ("I can't see the calendar: nothing has synced for mira@example.com, missing@example.com, other@example.com."
+            in channel_files.calendar(Vault(vault)))
+    data = channel_files.mail(Vault(vault), datetime(2026, 11, 4))
+    assert data["messages"] == [] and "nothing has synced for echo@example.com" in data["coverage"]["problem"]
     calendar_file(root, event())
     message(root)
     monkeypatch.delenv("AGENT_HOME")
@@ -166,7 +168,8 @@ def test_mail_filters_categories_sent_and_cross_account_senders(synced):
 
 def test_mail_only_reads_since_folders_and_compares_header_times(synced, monkeypatch):
     vault, root = synced
-    message(root, id="old-folder", day="2026-11-03")
+    message(root, id="old-folder", day="2026-11-02")
+    message(root, id="host-day", day="2026-11-03", date="2026-11-04T18:00:00Z")   # the host's date, a day behind
     message(root, id="early", date="2026-11-04T08:00:00-08:00")
     message(root, id="equal", date="2026-11-04T17:00:00Z")
     message(root, id="late", date="2026-11-04T20:00:00-08:00")
@@ -174,15 +177,15 @@ def test_mail_only_reads_since_folders_and_compares_header_times(synced, monkeyp
     original = fm.read
     opened = []
     def read(path):
-        assert path.parent.name != "2026-11-03"
+        assert path.parent.name != "2026-11-02"
         opened.append(path)
         return original(path)
     v = Vault(vault)
     monkeypatch.setattr(fm, "read", read)
     data = channel_files.mail(v, datetime.fromisoformat("2026-11-04T17:00:00+00:00"))
-    assert [item["path"].split("/")[-1] for item in data["messages"]] == ["late.md", "equal.md"]
+    assert [item["path"].split("/")[-1] for item in data["messages"]] == ["late.md", "host-day.md", "equal.md"]
     assert data["filtered"]["before_since"] == 1 and data["filtered"]["invalid"] == 1
-    assert len(opened) == 4
+    assert len(opened) == 5
 
 
 def test_mail_cli_text_json_cap_and_no_bodies(synced, capsys):
@@ -248,8 +251,12 @@ def test_notices_are_kept_and_grouped_by_sender_with_the_newest_shown(synced, ca
 
 def test_calendar_says_when_nothing_is_on_it_or_it_cannot_be_seen(synced, tmp_path):
     vault, root = synced
+    (root / "mira@example.com" / "calendar").mkdir(parents=True)
+    (root / "other@example.com" / "mail").mkdir(parents=True)   # synced, but without the Calendar scope
     block = channel_files.calendar(Vault(vault))
+    assert "other@example.com" not in block
     assert "Nothing on the calendar for the next 7 days." in block
+    assert "- Note: nothing has synced for missing@example.com, so its calendar is not here." in block
     (tmp_path / "agent-home/harness/jobs.json").unlink()
     assert "I can't see the calendar: the mail and calendar sync is not set up." in channel_files.calendar(Vault(vault))
     sync_job(tmp_path / "agent-home", "2026-11-01T08:00:00-08:00")
@@ -343,3 +350,11 @@ def test_canvas_block_reaches_the_session_context_beside_the_calendar(synced):
     calendar_file(root, event())
     text = compile_context.upcoming(Vault(vault))
     assert text.index("## Calendar") < text.index("## Canvas")
+
+
+def test_calendar_reads_files_named_for_a_host_date_a_day_off(synced):
+    vault, root = synced
+    calendar_file(root, event(title="Late dinner", start="2026-11-04 21:00", end="2026-11-04 22:00", id="late"), day="2026-11-03")
+    calendar_file(root, event(title="Horizon", start="2026-11-11 09:00", end="2026-11-11 10:00", id="edge"), day="2026-11-12")
+    block = channel_files.calendar(Vault(vault))
+    assert "Late dinner" in block and "Horizon" in block

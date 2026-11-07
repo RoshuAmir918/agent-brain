@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import index, triggers
-from .tasks import parse_register
+from .tasks import all_tasks, parse_register
 from .vault import Vault
 
 TOKEN_RE = re.compile(r"\b(?:tr-\d{3}|t-\d{3}|\d{4}-\d{2}-\d{2}|[^\W_]+)\b", re.I)
@@ -69,16 +69,16 @@ def spread(vault: Vault, candidates: dict[str, Candidate]) -> None:
 
 def id_matches(vault: Vault, terms: set[str]) -> list[Candidate]:
     matches = []
-    register = vault.notes.get(vault.config.agent("Tasks.md"))
-    if register:
-        _, tasks = parse_register(register.body)
-        seen = set()
-        for task in tasks:
-            if task.tid.lower() in terms and task.tid not in seen:
-                matches.append(Candidate(f"{vault.config.link(register.rel)}#{task.tid} — {task.title}",
-                                         task.state.get("tier", register.data.get("tier", "warm")),
-                                         5.0, f"ID match: {task.tid} — {task.title}"))
-            seen.add(task.tid)
+    config = vault.config
+    register = vault.notes.get(config.agent("Tasks.md"))
+    listed = {task.tid for task in parse_register(register.body)[1]} if register else set()
+    for task in all_tasks(config):   # a warm entry's archived body, and tasks only the archive holds
+        if task.tid.lower() not in terms:
+            continue
+        path = (f"{config.link(register.rel)}#{task.tid} — {task.title}" if task.tid in listed
+                else f"{config.link(config.agent(f'Tasks Archive/{task.tid}.md'))}#{task.tid}")
+        matches.append(Candidate(path, task.state.get("tier", register.data.get("tier", "warm") if register else "cold"),
+                                 5.0, f"ID match: {task.tid} — {task.title}"))
     trigger_note = vault.notes.get(vault.config.agent("Triggers.md"))
     if trigger_note:
         for trigger in triggers.parse(trigger_note.body):
@@ -92,10 +92,11 @@ def id_matches(vault: Vault, terms: set[str]) -> list[Candidate]:
 def text(vault: Vault, candidate: Candidate, form: str) -> str:
     """A candidate's index line (snippet) or body (full); a task match gives its own entry."""
     rel, _, anchor = candidate.path.removeprefix(vault.config.vault + "/").partition("#")
-    note = vault.notes[rel]
-    task = next((task for task in parse_register(note.body)[1] if anchor.startswith(task.tid + " ")), None) if anchor else None
+    tid = anchor.split(" ", 1)[0]
+    task = next((task for task in all_tasks(vault.config) if task.tid == tid), None) if anchor else None
     if task is not None:
         return task.title if form == "snippet" else task.body.strip()
+    note = vault.notes[rel]
     return index.index_line(note) if form == "snippet" else note.body.strip()
 
 
