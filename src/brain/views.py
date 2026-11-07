@@ -1,9 +1,9 @@
-"""A task's view: the data its owner sees above the task's thread, in the pieces the app knows how to draw.
+"""Views: the data an owner sees above a task's thread or a work, in the pieces the app knows how to draw.
 
 The intellect writes data, never UI: which pieces, and what is in each. The app draws them in its own style, and it
 draws the frame (status, the question, gates of the task itself, the chunk timeline) from the task without any of this.
-A view is checked here against the kit, so whatever reaches the app can be drawn. Kept beside the task as
-`<agent>/Task Views/T-nnn.json`; `brain state --json` carries it.
+A view is checked here against the kit, so whatever reaches the app can be drawn. Task views are kept beside the task
+as `<agent>/Task Views/T-nnn.json`; `brain state --json` carries them. Work summaries live in the work's `view.json`.
 """
 import json
 import re
@@ -51,6 +51,19 @@ def read(config: Config, tid: str) -> dict | None:
 
 def write(config: Config, tid: str, text: str) -> dict | None:
     """Check `text` against the kit and keep it; an empty view (`{}` or `{"pieces": []}`) removes the task's view."""
+    clean = validate(text)
+    p = path(config, tid)
+    if clean is None:
+        p.unlink(missing_ok=True)
+        return None
+    out = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(out + "\n", encoding="utf-8")
+    return clean
+
+
+def validate(text: str) -> dict | None:
+    """Check and clean a task or work view against the kit; an empty view returns None."""
     try:
         view = json.loads(text)
     except json.JSONDecodeError as e:
@@ -58,9 +71,7 @@ def write(config: Config, tid: str, text: str) -> dict | None:
     if not isinstance(view, dict) or set(view) - {"pieces"}:
         raise ValueError('a view is {"pieces": [...]}\n' + KIT)
     pieces = view.get("pieces") or []
-    p = path(config, tid)
     if not pieces:
-        p.unlink(missing_ok=True)
         return None
     if not isinstance(pieces, list) or len(pieces) > MAX_PIECES:
         raise ValueError(f"pieces must be a list of at most {MAX_PIECES}\n" + KIT)
@@ -68,8 +79,6 @@ def write(config: Config, tid: str, text: str) -> dict | None:
     out = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
     if len(out.encode()) > MAX_BYTES:
         raise ValueError(f"the view is {len(out.encode())} bytes; the limit is {MAX_BYTES}: show less, link the rest")
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(out + "\n", encoding="utf-8")
     return clean
 
 

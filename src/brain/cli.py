@@ -37,7 +37,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, loops, needs, retrieve, session_context, state, validate, views
+from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, loops, needs, retrieve, session_context, state, validate, views, works
 from . import tasks as tasks_mod
 from .tasks import load_tasks, quiet
 from .vault import Vault
@@ -615,6 +615,17 @@ def cmd_completed(args):
               + (f" · hub: {row['hub']}" if row["hub"] else ""))
 
 
+def cmd_works(args):
+    try:
+        view = works.write_view(args.slug, sys.stdin.read())
+    except (ValueError, RuntimeError, OSError) as error:
+        print(error, file=sys.stderr)
+        if views.KIT not in str(error):
+            print(views.KIT, file=sys.stderr)
+        sys.exit(1)
+    print(f"{args.slug} view saved: {len(view['pieces'])} pieces" if view else f"{args.slug} view removed")
+
+
 def cmd_handoff(args):
     try:
         # On Demiurge the runtime names the conversation this turn is in: the report goes back where the work was asked for.
@@ -1082,6 +1093,10 @@ def main(argv=None):
     s.add_argument("--work", help="Library work slug, e.g. 'trip-plan'")
     s.add_argument("--for", dest="for_", metavar="PERSON", help="who the task is for, as <platform>:<id> (enterprise: the speaker by default)")
     s.set_defaults(fn=cmd_handoff)
+    s = sub.add_parser("works", help="summaries in local Library works")
+    actions = s.add_subparsers(dest="action", required=True)
+    p = actions.add_parser("view", help="save a work's summary from JSON on stdin; an empty view removes it", parents=[vault])
+    p.add_argument("slug"); p.set_defaults(fn=cmd_works)
     s = sub.add_parser("continue", help="handed-off tasks due now, least recently worked first; text exits 1 when none", parents=[vault])
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--due", action="store_true")
