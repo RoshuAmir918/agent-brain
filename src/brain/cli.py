@@ -787,24 +787,25 @@ def cmd_channels(args):
 def cmd_goals(args):
     config = args.config
     which, action = args.which, args.action
-    operations = ("edit", "evidence", "reached", "set-aside", "reopen", "nudge", "link", "keep", "not-a-goal", "to-task")
+    operations = ("edit", "evidence", "reached", "superseded-by", "set-aside", "reopen", "nudge", "asked-missed", "link", "keep", "not-a-goal", "to-task")
     if which in operations and action and goals.ID.fullmatch(action):
         which, action = action, which
     try:
         operation = action if goals.ID.fullmatch(which) else which
         if (args.dry_run or args.apply) and which != "migrate":
             raise ValueError("--dry-run and --apply go with migrate")
-        if args.json and which not in ("list", "show", "refused"):
-            raise ValueError("--json goes with list, show or refused")
-        if args.from_app and operation not in ("new", "edit", "reached", "set-aside", "reopen", "keep", "not-a-goal", "to-task"):
-            raise ValueError("--from-app goes with new, edit, reached, set-aside, reopen, keep, not-a-goal or to-task")
+        if args.json and which not in ("list", "show", "due", "refused"):
+            raise ValueError("--json goes with list, show, due or refused")
+        if args.from_app and operation not in ("new", "edit", "reached", "superseded-by", "set-aside", "reopen", "keep", "not-a-goal", "to-task"):
+            raise ValueError("--from-app goes with new, edit, reached, superseded-by, set-aside, reopen, keep, not-a-goal or to-task")
         allowed = {"new": {"words", "reach", "by", "said", "inferred", "evidence"}, "edit": {"title", "words", "kind", "by", "clear_by", "said"},
-                   "evidence": {"text"}, "link": {"text"}, "reached": {"why"}, "set-aside": {"why"}, "reopen": {"why"}, "not-a-goal": {"why"}}
+                   "evidence": {"text"}, "link": {"text"}, "reached": {"why", "evidence"},
+                   "superseded-by": {"text", "why", "evidence"}, "set-aside": {"why"}, "reopen": {"why"}, "not-a-goal": {"why"}}
         supplied = {name for name in ("words", "title", "why", "reach", "kind", "by", "clear_by", "said", "text", "inferred", "evidence")
                     if getattr(args, name) is not None and getattr(args, name) is not False}
         if supplied - allowed.get(operation, set()):
             raise ValueError(f"{operation} does not take " + ", ".join(sorted(supplied - allowed.get(operation, set()))))
-        if which in ("list", "asked", "migrate", "refused") and action is not None:
+        if which in ("list", "due", "asked", "migrate", "refused") and action is not None:
             raise ValueError(f"{which} takes no positional arguments")
         if which == "asked":
             print(goals.asked(config))
@@ -814,8 +815,8 @@ def cmd_goals(args):
             print(json.dumps(entries, ensure_ascii=False, indent=2) if args.json else
                   "\n".join(f"{entry['title']} — {entry['words']} ({entry['why']})" for entry in entries) or "no refused goals")
             return
-        if which in ("list", "show"):
-            entries = goals.load(config)
+        if which in ("list", "show", "due"):
+            entries = goals.due(config) if which == "due" else goals.load(config)
             if which == "show":
                 entries = [entry for entry in entries if entry.gid == action]
                 if not entries:
@@ -846,12 +847,13 @@ def cmd_goals(args):
                     print(f"{which} linked: {args.text}")
                     return
                 entry = goals.change(config, which, action, text=args.text, title=args.title, words=args.words,
-                                     by=args.by, clear_by=args.clear_by, kind=args.kind, why=args.why, said=args.said, from_app=args.from_app)
+                                     by=args.by, clear_by=args.clear_by, kind=args.kind, why=args.why, said=args.said,
+                                     evidence=args.evidence, from_app=args.from_app)
                 if action == "to-task":
                     print(f"{which} · became {entry.tid}")
                     return
             else:
-                raise ValueError("use new, list, show G-n, refused, asked, migrate, or G-n edit|evidence|reached|set-aside|reopen|nudge|link|keep|not-a-goal|to-task")
+                raise ValueError("use new, list, show G-n, due, refused, asked, migrate, or G-n edit|evidence|reached|superseded-by|set-aside|reopen|nudge|asked-missed|link|keep|not-a-goal|to-task")
         print(f"{entry.gid} · {entry.state['state']} · {entry.title}")
     except ValueError as error:
         raise SystemExit(f"brain goals: {error}")
@@ -1677,12 +1679,12 @@ def main(argv=None):
     s.add_argument("--goal", metavar="G-n")
     s.set_defaults(fn=cmd_ideas)
     s = sub.add_parser("goals", help="the person's goals; only this command writes goal blocks", parents=[vault])
-    s.add_argument("which", help="new, list, show, refused, asked, migrate, or G-n")
+    s.add_argument("which", help="new, list, show, due, refused, asked, migrate, or G-n")
     s.add_argument("action", nargs="?", help="title with new; id with show; operation with G-n")
-    s.add_argument("text", nargs="?", help="dated evidence, or a note with link")
+    s.add_argument("text", nargs="?", help="dated evidence, a note with link, or the active goal with superseded-by")
     s.add_argument("--words"); s.add_argument("--title"); s.add_argument("--why")
     s.add_argument("--inferred", action="store_true")
-    s.add_argument("--evidence", action="append", help="dated evidence for a new goal; repeatable, required with --inferred")
+    s.add_argument("--evidence", action="append", help="dated evidence; repeatable, required with --inferred or intellect reached/superseded-by")
     s.add_argument("--said", help="YYYY-MM-DD: when the person said their words, if not today")
     s.add_argument("--reach", action="store_true"); s.add_argument("--kind", choices=goals.KINDS)
     by = s.add_mutually_exclusive_group()
