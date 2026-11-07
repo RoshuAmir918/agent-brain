@@ -423,3 +423,30 @@ def test_not_a_goal_detaches_open_tasks_in_register_and_archive(vault):
     assert entries[closed.tid].goal == "G-1"
     assert not validate.goal_problems(Vault(vault))
     assert goals.new(cfg, "Other", "Other words").gid == "G-2"
+
+
+def test_inferred_evidence_may_cite_a_synced_sources_own_rows(vault, monkeypatch, tmp_path):
+    from brain import evidence
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path))
+    evidence.append("anki", [evidence.Evidence(TODAY - timedelta(days=1), "reviewed", "212 cardio cards", "own", ("study",), "deck:AnKing")])
+    evidence.append("imessage", [evidence.Evidence(TODAY, "sent", "a race plan", "other:friend", ("running",), "thread:1")])
+    cfg = Config.load(vault)
+    goal = goals.new(cfg, "Step 1", "I study AnKing every day", inferred=True, said=TODAY.isoformat(),
+                     evidence=[f"{TODAY} · Reviews every day this week · evidence:anki"])
+    assert goal.origin == "inferred"
+    for line in (f"{TODAY} · Unknown source · evidence:strava",                  # no such source
+                 f"{TODAY} · Someone else's plan · evidence:imessage",           # rows that aren't the person's own
+                 f"{TODAY - timedelta(days=10)} · Too long before · evidence:anki"):  # no own row near that day
+        with pytest.raises(ValueError, match="evidence:<source>"):
+            goals.new(cfg, "Marathon", "Run one", inferred=True, said=TODAY.isoformat(), evidence=[line])
+
+
+def test_decay_counts_evidence_rows(vault, monkeypatch, tmp_path):
+    from brain import evidence
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path))
+    cfg = Config.load(vault)
+    old = TODAY - timedelta(days=40)
+    infer(cfg, at=old)
+    evidence.append("anki", [evidence.Evidence(TODAY - timedelta(days=2), "reviewed", "cards", "own", ("study",), "deck:x")])
+    goals.change(cfg, "G-1", "evidence", text=f"{TODAY - timedelta(days=2)} · Studied · evidence:anki")
+    assert goals.decay(cfg, TODAY) == []
