@@ -8,14 +8,13 @@ from pathlib import Path
 from statistics import median
 from typing import Iterable
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from . import fm, needs, owners, routing, seed, tasks
 from .config import Config
 from .lock import vault_lock
 from .vault import Vault
 
-WORK_START = 9   # local opening, Monday to Friday
-WORK_END = 17    # local closing; waits count only working hours
 MAX_TRIES = 3   # no question visits more than three people
 RECORD_SHARED_WORDS = 2   # matching prompts a reading; only the intellect judges whether the record covers a question
 OUTCOMES = ("changed", "confirmed", "redirected")   # what the person's answer did to the stated direction
@@ -54,11 +53,15 @@ class Consult:
     id: str = ""
     not_covered: str = ""
 
-    def item(self) -> needs.Item:
+    def item(self, config: Config | None = None, hours_of=None) -> needs.Item:
         item = needs.Item(self.kind, self.text, "consult", self.since, self.source,
                           detail=self.why, context=self.area, default=self.default, area=self.area)
         item.owner = self.to
         item.id = self.id
+        if config is not None:
+            hours = (hours_of or owners.hours_lookup(config))(self.to)
+            item.hours = hours.schedule()
+            item.away = hours.away_on(config.local())
         return item
 
 
@@ -122,7 +125,8 @@ def load(config: Config) -> list[Consult]:
 def items(config: Config) -> list[needs.Item]:
     if config.edition != "enterprise":
         return []
-    out = [consult.item() for consult in load(config)]
+    hours_of = owners.hours_lookup(config)
+    out = [consult.item(config, hours_of) for consult in load(config)]
     for item in out:
         item.source = item.source or config.agent("Consults.md")
     return out
@@ -167,19 +171,26 @@ def _remove(config: Config, consult: Consult) -> None:
     fm.write(path, data, body)
 
 
-def working_until(asked: datetime, hours: int) -> datetime:
-    """Count a wait through local weekday openings, carrying evenings and weekends forward."""
+def working_until(asked: datetime, hours: int, schedule: owners.Hours | None = None) -> datetime:
+    """Count through the recipient's openings and absences; return in the asking zone."""
+    schedule = schedule or owners.Hours()
     moment = asked
+    if schedule.zone:
+        zone = ZoneInfo(schedule.zone)
+        moment = asked.astimezone(zone) if asked.tzinfo else asked.replace(tzinfo=zone)
+    start_hour, start_minute = map(int, schedule.start.split(":"))
+    end_hour, end_minute = map(int, schedule.end.split(":"))
     remaining = timedelta(hours=hours)
     while True:
-        if moment.weekday() >= 5 or moment.hour >= WORK_END:
-            moment = (moment + timedelta(days=1)).replace(hour=WORK_START, minute=0, second=0, microsecond=0)
+        opening = moment.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+        closing = moment.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+        if moment.isoweekday() not in schedule.days or moment >= closing or schedule.away_on(moment):
+            moment = opening + timedelta(days=1)
             continue
-        if moment.hour < WORK_START:
-            moment = moment.replace(hour=WORK_START, minute=0, second=0, microsecond=0)
-        closing = moment.replace(hour=WORK_END, minute=0, second=0, microsecond=0)
+        moment = max(moment, opening)
         if remaining <= closing - moment:
-            return moment + remaining
+            until = moment + remaining
+            return until.astimezone(asked.tzinfo) if asked.tzinfo else until.replace(tzinfo=None)
         remaining -= closing - moment
         moment = closing
 
@@ -292,11 +303,13 @@ def _gate(config: Config, area: str, person: str, ident: str = "") -> None:
         raise ValueError(f"restricted consult in {area}: may answer: {names}")
 
 
-def _unmuted(config: Config, area: str, person: str, text: str) -> None:
-    if routing.stopped(config, area, person):
-        next_person = next((entry.person for entry in candidates(config, text, area) if not entry.muted), "")
-        raise ValueError(f"{person} said stop-asking for {area}"
-                         + (f"; try {next_person}" if next_person else "; no unmuted candidate on record"))
+def _available(config: Config, area: str, person: str, text: str) -> None:
+    away = owners.hours_for(config, person).away_on(config.local())
+    if routing.stopped(config, area, person) or away:
+        next_person = next((entry.person for entry in candidates(config, text, area) if not entry.muted and not entry.away), "")
+        reason = (f"{person} is away through {away}; back {date.fromisoformat(away) + timedelta(days=1)}" if away else
+                  f"{person} said stop-asking for {area}")
+        raise ValueError(reason + (f"; try {next_person}" if next_person else "; no available unmuted candidate on record"))
 
 
 def add_evidence(config: Config, area: str, day: date | str, person: str, kind: str, text: str, link: str = "") -> bool:
@@ -415,7 +428,7 @@ def ask(config: Config, to: str, text: str, default: str, why: str, area: str = 
             raise ValueError("read the matching decisions before asking:\n" + listing
                              + '\nCite one with `brain consult cite` if it covers the question, or pass '
                              '--not-covered "<why the record does not answer this>"')
-        _unmuted(config, area, to, text)
+        _available(config, area, to, text)
         existing = next((entry for entry in load(config) if entry.kind == "ask" and entry.area == area
                          and needs._plain(entry.text) == needs._plain(text)), None)
         restricted = restricted or area in owners.restricted(config)
@@ -444,7 +457,8 @@ def ask(config: Config, to: str, text: str, default: str, why: str, area: str = 
 def _wait(config: Config, consult: Consult, now: datetime) -> None:
     row = next((row for row in owners.load(config) if row.area == consult.area), None)
     consult.asked = now.strftime("%Y-%m-%d %H:%M")
-    consult.until = working_until(now, row.wait_hours if row else owners.WAIT_HOURS).strftime("%Y-%m-%d %H:%M")
+    consult.until = working_until(now, row.wait_hours if row else owners.WAIT_HOURS,
+                                  owners.hours_for(config, consult.to)).strftime("%Y-%m-%d %H:%M")
 
 
 def _open(config: Config, which: str) -> Consult:
@@ -475,7 +489,7 @@ def answer(config: Config, which: str, outcome: str, answer: str, by: str, to: s
         if consult.restricted:
             _gate(config, consult.area, by, consult.id)
         if outcome == "redirected":
-            _unmuted(config, consult.area, to, consult.text)
+            _available(config, consult.area, to, consult.text)
             aliases = routing.identities(config)
             if aliases.get(to, to) in {aliases.get(person, person) for person in consult.tried}:
                 raise ValueError(f"{to} already received this consult; choose someone not in tried")
@@ -538,7 +552,7 @@ def lapse(config: Config, *, dry_run: bool = False) -> list[str]:
             aliases = routing.identities(config)
             tried = {aliases.get(person, person) for person in consult.tried}
             recipient = next((entry.person for entry in candidates(config, consult.text, consult.area)
-                              if not entry.muted and entry.person not in tried
+                              if not entry.muted and not entry.away and entry.person not in tried
                               and (permitted is None or entry.person in permitted)), "") if len(consult.tried) < MAX_TRIES else ""
             if recipient:
                 actions.append(f"{consult.id}: reassigned to {recipient}")
@@ -550,6 +564,8 @@ def lapse(config: Config, *, dry_run: bool = False) -> list[str]:
             elif consult.restricted:
                 row = routes.get(consult.area)
                 holder = row.owner if row else consult.tried[0]
+                if owners.hours_for(config, holder).away_on(now):
+                    holder = consult.to
                 actions.append(f"{consult.id}: restricted, held for {holder} without taking the default")
                 if not dry_run:
                     _hold(config, consult, now, holder)
@@ -557,7 +573,10 @@ def lapse(config: Config, *, dry_run: bool = False) -> list[str]:
                 actions.append(f"{consult.id}: went ahead on the default and left a confirm")
                 if not dry_run:
                     row = routes.get(consult.area)
-                    _go_ahead(config, consult, now, row.owner if row else consult.tried[0])
+                    holder = row.owner if row else consult.tried[0]
+                    if owners.hours_for(config, holder).away_on(now):
+                        holder = consult.to
+                    _go_ahead(config, consult, now, holder)
     return actions
 
 

@@ -250,10 +250,11 @@ class Candidate:
     median_hours: float | None = None
     muted: bool = False
     evidence: list[dict] = field(default_factory=list)
+    away: str = ""
 
 
 def candidates(config: Config, about: str, area: str = "", limit: int | None = None) -> list[Candidate]:
-    """Rank people, retain their evidence and put opted-out colleagues last."""
+    """Rank people, retain their evidence and put muted or absent colleagues last."""
     if config.edition != "enterprise":
         raise ValueError("consults need the enterprise edition")
     if limit is not None and limit < 1:
@@ -326,10 +327,13 @@ def candidates(config: Config, about: str, area: str = "", limit: int | None = N
     # but not by an order of magnitude. Consult outcomes are rare and deliberate and stay linear.
     for (person, key, kind), count in seeded.items():
         people[person].score += WEIGHTS[kind] * math.log2(1 + count) * relevant_areas[key]
+    schedules = owners.people(config, aliases)
+    now = config.local()
     for person, candidate in people.items():
         candidate.muted = stopped(config, target, person, aliases)
+        candidate.away = schedules[person].away_on(now) if person in schedules else ""
         candidate.median_hours = median(hours[person]) if person in hours else None
         candidate.evidence.sort(key=lambda item: (-abs(WEIGHTS[item["kind"]]), item["area"], item["date"]))
-    ranked = sorted(people.values(), key=lambda entry: (entry.muted, -entry.score,
+    ranked = sorted(people.values(), key=lambda entry: (bool(entry.muted or entry.away), -entry.score,
                     entry.median_hours if entry.median_hours is not None else float("inf"), entry.person))
     return ranked[:limit] if limit is not None else ranked

@@ -410,14 +410,22 @@ def cmd_loops(args):
 
 def cmd_owners(args):
     rows = owners.load(args.config)
+    people = owners.people(args.config)
     for problem in owners.problems(args.config):
         print(f"skipped: {problem}", file=sys.stderr)
     if args.json:
-        print(json.dumps([asdict(row) for row in rows], ensure_ascii=False, indent=2))
+        print(json.dumps([asdict(row) for row in rows] + [dict(person=person, name=hours.name, hours=hours.schedule(),
+                         away=hours.away, away_start=hours.away_start) for person, hours in people.items()],
+                         ensure_ascii=False, indent=2))
     else:
         for row in rows:
             print(f"{row.area} · {row.owner_name} ({row.owner}) · backup: {row.backup or '-'} · "
                   f"{row.covers} · {row.wait_hours}h · {row.source}")
+        for person, hours in people.items():
+            days = ",".join(owners.DAYS[day - 1] for day in hours.days)
+            away = f"{hours.away_start} to {hours.away}" if hours.away_start else f"until {hours.away}"
+            print(f"{hours.name} ({person}) · {days} {hours.start}-{hours.end} {hours.zone}"
+                  + (f" · away: {away}" if hours.away else ""))
 
 
 def cmd_consult(args):
@@ -514,14 +522,16 @@ def cmd_consult(args):
                     hours = f"{entry.median_hours:g}h" if entry.median_hours is not None else "-"
                     evidence = "; ".join(f"{item['area']}: {item['kind']} ({item['text']})" for item in entry.evidence[:3])
                     print(f"{entry.person} · {entry.name} · {entry.score:.2f} · median {hours}"
-                          + (" · muted" if entry.muted else "") + f" · {evidence}")
+                          + (" · muted" if entry.muted else "")
+                          + (f" · away: {entry.away}" if entry.away else "") + f" · {evidence}")
         elif args.consult_cmd == "lapse":
             for action in consults.lapse(config, dry_run=args.dry_run):
                 print(action)
         elif args.consult_cmd == "list":
             entries = [entry for entry in consults.load(config) if not args.for_ or entry.to == args.for_]
             if args.json:
-                print(json.dumps([{**asdict(entry.item()), "asked": entry.asked, "until": entry.until,
+                hours_of = owners.hours_lookup(config)
+                print(json.dumps([{**asdict(entry.item(config, hours_of)), "asked": entry.asked, "until": entry.until,
                                                       "tried": entry.tried, "restricted": entry.restricted}
                                   for entry in entries], ensure_ascii=False, indent=2))
             else:
