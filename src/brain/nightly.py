@@ -413,6 +413,15 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
             fm.write(vault.root / rel, fm.read(vault.root / rel)[0], fired)
             changed.add(rel)
     with vault_lock(config):   # the after-session writer adds asks to CURRENT at any hour
+        from . import goals
+        try:
+            expired_goals = goals.decay(config, today, report, vault=vault)
+        except Exception as error:
+            expired_goals = []
+            report.append(f"goal: decay skipped: {error}")
+        if expired_goals:
+            changed.add(config.human_goals)
+            report.extend(f"goal: {gid} set aside after 30 days without evidence" for gid in expired_goals)
         rebuild_current(config, open_tasks, today, report)
         if ask_library(config, today, report, library_records):
             changed.add("CURRENT.md")

@@ -25,13 +25,15 @@ A vault is a git repo with a `brain.toml` naming its folders and the two display
 | `brain schedule list` / `set` / `pause` / `resume` / `remove` | manage the declared routines in `Runtime/schedule.toml` |
 | `brain digest --date <day> --write` | one file of that day's turns between owner and agent, with what the agent read before each reply |
 | `brain retrieve "<query>"` | deterministic candidates: index-line scoring, one-hop spread over links, cold grep |
-| `brain goals new` / `list` / `show` / `G-n edit` / `evidence` / `reached` / `set-aside` / `reopen` | the person's goals, progress and the work toward them |
+| `brain goals new` / `list` / `show` / `G-n edit` / `evidence` / `reached` / `set-aside` / `reopen` / `keep` / `not-a-goal` / `to-task` | the person's stated or evidenced goals, progress and the work toward them |
 | `brain compile-context --write` | the session-start context file |
 | `brain install-skills` / `install-scripts` | render the routines into the vault; put the cron scripts in `$AGENT_HOME/scripts` |
 | `brain update` / `migrate-check` / `migrate-done` | nightly self-upgrade and the agent's part of a migration |
 | `brain validate`, `simulate`, `paths` | checks, the decay table, resolved paths |
 
 `docs/engine.md` has every command, the config keys, what the nightly pass does in order, and session archive formats. The [runtime contract](docs/runtime.md) defines `AGENT_HOME`, `Runtime/schedule.toml`, `.context.md` and harness sessions. `brain export-sessions` archives harness conversations and routine runs. The memory model itself is documented in the template's `memory/agent/Memory Spec.md`.
+
+Goals are inferred from repeated, dated evidence as well as stated by the person. `brain goals new "<title>" --words "<their quoted words>" --said YYYY-MM-DD --inferred --evidence "<date> · <what> · [[note]]"` records a reading; repeat `--evidence` for its sources. The nightly portrait review and explore merge existing aims, read `brain goals refused --json` and keep at most five active inferred goals, with at most two new ones per night. Silence keeps them; thirty days without evidence sets them aside. Both origins fund preparation immediately, held, under existing outward permissions. Keep adopts a reading, Not a goal archives and blocks its return, and To task creates asked work and prints its task id. Nobody is asked whether something is a goal. See [the engine's goals reference](docs/engine.md#goals).
 
 ## Layout
 

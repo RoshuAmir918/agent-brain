@@ -46,7 +46,7 @@ def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
              else "G-1" if name == "goal"
              else "new value")
     if name == "goal":
-        goals.new(config, "Reading", "Read widely")
+        goals.new(config, "Reading", "Read widely", from_app=True)
     if name == "after":
         tasks.write_archive(config, tasks.Task("T-000", "Earlier", "", {"state": "completed"}), "cold", TODAY)
     out = cli(vault, capsys, "T-001", "set", "--" + name, value)

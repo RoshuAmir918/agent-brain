@@ -1,7 +1,7 @@
 ---
 name: {prefix}explore
 description: Do one thing for {human_name}, or nothing
-version: 3.3.0
+version: 3.4.0
 metadata:
   runtime:
     tags: [routine, day, research]
@@ -14,7 +14,9 @@ The standing-attention pass. Every two hours while {human_name} is awake, {agent
 
 ## Procedure
 <!-- personal -->
-Choose by active goals first. Read `brain goals list --json`. Every unasked candidate must advance one active goal and name its id; a person, interest, deadline or occasion alone is not a reason. With no active goal, make nothing unasked. Work explicitly requested by {human_name} may proceed from their quoted words.
+**Infer, then choose by goals.** Read `brain goals list --json` and `brain goals refused --json`, then the portrait, recent owner conversations and the connected evidence you may read (synced Anki hours, calendar, Canvas, Library works, what they are building or preparing for). Follow recall's Goals rules: repeated evidence across days, never one passing mention; their own words quoted and dated, never your paraphrase. Merge the same aim by adding evidence; never re-propose a refused title, words or aim. Create at most two new readings per night, counting readings made earlier today, with `brain goals new "<title>" --words "<their quoted words>" --said YYYY-MM-DD --inferred --evidence "<date> · <what> · [[note]]"`, and never exceed five active inferred goals. Never ask whether it is a goal or wait for confirmation; silence keeps it. The night sets aside inferred goals after thirty days without evidence.
+
+Every unasked candidate advances one active goal and names its id. Said and inferred goals fund preparation immediately: read, research, draft, make; hold it. A person, interest, deadline or occasion alone is not a reason. Without an evidenced goal, make nothing unasked. Work explicitly requested by {human_name} may proceed from their quoted words. Offers keep their high bar and outward action its existing permissions.
 <!-- /personal -->
 1. **Read what today is for them.** The session context carries Primed (today for {human_name}: where they are, who they are with, what they said they would do, what is held and waiting) and Upcoming (dates named anywhere in the vault for the next seven days). They are the brief; read both before choosing.
 2. **Candidates, three classes.**

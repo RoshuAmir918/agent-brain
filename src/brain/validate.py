@@ -14,7 +14,7 @@ def goal_problems(vault: Vault) -> list[str]:
     from . import goals, ideas
     from .tasks import all_tasks
     out = goals.problems(vault.config)
-    known = {goal.gid for goal in goals.load(vault.config)}
+    known = {goal.gid for goal in goals.load(vault.config) + goals.archived(vault.config)}
     def check(source, gid):
         if gid is not None and (not isinstance(gid, str) or gid not in known):
             out.append(f"{source}: unknown goal {gid!r}; choose an active id with `brain goals list` and link with --goal")
@@ -179,7 +179,7 @@ def portrait_hygiene(vault: Vault) -> list[str]:
     found = portrait.hygiene(note.body, vault.config.today(), rel, vault.config.edition == "enterprise")
     if vault.config.edition == "personal":
         from . import goals
-        known = {goal.gid for goal in goals.load(vault.config)}
+        known = {goal.gid for goal in goals.load(vault.config) + goals.archived(vault.config)}
         found += [f"{rel} · After · {line.text}: goal {line.goal} is not in {vault.config.human_goals}"
                   for line in portrait.load(vault.config) if line.goal and line.goal not in known]
     return found

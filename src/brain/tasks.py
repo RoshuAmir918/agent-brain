@@ -374,7 +374,8 @@ def append_task(config: Config, task: Task) -> None:
 
 
 def new_task(config: Config, title: str, source: str, *, state: str = "ready",
-             values: dict[str, str] | None = None, work: str | None = None, goal: str | None = None) -> Task:
+             values: dict[str, str] | None = None, work: str | None = None, goal: str | None = None,
+             inherit_goal: bool = True) -> Task:
     """Create a task without handing it off; the caller holds the vault lock."""
     title, source = single_line("title", title), single_line("source", source)
     if not title or not source:
@@ -389,7 +390,7 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
         values["goal"] = goal
     parent = _working_on(config)
     from .goals import active, guard
-    if parent is not None and "goal" not in values and any(g.gid == parent.goal for g in active(config)):
+    if inherit_goal and parent is not None and "goal" not in values and any(g.gid == parent.goal for g in active(config)):
         values["goal"] = parent.goal  # a worker's follow-up serves what the task it is working on serves
     guard(config, values.get("goal"), source, parent=parent)
     if set(values) - {"status", "next", "delivers", "hub", "goal", "after"}:

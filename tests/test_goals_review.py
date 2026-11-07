@@ -20,6 +20,7 @@ def session(monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
     for name in ("AGENT_HOME", "BRAIN_RUN", "DEMIURGE_TASK", "DEMIURGE_CONVERSATION", "BRAIN_SPEAKER"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("BRAIN_SPEAKER", "cli:owner")
 
 
 def seed(vault, body):
@@ -106,33 +107,16 @@ def test_t6_contract_argv_special_titles_words_and_edit(vault, capsys):
     assert not goals.problems(cfg)
 
 
-@pytest.mark.parametrize("speaker,allowed", [("", False), ("demiurge:visitor", False), ("subagent:run", False), ("demiurge:owner", True), ("cron:morning", True)])
-def test_capture_is_only_for_named_owner_or_morning(vault, monkeypatch, speaker, allowed):
-    cfg = replace(Config.load(vault), human_name="Mira", owner_user_ids=["demiurge:owner"])
-    assert "Ask Mira once" in goals.context(cfg)
+@pytest.mark.parametrize("speaker", ["", "demiurge:visitor", "subagent:run", "demiurge:owner", "cron:morning"])
+def test_asked_is_harmless_for_every_old_caller(vault, capsys, monkeypatch, speaker):
+    cfg = Config.load(vault)
+    assert "never ask whether" in goals.context(cfg)
     monkeypatch.setenv("BRAIN_SPEAKER", speaker)
     before = snapshot(vault)
-    if allowed:
-        assert goals.asked(cfg) and not goals.asked(cfg)
-    else:
-        with pytest.raises(ValueError, match="owner|Mira"):
-            goals.asked(cfg)
-        assert snapshot(vault) == before
-
-
-@pytest.mark.parametrize("speaker,allowed", [("demiurge:owner", True), ("cron:morning", True), ("demiurge:visitor", False)])
-def test_capture_cli_requires_owner_or_morning(vault, capsys, monkeypatch, speaker, allowed):
-    config_path = vault.parent / "brain.toml"
-    config_path.write_text(config_path.read_text() + 'human_name = "Mira"\nowner_user_ids = ["demiurge:owner"]\n')
-    monkeypatch.setenv("BRAIN_SPEAKER", speaker)
-    before = snapshot(vault)
-    if allowed:
-        assert goals.QUESTION in run(vault, capsys, "goals", "asked")
-        assert goals.QUESTION not in run(vault, capsys, "goals", "asked")
-    else:
-        with pytest.raises(SystemExit, match="only for Mira"):
-            run(vault, capsys, "goals", "asked")
-        assert snapshot(vault) == before
+    for _ in range(2):
+        assert goals.asked(cfg) == "Goals are inferred now; don't ask."
+        assert run(vault, capsys, "goals", "asked") == "Goals are inferred now; don't ask.\n"
+    assert snapshot(vault) == before
 
 
 @pytest.mark.parametrize("platform,user_id,visible", [("cli", "", True), ("cron", "", True), ("demiurge", "visitor", False)])
