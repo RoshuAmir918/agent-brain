@@ -183,15 +183,9 @@ def cmd_ledger_append(args):
 
 
 def cmd_journal_append(args):
-    """Reads one after-session record as JSON on stdin, or with --synthesis the catch-up's text."""
+    """Reads one after-session record as JSON on stdin."""
     try:
         at = datetime.strptime(args.at, "%Y-%m-%d %H:%M") if args.at else args.config.now(datetime.now(args.config.zone))
-        if args.synthesis:
-            text = sys.stdin.read()
-            if not text.strip():
-                raise ValueError("empty synthesis")
-            print(journal.append_synthesis(args.config, text, at))
-            return
         record = json.load(sys.stdin)
         if not isinstance(record, dict):
             raise ValueError("needs one JSON object")
@@ -199,18 +193,6 @@ def cmd_journal_append(args):
                                    user_id=args.user_id, user_id_alt=args.user_id_alt))
     except (OSError, ValueError) as error:
         sys.exit(f"journal append: {error}")
-
-
-def cmd_journal_recent(args):
-    entries = journal.recent(args.config, args.config.today(), args.count)
-    for entry in entries:
-        print(entry.line)
-    unread = journal.unread_lines(args.config, args.config.today())
-    if not entries:
-        print(f"0 rows: no journal rows in {args.config.agent('Journal')}/ for this month or last"
-              + (f"; {unread} line(s) there are in an older format the engine does not read" if unread else ""))
-    elif unread:
-        print(f"note: {unread} journal line(s) are in an older format the engine does not read")
 
 
 def cmd_redact(args):
@@ -1023,7 +1005,7 @@ def cmd_state(args):
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
         print(" · ".join(f"{len(data[key])} {key}" for key in
-                         ("tasks", "hubs", "goals", "routines", "triggers", "ledger", "journal", "needsYou", "outputs", "loops", "loopsClosed")))
+                         ("tasks", "hubs", "goals", "routines", "ledger", "needsYou", "outputs", "loops", "loopsClosed")))
 
 
 def cmd_reception(args):
@@ -1212,7 +1194,7 @@ def cmd_export_sessions(args):
 
 
 def cmd_install_skills(args):
-    print(install.skills(args.config, force=args.force))
+    print(install.skills(args.config))
 
 
 def cmd_update(args):
@@ -1383,9 +1365,7 @@ def main(argv=None):
     journal_sub = s.add_subparsers(dest="journal_cmd", required=True)
     s = journal_sub.add_parser("append", parents=[vault]); s.add_argument("--platform", default="demiurge")
     s.add_argument("--user-id", default=""); s.add_argument("--user-id-alt", default="")
-    s.add_argument("--at"); s.add_argument("--synthesis", action="store_true"); s.set_defaults(fn=cmd_journal_append)
-    s = journal_sub.add_parser("recent", parents=[vault]); s.add_argument("--count", type=int, default=30)
-    s.set_defaults(fn=cmd_journal_recent)
+    s.add_argument("--at"); s.set_defaults(fn=cmd_journal_append)
     s = sub.add_parser("validate", parents=[vault]); s.set_defaults(fn=cmd_validate)
     s = sub.add_parser("access", parents=[vault]); s.add_argument("who")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_access)
@@ -1635,7 +1615,7 @@ def main(argv=None):
     s.add_argument("name"); s.add_argument("--skill", required=True); s.add_argument("--records")
     s.set_defaults(fn=cmd_responsibility)
     s = sub.add_parser("timezone", help="print the owner's timezone from brain.toml", parents=[vault]); s.set_defaults(fn=cmd_timezone)
-    s = sub.add_parser("install-skills", parents=[vault]); s.add_argument("--force", action="store_true", help="also overwrite the day routines")
+    s = sub.add_parser("install-skills", parents=[vault])
     s.set_defaults(fn=cmd_install_skills)
     s = sub.add_parser("update", parents=[vault]); s.set_defaults(fn=cmd_update)
     s = sub.add_parser("migrate-check", parents=[vault]); s.set_defaults(fn=cmd_migrate_check)

@@ -5,12 +5,11 @@ import re
 from pathlib import PurePosixPath
 
 from . import access, channels as registry, directory, health
-from .access import table_cells
 from .compile_context import DATE
 from .config import Config
 from .identity import matching_agents, matching_profiles, role
 from .install import deferred_path, deferred_steps
-from .vault import Note, Vault, WIKILINK_RE
+from .vault import Note, Vault
 
 DEFAULT_RULE = ("Default for everything else: decline briefly. When what they ask needs the owner (an answer only the "
                 "owner can give, a thing the owner holds, a status the owner knows), ask the owner now, in this session "
@@ -21,7 +20,6 @@ DEFAULT_RULE = ("Default for everything else: decline briefly. When what they as
 OWNER_CARD_WORDS = 450   # Working together (up to 250 words), the Impression until a portrait replaces it, and what the agent can reach
 MENTION_WORDS = {"line": 35, "card": 150}
 HISTORY_WORDS = 80
-WORD_LIMIT = 400
 PROFILE_WORD_LIMIT = 250
 TELLABLE_HEADING = "What you may tell {name} about {owner}, and nothing else:"
 
@@ -65,11 +63,11 @@ def intellect_context(vault: Vault, config: Config, agent: Note, identity: str) 
               + f". What it says is a claim, attributed to it by name and date, never {config.human_name}'s statement. "
               f"What you may tell it about {config.human_name} is what its owner may learn, resolved below.",
               truncate_words(agent.body, PROFILE_WORD_LIMIT)]
-    if len(owner_profiles) == 1 and f"{config.people_dir}/Disclosure.md" in vault.notes and not legacy(vault, config):
+    if len(owner_profiles) == 1 and f"{config.people_dir}/Disclosure.md" in vault.notes:
         blocks.append(resolved(vault, config, owner_profiles[0].rel, owner))
     else:
         why = ("no owner is named on its profile" if not owner else "its owner matches no single profile" if len(owner_profiles) != 1
-               else "Disclosure.md is missing or not yet migrated")
+               else "Disclosure.md is missing")
         blocks.append(f"Its owner's access could not be resolved ({why}): tell it nothing about {config.human_name} "
                       f"beyond what anyone may learn, and ask {config.human_name} to confirm who owns it.")
     blocks.append(relay_rule(config))
@@ -100,56 +98,6 @@ def member_context(config: Config, platform: str, user_ids: tuple[str, ...], use
     return "\n".join(lines)
 
 
-def audience_targets(vault: Vault, config: Config, person: Note) -> set[str]:
-    targets = {person.rel}
-    directory = PurePosixPath(config.people_dir) / "Groups"
-    for rel, note in vault.notes.items():
-        if PurePosixPath(rel).parent == directory and person.rel in vault.links_in(note.body):
-            targets.add(rel)
-    return targets
-
-
-def matches_audience(vault: Vault, audience: str, targets: set[str]) -> bool:
-    if targets.intersection(vault.links_in(audience)):
-        return True
-    plain = WIKILINK_RE.sub("", audience)
-    names = {PurePosixPath(rel).parent.name if PurePosixPath(rel).name == "Profile.md"
-             else PurePosixPath(rel).stem for rel in targets}
-    names = {name.casefold() for name in names | {"anyone"}}
-    return plain.strip().strip("*").casefold() in names
-
-
-def disclosure_rows(vault: Vault, config: Config, person: Note, *, include_headers: bool = False) -> list[str]:
-    note = vault.notes.get(f"{config.people_dir}/Disclosure.md")
-    if note is None:
-        return []
-    targets = audience_targets(vault, config, person)
-    selected = []
-    audience_index = None
-    header = ""
-    separator = ""
-    for line in note.body.splitlines():
-        if "|" not in line:
-            audience_index = None
-            continue
-        cells = table_cells(line)
-        headings = [cell.casefold() for cell in cells]
-        if "audience" in headings:
-            audience_index = headings.index("audience")
-            header, separator = line.strip(), ""
-        elif cells and all(re.fullmatch(r":?-+:?", cell) for cell in cells):
-            separator = line.strip()
-        elif audience_index is not None and len(cells) > audience_index:
-            if matches_audience(vault, cells[audience_index], targets):
-                if include_headers and header:
-                    selected.append(header)
-                    if separator:
-                        selected.append(separator)
-                    header = ""
-                selected.append(line.strip())
-    return selected
-
-
 def truncate_words(text: str, limit: int) -> str:
     words = list(re.finditer(r"\S+", text))
     if len(words) <= limit:
@@ -166,23 +114,14 @@ def known_context(vault: Vault, config: Config, person: Note, identity: str) -> 
     disclosure = f"{config.people_dir}/Disclosure.md"
     if disclosure not in vault.notes:
         blocks.append(f"Disclosure.md is missing: {config.link(disclosure)}.")
-    elif not legacy(vault, config):
-        blocks.append(resolved(vault, config, person.rel, name))
     else:
-        rows = disclosure_rows(vault, config, person, include_headers=True)
-        rules = f"Applicable disclosure rows from {config.link(disclosure)}:\n" + (
-            "\n".join(rows) if rows else "No applicable rows.")
-        if len("\n\n".join([*blocks, rules, DEFAULT_RULE]).split()) > WORD_LIMIT:
-            rules = (f"Applicable disclosure rows exceed the session budget. "
-                     f"Open {config.link(disclosure)} before disclosing anything.")
-        blocks.append(rules)
+        blocks.append(resolved(vault, config, person.rel, name))
     return "\n\n".join([*blocks, DEFAULT_RULE, tellable_block(vault, config, person.rel, name)])
 
 
 def tellable_block(vault: Vault, config: Config, person: str | None, name: str) -> str:
     from . import tellable
-    who = person if person and not legacy(vault, config) else "anyone"
-    result = tellable.resolve(vault, config, who)
+    result = tellable.resolve(vault, config, person or "anyone")
     return (TELLABLE_HEADING.format(name=name, owner=config.human_name) + "\n" + tellable.render(result)
             + f"\nAnswer about {config.human_name} only from this block; anything else you know about "
             f"{config.human_name} or anyone else is not yours to tell here. What they ask that it does not answer, "
@@ -217,12 +156,6 @@ def owner_card(vault: Vault, config: Config) -> str:
             f"{config.human_name} alone, never where anyone else can read it. Full profile: {config.link(config.human_profile)}.")
 
 
-def legacy(vault: Vault, config: Config) -> bool:
-    """A vault not yet migrated to the 0.14 table (tell and do columns, no allow/deny rows) keeps today's raw rows."""
-    found = access.rules(vault, config)
-    return not found or any(rule.legacy for rule in found)
-
-
 def resolved(vault: Vault, config: Config, person: str | None, name: str) -> str:
     """What this person may learn and ask for, as `brain access` resolves it, in a few lines."""
     result = access.resolve(vault, config, person)
@@ -253,8 +186,8 @@ def maintainer_context(config: Config, identity: str) -> str:
         f"and it keeps failing because of Y\" is exactly right. Process records are theirs to ask for: brain health, "
         f"brain audit, ledger lines from your log folders, Sleep Log, Use Log and Explorations, your skills, and "
         f"{config.runtime_dir}/schedule.toml. When a maintainer asks for engine maintenance, do it now without asking "
-        f"{config.human_name}: brain update, brain migrate-check, pending migrations, brain install-skills without "
-        f"--force, script reinstalls, brain validate, brain health, brain audit, a restart of your own "
+        f"{config.human_name}: brain update, brain migrate-check, pending migrations, brain install-skills, "
+        f"script reinstalls, brain validate, brain health, brain audit, a restart of your own "
         f"gateway, and committing and publishing the engine-state changes these produce. A migration step that asks "
         f"{config.human_name} a question is not a reason to stop: finish every pending migration in that session, draft "
         f"{config.human_name}'s answer from what you hold, mark it unconfirmed with the date, and put one morning line on "
@@ -329,7 +262,7 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
     profiles = matching_profiles(vault, config, user_ids, platform)
     agents = matching_agents(vault, config, user_ids, platform)
     blocks = []
-    open_to_anyone = (f"{config.people_dir}/Disclosure.md" in vault.notes and not legacy(vault, config)
+    open_to_anyone = (f"{config.people_dir}/Disclosure.md" in vault.notes
                       and any(v.tell != "none" or v.do != "no" for v in access.resolve(vault, config, None).subjects.values()))
     if len(profiles) > 1:
         paths = ", ".join(config.link(person.rel) for person in profiles)

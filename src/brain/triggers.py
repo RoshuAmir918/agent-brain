@@ -155,7 +155,3 @@ def render(text: str, trigs: list[Trigger]) -> str:
         out.insert(position, block)
     return "".join(out)
 
-
-def next_id(trigs: list[Trigger]) -> str:
-    n = max([int(t.id[3:]) for t in trigs] + [0]) + 1
-    return f"TR-{n:03d}"

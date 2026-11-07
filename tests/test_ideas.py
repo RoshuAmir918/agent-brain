@@ -240,15 +240,15 @@ def test_response_matching_errors_do_not_write(vault):
     assert snapshot(vault.parent) == before
 
 
-def test_state_exports_one_idea_and_total_open_count(vault):
+def test_state_exports_one_idea(vault):
     write_ideas(vault, bullet("First?") + bullet("Second?", TODAY - timedelta(days=1)))
     config = Config.load(vault)
     result = state.build(config, TODAY)
     assert result["idea"] == asdict(ideas.shown(config, TODAY))
-    assert result["ideasOpen"] == 2 and result["needsYou"] == []
+    assert result["needsYou"] == []
     ideas.respond(config, "First?", TODAY, "not-now")
     result = state.build(config, TODAY)
-    assert result["idea"] is None and result["ideasOpen"] == 2
+    assert result["idea"] is None
     assert state.build(config, TODAY + timedelta(days=1))["idea"]["text"] == "Second?"
 
 
@@ -261,7 +261,7 @@ def test_export_normalizes_idea_sources_and_withholds_private_ideas(vault):
     assert result["idea"]["id"] == ideas.shown(config, TODAY).id
     fm.write(vault / "Topic.md", {"tier": "private"}, "# Topic")
     result = state.build(config, TODAY)
-    assert result["idea"] is None and result["ideasOpen"] == 0
+    assert result["idea"] is None
 
 
 def test_ideas_hygiene_checks_uncut_why_and_is_part_of_hygiene(vault):

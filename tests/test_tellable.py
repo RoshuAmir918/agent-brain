@@ -337,19 +337,6 @@ def test_missing_disclosure_still_has_an_empty_block(tellable_vault, user_id):
     assert "Stayed at the Memmo" not in block
 
 
-@pytest.mark.parametrize("user_id", ["U_ALICE", "U_STRANGER", "k57nameless"])
-def test_legacy_disclosure_resolves_block_as_anyone(tellable_vault, user_id):
-    vault = tellable_vault
-    vault.notes["people/Disclosure.md"].body = (
-        "| id | audience | subject | rule |\n| --- | --- | --- | --- |\n"
-        f"| D1 | [[{ALICE}]] | schedule | allow |\n| D2 | anyone | experiences | allow |\n")
-    block = session_context.build(vault, vault.config, platform="slack", user_id=user_id)
-    assert session_context.legacy(vault, vault.config)
-    content = block.split("and nothing else:\n", 1)[1]
-    assert content.startswith(tellable.render(tellable.resolve(vault, vault.config)))
-    assert "- experiences (details): Stayed at the Memmo" in content and "- schedule" not in content
-
-
 def test_tellable_is_beside_configured_profile_and_never_compiled(tellable_vault):
     config = replace(tellable_vault.config, human_profile="People/Mira/Profile.md")
     assert config.human_tellable == "People/Mira/Tellable.md"

@@ -15,7 +15,7 @@ from conftest import git, snapshot
 
 
 TODAY = date(2026, 10, 28)
-KEYS = ["schema", "engine", "version", "tasks", "hubs", "goals", "routines", "triggers", "ledger", "journal", "needsYou", "outputs", "loops", "loopsClosed"]
+KEYS = ["schema", "engine", "version", "tasks", "hubs", "goals", "routines", "ledger", "needsYou", "outputs", "loops", "loopsClosed"]
 
 
 def note(root, source, body="", **data):
@@ -94,14 +94,13 @@ def test_tasks_use_engine_state_and_register_precedence(work):
                                                 "T-003", "T-005", "T-008", "T-009"]
     assert result[0] == {"id": "T-004", "title": "Working café", "state": "in_progress", "open": True,
                          "detail": "Moving [[Evidence|proof]]", "next": "Ship [[Draft]]", "handoff": None, "pace": "regular", "blockers": "None",
-                         "hub": "Work/Watch", "work": None, "after": None, "stages": [], "delivers": None, "tier": "hot", "archived": False, "source": "agent/Tasks.md#T-004",
-                         "ask": None, "why": None, "verified": None, "evidence": None, "resume": None, "report": None,
-                         "lastChunk": None, "chunksToday": None, "budget": None, "closed": None, "outcome": None, "left": None, "then": [], "view": None, "said": None, "owner": None, "goal": None}
+                         "hub": "Work/Watch", "work": None, "after": None, "delivers": None, "archived": False, "source": "agent/Tasks.md#T-004",
+                         "ask": None, "why": None, "evidence": None, "resume": None, "report": None,
+                         "lastChunk": None, "chunksToday": None, "closed": None, "outcome": None, "left": None, "then": [], "view": None, "said": None, "owner": None, "goal": None}
     assert [(task["state"], task["open"]) for task in result] == [
         ("in_progress", True), ("completed", False), ("cancelled", False), (None, True),
         ("waiting_for_owner", True), ("completed", False), ("waiting_for_owner", True), ("cancelled", False), (None, True)]
     assert result[1]["detail"] is None
-    assert result[1]["tier"] is None
     assert result[3]["next"] == "Investigate"
     assert result[4]["detail"] == "Warm detail"
     assert result[5]["detail"] == "Finished"
@@ -137,15 +136,6 @@ def test_routines_join_responsibilities_and_all_months_but_not_unknown_legacy_ro
         {"name": "lone", "skill": None, "hub": None, "ledger": "agent/A", "responsibility": None},
         {"name": "upkeep", "skill": "brain-maintain", "hub": "Maintenance", "ledger": None, "responsibility": None},
         {"name": "WATCH", "skill": "brain-watch", "hub": "Watch", "ledger": "agent/Receipts", "responsibility": None},
-    ]
-
-
-def test_triggers_preserve_file_order_and_point_to_register(work):
-    assert state.build(work, TODAY)["triggers"] == [
-        {"id": "TR-002", "class": "intention", "when": "When inbox changes", "do": "Read it", "status": "active",
-         "created": "2026-10-27", "source": "agent/Triggers.md"},
-        {"id": "TR-001", "class": "commitment", "when": "2026-10-20", "do": "Call", "status": "fired 2026-10-20",
-         "created": "2026-10-01", "source": "agent/Triggers.md"},
     ]
 
 
@@ -231,7 +221,7 @@ def test_deterministic_and_read_only(work):
 
 def test_version_outside_git_and_installed_engine(work):
     result = state.build(work, TODAY)
-    assert result["schema"] == 1
+    assert result["schema"] == 2
     assert result["version"] is None
     assert result["engine"] == health.installed_version("agent-brain")
 
@@ -258,7 +248,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     cli.main(["state", "--json", "--vault", str(work.vault_path)])
     output = capsys.readouterr().out
     parsed = json.loads(output)
-    assert list(parsed) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait", "seeds"]
+    assert list(parsed) == KEYS + ["idea", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait", "seeds"]
     assert output == json.dumps(parsed, ensure_ascii=False, indent=2) + "\n"
     cli.main(["state", "--vault", str(work.vault_path)])
     summary = capsys.readouterr().out
@@ -266,7 +256,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     assert summary == " · ".join(f"{len(parsed[key])} {key}" for key in KEYS[3:]) + "\n"
     process = subprocess.run([sys.executable, "-m", "brain", "state", "--json", "--vault", str(work.vault_path)],
                              text=True, capture_output=True, check=True)
-    assert list(json.loads(process.stdout)) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait", "seeds"]
+    assert list(json.loads(process.stdout)) == KEYS + ["idea", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait", "seeds"]
     assert process.stderr == ""
 
 
@@ -279,13 +269,12 @@ def test_empty_vault_and_missing_installed_metadata(tmp_path, monkeypatch):
 
     monkeypatch.setattr(health, "installed_version", missing)
     result = state.build(Config.load(root), TODAY)
-    assert list(result) == KEYS + ["idea", "ideasOpen", "channels", "shareable", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait", "seeds"]
+    assert list(result) == KEYS + ["idea", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait", "seeds"]
     assert result["engine"] == "unknown"
-    assert result["idea"] is None and result["ideasOpen"] == 0
+    assert result["idea"] is None
     assert result["waitingOnComputer"] == []
     assert result["responsibilities"] == []
     assert all(result[key] == [] for key in KEYS[3:])
-    assert result["shareable"] == {kind: {"tell": {}, "hubs": [], "receipts": []} for kind in ("known", "anyone")}
 
 
 def test_configured_layout_and_records_name_matching(tmp_path):

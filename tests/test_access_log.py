@@ -105,7 +105,6 @@ def test_invalid_entries_are_dropped_without_failing_the_record(config, entry):
                          "demiurge", AT, user_id="k57kevin")
     assert not (config.vault_path / "People/Access").exists()
     assert [item.text for item in loops.open_loops(config)] == ["Relay the answer"]
-    assert journal.recent(config, TODAY) == []
 
 
 def test_custom_subject_rules_limits_and_single_line_cleaning(config):

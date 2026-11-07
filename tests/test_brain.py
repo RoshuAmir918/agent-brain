@@ -105,7 +105,6 @@ def test_nightly_archives_cold_tasks_and_restores_logged_uses(tmp_path):
     v = Vault(root)
     assert v.notes["Acme Context.md"].data["tier"] == "hot"
     assert v.notes["START.md"].data["pinned"] is True
-    assert not (root / "Hot Set.md").exists() and not (root / "Warm Index.md").exists()
     assert "- [[memory/Acme Context|Acme Context]]" in (root.parent / ".context.md").read_text()
     reg = fm.read(root / "agent" / "Tasks.md")[1]
     assert "### T-002" not in reg

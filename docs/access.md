@@ -1,7 +1,7 @@
 # Access: who may learn what, and ask for what
 
 Status: engine 0.14. The owner decides, the agent applies, the engine resolves and records. Nothing here
-knows about any one platform; a client (Demiurge, Slack) only reads what `brain state` and `brain access` export.
+knows about any one platform; a client (Demiurge, Slack) only reads what `brain access` exports.
 
 Today `People/Disclosure.md` is a table the agent reads as prose: a row per grant, groups as notes that link their
 members, precedence written in a paragraph, refusals in a hand-kept list. It works, but each agent interprets it a
@@ -107,39 +107,6 @@ as a rule with the answer as its source. One refusal, one tap, settled for the g
 The migration layer will move the hand-kept `## Declined requests` list in Disclosure.md into the log; this writer
 leaves it untouched.
 
-## What each audience may see: `brain state`
-
-A hub may carry `subject:` in its frontmatter (`plans`, `work`, `health`, …); without it, the hub is `plans` if it is
-a responsibility or project and `people` if it lives under the configured people directory. An unknown `subject:`
-uses the same default. `brain state --json` exports every group, `known`, and `anyone`, including those without rules:
-
-```json
-"shareable": {
-  "group:Close friends": {
-    "members": [{ "profile": "People/Kevin_Pak/Profile.md", "ids": ["demiurge:k57…", "slack:U0CA…"] }],
-    "tell": { "schedule": "details", "plans": "gist", "work": "gist" },
-    "hubs": [{ "title": "Lisbon trip", "subject": "plans" }],
-    "receipts": [{ "at": "2026-10-29T14:05", "routine": "explore", "account": "Compared March fares" }]
-  },
-  "anyone": { "tell": {}, "hubs": [], "receipts": [] }
-}
-```
-
-Each audience resolves independently: a group uses only its own rules, then `known`, then `anyone`; `known` falls
-back to `anyone`. Person-specific rules never apply. The tell map omits `none` subjects. Hubs show only their title
-and subject at `gist` or `details`, in snapshot order, capped at 30. Receipts show only `at`, `routine`, and `account`
-at `details`, newest first, capped at 20. A receipt uses its responsibility hub's subject, or `plans` if unmatched.
-Both lists use the snapshot's existing privacy exclusions; no note bodies or outputs are shared. Group members
-expose only profile paths and explicit Demiurge, Slack, Telegram, or Discord ids, never email addresses or prose.
-An audience without telling access has an empty tell map and empty lists, but groups still list their members.
-
-A client shows each viewer the richest audience they belong to; a close friend sees more of an agent than a stranger
-does. This is what a collective view (Demiurge's World) renders.
-
-A grant narrowed by `## Grant scope` prose is not exported, since an export cannot honour it unattended; a private
-responsibility's receipts are never exported, whatever their routine; and a vault still on the old table exports every
-audience with nothing granted.
-
 ## The owner's profile and the agent's impression
 
 `{human_profile}` keeps six sections, under 500 words (`brain validate` flags more): Who, Working together, Their
@@ -165,7 +132,8 @@ access would flip it, and parks rows it cannot map under `## Unmapped (0.14)`. I
 member. A close-friends group gets the friend defaults; no `known` or `anyone` row is written, only proposed. Profiles
 get their person's name as title (unresolved ones are marked "identity unconfirmed"), sensitive hubs get a `subject:`,
 and the owner's profile is restructured with a first Impression. Two `confirm`s carry the impression and everything the
-owner should check.
+owner should check. The engine no longer reads the old allow/deny table: a Disclosure.md without `tell` and
+`do` columns grants nothing.
 
 ## Later: evaluating it
 

@@ -192,7 +192,7 @@ def test_state_exports_what_a_task_view_needs(vault, capsys):
     exported = next(t for t in state._tasks(Vault(config.vault_path)) if t["id"] == "T-001")
     assert exported["blockers"] == "venue closed"
     assert exported["evidence"] == "2026-11-04 [[Receipt]]"
-    assert {"ask", "why", "verified", "resume", "report", "lastChunk", "chunksToday", "budget", "closed", "outcome"} <= set(exported)
+    assert {"ask", "why", "resume", "report", "lastChunk", "chunksToday", "closed", "outcome"} <= set(exported)
 
 
 def test_a_handoff_too_long_to_bound_is_still_listed_as_a_warm_line(vault):

@@ -163,11 +163,12 @@ def test_state_due_and_positional_json_and_instruction_order(stages_config, caps
     positional = json.loads(cli(config, capsys, "continue", task.tid, "--json"))
     state_rows = json.loads(cli(config, capsys, "state", "--json"))["tasks"]
     state_row = next(row for row in state_rows if row["id"] == task.tid)
-    for row in (due, positional, state_row):
+    assert state_row["after"] == "T-002"
+    for row in (due, positional):
         assert row["after"] == "T-002"
         assert row["stages"] == [{"id": "T-002", "title": "Stage T-002", "state": "completed", "closed": "2026-11-06",
                                   "delivers": "applications", "outcome": "first outcome", "verified": "confirmations", "next": "contact agency"}]
-    assert state_rows[0]["after"] is None and state_rows[0]["stages"] == []
+    assert state_rows[0]["after"] is None
     text = cli(config, capsys, "continue", task.tid)
     expected = ("Earlier stages of this work:\n"
                 "- T-002 Stage T-002 (completed 2026-11-06): first outcome; Delivers: applications; "

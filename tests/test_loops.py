@@ -382,7 +382,6 @@ def test_state_keys_ten_recent_closures_and_source_privacy(config):
     assert result["loops"] == [{**loops.as_dict(public), "source": "Trip.md"}]
     assert len(result["loopsClosed"]) == 10 and result["loopsClosed"][0]["text"] == "Answer 11"
     assert result["loopsClosed"][0]["closed"] == "2026-10-28 12:11"
-    assert result["journal"] == []
 
 
 def test_hygiene_names_only_open_loops_older_than_fourteen_days(config, monkeypatch):

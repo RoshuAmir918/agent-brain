@@ -7,10 +7,8 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import access, fm, goals, health, ideas, journal, ledger, loops, needs, portrait, responsibilities, schedule, seed, tasks, triggers, views, works
+from . import fm, goals, health, ideas, ledger, loops, needs, portrait, responsibilities, schedule, seed, tasks, views, works
 from .config import Config
-from .identity import profile_ids
-from .session_context import legacy
 from .vault import Vault
 
 
@@ -49,24 +47,20 @@ def _tasks(vault: Vault) -> list[dict]:
     entries.extend(sorted(archived, key=lambda entry: entry[0].tid))
     from . import continuation
     worked, chunks = continuation.last_worked(config), continuation.chunks_today(config)
-    limits = continuation.budgets(config, [task for task, _, _ in entries if task.handoff and tasks.is_open(task)])
-
-    public_tasks = [task for task, _, source in entries if _public(vault, source)]
-
     return [{"id": task.tid, "title": task.title, "state": task.task_state, "open": tasks.is_open(task),
              "detail": fm.field(task.body, "Status"), "next": fm.field(task.body, "Next", "Next action"),
              "blockers": fm.field(task.body, "Blocker", "Blockers"), "hub": _public_link(vault, task.hub), "work": task.work,
              "goal": task.goal if config.edition == "personal" else None,
-             "after": task.after, "stages": continuation.stages(config, task, public_tasks),
+             "after": task.after,
              "delivers": task.delivers, "ask": fm.field(task.body, "Ask"), "why": fm.field(task.body, "Why"),
-             "verified": fm.field(task.body, "Verified"), "evidence": fm.field(task.body, "Latest evidence"),
+             "evidence": fm.field(task.body, "Latest evidence"),
              "resume": task.resume, "handoff": task.handoff[0] if task.handoff else None,
              "report": (task.handoff[1] or None) if task.handoff else None, "pace": tasks.pace(task),
              "lastChunk": worked.get(task.tid), "chunksToday": chunks.get(task.tid, 0) if task.handoff else None,
-             "budget": limits.get(task.tid), "closed": tasks.closing(task)[0], "outcome": tasks.closing(task)[1],
+             "closed": tasks.closing(task)[0], "outcome": tasks.closing(task)[1],
              "left": fm.field(task.body, "Left"),
              "then": [m[1].strip() for m in re.finditer(r"^[ \t]*-[ \t]+\*\*Then:\*\*[ \t]*([^\r\n]*)", task.body, re.M)],
-             "tier": task.state.get("tier"), "archived": archived, "source": source, "view": views.read(config, task.tid),
+             "archived": archived, "source": source, "view": views.read(config, task.tid),
              "said": _said(fm.field(task.body, "Source")), "owner": task.owner}
             for task, archived, source in entries if _public(vault, source)]
 
@@ -181,50 +175,6 @@ def _routines(config: Config, hubs: list[dict], rows: list[tuple[str, str, int, 
     return sorted(out.values(), key=lambda routine: (routine["name"].casefold(), routine["name"]))
 
 
-def _shareable(vault: Vault, hubs: list[dict], recent: list[dict], routine_hubs: dict[str, str]) -> dict:
-    """What each audience may see. A vault still on the old table shows nothing: its deny-wins rows are prose."""
-    config = vault.config
-    unmigrated = legacy(vault, config)
-    hub_subjects = {hub["source"]: access.hub_subject(vault, config, hub["source"]) for hub in hubs}
-    titles = [{"title": hub["title"], "subject": hub_subjects[hub["source"]]} for hub in hubs]
-    # Every responsibility, exported or not: a private one's receipts stay private rather than passing as plans.
-    responsibilities = [{"source": source, "responsibility": {"skill": note.data["skill"], "records": note.data["records"]}}
-                        for source, note in sorted(vault.notes.items())
-                        if note.data.get("skill") and note.data.get("records")]
-    receipts = []
-    for receipt in recent:
-        # The schedule's own owner first, as the routines export resolves it; then the name matching the ledger uses.
-        source = routine_hubs.get(receipt["routine"].casefold()) or next(
-            (hub["source"] for hub in responsibilities if _matches_routine(config, hub, receipt["routine"])), None)
-        if source and source not in hub_subjects:
-            continue
-        subject = hub_subjects[source] if source else "plans"
-        receipts.append((subject, {key: receipt[key] for key in ("at", "routine", "account")}))
-    groups = access.groups(vault, config)
-    audiences = [("group:" + PurePosixPath(rel).stem, access.Audience("group", rel)) for rel in groups]
-    audiences.extend((kind, access.Audience(kind)) for kind in ("known", "anyone"))
-    out = {}
-    for key, audience in audiences:
-        effective = access.resolve(vault, config, audience=audience)
-        # A grant narrowed by scope prose cannot be honoured unattended, so it is not exported at all.
-        tell = {} if unmigrated else {subject: value.tell for subject, value in effective.subjects.items()
-                                      if value.tell != "none" and value.tell_rule not in effective.scope}
-        entry = {"tell": tell,
-                 "hubs": [hub for hub in titles if tell.get(hub["subject"]) in access.TELL_LEVELS[1:]][:30],
-                 "receipts": [receipt for subject, receipt in receipts if tell.get(subject) == "details"][:20]}
-        if audience.kind == "group":
-            entry["members"] = [{"profile": rel, "ids": profile_ids(vault.notes[rel].body)}
-                                for rel in groups[audience.target] if access.confirmed(vault.notes[rel])]
-        out[key] = entry
-    return out
-
-
-def _channels(vault: Vault) -> list[dict]:
-    """The registry as the owner's app shows it: what their intellect can reach, with how, never a secret value."""
-    from . import channels as registry
-    return [row.__dict__ for row in registry.load(vault)]
-
-
 def _outputs(vault: Vault) -> list[dict]:
     out = []
     for source, note in sorted(vault.notes.items()):
@@ -272,27 +222,6 @@ def _goals(vault: Vault, task_entries: list[dict]) -> list[dict]:
     return entries
 
 
-def _journal(vault: Vault, today: date) -> list[dict]:
-    config = vault.config
-    floor = (today - timedelta(days=29)).isoformat()
-    out = []
-    for path in sorted((config.vault_path / config.agent("Journal")).glob("*.md")):
-        source = path.relative_to(config.vault_path).as_posix()
-        for position, entry in enumerate(journal.parse(path.read_text(encoding="utf-8"))):
-            at = _at(entry.when)
-            if at is None or not floor <= at[:10] <= today.isoformat():
-                continue
-            out.append((at, source, position, {
-                "id": hashlib.sha256((source + "\n" + entry.line).encode("utf-8")).hexdigest()[:12], "at": at,
-                "platform": entry.platform, "outcome": entry.outcome, "headline": entry.headline,
-                "next": entry.next or None, "needsYou": entry.needs_you,
-                "touched": [title for title in entry.touched if _public_link(vault, title)],
-                "thought": entry.thought, "source": source}))
-    out.sort(key=lambda item: (item[1], item[2]))
-    out.sort(key=lambda item: item[0], reverse=True)
-    return [item[3] for item in out]
-
-
 def _loops(vault: Vault, items: list[loops.Item]) -> list[dict]:
     return [{**loops.as_dict(item), "source": source} for item in items
             if (source := _source(vault, item.source)) is not None]
@@ -307,8 +236,6 @@ def build(config: Config, today: date) -> dict:
     hubs = _hubs(vault, task_entries)
     responsibility_entries = responsibilities.discover(vault)
     routine_owners = responsibilities.link(responsibility_entries, schedule.load(config))
-    hub_of = {entry["id"]: entry["hub"] for entry in responsibility_entries}
-    routine_hubs = {name.casefold(): hub_of[owner] for name, owner in routine_owners.items() if owner in hub_of}
     public_ids = {entry["id"] for entry in responsibility_entries if _public(vault, entry["hub"])}
     responsibility_entries = [entry for entry in responsibility_entries if _public(vault, entry["hub"])]
     rows = _rows(vault)
@@ -321,11 +248,6 @@ def build(config: Config, today: date) -> dict:
                "at": at, "routine": row.routine, "outcome": row.outcome, "account": row.account,
                "next": row.next, "source": source}
               for at, source, _, line, row in rows if floor <= at[:10] <= today.isoformat()]
-    trigger_path = config.vault_path / config.agent("Triggers.md")
-    parsed = triggers.parse(trigger_path.read_text(encoding="utf-8")) if trigger_path.exists() else []
-    trigger_entries = [{"id": trigger.id, "class": trigger.cls, "when": trigger.when, "do": trigger.do,
-                        "status": trigger.status, "created": trigger.created, "source": config.agent("Triggers.md")}
-                       for trigger in parsed] if _public(vault, config.agent("Triggers.md")) else []
     owner_items = []
     for item in needs.items(vault, today):
         source = item.source if item.origin == "access" else _source(vault, item.source)
@@ -338,7 +260,6 @@ def build(config: Config, today: date) -> dict:
     owner_idea = {**asdict(idea), "source": source} if source is not None else None
     if owner_idea and config.edition == "enterprise":
         owner_idea["goal"] = None
-    ideas_open = sum(_source(vault, item.source) is not None for item in ideas._open(vault, today))
     try:
         engine = health.installed_version("agent-brain")
     except health.PackageNotFoundError:
@@ -346,15 +267,13 @@ def build(config: Config, today: date) -> dict:
     version = health.git(config.vault_path, "rev-parse", "--short", "HEAD")
     if version and health.git(config.vault_path, "--no-optional-locks", "status", "--porcelain"):
         version += "+dirty"
-    return {"schema": 1, "engine": engine, "version": version, "tasks": task_entries, "hubs": hubs,
+    return {"schema": 2, "engine": engine, "version": version, "tasks": task_entries, "hubs": hubs,
             "goals": _goals(vault, task_entries),
-            "routines": routine_entries, "triggers": trigger_entries, "ledger": recent,
-            "journal": _journal(vault, today),  # kept for one more release while the owner's app switches to loops
+            "routines": routine_entries, "ledger": recent,
             "needsYou": owner_items, "outputs": _outputs(vault),
             "loops": _loops(vault, loops.open_loops(config)),
             "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
-            "idea": owner_idea, "ideasOpen": ideas_open, "channels": _channels(vault),
-            "shareable": _shareable(vault, hubs, recent, routine_hubs),
+            "idea": owner_idea,
             "waitingOnComputer": [task["id"] for task in task_entries if task["open"] and task["resume"] == "computer"],
             "responsibilities": responsibility_entries,
             # an organisation's stage is the whole team's, so it shows what was stated and seen
