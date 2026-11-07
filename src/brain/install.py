@@ -29,7 +29,7 @@ def sessions_records_path() -> Path:
 
 
 CORE = frozenset({"attribute", "sleep1", "sleep2", "rem", "recall", "improve", "people", "explore", "watch", "continue",
-                  "prime", "setup", "morning", "evening"})
+                  "prime", "setup", "morning", "evening", "seed"})
 # Day routines that were the vault's own until 0.18: the first render keeps the vault's copy beside the new one, as
 # previous.md, so its own steps can be moved under `## Local` and nothing the owner asked for is lost.
 ADOPTED = frozenset({"morning", "evening"})
