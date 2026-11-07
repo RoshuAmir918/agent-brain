@@ -172,6 +172,7 @@ CLAIM_WORDS = 16   # derived routing statements, never copied messages
 
 CLAIM_URL = re.compile(r"\b[a-z][a-z0-9+.-]*:\S+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}\b", re.I)   # URLs, including bare domains
 
+
 def deference_reading(vault, today: date, account: str = "all", days: int = DAYS) -> dict:
     """List company mail with deference cues, exposing only addresses, dates and pointers."""
     if vault.config.edition != "enterprise":
@@ -220,6 +221,7 @@ def deference_reading(vault, today: date, account: str = "all", days: int = DAYS
     return {"window": {"from": floor.isoformat(), "to": today.isoformat()},
             "accounts": [name for name, _ in found], "messages": messages, "problems": problems}
 
+
 def render_deference(data: dict) -> str:
     """Render only the mail reading list's metadata and problems."""
     out = [f"{data['window']['from']} to {data['window']['to']} · {', '.join(data['accounts'])}"]
@@ -227,6 +229,7 @@ def render_deference(data: dict) -> str:
             for item in data["messages"]]
     out += [f"problem: {problem}" for problem in data["problems"]]
     return "\n".join(out)
+
 
 def deference_claims(text: str) -> tuple[list[Row], list[str]]:
     """Parse derived deference lines, reporting refusals without repeating their contents."""
