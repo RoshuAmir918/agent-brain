@@ -42,7 +42,10 @@ def location(vault, request):
 def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
     config, where = location
     value = ("Project" if name == "hub" else "2026-11-06 08:05" if name == "resume" else "new-value" if name == "work"
+             else "T-000" if name == "after"
              else "new value")
+    if name == "after":
+        tasks.write_archive(config, tasks.Task("T-000", "Earlier", "", {"state": "completed"}), "cold", TODAY)
     out = cli(vault, capsys, "T-001", "set", "--" + name, value)
     assert out == f"T-001 updated: {name}"
     task, = entry(config)

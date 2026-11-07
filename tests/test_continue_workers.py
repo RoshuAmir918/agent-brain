@@ -120,6 +120,7 @@ def test_due_json_shape_order_and_daily(worker, capsys):
     assert [item["id"] for item in output] == [line.split(" · ")[0] for line in listed] == [three.tid, "T-001", two.tid]
     assert output[1] == {"id": "T-001", "title": "Sample", "state": "in_progress", "pace": "regular",
                          "handedOff": "2026-11-05", "report": "demiurge:conversation", "work": "result",
+                         "after": None, "stages": [],
                          "delivers": "notes in Home", "next": "deliver the notes", "lastChunk": first,
                          "checkpoint": None, "chunksToday": 1, "budget": 16, "budgetLeft": 15,
                          "reviewDue": False, "chunksSinceReview": 1, "lastReview": None}
