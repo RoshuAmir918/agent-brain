@@ -45,6 +45,8 @@ class Item:
     owner: str = field(init=False, default="")   # who it is for: its task's owner, in an organisation's intellect; else ""
     default: str = ""   # a consult's stated default when nobody answers
     area: str = ""    # the ownership area a consult concerns
+    hours: dict = field(default_factory=dict)   # a consult recipient's current working hours
+    away: str = ""    # the last local date of their current absence, else empty
 
     def __post_init__(self, label: str | None) -> None:
         key = json.dumps([self.origin, self.source, label if label is not None else self.text], ensure_ascii=False)
