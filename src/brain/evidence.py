@@ -1,18 +1,21 @@
 """The engine's one evidence contract (docs/image.md section 4): dated facts each source writes outside the vault."""
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import Iterable
 
-from . import runtime
+from . import retrieve, runtime
 from .lock import evidence_lock
 
 SEP = " · "
 SOURCE = re.compile(r"[a-z][a-z0-9-]*")
 MONTH = re.compile(r"\d{4}-\d{2}\.md")
+NAME = re.compile(r"`([^`]+)`|(#\d+)|\b(\w+(?:[_./-]\w+)+)\b")   # tables, files, PRs and paths, kept whole
+HALF_LIFE_DAYS = 90   # a default until evals measure better: a fact a quarter old counts half as much
 
 
 @dataclass
@@ -109,3 +112,40 @@ def read(source: str = "", hint: str = "", since: date | None = None, home: Path
                         not hint or hint.casefold() in (each.casefold() for each in row.hints)):
                     found.append(row)
     return sorted(reversed(found), key=lambda row: row.date, reverse=True)
+
+
+@dataclass
+class Recalled:
+    row: Evidence
+    score: float
+    shared: tuple[str, ...]
+    outcomes: tuple[str, ...]
+
+
+def terms(text: str) -> set[str]:
+    """Words, plus whole names, so `analytics_events` is one rare term and not only two common ones."""
+    return retrieve.tokens(text) | {"".join(match).casefold() for match in NAME.findall(text)}
+
+
+def recall(about: str, rows: list[Evidence], today: date, limit: int = 20) -> list[Recalled]:
+    """The facts that share the choice's names, rarest names and newest facts first. A consult appears once, with the
+    verbs of every event that carried its id, oldest first, so a choice can see how the question ended."""
+    wanted = terms(about)
+    if not wanted:
+        return []
+    chains = {}
+    for row in reversed(rows):
+        if row.extra.get("id"):
+            chains.setdefault((row.source, row.extra["id"]), []).append(row.verb)
+    found = [(row, terms(" ".join((row.fact, *row.hints))) & wanted) for row in rows]
+    counts = {term: sum(term in shared for _, shared in found) for term in wanted}
+    best = {}
+    for row, shared in found:
+        if not shared:
+            continue
+        rarity = sum(math.log((len(rows) + 1) / (counts[term] + 0.5)) for term in shared)
+        score = rarity * 0.5 ** (max(0, (today - row.date).days) / HALF_LIFE_DAYS)
+        key = (row.source, row.extra.get("id") or id(row))
+        if key not in best or score > best[key].score:
+            best[key] = Recalled(row, round(score, 3), tuple(sorted(shared)), tuple(chains.get(key, ())))
+    return sorted(best.values(), key=lambda entry: (-entry.score, -entry.row.date.toordinal()))[:limit]
