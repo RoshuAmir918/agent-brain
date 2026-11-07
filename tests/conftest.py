@@ -34,6 +34,21 @@ def vault(tmp_path):
     return make_vault(tmp_path / "memory")
 
 
+@pytest.fixture(scope="session")
+def fixture_lock_home(tmp_path_factory):
+    return tmp_path_factory.mktemp("locks")
+
+
+@pytest.fixture(autouse=True)
+def fixture_locks(fixture_lock_home, monkeypatch):
+    """Fixture writers share real flock locks, without writing to the user's home."""
+    class LockPath(type(fixture_lock_home)):
+        @classmethod
+        def home(cls):
+            return fixture_lock_home
+    monkeypatch.setattr("brain.lock.Path", LockPath)
+
+
 @pytest.fixture
 def template_config(tmp_path):
     """Explicit template defaults for parser and renderer unit tests."""

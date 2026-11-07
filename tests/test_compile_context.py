@@ -116,16 +116,15 @@ def test_context_directory_lists_hubs_people_and_open_tasks(context_vault):
     assert "Active, Overflow" in body.split("- Hubs and topics: ", 1)[1].split("\n", 1)[0]
 
 
-def test_context_includes_goals_when_present_and_skips_them_until_then(context_vault):
+def test_context_includes_active_goals_and_capture_guidance_until_then(context_vault):
+    from brain import goals
     text = compile_context.build(Vault(context_vault))
-    assert "## memory/human/Goals.md" not in text
-    (context_vault / "human").mkdir()
-    fm.write(context_vault / "human/Goals.md", {"kind": "orientation", "pinned": True, "tier": "hot"},
-             "# Goals\n## Active goals\nGOALS_BODY\n")
+    assert "No active goals" in text and f"Ask {Config.load(context_vault).human_name} once" in text
+    goals.new(Config.load(context_vault), "Read widely", "Read beyond my field")
     vault = Vault(context_vault)
     text = compile_context.build(vault)
-    assert "## memory/human/Goals.md\n\n# Goals" in text and "GOALS_BODY" in text
-    assert text.index("# Current") < text.index("GOALS_BODY") < text.index("# Triggers")
+    assert "## memory/human/Goals.md\n\n- G-1 — Read widely" in text
+    assert text.index("# Current") < text.index("G-1 — Read widely") < text.index("# Triggers")
     assert "human/Goals" not in compile_context.directory(vault)
     assert Config.load(context_vault).template_values()["human_goals"] == "human/Goals.md"
 

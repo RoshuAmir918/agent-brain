@@ -8,6 +8,7 @@ from datetime import date
 from typing import Literal
 
 from . import fm, runtime, views
+from .config import Config
 
 SLUG = re.compile(r"[a-z0-9-]+")
 ENTRY = re.compile(r"^[ \t]*-[ \t]+[^|\n]+\|[ \t]*([a-z0-9-]+)[ \t]*\|")
@@ -69,6 +70,7 @@ class Work:
     editable: bool
     created: date | None
     opened: date | Literal["never"] | None
+    goal: str | None = None
 
 
 def _date(field: str, prefix: str) -> date | None:
@@ -93,5 +95,26 @@ def parse(body: str) -> list[Work]:
         title, slug, form, status, access = fields[:5]
         created = _date(fields[6], "created ") if len(fields) > 6 else None
         opened = ("never" if fields[7] == "opened never" else _date(fields[7], "opened ")) if len(fields) > 7 else None
-        out.append(Work(slug, title, form, status, access == "editable", created, opened))
+        goal = next((value.removeprefix("goal ") for value in fields[8:] if value.startswith("goal ")), None)
+        out.append(Work(slug, title, form, status, access == "editable", created, opened, goal))
     return out
+
+
+def goal_for(slug: str) -> str | None:
+    home = runtime.configured()
+    if home is None or not SLUG.fullmatch(slug):
+        return None
+    path = home / "works" / slug / "GOAL.md"
+    return fm.read(path)[0].get("goal") if path.exists() else None
+
+
+def set_goal(config: Config, slug: str, goal: str) -> None:
+    from .goals import require_active
+    require_active(config, goal)
+    if not SLUG.fullmatch(slug):
+        raise ValueError("work slug must match [a-z0-9-]+")
+    path = runtime.home() / "works" / slug / "GOAL.md"
+    if not path.parent.is_dir():
+        raise ValueError("work folder does not exist; create it with demiurge works new")
+    data, body = fm.read(path) if path.exists() else ({}, "")
+    fm.write(path, {**data, "goal": goal}, body)

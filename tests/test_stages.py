@@ -37,7 +37,7 @@ def archive(config, tid, *, after=None, work=None, state="completed", body=""):
 def test_after_new_set_clear_and_handoff_preserve(stages_config, capsys):
     config = stages_config
     archive(config, "T-002")
-    out = json.loads(cli(config, capsys, "task", "new", "Next stage", "--source", "now do X",
+    out = json.loads(cli(config, capsys, "task", "new", "Next stage", '--source', '"now do X"',
                          "--after", "T-002", "--delivers", "the next result", "--json"))
     assert out == {"id": "T-003", "title": "Next stage"}
     task = next(t for t in tasks.all_tasks(config) if t.tid == "T-003")
@@ -71,7 +71,7 @@ def test_after_invalid_new_does_not_create(stages_config, capsys, target, messag
     config = stages_config
     before = snapshot(config.vault_path)
     with pytest.raises(SystemExit) as error:
-        cli(config, capsys, "task", "new", "Next", "--source", "now do X", "--after", target)
+        cli(config, capsys, "task", "new", "Next", '--source', '"now do X"', "--after", target)
     assert error.value.code == 1 and message in capsys.readouterr().err
     assert snapshot(config.vault_path) == before
 
@@ -87,7 +87,7 @@ def test_stages_union_order_cap_self_exclusion_and_register_precedence(stages_co
     archive(config, "T-007", work="result", state="cancelled", body="- **Dropped:** 2026-11-04 — seventh reason\n")
     archive(config, "T-008", after="T-004", body="- **Delivers:** eight\n- **Verified:** proof\n- **Next action:** follow up\n")
     with vault_lock(config):
-        current = tasks.new_task(config, "Current", "next", work="result", values={"after": "T-008"})
+        current = tasks.new_task(config, 'Current', '"next"', work="result", values={"after": "T-008"})
         path = config.vault_path / config.agent("Tasks.md")
         data, body = fm.read(path)
         fm.write(path, data, body + "\n" + warm.render_line(config))
@@ -112,7 +112,7 @@ def test_after_chain_without_work_includes_closed_and_hand_archived(stages_confi
     (folder / "T-002.md").write_text("# T-002 — Old hand archive\n<!-- brain: state=completed -->\n- **After:** T-001\n")
     archive(config, "T-003", after="T-002")
     with vault_lock(config):
-        current = tasks.new_task(config, "Follow on", "now do X", values={"after": "T-003"})
+        current = tasks.new_task(config, 'Follow on', '"now do X"', values={"after": "T-003"})
     assert [row["id"] for row in continuation.stages(config, current)] == ["T-001", "T-002", "T-003"]
     # Legacy broken chains and cycles terminate even if someone wrote them by hand.
     archive(config, "T-003", after="T-004")
@@ -126,7 +126,7 @@ def test_same_work_alone_supplies_stages_without_a_checkpoint(stages_config, cap
     archive(config, "T-002", work="result", body="- **Completed:** 2026-11-05 — earlier outcome\n")
     archive(config, "T-003", work="other")
     with vault_lock(config):
-        current = tasks.new_task(config, "Current", "next", work="result", values={"delivers": "visible result"})
+        current = tasks.new_task(config, 'Current', '"next"', work="result", values={"delivers": "visible result"})
         tasks.hand_off(config, current.tid, TODAY)
     text = cli(config, capsys, "continue", current.tid)
     assert text.startswith("Earlier stages of this work:\n- T-002")
@@ -157,7 +157,7 @@ def test_state_due_and_positional_json_and_instruction_order(stages_config, caps
     archive(config, "T-002", body="- **Completed:** 2026-11-06 — first outcome\n- **Delivers:** applications\n"
             "- **Verified:** confirmations\n- **Next:** contact agency\n")
     with vault_lock(config):
-        task = tasks.new_task(config, "Next stage", "next", values={"after": "T-002", "delivers": "a follow up"})
+        task = tasks.new_task(config, 'Next stage', '"next"', values={"after": "T-002", "delivers": "a follow up"})
         tasks.hand_off(config, task.tid, TODAY, "Home")
     continuation.checkpoint(config, task.tid, "Saved stopping point")
     continuation.review(config, task.tid, "met", "follow up confirmed")
@@ -263,7 +263,7 @@ def test_history_append_preserves_previous_entries_and_omits_absent_next(stages_
     folder = works.runtime.home() / "works/result"
     folder.mkdir(parents=True)
     for title in ("First", "Second"):
-        row = json.loads(cli(config, capsys, "task", "new", title, "--source", title, "--work", "result",
+        row = json.loads(cli(config, capsys, "task", "new", title, '--source', f'"{title}"', "--work", "result",
                              "--delivers", "visible result", "--json"))
         cli(config, capsys, "task", row["id"], "done", "--why", f"delivered {title}")
     text = (folder / "HISTORY.md").read_text()

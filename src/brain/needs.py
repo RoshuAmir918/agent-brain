@@ -39,6 +39,7 @@ class Item:
     detail: str = ""
     context: str = ""
     needs: str = ""
+    goal: str | None = None
     label: InitVar[str | None] = None   # what the id is keyed on, when the text is built from changing fields
     task: str = field(init=False)       # the task it stands for (T-nnn), when its source names one; else ""
     owner: str = field(init=False, default="")   # who it is for: its task's owner, in an organisation's intellect; else ""
@@ -196,7 +197,8 @@ def _improvements(body: str, source: str, today: date | None = None) -> list[Ite
         hub = source.rsplit("/", 1)[-1].removesuffix(".md")
         ask, why = _owner_lines(entry)
         out.append(Item("ask", ask or "Adopt? " + title, "improvement", since, source + "#" + anchor,
-                        detail=why, context=hub, label="Adopt? " + title))
+                        detail=why, context=hub, label="Adopt? " + title,
+                        goal=fm.field(entry, "Goal") or fm.field(body[:span[0]], "Goal")))
     return out
 
 

@@ -5,7 +5,7 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import channel_files, fm, index, works
+from . import channel_files, fm, goals, index, works
 from .config import SECTIONS, Config
 from .tasks import is_open, load_tasks, parse_register
 from .vault import Vault
@@ -58,7 +58,7 @@ def open_register(vault: Vault, body: str) -> str:
     return "\n\n".join(sections)
 
 
-def build(vault: Vault, only: tuple[str, ...] | None = None) -> str:
+def build(vault: Vault, only: tuple[str, ...] | None = None, *, app_changes: bool = True) -> str:
     """The compiled context. `only` narrows it to the sections one run asks for (a routine's declaration), always within
     the sections the vault itself allows."""
     config = vault.config
@@ -73,6 +73,8 @@ def build(vault: Vault, only: tuple[str, ...] | None = None) -> str:
     sections = [header]
     for name in SECTIONS:
         if name not in allowed:
+            continue
+        if name == "goals" and config.edition == "enterprise":
             continue
         if name == "before":
             sections.append(BEFORE)
@@ -95,7 +97,11 @@ def build(vault: Vault, only: tuple[str, ...] | None = None) -> str:
             elif rel == config.human_portrait:
                 rule = COMPANY_PORTRAIT if config.edition == "enterprise" else PORTRAIT
                 body = rule.format(human=config.human_name) + "\n\n" + body.strip()
+            elif rel == config.human_goals:
+                body = goals.context(config, app_changes=app_changes)
             sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
+        elif name == "goals":
+            sections.append(f"## {config.link(config.human_goals)}\n\n{goals.context(config, app_changes=app_changes)}")
     sections.append("Conversations and everything else are retrieved on demand with `brain retrieve`.")
     return "\n\n".join(sections) + "\n"
 
@@ -222,6 +228,6 @@ def summary(text: str, limit: int = WORD_LIMIT) -> str:
 
 
 def write(vault: Vault, out: Path | None = None) -> str:
-    text = build(vault)
-    (out if out is not None else repo_root(vault.config) / ".context.md").write_text(text, encoding="utf-8")
+    text = build(vault, app_changes=False)
+    fm.write(out if out is not None else repo_root(vault.config) / ".context.md", {}, text)
     return summary(text, vault.config.context.hot_words)

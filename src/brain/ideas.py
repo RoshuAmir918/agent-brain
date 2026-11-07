@@ -30,19 +30,21 @@ Proposals for new ways to help, for the owner to consider one at a time.
 ## Open
 
 """
-DETAIL = re.compile(r"^[ \t]+-[ \t]+(why|needs):[ \t]*(.+?)[ \t]*$")
+DETAIL = re.compile(r"^[ \t]+-[ \t]+(why|needs|goal):[ \t]*(.+?)[ \t]*$")
 ANSWERS = ("yes", "not-now", "no", "stop-asking")
 
 
 def _bullet(line: str) -> Item | None:
-    match = re.fullmatch(r"- (\d{4}-\d{2}-\d{2}) · (.+?) · \[\[([^\[\]\n]+)\]\]", line.strip())
+    match = re.fullmatch(r'- (\d{4}-\d{2}-\d{2}) · (.+?) · (\[\[[^\[\]\n]+\]\]|"[^"\n]+")', line.strip())
     if not match or len(line.split(" · ")) != 3 or not match[2].strip():
         return None
     try:
         date.fromisoformat(match[1])
     except ValueError:
         return None
-    source = match[3].split("|", 1)[0].strip()
+    source = match[3]
+    if source.startswith("[["):
+        source = source[2:-2].split("|", 1)[0].strip()
     return Item("idea", match[2].strip(), "ideas", match[1], source) if source else None
 
 
@@ -55,8 +57,8 @@ def parse_section(body: str, *, cut: bool = True) -> list[Item]:
     for line in body[span[0]:span[1]].splitlines():
         detail = DETAIL.match(line)
         if detail and out:
-            field = "detail" if detail[1] == "why" else "needs"
-            setattr(out[-1], field, (getattr(out[-1], field) + " " + detail[2]).strip())
+            field = "detail" if detail[1] == "why" else detail[1]
+            setattr(out[-1], field, ((getattr(out[-1], field) or "") + " " + detail[2]).strip())
         elif (item := _bullet(line)) is not None:
             out.append(item)
     if cut:
@@ -161,8 +163,10 @@ def add_refusal(config: Config, today: date, text: str) -> str | None:
     return None
 
 
-def add(config: Config, today: date, text: str, source: str, why: str = "", needs: str = "") -> bool:
+def add(config: Config, today: date, text: str, source: str, why: str = "", needs: str = "", goal: str | None = None) -> bool:
     with vault_lock(config):
+        from .goals import guard
+        guard(config, goal, source)
         if add_refusal(config, today, text):
             return False
         source = source.strip()
@@ -171,8 +175,9 @@ def add(config: Config, today: date, text: str, source: str, why: str = "", need
         path = config.vault_path / config.agent("Ideas.md")
         data, body = fm.read(path) if path.exists() else fm.split(TEMPLATE)
         text = " ".join(text.replace("·", "-").split())
-        bullet = f"- {today.isoformat()} · {text} · [[{source}]]"
-        for label, value in (("why", why), ("needs", needs)):
+        reference = source if re.fullmatch(r'"[^"\n]+"', source) else f"[[{source}]]"
+        bullet = f"- {today.isoformat()} · {text} · {reference}"
+        for label, value in (("why", why), ("needs", needs), ("goal", goal or "")):
             if value.strip():
                 bullet += f"\n  - {label}: {' '.join(value.split())}"
         span = needs_mod._section(body, "Open")
@@ -206,7 +211,10 @@ def respond(config: Config, which: str, today: date, answer: str) -> Item:
             body = f"- **Status:** {item.detail}\n"
             if item.needs:
                 body += f"- **Needs:** {item.needs}\n"
-            body += f"- **Source:** [[{item.source}]]\n"
+            reference = item.source if item.source.startswith('"') else f"[[{item.source}]]"
+            body += f"- **Source:** {reference}\n"
+            if item.goal:
+                body += f"- **Goal:** {item.goal}\n"
             task = tasks.Task(tid, item.text, tasks.with_handoff(body, today, "Home"), {"state": "ready"})
             tasks.append_task(config, task)
         if answer != "not-now":

@@ -24,6 +24,8 @@ Every process the runtime starts for an agent (its shell, a routine's script, a 
 - `AGENT_HOME`: the agent's workspace root, where `records/`, `harness/` and `works/` live. The engine reads only `AGENT_HOME`. Without it, runtime-dependent paths report `AGENT_HOME is not set`; `brain version`, vault paths and `brain validate` still work. `brain update` installs the package and prints `scripts not reinstalled: AGENT_HOME is not set`.
 - A `PATH` holding `brain` and `demiurge`.
 
+The harness sets `BRAIN_RUN=routine` for routine runs and `BRAIN_RUN=worker` for worker runs. Conversation shells leave it unset and may set `DEMIURGE_CONVERSATION` to their conversation id. Task workers also set `DEMIURGE_TASK` (and may set the thread's conversation id). `DEMIURGE_TASK` and `BRAIN_SPEAKER` on `cron` or `subagent` independently identify a routine or worker. With none of these signals, the session is a conversation, including when `AGENT_HOME` is set. In personal vaults, new tasks and ideas in routine or worker runs need `--goal G-n` naming an active goal, or `--source` containing the owner's actual quoted request. A follow-up to the worker's current task is asked work; it inherits the parent's goal only while that goal is active. An enterprise vault follows its assigned duties and initiatives.
+
 No credential is ever in this environment beyond what `agents/<id>.json`'s `env` names for that agent.
 
 ## 3. The schedule: declared by the vault
@@ -105,7 +107,7 @@ Handed-off tasks run through background workers, outside the routine schedule. T
 
 ## 5. What the runtime calls
 
-At the start of a conversation, in parallel: `brain paths soul`, `brain paths skills`, `brain compile-context --write` (then reads `.context.md`), `brain timezone`, `brain session-context --platform --user-id [--user-id-alt] [--user-name] [--chat-id]`.
+At the start of a conversation, in parallel: `brain paths soul`, `brain paths skills`, the cached `.context.md` (running `brain compile-context --write` if absent), `brain timezone`, and `brain session-context --platform --user-id [--user-id-alt] [--user-name] [--chat-id] --ack-notices`. App goal writes refresh the cache; per-session app notices come through session-context. Without `--ack-notices`, session-context is read-only, including repeated previews of pending notices.
 
 `brain tellable <person|known|anyone> [--json]` resolves the owner's tellable note for an audience; JSON is `{person, groups, subjects: {subject: {level, lines}}}`. Outside sessions (including intellects, resolved for their owners) carry those lines under `What you may tell <name> about <owner>, and nothing else:`, the format in `brain.session_context.TELLABLE_HEADING`. The runtime keys on that heading: such a session gets only its session context, no compiled context, prefetched notes or vault tools (`read_file`, `search_files`, `terminal`, `write_file`, `patch`). Tools that reach the owner remain available. The resolved lines are capped at 600 words, dropping oldest evidence first, and say `Nothing yet.` when empty. Owner, maintainer, enterprise member and routine sessions have no such block; enterprise intellect sessions do. Legacy and missing disclosure notes still produce the block, resolved as `anyone`.
 
@@ -115,6 +117,8 @@ After a conversation goes quiet: `brain record-spec --json` (the record call's s
 
 From the owner's app: `brain needs-you --dismiss <id> no|stop-asking`, `brain task <id> drop|done`, `brain ideas --respond <id> yes|not-now|no|stop-asking`, and `brain state --json` for the push.
 
+Goal controls run argv arrays: `brain goals new <title> --words <words> [--reach [--by YYYY-MM-DD]] --from-app`; `brain goals G-n edit [--title …] [--words …] [--by YYYY-MM-DD | --clear-by] --from-app`; `brain goals G-n reached|set-aside|reopen --why <why> --from-app`. App edits refresh the cached active goals immediately. The engine records the app change until the next owner/routine `session-context --ack-notices` or printed CLI context including goals; cached context writes, nightly refreshes and state exports never consume it. Transient notices stay out of `.context.md`, since the harness may reuse that file between sessions. The context says once "<person> added/changed this in the app: …". `<runtime_dir>/goals.json` is engine-owned capture and pending-notice state, shared under the vault lock. `brain goals asked` atomically claims the once-ever capture question, printing it only to the winning caller. It requires `BRAIN_SPEAKER=<platform>:<owner-id>` identifying the owner (or `cli:<id>` for the local owner), or `BRAIN_SPEAKER=cron:<id>` for the morning briefing. Capture asks only the named owner, never another conversation partner.
+
 The runtime gives the agent these tools besides its six workspace tools: `demiurge_tell_owner`, `demiurge_message`, `demiurge_today`.
 
 ### A routine's context
@@ -122,6 +126,8 @@ The runtime gives the agent these tools besides its six workspace tools: `demiur
 A routine's skill may declare, in its frontmatter's `metadata.runtime`, the compiled-context sections its run needs: `context: [start, current, tasks, library]`, from `before`, `start`, `current`, `primed`, `goals`, `triggers`, `upcoming`, `tasks`, `library`, `directory`. The runtime then loads `brain compile-context --sections <those>` for that run instead of the whole `.context.md`; an empty list means no compiled context. A skill without the declaration gets the whole context. The engine owns these declarations, since it owns the routines; a vault's own skills may declare them too. Requested sections remain within the vault's `[context].sections` allowlist; an explicit list must include `library` to load it.
 
 ## 6. Changes
+
+- 0.66.0: `brain goals` owns personal goals, evidence, capture and an archive-and-recreate migration. Tasks and ideas accept `--goal` and export it; the state export adds contract-v1 `goals`, including reached/set-aside goals and links, or `[]` for enterprises. Runtime unasked task/idea creation needs an active goal or a quoted owner request. Hubs and drafts link through `brain goals G-n link <note>`; local work metadata is `$AGENT_HOME/works/<slug>/GOAL.md` (frontmatter `goal: G-n`), written with `brain works goal <slug> --goal G-n`; a Library row may also carry `goal G-n` after its date fields. No runtime-owned Library or work-sync state is written by the engine.
 
 - 0.65.0: the person's seed. `brain portrait seed --account <address|all> [--days N] [--json]` classifies synced owner mail and calendar for the personal seed skill; `brain people friends [--json]` ranks close-friends candidates without granting access. The reveal is a confirm, with any group proposal a separate ask.
 - 0.64.0: the tellable note. `brain tellable <person|known|anyone> [--json]` returns only the owner's sourced facts at the resolved gist/detail level. Outside session contexts carry the fixed `TELLABLE_HEADING` block; the runtime uses it to withhold compiled context, prefetch and vault tools, keeping tools that reach the owner.
