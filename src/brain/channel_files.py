@@ -22,6 +22,9 @@ NOTICE_LIMIT = 30
 AUTOMATED = re.compile(r'\[bot\]|(^|[<\s"._+-])(no-?reply|do-?not-?reply|notifications?|notify|mailer-daemon|postmaster|alerts?)@',
                        re.I)
 CALENDAR_LIMIT = 12
+CANVAS_LIMIT = 8
+CANVAS_GRADED = timedelta(days=3)       # a grade counts as new for this long after Canvas records it
+CANVAS_NEWS = timedelta(days=2)         # and an announcement for this long after it was posted
 MAIL_LIMIT = 40
 
 
@@ -194,6 +197,87 @@ def calendar(vault: Vault, days: int = 7) -> str:
     if seen["problem"]:
         lines.append(f"- Note: {seen['problem']}.")
     return head + "\n".join(lines)
+
+
+def canvas_schools() -> list[Path]:
+    """The owner's synced Canvas schools: folders under $AGENT_HOME/channels named for a host (no '@'), with courses."""
+    home = runtime.configured()
+    if not home:
+        return []
+    try:
+        folders = sorted((Path(home) / "channels").iterdir())
+    except OSError:
+        return []
+    return [f for f in folders if "@" not in f.name and "." in f.name and (f / "courses.md").is_file()]
+
+
+def canvas_time(value: str, config: Config) -> datetime | None:
+    """A time as the sync writes it ("2026-11-08 15:00 +00:00"), in the owner's zone; None when blank or unreadable."""
+    try:
+        return datetime.strptime(value.strip(), "%Y-%m-%d %H:%M %z").astimezone(config.zone)
+    except ValueError:
+        return None
+
+
+def parse_assignments(text: str, config: Config) -> list[dict]:
+    """One course's assignments.md: a `# Assignments: <course> (<id>)` heading, then a `## <name>` section of
+    `key: value` lines per assignment."""
+    head, *sections = re.split(r"^## ", text, flags=re.M)
+    course = re.search(r"^# Assignments: (.*) \(\d+\)$", head, re.M)
+    found = []
+    for section in sections:
+        title, _, rest = section.partition("\n")
+        fields = dict(line.split(": ", 1) for line in rest.splitlines() if ": " in line)
+        found.append({"course": course[1] if course else "", "title": title.strip(),
+                      "due": canvas_time(fields.get("due", ""), config), "submission": fields.get("submission", ""),
+                      "score": fields.get("score", ""), "points": fields.get("points", ""),
+                      "graded": canvas_time(fields.get("graded", ""), config)})
+    return found
+
+
+def canvas(vault: Vault, days: int = 7) -> str:
+    """What is due on the owner's Canvas, what is missing, and what changed: new grades and announcements. Empty when
+    no Canvas is synced, since most owners have none."""
+    schools = canvas_schools()
+    if not schools:
+        return ""
+    config = vault.config
+    now = config.local()
+    due, missing, graded, news = [], [], [], []
+    for school in schools:
+        for path in sorted((school / "courses").glob("*/assignments.md")):
+            try:
+                assignments = parse_assignments(path.read_text(encoding="utf-8"), config)
+            except OSError:
+                continue
+            for item in assignments:
+                state = item["submission"]
+                done = state.startswith(("submitted", "graded", "pending_review"))
+                if item["due"] and now <= item["due"] <= now + timedelta(days=days) and not done:
+                    due.append(item)
+                if "missing" in state:
+                    missing.append(item)
+                if item["graded"] and timedelta(0) <= now - item["graded"] <= CANVAS_GRADED:
+                    graded.append(item)
+        for path in sorted((school / "courses").glob("*/announcements/*/*.md")):
+            try:
+                data, _ = fm.read(path)
+            except (OSError, ValueError):
+                continue
+            posted = canvas_time(str(data.get("posted") or ""), config)
+            if posted and timedelta(0) <= now - posted <= CANVAS_NEWS:
+                news.append((posted, str(data.get("title") or ""), str(data.get("course") or "")))
+    lines = [f"- {i['due']:%a %b %-d %H:%M} · {i['title']} ({i['course']}) · {i['submission'] or 'unsubmitted'}"
+             for i in sorted(due, key=lambda i: i["due"])[:CANVAS_LIMIT]] \
+        or [f"- Nothing due on Canvas in the next {days} days that isn't already handed in."]
+    lines += [f"- Missing: {i['title']} ({i['course']})" for i in missing[:CANVAS_LIMIT]]
+    lines += [f"- Graded {i['graded']:%a %b %-d}: {i['title']} ({i['course']}) · {i['score']}/{i['points']}"
+              for i in sorted(graded, key=lambda i: i["graded"], reverse=True)[:CANVAS_LIMIT]]
+    lines += [f"- Announcement {posted:%a %b %-d}: {title} ({course})" for posted, title, course in sorted(news, reverse=True)[:CANVAS_LIMIT]]
+    seen = coverage(vault)
+    if seen and "sync" in seen["problem"]:
+        lines.append(f"- Note: {seen['problem']}.")
+    return f"## Canvas: due in the next {days} days, and what changed\n\n" + "\n".join(lines)
 
 
 def worth_a_look(data: dict, own: set[str]) -> str:
