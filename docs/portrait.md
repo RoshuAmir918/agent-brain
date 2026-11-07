@@ -122,6 +122,33 @@ When the owner's first account connects (and again, more narrowly, for each late
 
 A connection made later runs the same pass scoped to that account, and adds or updates lines rather than rewriting the portrait. The 0.54.0 behaviour of a new connection asking once what the owner would like done with it stays as is.
 
+### The person's seed, as built (0.65.0)
+
+The pass reads what the account has synced, not twelve months: Demiurge keeps the last thirty days of mail and the calendar from a week back to a month ahead. A longer backfill is a change to the sync, not to this pass, and the pass reads whatever window the files hold.
+
+**The arithmetic is the engine's.** `brain portrait seed --account <address|all> [--json]` reads the owner accounts' synced files under `$AGENT_HOME/channels/<account>/` and prints a reading list in which every item already says whose it is (`docs/sharing.md`):
+
+| kind | whose | how the engine tells |
+| --- | --- | --- |
+| `sent` | own | the `SENT` label, or a sender that is one of the owner's addresses |
+| `transactional` | own | `CATEGORY_UPDATES` or an automated sender, addressed to the owner in `to`, not forwarded |
+| `forwarded` | someone else's | a `Fwd:` or `Fw:` subject, or a forwarded-message block in the body |
+| `cc` | someone else's | the owner in `cc` and not in `to` |
+| `group` | someone else's | more than one other person in `to` and `cc` |
+| `person` | someone else's | any other mail to the owner |
+| `event` | own | a calendar event the owner accepted, or one with no attendees; declined and cancelled events are left out |
+
+Promotions, social, forum and spam are skipped, as everywhere. Transactional mail is grouped by sender with counts, so a dentist's three reminders read as one relationship; recurring events are grouped by title. Each list is capped, newest first, with what was left out counted.
+
+**The judgment is the seed skill's,** in its personal section. It writes the first portrait (every line a `guess` with a `test:`, except what the owner said in conversation, which is `said`; sensitive subjects only as the owner wrote about them), and it files into `Tellable.md` every fact the reading list marks as the owner's own and that fits a subject, with a `gist:` line. An item marked someone else's may inform a portrait guess, which only the owner reads, and never a tellable line. It records the run as a Seeds note, as the company seed does, so `brain portrait coverage` knows the account was read.
+
+**The reveal is two items in Needs you, not one,** because they differ in what silence means:
+
+- a **`confirm`**: "Here's who I think you are", linking the portrait and naming how many lines friends may now hear, with the most surprising guess quoted. Unanswered, it settles as accepted after five days like any confirm; that is safe, because the owner can correct the portrait at any time and the guesses are never told.
+- an **`ask`**, only when the vault has no close-friends group: the people the intellect would treat as close friends, from `brain people friends`, which ranks confirmed profiles with a platform id by the evidence that the owner and their intellects already deal with each other (requests in the access log, a registered intellect whose owner is that person, Noted lines from them in the last sixty days). Silence never creates a group, since a group widens what its members hear; a yes is the owner's grant, recorded in the group note with their words as its source.
+
+A connection made later runs the pass scoped to that account. The 0.65.0 migration runs it once for every owner account already synced.
+
 ## 6. Transparency and sharing
 
 Signup says it plainly: the intellect reads your mail, your calendar and whatever else you connect, and it gets better the more it has. Everything connected is read, and nothing read is used for anything but this owner's intellect. What it may tell other people's intellects, experiences as a subject, the sharing defaults and asking around are a separate project, drafted in [`docs/sharing.md`](sharing.md); nothing in this design widens what is shared.
@@ -130,7 +157,7 @@ Signup says it plainly: the intellect reads your mail, your calendar and whateve
 
 - `brain portrait [--json]` prints the portrait with line ids, basis, confidence and last evidence.
 - `brain portrait --top N` prints the top After lines with their `for:` lists, for explore and prime.
-- `brain portrait seed --reviews DIR` runs an organisation's seed arithmetic over merged pull requests' review comments (which to read, in what window, what repeats where) and prints the reading list; the judgment is in the `seed` skill. `brain portrait seed --plans DIR` does the same over the tracker's projects and finished issues, for After and Energy. A person's form, over a connected account, comes with the mail seed.
+- `brain portrait seed --reviews DIR` runs an organisation's seed arithmetic over merged pull requests' review comments (which to read, in what window, what repeats where) and prints the reading list; the judgment is in the `seed` skill. `brain portrait seed --plans DIR` does the same over the tracker's projects and finished issues, for After and Energy. `brain portrait seed --account <address|all> [--days N] [--json]` reads a person's synced owner mail and calendar, classifying whose each item is; without `--days` it reads everything synced.
 - `brain reception set <id> <outcome>`, `brain reception --summary`.
 - `brain state --json` gains `portrait` (lines with ids, no `against:` text) and `reception` (the last 30 days), with the Demiurge reveal card that reads them. Demiurge shows them to the owner only: a maintainer's read-only view of the brain never includes the portrait.
 

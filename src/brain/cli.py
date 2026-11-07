@@ -566,6 +566,16 @@ def cmd_access(args):
 
 def cmd_people(args):
     from . import directory
+    if args.action == "friends":
+        data = access.friends(Vault(args.config.vault_path), args.config.today())
+        if args.json:
+            print(json.dumps(data, ensure_ascii=False, indent=2))
+            return
+        print("Close friends group: " + ("exists" if data["exists"] else "none"))
+        for item in data["candidates"]:
+            print(f"- {item['name']} · {item['access']} access requests · {item['intellects']} intellects · "
+                  f"{item['noted']} Noted lines · {args.config.link(item['profile'])}")
+        return
     if args.action == "sync":
         try:
             if args.run:
@@ -1004,14 +1014,20 @@ def cmd_tellable(args):
 
 
 def cmd_portrait(args):
+    if args.action != "seed" and (args.reviews or args.plans or args.account or args.days is not None):
+        raise SystemExit("brain portrait: --reviews, --plans, --account and --days go with seed")
     if args.action == "coverage":
         data = seed.coverage(Vault(args.config.vault_path), args.config.today())
         print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else seed.render_coverage(data))
         return
     if args.action == "seed":
-        if bool(args.reviews) == bool(args.plans):
+        if sum(bool(value) for value in (args.reviews, args.plans, args.account)) != 1:
             raise SystemExit("brain portrait seed: one of --reviews DIR (merged PRs' review comments, for Taste) or "
-                             "--plans DIR (projects and the issues done on them, for After and Energy)")
+                             "--plans DIR (projects and the issues done on them, for After and Energy) or --account ADDRESS|all")
+        if args.account:
+            data = seed.personal(Vault(args.config.vault_path), args.config.today(), args.account, args.days)
+            print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else seed.render_personal(data))
+            return
         folder = Path(args.reviews or args.plans).expanduser()
         if not folder.is_dir():
             raise SystemExit(f"brain portrait seed: no folder {folder}")
@@ -1023,8 +1039,6 @@ def cmd_portrait(args):
         print(json.dumps(data, ensure_ascii=False, indent=2) if args.json
               else seed.render(data) if args.reviews else seed.render_direction(data))
         return
-    if args.reviews or args.plans or args.days is not None:
-        raise SystemExit("brain portrait: --reviews, --plans and --days go with seed")
     lines = portrait.load(args.config)
     if args.top is not None:
         lines = portrait.top(lines, args.top)
@@ -1387,6 +1401,8 @@ def main(argv=None):
     p.add_argument("--run", action="store_true"); p.set_defaults(fn=cmd_people)
     p = actions.add_parser("who", help="identify a person or intellect and find their vault profile", parents=[vault])
     p.add_argument("ident"); p.add_argument("--json", action="store_true"); p.set_defaults(fn=cmd_people)
+    p = actions.add_parser("friends", help="rank close-friends candidates from recorded contact, read only", parents=[vault])
+    p.add_argument("--json", action="store_true"); p.set_defaults(fn=cmd_people)
     s = sub.add_parser("task", help="create a task or change one: done, drop, yours, reopen, set",
                        description="brain task TID {done,drop,yours,reopen,set} [fields]; brain task new TITLE --source SOURCE", parents=[vault])
     s.add_argument("tid", metavar="TID|new", help="task id, or new to create a task")
@@ -1460,10 +1476,11 @@ def main(argv=None):
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_reception)
     s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
     s.add_argument("action", nargs="?", choices=["seed", "coverage"],
-                   help="seed: what to read to seed an organisation's portrait; coverage: what it knows and from where")
+                   help="seed: what to read to seed the portrait; coverage: what it knows and from where")
     s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments, for Taste")
     s.add_argument("--plans", metavar="DIR", help="seed: one file per project with the issues done on it, for After and Energy")
-    s.add_argument("--days", type=int, help=f"seed: the window in days (default {seed.DAYS} for reviews, {seed.PLAN_DAYS} for plans)")
+    s.add_argument("--account", metavar="ADDRESS|all", help="seed: the owner's synced mail and calendar")
+    s.add_argument("--days", type=int, help=f"seed: days back through today (default all synced for accounts, {seed.DAYS} for reviews, {seed.PLAN_DAYS} for plans)")
     s.add_argument("--top", type=int, metavar="N", help="only the top N After lines, with what each asks attention to watch")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_portrait)
     s = sub.add_parser("state", parents=[vault])

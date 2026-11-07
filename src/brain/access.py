@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import PurePosixPath
 
 from .config import Config
@@ -266,3 +267,49 @@ def matching_people(vault: Vault, config: Config, who: str) -> list[Note]:
     if separator and re.fullmatch(r"[A-Za-z][\w-]*", platform) and user_id:
         return matching_profiles(vault, config, (user_id,), platform)
     return [note for note in profiles if has_id_line(note.body, (who,))]   # an id line, never prose: a profile that mentions someone is not them
+
+
+def friends(vault: Vault, today: date) -> dict:
+    """Close-friends candidates, from recorded contact alone; this grants nothing."""
+    from . import access_log, session_context
+    config = vault.config
+    memberships = groups(vault, config)
+    close = [rel for rel in memberships if PurePosixPath(rel).stem.replace("_", " ").casefold() == "close friends"]
+    excluded = {config.human_profile} | {person for rel in close for person in memberships[rel]}
+    id_line = session_context._qualified_id_line("|".join(session_context.PLATFORMS), r"[^\s`*]+")
+    candidates = {}
+    names = {}
+    for note in _profiles(vault, config):
+        if note.rel in excluded or not confirmed(note) or not re.search(id_line, note.body):
+            continue
+        folder = PurePosixPath(note.rel).parent.name.replace("_", " ")
+        title = re.search(r"^#[ \t]+(.+?)[ \t]*#*[ \t]*$", note.body, re.M)
+        name = title[1] if title else folder
+        names[note.rel] = {value.casefold() for value in (folder, name)}
+        candidates[note.rel] = {"profile": note.rel, "name": name, "access": 0, "intellects": 0, "noted": 0}
+    floor = (today - timedelta(days=59)).isoformat()
+    for rel, note in sorted(vault.notes.items()):
+        path = PurePosixPath(rel)
+        if path.parent == PurePosixPath(config.people_dir) / "Access" and re.fullmatch(r"\d{4}-\d{2}\.md", path.name):
+            for entry in access_log.parse(note.body):
+                for person in set(vault.links_in(entry.person)) & candidates.keys():
+                    candidates[person]["access"] += 1
+        elif path.parent.parent == PurePosixPath(config.agents_dir) and path.name == "Profile.md":
+            owner, _ = session_context.intellect_owner(note)
+            owner = owner.removeprefix(config.vault + "/")
+            matches = matching_people(vault, config, owner) if owner else []
+            resolved = vault.resolve(owner) if owner else None
+            if resolved in candidates:
+                candidates[resolved]["intellects"] += 1
+            elif len(matches) == 1 and matches[0].rel in candidates:
+                candidates[matches[0].rel]["intellects"] += 1
+        elif path.parent == PurePosixPath("Conversations") and re.fullmatch(r"\d{4}-\d{2}-\d{2} Noted\.md", path.name):
+            if not floor <= path.name[:10] <= today.isoformat():
+                continue
+            for match in re.finditer(r"^- \d{2}:\d{2} · (.+?) said: .+$", note.body, re.M):
+                for person, aliases in names.items():
+                    if match[1].casefold() in aliases:
+                        candidates[person]["noted"] += 1
+    ranked = sorted(candidates.values(), key=lambda item: (-sum(item[key] for key in ("access", "intellects", "noted")),
+                                                          item["name"].casefold(), item["profile"]))
+    return {"exists": bool(close), "candidates": ranked[:8]}

@@ -1,14 +1,157 @@
-"""The seed pass's arithmetic for an organisation's portrait: which review corrections to read, grouped so the ones
-that repeat stand out. The judgment (what a correction teaches, worded as a Taste line) is the seed skill's."""
+"""The seed pass's reading lists. The judgment about what they teach is the seed skill's."""
 from __future__ import annotations
 
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 
-from . import fm, routing, tasks
+from . import channel_files, fm, routing, tasks
+
+FORWARDED = re.compile(r"^\s*(?:>\s*)*(?:-+\s*Forwarded message\s*-+|Begin forwarded message:)", re.M | re.I)
+PERSONAL_CAPS = {"sent": 100, "transactional": 150, "events": 100, "person": 100}
+
+
+def personal(vault, today: date, account: str = "all", days: int | None = None) -> dict:
+    """Classify the owner's synced headers and calendar, without exposing mail bodies."""
+    if days is not None and days < 0:
+        raise SystemExit("brain portrait seed: --days must be zero or more")
+    owners = set(channel_files.owner_accounts(vault))
+    account = account.casefold()
+    if account != "all" and account not in owners:
+        raise SystemExit(f"brain portrait seed: {account} is not an owner account")
+    folders = [(name, folder) for name, folder in channel_files.synced_accounts(vault)
+               if account == "all" or account == name]
+    files = [(name, sorted((folder / "mail").glob("*/*.md")), sorted((folder / "calendar").glob("*.md")))
+             for name, folder in folders]
+    files = [(name, mail, calendar) for name, mail, calendar in files if mail or calendar]
+    if not files:
+        raise SystemExit("brain portrait seed: no owner account has synced mail or calendar files"
+                         + (f" for {account}" if account != "all" else ""))
+    floor = today - timedelta(days=days) if days is not None else None
+    dates, sent, transactional, people, events, problems = [], [], {}, [], {}, []
+    other = dict(forwarded=0, cc=0, group=0)
+
+    def addresses(value: str) -> set[str]:
+        return {email.casefold() for _, email in getaddresses([value]) if email}
+
+    def inside(day: date) -> bool:
+        dates.append(day.isoformat())
+        return floor is None or floor <= day <= today
+
+    for name, mail, calendar in files:
+        for path in mail:
+            try:
+                data, body = fm.read(path)
+                raw = str(data.get("date", ""))
+                try:
+                    received = channel_files.local_datetime(raw, vault.config)
+                except ValueError:
+                    received = vault.config.local(parsedate_to_datetime(raw))
+                labels = data.get("labels", [])
+                if not isinstance(labels, list) or any(not isinstance(label, str) for label in labels):
+                    raise ValueError
+                if any(not isinstance(data.get(key, ""), str) for key in ("from", "to", "cc", "subject")):
+                    raise ValueError
+                sender = data.get("from", "")
+                senders = addresses(sender)
+                if not senders:
+                    raise ValueError
+            except (OSError, ValueError, TypeError, OverflowError):
+                problems.append(f"{path}: unreadable mail headers (date, from, to, cc, subject, labels)")
+                continue
+            if not inside(received.date()) or channel_files.EXCLUDED_LABELS.intersection(labels):
+                continue
+            to, cc = addresses(data.get("to", "")), addresses(data.get("cc", ""))
+            subject = data.get("subject", "")
+            if "SENT" in labels or owners & senders:
+                kind = "sent"
+            elif re.match(r"^\s*fw(?:d)?:", subject, re.I) or FORWARDED.search(body):
+                kind = "forwarded"
+            elif owners & cc and not owners & to:
+                kind = "cc"
+            elif owners & to and ("CATEGORY_UPDATES" in labels or channel_files.AUTOMATED.search(sender)):
+                kind = "transactional"
+            elif len((to | cc) - owners) > 1:
+                kind = "group"
+            else:
+                kind = "person"
+            item = {"kind": kind, "whose": "own" if kind in ("sent", "transactional") else "other",
+                    "date": received.isoformat(), "from": sender, "subject": subject, "path": str(path), "account": name}
+            if kind == "sent":
+                sent.append(item | {"to": data.get("to", ""), "cc": data.get("cc", "")})
+            elif kind == "transactional":
+                transactional.setdefault(min(senders), []).append(item)
+            elif kind == "person":
+                people.append(item)
+            else:
+                other[kind] += 1
+        for path in calendar:
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, ValueError):
+                problems.append(f"{path}: unreadable calendar")
+                continue
+            for block in re.split(r"^## ", text, flags=re.M)[1:]:
+                parsed = channel_files.parse_calendar("## " + block, name, vault.config)
+                for event in parsed:
+                    if not inside(event.start.date()):
+                        continue
+                    if event.response.casefold() != "accepted" and re.search(r"^attendee:[ \t]*\S", block, re.M):
+                        continue
+                    key = (event.id or event.title, event.start, event.end)
+                    events.setdefault(key, (event, path, name))
+    newest = lambda item: (datetime.fromisoformat(item["date"]), item["path"])
+    notices = []
+    for sender, items in transactional.items():
+        items.sort(key=newest, reverse=True)
+        notices.append(items[0] | {"from": sender, "count": len(items),
+                                   "subjects": list(dict.fromkeys(item["subject"] for item in items))[:3]})
+    recurring = {}
+    for event, path, name in sorted(events.values(), key=lambda value: value[0].start, reverse=True):
+        day = event.start.date().isoformat()
+        group = recurring.setdefault(event.title, {"kind": "event", "whose": "own", "title": event.title,
+                                                  "date": event.start.isoformat(), "count": 0, "next": "", "last": "",
+                                                  "location": event.location, "path": str(path), "account": name})
+        group["count"] += 1
+        if day >= today.isoformat():
+            group["next"] = min(group["next"] or day, day)
+        else:
+            group["last"] = max(group["last"], day)
+    lists = {"sent": sent, "transactional": notices, "events": list(recurring.values()), "person": people}
+    omitted = {}
+    for kind, items in lists.items():
+        items.sort(key=newest, reverse=True)
+        omitted[kind] = max(0, len(items) - PERSONAL_CAPS[kind])
+        lists[kind] = items[:PERSONAL_CAPS[kind]]
+    return {"window": {"from": floor.isoformat() if floor else min(dates, default=today.isoformat()),
+                       "to": today.isoformat() if floor else max(dates, default=today.isoformat())},
+            "accounts": [name for name, _, _ in files], "own": {kind: lists[kind] for kind in ("sent", "transactional", "events")},
+            "other": other | {"person": lists["person"]}, "omitted": omitted, "problems": problems}
+
+
+def render_personal(data: dict) -> str:
+    def line(value):
+        return " ".join(str(value).split())
+    out = [f"{data['window']['from']} to {data['window']['to']} · {', '.join(data['accounts'])}"]
+    for kind, items in data["own"].items():
+        out += ["", f"own · {kind}:"]
+        for item in items:
+            if kind == "events":
+                detail = f"{item['title']} ×{item['count']} · next {item['next'] or 'none'} · last {item['last'] or 'none'} · {item['location']}"
+            elif kind == "transactional":
+                detail = f"{item['from']} ×{item['count']} · " + "; ".join(item["subjects"])
+            else:
+                detail = f"{item['from']} → {item['to']} · {item['subject']}"
+            out.append(line(f"- {item['date']} · {detail} · {item['path']}"))
+    out += ["", "other (never tellable): " + ", ".join(f"{data['other'][kind]} {kind}" for kind in ("forwarded", "cc", "group"))]
+    out += [line(f"- {item['date']} · {item['from']} · {item['subject']} · {item['path']}") for item in data["other"]["person"]]
+    out += ["Omitted over caps: " + ", ".join(f"{count} {kind}" for kind, count in data["omitted"].items())]
+    out += [f"problem: {problem}" for problem in data["problems"]]
+    return "\n".join(out)
+
 
 DAYS = 90
 PLAN_DAYS = 30   # effort is about now: a month of finished work
@@ -298,7 +441,12 @@ def coverage(vault, today: date) -> dict:
     sources = [{"source": kind, "where": "public" if kind in PUBLIC else "internal", "read": read.get(kind, ""),
                 "status": "never" if kind not in read else "stale" if read[kind] < floor else "fresh"}
                for kind in PUBLIC + INTERNAL]
-    unread = [row.channel for row in channels.live(channels.load(vault)) if row.channel.casefold() not in covered]
+    unread = []
+    for row in channels.live(channels.load(vault)):
+        identity, reach = channel_files.EMAIL.search(row.identity), channel_files.FOLDER.search(row.reach)
+        account = identity[0] if identity else reach[1] if reach else ""
+        if row.channel.casefold() not in covered and not (row.whose == "owner" and account.casefold() in covered):
+            unread.append(row.channel)
     return {"sections": sections, "sources": sources, "unreadChannels": unread, "problems": problems}
 
 
