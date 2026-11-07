@@ -42,7 +42,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, consults, digest, fm, health, identity, ideas, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
+from . import access, attribute, audit, compile_context, consults, digest, evidence, fm, health, identity, ideas, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
 from . import tasks as tasks_mod
 from . import goals
 from .tasks import load_tasks, quiet
@@ -414,6 +414,18 @@ def cmd_owners(args):
             away = f"{hours.away_start} to {hours.away}" if hours.away_start else f"until {hours.away}"
             print(f"{hours.name} ({person}) · {days} {hours.start}-{hours.end} {hours.zone}"
                   + (f" · away: {away}" if hours.away else ""))
+
+
+def cmd_evidence(args):
+    if runtime.configured() is None:
+        raise SystemExit("brain evidence: AGENT_HOME is not set")
+    rows = evidence.read(args.source or "", args.hint or "", date.fromisoformat(args.since) if args.since else None)
+    if args.json:
+        print(json.dumps([dict(asdict(row), date=row.date.isoformat(), hints=list(row.hints)) for row in rows],
+                         ensure_ascii=False, indent=2))
+    else:
+        for row in rows:
+            print(f"{row.source}: {evidence.render(row)[2:]}")
 
 
 def cmd_consult(args):
@@ -1469,6 +1481,10 @@ def main(argv=None):
     s.add_argument("--because", metavar="TEXT"); s.set_defaults(fn=cmd_loops)
     s = sub.add_parser("owners", help="the area's ownership hints", parents=[vault])
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_owners)
+    s = sub.add_parser("evidence", help="read the evidence sources wrote, newest first", parents=[vault])
+    s.add_argument("--source"); s.add_argument("--hint", help="a portrait facet or a knowledge area")
+    s.add_argument("--since", metavar="YYYY-MM-DD"); s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_evidence)
     s = sub.add_parser("consult", help="consult a colleague and keep their words by area (enterprise)", parents=[vault])
     actions = s.add_subparsers(dest="consult_cmd", required=True)
     for action in ("autonomy", "act", "reverse", "lower", "ceiling", "decisions", "cite", "decide", "candidates", "seed", "ask", "answer", "overrule", "delegate", "lapse", "list", "stats"):

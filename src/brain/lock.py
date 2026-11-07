@@ -39,3 +39,10 @@ def repo_lock(config: Config):
     collides with git, and a push should not hold up every task write while it waits on the network. Not reentrant."""
     with _flock("repo", config.repo):
         yield
+
+
+@contextmanager
+def evidence_lock(root: Path):
+    """Held while a source appends evidence, which lives outside the vault and so outside the vault lock."""
+    with _flock("evidence", root):
+        yield
