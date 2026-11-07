@@ -37,7 +37,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import activation as act
-from . import access, attribute, audit, compile_context, digest, health, ideas, journal, ledger, loops, needs, retrieve, session_context, state, validate, views
+from . import access, attribute, audit, compile_context, digest, fm, health, ideas, journal, ledger, loops, needs, retrieve, session_context, state, validate, views
 from . import tasks as tasks_mod
 from .tasks import load_tasks, quiet
 from .vault import Vault
@@ -721,7 +721,7 @@ def cmd_continue(args):
             output.append({"id": task.tid, "title": task.title, "state": task.task_state, "pace": tasks_mod.pace(task),
                            "handedOff": task.handoff[0], "report": task.handoff[1], "work": task.work,
                            "after": task.after, "stages": earlier,
-                           "delivers": task.delivers, "next": state._field(task.body, "Next", "Next action"),
+                           "delivers": task.delivers, "next": fm.field(task.body, "Next", "Next action"),
                            "lastChunk": worked.get(task.tid), "checkpoint": continuation.instructions(args.config, task, earlier),
                            "chunksToday": chunks.get(task.tid, 0), "budget": limit,
                            "budgetLeft": None if limit is None else max(0, limit - chunks.get(task.tid, 0)),

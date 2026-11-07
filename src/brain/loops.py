@@ -130,10 +130,6 @@ def _time(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
-def _local(config: Config, at: datetime) -> datetime:
-    return at.replace(tzinfo=config.zone) if at.tzinfo is None else at.astimezone(config.zone)
-
-
 def path_for(config: Config) -> Path:
     return config.vault_path / config.agent("Loops.md")
 
@@ -235,7 +231,7 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
         data, body = fm.read(path) if path.exists() else fm.split(TEMPLATE)
         if any(_plain(item.text) == _plain(text) for item in parse_section(body)):
             return False
-        item = Item(kind, text, _local(config, at).strftime("%Y-%m-%d %H:%M"), source, with_, due)
+        item = Item(kind, text, config.local(at).strftime("%Y-%m-%d %H:%M"), source, with_, due)
         body = _insert(body, "Open", render(item))
         path.parent.mkdir(parents=True, exist_ok=True)
         fm.write(path, data, body)
@@ -266,7 +262,7 @@ def ready(config: Config, which: str, at: datetime) -> Item:
         data, body = fm.read(path)
         body, _ = needs._without(body, needs._section(body, "Open"), lambda loop: loop.id == item.id,
                                  bullet=_bullet, detail=DETAIL)
-        item.ready = _local(config, at).strftime("%Y-%m-%d %H:%M")
+        item.ready = config.local(at).strftime("%Y-%m-%d %H:%M")
         body = _insert(body, "Open", render(item))
         fm.write(path, data, body)
         return item
@@ -284,7 +280,7 @@ def close(config: Config, which: str, at: datetime, outcome: str, because: str) 
         data, body = fm.read(path)
         body, _ = needs._without(body, needs._section(body, "Open"), lambda bullet: bullet.id == item.id,
                                  bullet=_bullet, detail=DETAIL)
-        item.closed = _local(config, at).strftime("%Y-%m-%d %H:%M")
+        item.closed = config.local(at).strftime("%Y-%m-%d %H:%M")
         item.outcome, item.because = outcome, because
         body = _insert(body, "Closed", render(item))
         closed = sorted(parse_section(body, "Closed"), key=lambda loop: loop.closed)
@@ -304,17 +300,17 @@ def close(config: Config, which: str, at: datetime, outcome: str, because: str) 
 
 
 def due(config: Config, now: datetime) -> list[Item]:
-    now = _local(config, now).astimezone(timezone.utc)
+    now = config.local(now).astimezone(timezone.utc)
     out = []
     for item in open_loops(config):
         if item.ready:
             out.append(item)
             continue
-        opened = _local(config, _time(item.since)).astimezone(timezone.utc)
+        opened = config.local(_time(item.since)).astimezone(timezone.utc)
         age = now - opened
         if item.kind == "waiting" and age < timedelta(hours=WAITING_HOURS):
             continue
-        deadline = _local(config, _time(item.due)).astimezone(timezone.utc) if item.due else None
+        deadline = config.local(_time(item.due)).astimezone(timezone.utc) if item.due else None
         hours = WAITING_HOURS if item.kind == "waiting" else STALE_HOURS
         if (deadline is not None and now >= deadline) or (deadline is None and age >= timedelta(hours=hours)):
             out.append(item)

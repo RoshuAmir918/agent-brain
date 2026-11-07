@@ -199,18 +199,18 @@ def note_name(config: Config, value: str) -> str:
 
 
 def _field_value(config: Config, name: str, value: str) -> str:
+    from .needs import ASK_WORDS, WHY_WORDS, vague_ask
     value = single_line(name, value)
     if name == "resume" and not RESUME.fullmatch(value):
         raise ValueError("resume must be computer, YYYY-MM-DD or YYYY-MM-DD HH:MM, in the owner's local time")
     if name == "ask":
-        from .needs import vague_ask
         if (reason := vague_ask(value)):
             raise ValueError(f"ask refused: {reason}")
     if name == "work" and not works.SLUG.fullmatch(value):
         raise ValueError("work slug must match [a-z0-9-]+")
     if name == "after" and not TASK_ID_RE.fullmatch(value):
         raise ValueError("after must name a T-nnn task")
-    limit = {"ask": 16, "why": 40}.get(name)
+    limit = {"ask": ASK_WORDS, "why": WHY_WORDS}.get(name)
     if limit and len(value.split()) > limit:
         raise ValueError(f"{name} must be at most {limit} words")
     return f"[[{note_name(config, value)}]]" if name == "hub" else value
@@ -485,10 +485,9 @@ def complete(config: Config, tid: str, today: date, evidence: str) -> Task:
 
 
 def _work_history(task: Task, today: date, outcome: str) -> None:
-    from . import state
     if task.work:
         works.append_history(task.work, task.tid, task.title, today, outcome, task.delivers,
-                             state._field(task.body, "Next", "Next action"))
+                             fm.field(task.body, "Next", "Next action"))
 
 
 def close(config: Config, tid: str, today: date, done: bool, why: str) -> Task:
@@ -578,8 +577,7 @@ def due(tasks: list[Task], pace: str | None = "regular", worked: dict[str, str] 
 
 def local_now(config: Config) -> str:
     """The owner's local time as `YYYY-MM-DD HH:MM`, the form a Resume line uses."""
-    moment = config.now()
-    return (moment if moment.tzinfo is None else moment.astimezone(config.zone)).strftime("%Y-%m-%d %H:%M")
+    return config.local().strftime("%Y-%m-%d %H:%M")
 
 
 def task_activation(t: Task, today: date) -> float:

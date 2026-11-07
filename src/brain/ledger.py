@@ -94,7 +94,7 @@ def ledger_for(config: Config, routine: str, month: str) -> Path:
 def append(config: Config, routine: str, outcome: str, account: str, next: str, at: datetime) -> Path:
     if outcome not in OUTCOMES:
         raise ValueError(f"invalid outcome {outcome!r}; choose from " + ", ".join(OUTCOMES))
-    local = at.replace(tzinfo=config.zone) if at.tzinfo is None else at.astimezone(config.zone)
+    local = config.local(at)
     path = ledger_for(config, routine, local.strftime("%Y-%m"))
     account = " ".join(account.replace("|", "/").split())
     next = " ".join(next.replace("|", "/").split())
