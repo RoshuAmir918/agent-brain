@@ -2,7 +2,7 @@ import pytest
 import json
 from datetime import date
 
-from brain import cli, compile_context, fm, portrait, state, validate
+from brain import cli, compile_context, coverage, fm, portrait, state, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -231,9 +231,9 @@ def test_coverage_shows_which_after_lines_were_served_this_week(vault, monkeypat
     config = Config.load(vault)
     with vault_lock(config):
         reception.record(config, "draft", "Lisbon shortlist", "START", "3f2a", at=datetime(2026, 11, 5, 9))
-    data = seed.coverage(Vault(vault), date(2026, 11, 6))
+    data = coverage.coverage(Vault(vault), date(2026, 11, 6))
     assert [(a["id"], a["runs"], a["offers"]) for a in data["attention"]] == [("3f2a", 1, 1), ("91c0", 0, 0)]
-    assert "- ^91c0 Wants to start climbing: 0 runs, 0 offers · nothing" in seed.render_coverage(data)
+    assert "- ^91c0 Wants to start climbing: 0 runs, 0 offers · nothing" in coverage.render_coverage(data)
 
 
 def test_an_after_line_may_name_the_goal_it_reflects_and_the_goal_must_exist(vault):

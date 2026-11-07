@@ -10,7 +10,7 @@ from typing import Iterable
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from . import evidence, fm, identity, needs, owners, routing, seed, tasks
+from . import evidence, fm, identity, needs, owners, routing, tasks
 from .config import Config
 from .lock import vault_lock
 from .vault import Vault
@@ -486,10 +486,10 @@ def _available(config: Config, area: str, person: str, text: str) -> None:
 
 def add_evidence(config: Config, area: str, day: date | str, person: str, kind: str, text: str, link: str = "") -> bool:
     """Append one deduplicated history line under its area."""
-    return bool(record_evidence(config, [seed.Row(area, str(day), person, kind, text, link)]))
+    return bool(record_evidence(config, [routing.Row(area, str(day), person, kind, text, link)]))
 
 
-def record_evidence(config: Config, rows: Iterable[seed.Row]) -> int:
+def record_evidence(config: Config, rows: Iterable[routing.Row]) -> int:
     """Append new history lines in one write per area under one vault lock."""
     require_enterprise(config)
     grouped, facts = {}, []

@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from brain import cli, consults, directory, fm, needs, nightly, owners, routing, seed, state, tasks, validate
+from brain import cli, consults, directory, fm, needs, nightly, owners, routing, state, tasks, validate
 from brain.config import Config
 from brain.lock import vault_lock
 from brain.vault import Vault
@@ -971,7 +971,7 @@ def test_overrule_in_restricted_area_needs_a_permitted_word_to_act(enterprise, b
 
 
 def test_seeded_volume_counts_with_diminishing_returns(enterprise):
-    rows = [seed.Row("infrastructure", TODAY.isoformat(), KIM, "approved", f"#{number} Terraform deploys") for number in range(40)]
+    rows = [routing.Row("infrastructure", TODAY.isoformat(), KIM, "approved", f"#{number} Terraform deploys") for number in range(40)]
     assert consults.record_evidence(enterprise, rows) == 40
     ranked = {entry.person: entry.score for entry in consults.candidates(enterprise, "terraform deploys")}
     assert ranked[KIM] == pytest.approx(routing.WEIGHTS["approved"] * math.log2(41))

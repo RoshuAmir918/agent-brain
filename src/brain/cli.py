@@ -23,7 +23,8 @@ from .lock import repo_lock, vault_lock
 from .nightly import preview, run
 from . import install
 from . import signals
-from . import record, runtime, schedule, sessions
+from . import coverage, record, routing, runtime, schedule, sessions
+from .sources import mail as mail_source, plans as plan_source, reviews as review_source
 
 
 # ---------- git
@@ -442,9 +443,11 @@ def cmd_source(args):
         names = sorted(set(registry) | set(counts))
         listed = [{"id": name, "registered": name in registry, "rows": counts.get(name, (0, ""))[0],
                    "newest": counts.get(name, (0, ""))[1],
-                   **({"runs": registry[name].SOURCE.runs, "editions": list(registry[name].SOURCE.editions),
-                       "facets": list(registry[name].SOURCE.facets), "sensitive": registry[name].SOURCE.sensitive,
-                       "about": registry[name].SOURCE.about} if name in registry else {})} for name in names]
+                   **({"runs": registry[name].source.runs, "editions": list(registry[name].source.editions),
+                       "where": registry[name].source.where, "needs": registry[name].source.needs,
+                       "facets": list(registry[name].source.facets), "sensitive": registry[name].source.sensitive,
+                       "extracts": registry[name].extract is not None,
+                       "about": registry[name].source.about} if name in registry else {})} for name in names]
         if args.json:
             print(json.dumps(listed, ensure_ascii=False, indent=2))
             return
@@ -457,6 +460,8 @@ def cmd_source(args):
         raise SystemExit(f"brain source: no source {args.target!r}; `brain source list` shows them")
     if args.action != "extract":
         raise SystemExit(f"brain source {args.target}: say extract")
+    if registry[args.target].extract is None:
+        raise SystemExit(f"brain source {args.target}: the agent reads this one with its own tools and the seed skill")
     home = Path(args.home).expanduser() if args.home else runtime.configured()
     if home is None and not args.jsonl:
         raise SystemExit("brain source: AGENT_HOME is not set; pass --home DIR to keep this evidence somewhere")
@@ -466,6 +471,8 @@ def cmd_source(args):
                           Path(args.input).expanduser() if args.input else None, config)
     try:
         rows = registry[args.target].extract(ctx)
+    except sources.Nothing as error:
+        raise SystemExit(f"brain source {args.target}: nothing to read ({error})")
     except ValueError as error:
         raise SystemExit(f"brain source {args.target}: {error}")
     if args.jsonl:   # for a machine that holds no evidence: carried elsewhere and read with `brain evidence import`
@@ -550,26 +557,26 @@ def cmd_consult(args):
                 raise ValueError("--dry-run goes with --reviews or --claims; --mail writes nothing")
             if args.claims and args.days is not None:
                 raise ValueError("--days goes with --reviews or --mail")
-            days = seed.DAYS if args.days is None else args.days
+            days = routing.DAYS if args.days is None else args.days
             if days < 0:
                 raise ValueError("--days must be non-negative")
             today = config.today()
             if args.mail:
-                data = seed.deference_reading(Vault(config.vault_path), today, args.account or "all", days)
-                print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else seed.render_deference(data))
+                data = mail_source.deference_reading(Vault(config.vault_path), today, args.account or "all", days)
+                print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else mail_source.render_deference(data))
                 return
             if args.reviews:
                 folder = Path(args.reviews).expanduser()
                 if not folder.is_dir():
                     raise ValueError(f"no folder {folder}")
-                rows, problems = seed.routing_evidence(folder, today, days)
+                rows, problems = review_source.routing_evidence(folder, today, days)
             else:
                 path = Path(args.claims).expanduser()
                 try:
                     text = path.read_text(encoding="utf-8")
                 except (OSError, ValueError):
                     raise ValueError(f"unreadable claims file {path}") from None
-                rows, problems = seed.deference_claims(text)
+                rows, problems = mail_source.deference_claims(text)
             areas = {}
             for row in rows:
                 areas.setdefault(row.area, dict(changed=0, reviewed=0, approved=0) if args.reviews
@@ -578,7 +585,7 @@ def cmd_consult(args):
                           added=0 if args.dry_run else consults.record_evidence(config, rows),
                           areas=areas, problems=problems)
             if args.reviews:
-                result["prs"] = len(seed.load(folder, today, days)[0])
+                result["prs"] = len(review_source.load(folder, today, days)[0])
             if args.json:
                 print(json.dumps(result, ensure_ascii=False, indent=2))
             else:
@@ -1227,8 +1234,8 @@ def cmd_portrait(args):
         print(f"{args.verdict}: ^{line.id} {line.text}")
         return
     if args.action == "coverage":
-        data = seed.coverage(Vault(args.config.vault_path), args.config.today())
-        print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else seed.render_coverage(data))
+        data = coverage.coverage(Vault(args.config.vault_path), args.config.today())
+        print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else coverage.render_coverage(data))
         return
     if args.action == "seed":
         if args.hand_off and args.clear_backfill:
@@ -1263,11 +1270,11 @@ def cmd_portrait(args):
             raise SystemExit(f"brain portrait seed: no folder {folder}")
         today = args.config.today()
         if args.reviews:
-            data = seed.reading(folder, today, args.days or seed.DAYS)
+            data = review_source.reading(folder, today, args.days or routing.DAYS)
         else:
-            data = seed.direction(folder, today, args.days or seed.PLAN_DAYS)
+            data = plan_source.direction(folder, today, args.days or plan_source.PLAN_DAYS)
         print(json.dumps(data, ensure_ascii=False, indent=2) if args.json
-              else seed.render(data) if args.reviews else seed.render_direction(data))
+              else review_source.render(data) if args.reviews else plan_source.render_direction(data))
         return
     lines = portrait.load(args.config)
     if args.top is not None:
@@ -1646,7 +1653,7 @@ def main(argv=None):
             mode.add_argument("--mail", action="store_true", help="list company mail with deference cues, without content")
             mode.add_argument("--claims", metavar="FILE", help="import derived statements of who decides what")
             p.add_argument("--account", metavar="ADDR", help="with --mail: one connected owner account (default all)")
-            p.add_argument("--days", type=int, metavar="N", help=f"with --reviews or --mail: days back (default {seed.DAYS})")
+            p.add_argument("--days", type=int, metavar="N", help=f"with --reviews or --mail: days back (default {routing.DAYS})")
             p.add_argument("--dry-run", action="store_true"); p.add_argument("--json", action="store_true")
         else:
             p.add_argument("--json", action="store_true")
@@ -1783,7 +1790,7 @@ def main(argv=None):
     s.add_argument("--clear-backfill", action="store_true", help="seed: remove the account's backfill mail and calendar files")
     s.add_argument("--hand-off", action="store_true",
                    help="seed: hand off one task that seeds this newly connected account, unless one has or is")
-    s.add_argument("--days", type=int, help=f"seed: days back through today (default all synced for accounts, {seed.DAYS} for reviews, {seed.PLAN_DAYS} for plans)")
+    s.add_argument("--days", type=int, help=f"seed: days back through today (default all synced for accounts, {routing.DAYS} for reviews, {plan_source.PLAN_DAYS} for plans)")
     s.add_argument("--top", type=int, metavar="N", help="only the top N After lines, with what each asks attention to watch")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_portrait)
     s = sub.add_parser("state", parents=[vault])

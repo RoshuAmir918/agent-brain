@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from brain import cli, evidence, nightly, sources
 from brain.config import Config
 from brain.sources import calendar, mail
@@ -61,3 +63,30 @@ def test_nothing_connected_is_quiet(vault, tmp_path, monkeypatch):
     from brain.vault import Vault
     assert sources.nightly(Vault(vault), TODAY) == []
     assert set(sources.registry()) >= {"imessage", "mail", "calendar"}
+
+
+def test_the_registry_declares_every_source_once_and_coverage_lists_an_editions_own(vault, capsys, monkeypatch):
+    from brain import coverage
+    from brain.vault import Vault
+    found = sources.registry()
+    assert {"site", "reviews", "plans", "crm", "mail", "calendar", "imessage"} <= set(found)
+    assert found["site"].extract is None and found["mail"].extract is not None and found["crm"].source.needs == "crm"
+    personal = [source.id for source in sources.declared("personal")]
+    assert personal == ["mail", "calendar", "imessage"]
+    org = sources.declared("enterprise")
+    assert [source.id for source in org][:2] == ["site", "writing"] and next(s for s in org if s.id == "mail").where == "internal"
+    data = coverage.coverage(Vault(vault), TODAY)
+    assert [(s["source"], s["where"], s["needs"]) for s in data["sources"]] == [
+        ("mail", "own", "google"), ("calendar", "own", "google"), ("imessage", "own", "")]
+    with pytest.raises(SystemExit, match="the agent reads this one with its own tools"):
+        cli.main(["source", "site", "extract", "--home", str(vault.parent / "home"), "--vault", str(vault)])
+    cli.main(["source", "list", "--json", "--vault", str(vault)])
+    listed = {entry["id"]: entry for entry in __import__("json").loads(capsys.readouterr().out)}
+    assert listed["reviews"]["needs"] == "github" and listed["reviews"]["extracts"] is False
+
+
+def test_a_source_declared_twice_is_refused(monkeypatch):
+    from brain.sources import company
+    monkeypatch.setattr(company, "SOURCES", (*company.SOURCES, company.SOURCES[0]))
+    with pytest.raises(ValueError, match="'site' is declared twice"):
+        sources.registry()

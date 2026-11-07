@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from brain import cli, consults, evidence, seed
+from brain import cli, consults, evidence, routing, seed
 from brain.evidence import Evidence
 from test_consults import KIM, NOAH, TODAY, ask, enterprise  # noqa: F401
 
@@ -89,7 +89,7 @@ def test_consult_events_become_evidence(home, enterprise):
 
 
 def test_seeded_history_is_evidence_too(home, enterprise):
-    rows = [seed.Row("infrastructure", TODAY.isoformat(), KIM, "approved", "#12 Terraform deploys", "github:pr/12")]
+    rows = [routing.Row("infrastructure", TODAY.isoformat(), KIM, "approved", "#12 Terraform deploys", "github:pr/12")]
     assert consults.record_evidence(enterprise, rows) == 1
     [found] = evidence.read(source="consults")
     assert (found.verb, found.whose, found.pointer, found.fact) == ("approved", f"other:{KIM}", "github:pr/12", "#12 Terraform deploys")
