@@ -10,7 +10,7 @@ from typing import Iterable
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from . import fm, needs, owners, routing, seed, tasks
+from . import fm, identity, needs, owners, routing, seed, tasks
 from .config import Config
 from .lock import vault_lock
 from .vault import Vault
@@ -18,6 +18,10 @@ from .vault import Vault
 MAX_TRIES = 3   # no question visits more than three people
 RECORD_SHARED_WORDS = 2   # matching prompts a reading; only the intellect judges whether the record covers a question
 OUTCOMES = ("changed", "confirmed", "redirected")   # what the person's answer did to the stated direction
+RUNGS = ("ask", "ask-on-big", "act-confirm", "act-report")
+CLIMB_WINDOW = 10   # require a full window of consequential choices before earning another rung
+CLIMB_CONFIRMED = 8   # at least eight directions must stand in that window; changes remain counterevidence
+DEFAULT_CEILING = "act-confirm"   # reporting without a confirm needs a person's explicit ceiling
 TEMPLATE = """---
 kind: orientation
 tier: warm
@@ -34,6 +38,7 @@ Questions for colleagues, with the default taken when nobody answers.
 """
 DETAIL = re.compile(r"^[ \t]+-[ \t]+(id|to|asked|until|tried|restricted|default|why|not-covered):[ \t]*(.*?)[ \t]*$")   # a consult's indented fields
 WENT_AHEAD = "Went ahead without an answer: "   # the confirm's text, followed by its default
+ACTED = "Acted without asking: "   # an autonomous act's confirm, distinct from an unanswered consult
 
 
 @dataclass
@@ -111,7 +116,7 @@ def parse_section(body: str, title: str = "Open") -> list[Consult]:
             if current:
                 current.kind = "confirm" if title == "Went ahead" else "ask"
                 if current.kind == "confirm":
-                    current.default = current.text.removeprefix(WENT_AHEAD)
+                    current.default = current.text.removeprefix(WENT_AHEAD).removeprefix(ACTED)
                 out.append(current)
     return out
 
@@ -198,6 +203,167 @@ def working_until(asked: datetime, hours: int, schedule: owners.Hours | None = N
 def _area_note(config: Config, area: str, title: str, bullet: str) -> None:
     template = f"---\nkind: hub\ntier: warm\n---\n# {area}\n\nJudgment and evidence filed under the work.\n\n"
     _append(routing.area_path(config, area), title, bullet, template)
+
+
+def _autonomy_lines(body: str, link: str) -> list[dict]:
+    out = []
+    for line in routing.section(body, "Autonomy").splitlines():
+        parts = line.removeprefix("- ").split(" · ")
+        if not line.startswith("- ") or len(parts) != 4 or not parts[1] or not parts[3].startswith("by:"):
+            continue
+        kind, separator, rung = parts[2].partition(": ")
+        if not separator or kind not in ("lower", "ceiling") or rung not in RUNGS or not tasks.PERSON.fullmatch(parts[3][3:]):
+            continue
+        try:
+            date.fromisoformat(parts[0])
+        except ValueError:
+            continue
+        out.append(dict(date=parts[0], kind=kind, rung=rung, link=link))
+    return out
+
+
+def _climb_needed(window: list[dict], rung: int, ceiling: int, restricted: bool) -> str:
+    if restricted:
+        return "restricted area; always ask a permitted person"
+    if rung >= ceiling:
+        return f"at ceiling {RUNGS[ceiling]}; a higher ceiling is needed to climb" if ceiling < len(RUNGS) - 1 else "at the highest rung"
+    for following in range(max(1, CLIMB_WINDOW - len(window)), CLIMB_WINDOW + 1):
+        retained = window[-(CLIMB_WINDOW - following):] if following < CLIMB_WINDOW else []
+        confirmations = max(0, CLIMB_CONFIRMED - sum(row["outcome"] == "confirmed" for row in retained))
+        if confirmations <= following:
+            return f"{confirmations} more confirmations in the next {following} outcomes to reach {RUNGS[rung + 1]}"
+    raise AssertionError("a fresh confirmed window always permits a climb")
+
+
+def autonomy(config: Config, area: str | None = None) -> list[dict]:
+    """Replay the intellect's calibration by area, without storing a rung or counting people."""
+    require_enterprise(config)
+    logs = routing.responses(config)
+    bodies = routing.area_bodies(config)
+    controls = {key: _autonomy_lines(body, config.agent(f"Areas/{key}.md")) for key, body in bodies.items()}
+    areas = {row.area for row in owners.load(config)} | {row["area"] for row in logs} | {key for key, rows in controls.items() if rows}
+    restricted_areas = owners.restricted(config)
+    # An explicitly requested area has a useful initial rung even before its first event.
+    selected = [routing.area_name(area)] if area is not None else sorted(areas)
+    out = []
+    for key in selected:
+        restricted = key in restricted_areas
+        rung, ceiling, window, moves = 0, RUNGS.index(DEFAULT_CEILING), [], []
+        events = [dict(date=row["date"], kind=row["outcome"], id=row["id"], link=row["link"])
+                  for row in logs if row["area"] == key and row["outcome"] in ("confirmed", "changed", "reversed")]
+        # Logs retain file order within a date; person controls follow that day's logs, in note order.
+        events += controls.get(key, [])
+        events.sort(key=lambda row: row["date"])
+        for event in events:
+            kind, before = event["kind"], rung
+            if kind in ("confirmed", "changed"):
+                window = (window + [dict(date=event["date"], outcome=kind, id=event["id"], link=event["link"])])[-CLIMB_WINDOW:]
+            elif kind == "reversed":
+                rung, window = max(0, rung - 1), []
+            elif kind == "lower":
+                rung, window = min(rung, RUNGS.index(event["rung"])), []
+            else:
+                ceiling = RUNGS.index(event["rung"])
+                rung = min(rung, ceiling)
+            if kind not in ("confirmed", "changed"):
+                moves.append({**event, "from": RUNGS[before], "to": RUNGS[rung], "ceiling": RUNGS[ceiling]})
+            # A higher ceiling can admit a window earned at the old cap; the ceiling alone earns nothing.
+            if (not restricted and rung < ceiling and len(window) == CLIMB_WINDOW
+                    and sum(row["outcome"] == "confirmed" for row in window) >= CLIMB_CONFIRMED):
+                before, rung = rung, rung + 1
+                moves.append(dict(date=event["date"], kind="climb", **{"from": RUNGS[before], "to": RUNGS[rung]},
+                                  id=window[-1]["id"], link=event["link"], window=window))
+                window = []
+        out.append(dict(area=key, rung=RUNGS[rung], ceiling=RUNGS[ceiling], restricted=restricted,
+                        window=window, needed=_climb_needed(window, rung, ceiling, restricted), events=moves))
+    return out
+
+
+def _rung(rung: str) -> str:
+    if rung not in RUNGS:
+        raise ValueError("rung must be " + ", ".join(RUNGS))
+    return rung
+
+
+def lower(config: Config, area: str, by: str, rung: str | None = None) -> None:
+    """Anyone can ask the intellect to consult more; lowering never grants autonomy."""
+    require_enterprise(config)
+    area = routing.area_name(area)
+    _person(by, "--by")
+    if rung is not None:
+        _rung(rung)
+    with vault_lock(config):
+        current = autonomy(config, area)[0]["rung"]
+        target = rung if rung is not None else RUNGS[max(0, RUNGS.index(current) - 1)]
+        _area_note(config, area, "Autonomy", f"- {config.today()} · {routing.name(config, by)} · lower: {target} · by:{by}")
+
+
+def ceiling(config: Config, area: str, rung: str, by: str) -> None:
+    """Only an area's owner, backup or an operator can change its autonomy ceiling."""
+    require_enterprise(config)
+    area, rung = routing.area_name(area), _rung(rung)
+    _person(by, "--by")
+    with vault_lock(config):
+        row = next((row for row in owners.load(config) if row.area == area), None)
+        aliases = routing.identities(config)
+        permitted = list(config.owner_user_ids) + ([row.owner, row.backup] if row else [])
+        platform, ident = by.split(":", 1)
+        if (aliases.get(by, by) not in {aliases.get(person, person) for person in permitted if person}
+                and not identity.listed(config.owner_user_ids, platform, (ident,))):
+            raise ValueError("--by must be the area's owner or backup in Owners.md, or an operator in owner_user_ids")
+        _area_note(config, area, "Autonomy", f"- {config.today()} · {routing.name(config, by)} · ceiling: {rung} · by:{by}")
+
+
+def act(config: Config, area: str, for_: str, task: str = "") -> Consult:
+    """Record the intellect acting on its own judgment, leaving a confirm when earned autonomy requires one."""
+    require_enterprise(config)
+    area, for_ = routing.area_name(area), _brief("for", for_).replace("·", "-")
+    with vault_lock(config):
+        derived = autonomy(config, area)[0]
+        rung = derived["rung"]
+        if rung not in ("act-confirm", "act-report"):
+            raise ValueError(f"{area}: rung {rung}; {derived['needed']}")
+        if task and not any(row.tid == task and tasks.is_open(row) for row in tasks.all_tasks(config)):
+            raise ValueError(f"{task} is not an open task (unknown or closed); choose an open task")
+        row = next((row for row in owners.load(config) if row.area == area), None)
+        recipient = row.owner if row else next(iter(config.owner_user_ids), "")
+        if rung == "act-confirm" and not recipient:
+            raise ValueError("act-confirm needs an area owner in Owners.md or an operator in owner_user_ids")
+        now = config.local()
+        consult = Consult(str(now.date()), area, for_, config.agent("Tasks") + "#" + task if task else "",
+                          to=recipient, kind="confirm", id=uuid4().hex[:12])
+        _wake(config, consult, now.date(), f"Acted on its own in {area} (rung {rung}): {for_}")
+        _log(config, consult, now, "acted", "-")
+        if rung == "act-confirm":
+            consult.text, consult.default = ACTED + for_, for_
+            _append(path_for(config), "Went ahead", _render(consult), TEMPLATE)
+        return consult
+
+
+def _reverse(config: Config, consult: Consult, now: datetime, by: str, answer: str = "") -> None:
+    """Record one reversal per act under the caller's lock, including task evidence after confirm expiry."""
+    if any(row["id"] == consult.id and row["outcome"] == "reversed" for row in routing.responses(config)):
+        raise ValueError(f"{consult.id}: act already reversed")
+    consult.text = consult.text.removeprefix(ACTED)
+    _wake(config, consult, now.date(), f"{routing.name(config, by) if by != '-' else 'Someone'} reversed the autonomous act in "
+          f"{consult.area}: {consult.text}" + (f"; {answer}" if answer else ""))
+    _log(config, consult, now, "reversed", by, answer=answer)
+    if any(entry.id == consult.id and entry.kind == "confirm" for entry in load(config)):
+        _remove(config, consult)
+
+
+def reverse(config: Config, ident: str, by: str, answer: str) -> None:
+    """Anyone may reject an autonomous act in their own words, even after its confirm has gone."""
+    require_enterprise(config)
+    _person(by, "--by")
+    answer = _words("answer", answer)
+    with vault_lock(config):
+        found = [row for row in routing.responses(config) if row["id"] == ident and row["outcome"] == "acted"]
+        if len(found) != 1:
+            raise ValueError("no unique autonomous act matches " + repr(ident))
+        row = found[0]
+        consult = Consult(row["date"], row["area"], row["text"], row.get("source", ""), kind="confirm", id=ident)
+        _reverse(config, consult, config.local(), by, answer)
 
 
 def candidates(config: Config, about: str, area: str = "", limit: int | None = None) -> list[routing.Candidate]:
@@ -379,12 +545,14 @@ def _wake(config: Config, consult: Consult, today: date, evidence: str) -> None:
 def _log(config: Config, consult: Consult, now: datetime, outcome: str, person: str,
          to: str = "", answer: str = "") -> None:
     asked = config.local(datetime.fromisoformat(consult.asked)) if consult.asked else now
-    hours = "-" if outcome in ("overruled", "asked", "cited") else f"{(now.timestamp() - asked.timestamp()) / 3600:.1f}h"
+    hours = "-" if outcome in ("overruled", "asked", "cited", "acted", "reversed") else f"{(now.timestamp() - asked.timestamp()) / 3600:.1f}h"
     text = consult.text.replace("·", "-")
     bullet = (f"- {now.date()} · consult {outcome} · {text} · by {person} · {consult.area} · {hours}"
               + (f" · to {to}" if to else "") + f" · id:{consult.id}")
     if answer:
         bullet += f"\n  - answer: {answer}"
+    if outcome == "acted" and consult.source:
+        bullet += f"\n  - source: [[{consult.source}]]"
     needs._answered(config, now.date(), bullet)
 
 
@@ -590,11 +758,15 @@ def _hold(config: Config, consult: Consult, now: datetime, holder: str) -> None:
     _append(path_for(config), "Open", _render(consult), TEMPLATE)
 
 
-def dismiss(config: Config, item: needs.Item, today: date, reason: str) -> None:
-    """Dismiss a consult under the caller's vault lock; only stop-asking changes future routing."""
+def dismiss(config: Config, item: needs.Item, today: date, reason: str, by: str = "") -> None:
+    """Dismiss under the caller's lock; rejecting an autonomous act corrects its area's calibration."""
     consult = next(entry for entry in load(config) if entry.id == item.id)
     if consult.kind == "confirm":
-        _remove(config, consult)
+        if consult.text.startswith(ACTED) and reason == "no":
+            now = config.local().replace(year=today.year, month=today.month, day=today.day)
+            _reverse(config, consult, now, by if tasks.PERSON.fullmatch(by) else "-")
+        else:
+            _remove(config, consult)
         return
     if reason == "done":
         raise ValueError("a consult needs the person's words; answer it with brain consult answer")
@@ -630,6 +802,8 @@ def stats(config: Config) -> dict:
     responses = routing.responses(config)
     redirected = {entry["id"] for entry in responses if entry["outcome"] == "redirected"}
     for entry in responses:
+        if entry["outcome"] in ("acted", "reversed"):
+            continue
         if entry["outcome"] in ("asked", "cited"):
             year, week, _ = date.fromisoformat(entry["date"]).isocalendar()
             record = record_weeks.setdefault(f"{year}-W{week:02}", dict(asked=0, cited=0))
