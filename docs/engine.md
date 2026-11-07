@@ -83,7 +83,7 @@ In 0.52.0, a work can keep an optional summary at the top of its Library page. `
 
 `owner_user_ids` is a list of strings, default `[]`, containing the owner's platform user IDs. An entry `platform:id` (for example `demiurge:k57...`, the permanent Demiurge id) matches only sessions on that platform; a bare entry matches any platform. Either the primary or alternative session ID can identify the owner; display names and chat IDs cannot. This key does not change skill template values.
 
-There is no maintainer role (retired in 0.87.0; the key is ignored where it lingers). Whoever runs the machinery does it outside any conversation: `brain` commands in the vault, a commit, or a prompt run as the agent's own routine, so no agent needs to know who they are. A former maintainer's id is identified like anyone else's.
+There is no maintainer role (retired in 0.88.0; the key is ignored where it lingers). Whoever runs the machinery does it outside any conversation: `brain` commands in the vault, a commit, or a prompt run as the agent's own routine, so no agent needs to know who they are. A former maintainer's id is identified like anyone else's.
 
 `log_dirs` is a list of folders under `agent_dir`, default `[]`, whose files are records rather than notes: receipts, ledgers, results. They join the engine's own ledgers (Explorations, Use Log, Sleep Log, Tasks Archive, Research) as kind `log`: never activated, never among the directory's most active notes, never link-checked. A note anywhere else can declare the same by putting `kind: log` in its frontmatter. Add a folder here as soon as the agent starts filing process artefacts in it, or they compete with knowledge for the hot budget.
 

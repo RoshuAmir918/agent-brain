@@ -130,7 +130,7 @@ class Config:
             except (OSError, subprocess.CalledProcessError):
                 repo = explicit.parent if explicit else start
         if isinstance(values, dict):
-            values.pop("maintainers", None)   # retired in 0.87.0; vaults written before it still carry the key
+            values.pop("maintainers", None)   # retired in 0.88.0; vaults written before it still carry the key
         allowed = {item.name for item in fields(cls) if item.name not in ("repo", "_vault_path")}
         if not isinstance(values, dict) or set(values) - allowed:
             raise ValueError("brain.toml [brain] must contain only supported config keys")
