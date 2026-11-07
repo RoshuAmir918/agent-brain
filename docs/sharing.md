@@ -65,7 +65,7 @@ The block is capped at 600 words, newest evidence first within each subject. Wit
 
 ## A new subject: experiences
 
-`experiences`: places, services, products and people for hire the owner has used, and how it went. The dentist, the restaurants, the hotel in Lisbon, the contractor who never called back, the headphones they returned. It is mostly drawn from transactional mail and is what friends ask about most. Prices paid stay under `finances`.
+`experiences`: places, services, products and people for hire the owner has used, and how it went. The dentist, the restaurants, the contractor who never called back, the headphones they returned. It is mostly drawn from transactional mail and is what friends ask about most, so it holds only what a friend could act on: account, sign-up, login, shipping and billing notices are paperwork and never filed. Lodging and travel are whereabouts, and a past trip is not filed at all. Prices paid stay under `finances`.
 
 ## Defaults
 
