@@ -51,6 +51,7 @@ def enterprise(vault, monkeypatch):
 def ask(config, **kwargs):
     values = dict(to=NATHAN, area="infrastructure", text=QUESTION, default=DEFAULT, why=WHY)
     values.update(kwargs)
+    values.setdefault("not_covered", "This choice needs a fresh answer for a different scope.")
     return consults.ask(config, **values)
 
 
@@ -548,7 +549,7 @@ def test_redirect_moves_logs_evidence_and_wakes_task(enterprise, monkeypatch):
     assert not task(enterprise).resume and f"Nathan redirected the consult to {KIM}: {words}" in task(enterprise).body
     item, = needs.items(enterprise, TODAY)
     assert (item.id, item.owner, item.area, item.default, item.detail) == (entry.id, KIM, "infrastructure", DEFAULT, WHY)
-    response, = routing.responses(enterprise)
+    response, = [row for row in routing.responses(enterprise) if row["outcome"] == "redirected"]
     assert response["outcome"] == "redirected" and response["answer"] == words and response["to"] == KIM
     assert response["hours"] == 1.5
     ranked = {entry.person: entry for entry in consults.candidates(enterprise, "", "infrastructure")}
