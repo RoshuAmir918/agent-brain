@@ -1,7 +1,7 @@
 ---
 name: {prefix}morning
 description: The morning briefing
-version: 2.6.0
+version: 2.7.0
 metadata:
   runtime:
     tags: [routine, day]
@@ -14,7 +14,7 @@ metadata:
 What today is for {human_name}, at the agreed hour, every day, even when there is little to say. Never before that hour. It reads like a good assistant's word at the door, not a status report: two hundred words is the ceiling, and a hundred is a good morning. The machinery's health lives in the Sleep Log and `brain health`, where a maintainer reads it; none of it is for {human_name}.
 
 ## Procedure
-1. If there is no active goal and the context says the capture question has never been asked, run `brain goals asked`. Only if it returns the question, include it once in this briefing: "What are you working toward right now? Anything: a race, an exam, a habit, a skill. I'll keep it in mind, and it's how I decide what to do without being asked." Never repeat it. Read `{agent_dir}/Primed.md` first; it is the brief the prime routine wrote for today. Then Upcoming, the Calendar block (today and the next seven days) and, when the owner's Canvas is synced, the Canvas block in the session context, Triggers, open tasks, any task entries tagged `morning:`, and what `brain needs-you` lists.
+1. Read `{agent_dir}/Primed.md` first; it is the brief the prime routine wrote for today. Then Upcoming, the Calendar block (today and the next seven days) and, when the owner's Canvas is synced, the Canvas block in the session context, Triggers, open tasks, any task entries tagged `morning:`, and what `brain needs-you` lists.
 2. What is new on the channels reaches the morning through Primed. Then read only the synced mail that arrived since: `brain channels mail --since <last_run in $AGENT_HOME/records/prime/state.json>`, a few headers at most, and add what bears on today under the same rules as prime (people first, a sender {human_name} set aside skipped). Morning does not search mail beyond that. Recheck already-registered threads through their owning tasks before raising an item. Do not repeat an unchanged reminder.
 3. Compose in this order, dropping any part with nothing in it, separating verified fact from reported status and results from proposals:
    - **Today.** Lead with where they are and what is on their calendar today when it matters, especially travel, an ongoing stay or an event. Include who they are with, what they said they would do, and what is due or happening today or tomorrow, from Primed, Upcoming and Calendar. One or two sentences, not a list. What {human_name} said they want in Today, or want left out (Working together in their profile), shapes it before anything else. Every source gets its word, even when it is empty, so a quiet morning is never a blind one: the calendar (what is on it, or "nothing on your calendar today", or "I can't see your calendar: <why>" from the Calendar block), the channels (Primed's coverage line: what bears on today, "nothing in your inboxes or Slack needs you", or which of their outside channels could not be read and why; never Home, a room, or how far a stored history reaches), and what is due ("nothing due that I can find" when nothing is), with schoolwork from the Canvas block when there is one: what is due today or tomorrow, anything missing, a grade that came in ("you got 18/20 on Lab 3"). When the vault cannot confirm a due thing was done, say so once: "due today; I can't see that it's done."
@@ -31,5 +31,5 @@ What today is for {human_name}, at the agreed hour, every day, even when there i
 This is the natural place for anything {human_name} wants delivered daily: a reading, a reminder, a digest of a feed. Add it as a numbered step with its own boundaries, and record {human_name}'s request in a dated note so the instruction has a source.
 
 ## Boundaries
-Goals are the only reason for unasked work; every new task or idea names one with `--goal G-n`, every prepared piece with `goal: G-n`. With no active goal, make nothing unasked. Requested work needs none and keeps the owner's quoted words as its source. Instructions to you are responsibilities, never goals.
+Goals are the only reason for unasked work; every new task or idea names one with `--goal G-n`, every prepared piece with `goal: G-n`. Said and inferred goals both fund preparation, held immediately; never ask whether something is a goal. With no active goal, the night and explore infer from evidence; without evidence, make nothing unasked. The high bar for offers and outward permissions stay. Requested work needs none and keeps the owner's quoted words as its source. Instructions to you are responsibilities, never goals.
 No secrets, payments or account changes. No third-party contact unless {human_name} has authorized a specific recurring send, recorded in `{agent_dir}/Tasks.md` under Standing state. Acceptance is not delivery; say "accepted," not "delivered."

@@ -241,7 +241,7 @@ def test_an_after_line_may_name_the_goal_it_reflects_and_the_goal_must_exist(vau
     from brain.lock import vault_lock
     config = Config.load(vault)
     with vault_lock(config):
-        gid = goals.new(config, "Run a marathon", "I want to run Boston").gid
+        gid = goals.new(config, "Run a marathon", "I want to run Boston", from_app=True).gid
     write_portrait(vault, f"## After\n- Run Boston · said · high · 2026-11-01 · [[START]]\n  - horizon: year\n  - goal: {gid}\n"
                           "  - for: race plans near the office\n## Taste\n- Jazz · said · high · 2026-11-01 · [[START]]\n  - goal: G-1\n")
     lines, problems = portrait.parse((vault / "human/Portrait.md").read_text())

@@ -19,6 +19,7 @@ def session(monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
     for name in ("AGENT_HOME", "BRAIN_RUN", "DEMIURGE_TASK", "DEMIURGE_CONVERSATION", "BRAIN_SPEAKER"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("BRAIN_SPEAKER", "cli:owner")
 
 
 def run(vault, capsys, *args):
@@ -40,7 +41,7 @@ def test_format_round_trip_free_sections_and_archive(vault):
                 .replace("## Set aside", "## Set aside\nAn old free-text wish."), kind="orientation")
     goal = goals.new(cfg, "Marathon", "Sub-3, 2:55 as a stretch", reach=True, by="2027-04-20")
     assert goals.parse_register(goal.render())[1][0].render() == goal.render()
-    assert goal.public() == {"id": "G-1", "title": "Marathon", "kind": "reach", "state": "active",
+    assert goal.public() == {"id": "G-1", "title": "Marathon", "kind": "reach", "origin": "said", "state": "active",
                              "by": "2027-04-20", "words": "Sub-3, 2:55 as a stretch", "saidAt": "2026-11-07",
                              "evidence": [], "links": {key: [] for key in ("tasks", "works", "drafts", "ideas", "hubs")}}
     for count in range(12):
@@ -213,7 +214,7 @@ def test_export_contract_links_privacy_and_accepted_idea(vault, capsys, tmp_path
     run(vault, capsys, "works", "goal", "race-notes", "--goal", "G-1")
     exported = json.loads(run(vault, capsys, "state", "--json"))
     goal = exported["goals"][0]
-    assert set(goal) == {"id", "title", "kind", "state", "by", "words", "saidAt", "evidence", "links"}
+    assert set(goal) == {"id", "title", "kind", "origin", "state", "by", "words", "saidAt", "evidence", "links"}
     assert len(goal["evidence"]) == 5 and goal["evidence"][0] == {"at": "2026-11-06", "text": "Run 5", "link": "Training"}
     assert goal["links"] == {"tasks": ["T-001", "T-002"], "works": ["marathon-plan", "race-notes"],
                               "drafts": ["Drafts/Race day", "agent/Prepared/Taper week"], "ideas": [exported["idea"]["id"]], "hubs": ["Training"]}
@@ -256,10 +257,12 @@ def test_app_changes_reach_context_once_not_consumed_by_nightly_or_export(vault,
     assert "changed this in the app" not in run(vault, capsys, "compile-context", "--sections", "goals")
 
 
-def test_capture_asked_once_even_without_an_answer_and_nudge_operations(vault, capsys, monkeypatch):
+def test_asked_is_noop_and_said_goal_nudge_operations(vault, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_SPEAKER", "cli:owner")
-    assert goals.QUESTION in run(vault, capsys, "goals", "asked")
-    assert goals.QUESTION not in run(vault, capsys, "goals", "asked")
+    before = snapshot(vault)
+    for _ in range(2):
+        assert run(vault, capsys, "goals", "asked") == "Goals are inferred now; don't ask.\n"
+    assert snapshot(vault) == before
     cfg = Config.load(vault)
     assert "claim with `brain goals asked`" not in goals.context(cfg)
     monkeypatch.setenv("BRAIN_TODAY", "2026-08-01")

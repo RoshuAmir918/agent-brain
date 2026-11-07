@@ -116,11 +116,11 @@ def test_context_directory_lists_hubs_people_and_open_tasks(context_vault):
     assert "Active, Overflow" in body.split("- Hubs and topics: ", 1)[1].split("\n", 1)[0]
 
 
-def test_context_includes_active_goals_and_capture_guidance_until_then(context_vault):
+def test_context_includes_active_goals_and_inference_guidance_until_then(context_vault):
     from brain import goals
     text = compile_context.build(Vault(context_vault))
-    assert "No active goals" in text and f"Ask {Config.load(context_vault).human_name} once" in text
-    goals.new(Config.load(context_vault), "Read widely", "Read beyond my field")
+    assert "No active goals" in text and "Infer from repeated, dated evidence" in text
+    goals.new(Config.load(context_vault), "Read widely", "Read beyond my field", from_app=True)
     vault = Vault(context_vault)
     text = compile_context.build(vault)
     assert "## memory/human/Goals.md\n\n- G-1 — Read widely" in text
