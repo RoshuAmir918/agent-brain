@@ -59,6 +59,14 @@ def test_an_empty_view_removes_it_and_only_open_tasks_take_one(vault, capsys, mo
     assert "not an open task" in capsys.readouterr().err
 
 
+def test_a_hand_edited_view_outside_the_kit_is_not_read(vault, capsys, monkeypatch):
+    view(vault, capsys, monkeypatch, SHORTLIST)
+    config = Config.load(vault)
+    views.path(config, "T-001").write_text(json.dumps({"pieces": [
+        {"kind": "steps", "title": "S", "items": [{"label": "a"}, {"label": "b"}], "current": 5}]}))
+    assert views.read(config, "T-001") is None
+
+
 def test_a_view_too_big_to_carry_is_refused(vault, capsys, monkeypatch):
     rows = [{"cells": ["r" * 190, "s" * 190, "t" * 190]} for _ in range(40)]
     with pytest.raises(SystemExit):

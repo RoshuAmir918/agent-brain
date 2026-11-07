@@ -189,8 +189,9 @@ def cmd_journal_append(args):
         record = json.load(sys.stdin)
         if not isinstance(record, dict):
             raise ValueError("needs one JSON object")
-        print(journal.append_entry(args.config, record, args.platform, at,
-                                   user_id=args.user_id, user_id_alt=args.user_id_alt))
+        written = journal.append_entry(args.config, record, args.platform, at,
+                                       user_id=args.user_id, user_id_alt=args.user_id_alt)
+        print(written or "skipped: nothing worth recording")
     except (OSError, ValueError) as error:
         sys.exit(f"journal append: {error}")
 
@@ -1000,6 +1001,9 @@ def cmd_stale_tasks(args):
 
 
 def cmd_state(args):
+    if args.stamp:
+        print(state.stamp(args.config))
+        return
     data = state.build(args.config, args.config.today())
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -1189,6 +1193,14 @@ def cmd_people_mentioned(args):
         print(text)
 
 
+def cmd_prefetch(args):
+    found = session_context.prefetch(Vault(args.config.vault_path), args.config, args.message, owner=args.owner, seen=set(args.seen))
+    if args.json:
+        print(json.dumps(found, ensure_ascii=False))
+    elif found["text"]:
+        print(found["text"])
+
+
 def cmd_export_sessions(args):
     written, unchanged = sessions.export(args.config, args.date)
     print(f"exported: {written} files written, {unchanged} unchanged")
@@ -1234,7 +1246,8 @@ def cmd_timezone(args):
 def cmd_record_spec(args):
     print(json.dumps({"system": record.SYSTEM, "conversation": record.CONVERSATION, "schema": record.RECORD_SCHEMA,
                       "transcriptCap": record.TRANSCRIPT_CAP, "routine": record.ROUTINE,
-                      "routineSchema": record.ROUTINE_SCHEMA, "nightStages": sorted(record.NIGHT_STAGES)}))
+                      "routineSchema": record.ROUTINE_SCHEMA, "nightStages": sorted(record.NIGHT_STAGES),
+                      "held": record.held(args.config)}))
 
 
 def cmd_schedule(args):
@@ -1249,7 +1262,8 @@ def cmd_schedule(args):
         if action == "list":
             routines = schedule.load(config)
             if args.json:
-                print(json.dumps({name: asdict(routines[name]) for name in sorted(routines)}))
+                print(json.dumps({name: asdict(routine) | {"prompt": f"Run {name}." if routine.prompt is None else routine.prompt}
+                                  for name, routine in sorted(routines.items())}))
             else:
                 for name, routine in sorted(routines.items()):
                     timing = next(f"{key} {getattr(routine, key)}" for key in schedule.TIMING if getattr(routine, key) is not None)
@@ -1593,7 +1607,10 @@ def main(argv=None):
     s.add_argument("--top", type=int, metavar="N", help="only the top N After lines, with what each asks attention to watch")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_portrait)
     s = sub.add_parser("state", parents=[vault])
-    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_state)
+    mode = s.add_mutually_exclusive_group()
+    mode.add_argument("--json", action="store_true")
+    mode.add_argument("--stamp", action="store_true", help="a fingerprint of what the state is built from, without building it")
+    s.set_defaults(fn=cmd_state)
     s = sub.add_parser("health", parents=[vault]); s.add_argument("--date")
     s.add_argument("--json", action="store_true"); s.add_argument("--write", action="store_true", help="write <runtime_dir>/health.md")
     s.set_defaults(fn=cmd_health)
@@ -1604,6 +1621,11 @@ def main(argv=None):
     s = sub.add_parser("people-mentioned", parents=[vault]); s.add_argument("text")
     s.add_argument("--form", choices=("line", "card"), default="line")
     s.set_defaults(fn=cmd_people_mentioned)
+    s = sub.add_parser("prefetch", help="what goes before an owner's message: the people it names and the notes that match, by [context]",
+                       parents=[vault])
+    s.add_argument("message"); s.add_argument("--owner", action="store_true", help="the owner's own session: name the people it mentions")
+    s.add_argument("--seen", action="append", default=[], metavar="NAME", help="a person already shown this session")
+    s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_prefetch)
     s = sub.add_parser("session-context", parents=[vault])
     for option in ("platform", "user-id", "user-id-alt", "user-name", "chat-id"):
         s.add_argument("--" + option, default="")

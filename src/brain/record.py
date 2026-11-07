@@ -1,5 +1,6 @@
 """The runtime-independent specification for recording conversations and routine runs."""
-from . import access_log
+from . import access_log, loops, needs, tasks
+from .config import Config
 from .ledger import NIGHT_STAGES, OUTCOMES
 
 TRANSCRIPT_CAP = 40000
@@ -78,3 +79,20 @@ ROUTINE = (
     "(it ran and there was nothing to act on).\n"
     "- next: the next step it leaves, or null.")
 
+# A record of nothing is written only when it captures something: any field but these.
+UNCAPTURED = ("headline", "outcome", "touched", "next")
+
+
+def held(config: Config) -> str:
+    """What the conversation record is shown it already holds for the owner, appended to CONVERSATION: open asks and
+    confirms, open loops and open tasks, each with its id."""
+    asks = [f"- {item.id} · {item.kind} · {item.text[:160]}" for item in needs.items(config, config.today())
+            if item.kind in ("ask", "confirm")][:20]
+    open_loops = [f"- {item.id} · {item.kind} · {item.text}" for item in loops.open_loops(config)[:20]]
+    open_tasks = [f"- {task.tid} · {task.title}{' (handed off)' if task.handoff else ''}"
+                  for task in tasks.all_tasks(config) if tasks.is_open(task)][:30]
+    sections = (("Already waiting on your owner; leave needsYou null if the conversation only raised one of these again, "
+                 "in any wording; list answered ones in resolved:", asks),
+                ("Open loops; close these when finished, do not add them again:", open_loops),
+                ("Open tasks; each carries its own follow-up, so add no loop for their work or their reports:", open_tasks))
+    return "".join(f"\n{heading}\n" + "\n".join(lines) for heading, lines in sections if lines)

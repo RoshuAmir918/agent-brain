@@ -393,3 +393,28 @@ def test_people_mentioned_line_and_card_forms(people_vault, capsys):
     assert "Newest history:\n2026-10-28 · Slack · asked whether Mira is free Thursday." in card and "older entry" not in card
     cli.main(["people-mentioned", "--vault", str(root), "--form", "line", "--", "hope?"])
     assert capsys.readouterr().out.splitlines()[1].startswith("- Hope Dobbelaere: Mira's partner")
+
+
+def test_prefetch_applies_the_context_settings_and_names_each_person_once(people_vault, capsys, monkeypatch):
+    root = people_vault.root
+    fm.write(root / "Garden plans.md", {"tier": "warm", "index_line": "Beds for spring."}, "# Garden plans\n")
+    monkeypatch.setenv("BRAIN_PEOPLE", "line")
+    monkeypatch.setenv("BRAIN_PREFETCH_LIMIT", "1")
+
+    def prefetch(*flags):
+        cli.main(["prefetch", "--vault", str(root), "--json", *flags, "--", "what did Alice say about the garden plans?"])
+        return json.loads(capsys.readouterr().out)
+
+    found = prefetch("--owner")
+    assert found["people"] == ["Alice"]
+    people, recall = found["text"].split("\n\n")
+    assert people == "People named in this message, from their profiles:\n- Alice: Slack: U_ALICE (memory/people/Alice)"
+    assert recall.splitlines() == [session_context.RECALL_HEADER, "- memory/Garden plans.md (warm): title/path: garden, plans"]
+    assert prefetch("--owner", "--seen", "Alice") == {"text": recall, "people": ["Alice"]}
+    assert prefetch() == {"text": recall, "people": []}
+    monkeypatch.setenv("BRAIN_PREFETCH_FORM", "full")
+    monkeypatch.setenv("BRAIN_PREFETCH_CHARS", "120")
+    full = prefetch()["text"]
+    assert full.startswith(session_context.FULL_HEADER + "\n\n## memory/Garden plans.md (warm)\n\n# Garden plans") and len(full) <= 120
+    monkeypatch.setenv("BRAIN_PREFETCH", "0")
+    assert prefetch("--owner", "--seen", "Alice")["text"] == ""

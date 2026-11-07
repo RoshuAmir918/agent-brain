@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
-from . import access, channels as registry, directory, health
+from . import access, channels as registry, directory, health, retrieve
 from .compile_context import DATE
 from .config import Config
 from .identity import matching_agents, matching_profiles, role
@@ -22,6 +22,8 @@ MENTION_WORDS = {"line": 35, "card": 150}
 HISTORY_WORDS = 80
 PROFILE_WORD_LIMIT = 250
 TELLABLE_HEADING = "What you may tell {name} about {owner}, and nothing else:"
+RECALL_HEADER = "Vault notes that match this message (names and index lines; open one only if what is loaded does not answer):"
+FULL_HEADER = "Vault notes that match this message (their text, cut to fit):"
 
 
 def answering(block: str, config: Config) -> bool:
@@ -298,7 +300,17 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
 def mentioned(vault: Vault, config: Config, text: str, form: str = "line") -> str:
     """People with profiles named in a message, so the agent knows whom the owner means and decides itself whether to
     open more: `line` is who the person is in a sentence, `card` adds the profile and the newest history entry."""
-    blocks = []
+    return _people_block(form, list(_named(vault, config, text, form).values()))
+
+
+def _people_block(form: str, blocks: list[str]) -> str:
+    if not blocks:
+        return ""
+    return "People named in this message, from their profiles:\n" + ("\n" if form == "line" else "\n\n").join(blocks)
+
+
+def _named(vault: Vault, config: Config, text: str, form: str) -> dict[str, str]:
+    blocks = {}
     for rel, note in sorted(vault.notes.items()):
         if vault.kind_for(rel) != "profile" or not rel.startswith(config.people_dir + "/") or rel == config.human_profile:
             continue
@@ -310,7 +322,7 @@ def mentioned(vault: Vault, config: Config, text: str, form: str = "line") -> st
         first = re.sub(r"\[\[(?:[^]|]*\|)?([^]]*)\]\]", r"\1", first).replace("**", "")
         where = config.link(rel)[:-len("/Profile.md")]
         if form == "line":
-            blocks.append(f"- {full}: {truncate_words(first, MENTION_WORDS['line'])} ({where})")
+            blocks[full] = f"- {full}: {truncate_words(first, MENTION_WORDS['line'])} ({where})"
             continue
         history = note.path.with_name("History.md")
         newest = ""
@@ -318,8 +330,25 @@ def mentioned(vault: Vault, config: Config, text: str, form: str = "line") -> st
             entries = re.split(r"(?m)^(?:## |- )", history.read_text(encoding="utf-8"))[1:]
             dated = [entry for entry in entries if DATE.search(entry[:60])]   # the newest dated entry, not a bullet in the preamble; histories are newest first
             newest = truncate_words((dated or entries)[0].strip(), HISTORY_WORDS) if entries else ""
-        blocks.append(f"### {full} ({where})\n\n{truncate_words(note.body.strip(), MENTION_WORDS['card'])}"
-                      + (f"\n\nNewest history:\n{newest}" if newest else ""))
-    if not blocks:
-        return ""
-    return "People named in this message, from their profiles:\n" + ("\n" if form == "line" else "\n\n").join(blocks)
+        blocks[full] = (f"### {full} ({where})\n\n{truncate_words(note.body.strip(), MENTION_WORDS['card'])}"
+                        + (f"\n\nNewest history:\n{newest}" if newest else ""))
+    return blocks
+
+
+def prefetch(vault: Vault, config: Config, message: str, *, owner: bool, seen: set[str]) -> dict:
+    """What the runtime puts before an owner's message, by brain.toml's [context] and its BRAIN_* overrides: the people
+    it names (in the owner's own sessions, each once per session: `seen` are those already shown) and the vault notes
+    that match it. `people` is everyone it names, for the runtime to add to `seen`."""
+    context = config.context
+    words = [word for word in re.findall(r"[^\W_]+", message.lower()) if word not in retrieve.STOPWORDS]
+    people = _named(vault, config, message[:2000], context.people) if owner and context.people != "off" and words else {}
+    parts = [_people_block(context.people, [block for name, block in people.items() if name not in seen])]
+    if context.prefetch and len(words) >= 2:
+        form, full = context.prefetch_form, context.prefetch_form == "full"
+        lines = []
+        for candidate in retrieve.search(vault, message[:300], context.prefetch_limit):
+            body = candidate.reason if form == "names" else retrieve.text(vault, candidate, form)
+            lines.append(f"## {candidate.path} ({candidate.tier})\n\n{body}" if full else f"- {candidate.path} ({candidate.tier}): {body}")
+        if lines:
+            parts.append(("\n\n" if full else "\n").join([FULL_HEADER if full else RECALL_HEADER, *lines])[:context.prefetch_chars])
+    return {"text": "\n\n".join(part for part in parts if part), "people": list(people)}

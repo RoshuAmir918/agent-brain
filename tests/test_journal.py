@@ -68,6 +68,14 @@ def test_cli_journal_append_json(config, monkeypatch, capsys):
         cli.main(["journal", "append", "--vault", str(config.vault_path)])
 
 
+def test_a_record_of_nothing_that_captures_nothing_is_not_written(config, monkeypatch, capsys):
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(record(outcome="nothing", touched=["Lisbon trip"], speaker="Pat", loops=[]))))
+    cli.main(["journal", "append", "--vault", str(config.vault_path)])
+    assert capsys.readouterr().out.strip() == "skipped: nothing worth recording"
+    assert journal.append_entry(config, record(outcome="nothing", needsYou="Book the 16th?"), "cli", AT) is not None
+    assert [item.text for item in needs.items(config, TODAY) if item.origin == "current"] == ["Book the 16th?"]
+
+
 def test_ledger_append_by_skill_finds_the_routine_and_skips_night_stages(config, monkeypatch, capsys):
     fm.write(config.vault_path / "Midday duty.md", {"kind": "hub", "tier": "hot", "skill": "brain-midday-own",
                                                    "records": "midday"}, "# Midday\n")

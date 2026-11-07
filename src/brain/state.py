@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import fm, goals, health, ideas, ledger, loops, needs, portrait, responsibilities, schedule, seed, tasks, views, works
+from . import fm, goals, health, ideas, ledger, loops, needs, portrait, responsibilities, runtime, schedule, seed, tasks, views, works
 from .config import Config
 from .vault import Vault
 
@@ -227,6 +228,13 @@ def _loops(vault: Vault, items: list[loops.Item]) -> list[dict]:
             if (source := _source(vault, item.source)) is not None]
 
 
+def _engine() -> str:
+    try:
+        return health.installed_version("agent-brain")
+    except health.PackageNotFoundError:
+        return "unknown"
+
+
 def build(config: Config, today: date) -> dict:
     vault = Vault(config.vault_path)
     if vault.config != config:
@@ -260,14 +268,10 @@ def build(config: Config, today: date) -> dict:
     owner_idea = {**asdict(idea), "source": source} if source is not None else None
     if owner_idea and config.edition == "enterprise":
         owner_idea["goal"] = None
-    try:
-        engine = health.installed_version("agent-brain")
-    except health.PackageNotFoundError:
-        engine = "unknown"
     version = health.git(config.vault_path, "rev-parse", "--short", "HEAD")
     if version and health.git(config.vault_path, "--no-optional-locks", "status", "--porcelain"):
         version += "+dirty"
-    return {"schema": 2, "engine": engine, "version": version, "tasks": task_entries, "hubs": hubs,
+    return {"schema": 2, "engine": _engine(), "version": version, "tasks": task_entries, "hubs": hubs,
             "goals": _goals(vault, task_entries),
             "routines": routine_entries, "ledger": recent,
             "needsYou": owner_items, "outputs": _outputs(vault),
@@ -283,3 +287,28 @@ def build(config: Config, today: date) -> dict:
             "ownerPortrait": [line.public() for line in portrait.load(config)] if config.edition == "personal" else None,
             # the owner's accounts a seed has read or is reading, so their app can say the first portrait is coming
             "seeds": seed.seeds(vault) if config.edition == "personal" else None}
+
+
+def stamp(config: Config) -> str:
+    """A cheap fingerprint of what `build` reads, from file metadata alone: every file in the vault by path (so a rename
+    counts), the runtime records it reads, the engine version, the vault's HEAD and the owner's day."""
+    digest = hashlib.sha256()
+
+    def add(path: str, info: os.stat_result | None) -> None:
+        digest.update(f"{path}\0{info.st_mtime_ns if info else ''}\0{info.st_size if info else ''}\n".encode())
+
+    for folder, dirs, files in os.walk(config.vault_path):
+        dirs[:] = sorted(name for name in dirs if not name.startswith("."))
+        for name in sorted(files):
+            if not name.startswith("."):
+                path = os.path.join(folder, name)
+                add(path, os.lstat(path))
+    if (home := runtime.configured()) is not None:
+        for path in [home / "records" / "continue" / "progress.json", home / "works" / "LIBRARY.md",
+                     *sorted((home / "works").glob("*/GOAL.md"))]:
+            try:
+                add(str(path), path.lstat())
+            except OSError:
+                add(str(path), None)
+    digest.update(f"{_engine()}\0{health.git(config.vault_path, 'rev-parse', 'HEAD')}\0{config.today()}".encode())
+    return digest.hexdigest()[:16]
