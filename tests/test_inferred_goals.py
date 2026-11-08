@@ -217,17 +217,6 @@ def test_nightly_runs_decay_and_preview_stays_read_only(vault, tmp_path):
     assert goals.load(cfg)[0].state["state"] == "set_aside"
 
 
-def test_asked_never_takes_lock_or_changes_legacy_capture(vault, capsys, monkeypatch):
-    cfg = Config.load(vault)
-    goals.save_capture(cfg, {"asked": "2026-10-01", "app": []})
-    before = snapshot(vault)
-    def refuse_lock(*args):
-        pytest.fail("asked must not lock or write")
-    monkeypatch.setattr(cli, "vault_lock", refuse_lock)
-    assert run(vault, capsys, "asked") == "Goals are inferred now; don't ask.\n"
-    assert snapshot(vault) == before
-
-
 @pytest.mark.parametrize("operation", ["new", "keep", "not-a-goal", "to-task"])
 @pytest.mark.parametrize("speaker", ["", "cron:night", "subagent:run", "demiurge:visitor"])
 def test_owner_operations_refuse_intellect_and_visitors_without_writes(vault, capsys, monkeypatch, operation, speaker):

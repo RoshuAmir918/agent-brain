@@ -221,7 +221,7 @@ def test_deterministic_and_read_only(work):
 
 def test_version_outside_git_and_installed_engine(work):
     result = state.build(work, TODAY)
-    assert result["schema"] == 2
+    assert result["schema"] == 3
     assert result["version"] is None
     assert result["engine"] == health.installed_version("agent-brain")
 
@@ -248,7 +248,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     cli.main(["state", "--json", "--vault", str(work.vault_path)])
     output = capsys.readouterr().out
     parsed = json.loads(output)
-    assert list(parsed) == KEYS + ["idea", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait", "seeds"]
+    assert list(parsed) == KEYS + ["idea", "responsibilities", "portrait", "ownerPortrait", "seeds"]
     assert output == json.dumps(parsed, ensure_ascii=False, indent=2) + "\n"
     cli.main(["state", "--vault", str(work.vault_path)])
     summary = capsys.readouterr().out
@@ -256,7 +256,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     assert summary == " · ".join(f"{len(parsed[key])} {key}" for key in KEYS[3:]) + "\n"
     process = subprocess.run([sys.executable, "-m", "brain", "state", "--json", "--vault", str(work.vault_path)],
                              text=True, capture_output=True, check=True)
-    assert list(json.loads(process.stdout)) == KEYS + ["idea", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait", "seeds"]
+    assert list(json.loads(process.stdout)) == KEYS + ["idea", "responsibilities", "portrait", "ownerPortrait", "seeds"]
     assert process.stderr == ""
 
 
@@ -269,10 +269,9 @@ def test_empty_vault_and_missing_installed_metadata(tmp_path, monkeypatch):
 
     monkeypatch.setattr(health, "installed_version", missing)
     result = state.build(Config.load(root), TODAY)
-    assert list(result) == KEYS + ["idea", "waitingOnComputer", "responsibilities", "portrait", "ownerPortrait", "seeds"]
+    assert list(result) == KEYS + ["idea", "responsibilities", "portrait", "ownerPortrait", "seeds"]
     assert result["engine"] == "unknown"
     assert result["idea"] is None
-    assert result["waitingOnComputer"] == []
     assert result["responsibilities"] == []
     assert all(result[key] == [] for key in KEYS[3:])
 

@@ -17,7 +17,7 @@ def repo_vault(tmp_path):
     git(tmp_path, "init", "-q")
     git(tmp_path, "add", ".")
     git(tmp_path, "commit", "-q", "-m", "init")
-    for subject in ("sleep1(2026-10-03)", "attribution(2026-10-05)", "sleep1(2026-10-05)", "rem(2026-10-06)"):
+    for subject in ("sleep1(2026-10-03)", "attribution(2026-10-05)", "sleep1(2026-10-05)", "prime(2026-10-06)"):
         git(tmp_path, "commit", "-q", "--allow-empty", "-m", subject)
     (root / "Conversations/Digests").mkdir(parents=True)
     (root / "Conversations/Digests/2026-10-05.md").write_text(
@@ -34,7 +34,7 @@ def test_report_reads_stages_engine_export_and_counts(tmp_path):
     root = repo_vault(tmp_path)
     data = health.report(Config.load(root), date(2026, 10, 6))
     assert data["stages"]["sleep1"] == {"last": "2026-10-05", "state": "ok"}
-    assert data["stages"]["rem"] == {"last": "2026-10-06", "state": "ok"}
+    assert data["stages"]["prime"] == {"last": "2026-10-06", "state": "ok"}
     assert data["stages"]["attribution"]["state"] == "ok"
     assert data["stages"]["sleep2"] == {"last": None, "state": "never"}
     assert data["engine"]["recorded"] == "0.1.0" and data["engine"]["pending_migration_since"] == "uncommitted"

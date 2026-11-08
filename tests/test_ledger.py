@@ -5,9 +5,8 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from brain import audit, cli, fm, ledger, nightly
+from brain import cli, fm, ledger, nightly
 from brain.config import Config
-from brain.vault import Vault
 from conftest import nightly_argv, snapshot
 
 
@@ -208,14 +207,6 @@ def test_ledger_cli_errors_do_not_write(config, monkeypatch, argv, payload, mess
     assert message in str(error.value)
     assert error.value.code != 0
     assert snapshot(config.repo) == before
-
-
-def test_audit_counts_new_rows_without_format_header(config):
-    path = ledger.append(config, "watch", "done", "Mail checked.", "Wait.", datetime(2026, 10, 28, 8, 30))
-    vault = Vault(config.vault_path)
-    vault.load()
-    assert audit.ledgers(vault) == [{"ledger": path.relative_to(vault.root).as_posix(), "rows": 1,
-                                    "mean_words_per_row": float(len(ledger.render_row(read_rows(path)[0]).split()))}]
 
 
 def test_collapse_merges_at_first_position_and_preserves_other_rows(config):

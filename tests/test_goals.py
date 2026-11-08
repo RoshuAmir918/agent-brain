@@ -257,14 +257,10 @@ def test_app_changes_reach_context_once_not_consumed_by_nightly_or_export(vault,
     assert "changed this in the app" not in run(vault, capsys, "compile-context", "--sections", "goals")
 
 
-def test_asked_is_noop_and_said_goal_nudge_operations(vault, capsys, monkeypatch):
+def test_said_goal_nudge_operations(vault, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_SPEAKER", "cli:owner")
-    before = snapshot(vault)
-    for _ in range(2):
-        assert run(vault, capsys, "goals", "asked") == "Goals are inferred now; don't ask.\n"
-    assert snapshot(vault) == before
     cfg = Config.load(vault)
-    assert "claim with `brain goals asked`" not in goals.context(cfg)
+    assert "never ask whether" in goals.context(cfg)
     monkeypatch.setenv("BRAIN_TODAY", "2026-08-01")
     goals.new(cfg, "Reading", "Read widely")
     monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())

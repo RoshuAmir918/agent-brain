@@ -13,8 +13,7 @@ from dataclasses import asdict, replace
 from datetime import date, datetime
 from pathlib import Path
 
-from . import activation as act
-from . import access, attribute, audit, compile_context, consults, digest, evidence, fm, health, identity, ideas, image, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
+from . import access, attribute, compile_context, consults, digest, evidence, fm, health, identity, ideas, image, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
 from . import tasks as tasks_mod
 from . import goals
 from .tasks import load_tasks, quiet
@@ -835,11 +834,8 @@ def cmd_goals(args):
                     if getattr(args, name) is not None and getattr(args, name) is not False}
         if supplied - allowed.get(operation, set()):
             raise ValueError(f"{operation} does not take " + ", ".join(sorted(supplied - allowed.get(operation, set()))))
-        if which in ("list", "due", "asked", "migrate", "refused") and action is not None:
+        if which in ("list", "due", "migrate", "refused") and action is not None:
             raise ValueError(f"{which} takes no positional arguments")
-        if which == "asked":
-            print(goals.asked(config))
-            return
         if which == "activity":
             entries = goals.activity(config, action, weeks=args.weeks if args.weeks is not None else 2)
             print(json.dumps(entries, ensure_ascii=False, indent=2) if args.json else
@@ -1343,17 +1339,6 @@ def cmd_portrait(args):
             print(f"  for: {line.for_}")
 
 
-def cmd_simulate(a):
-    print(act.simulate_table(a.config.context.hot_threshold if a.h is None else a.h,
-                             a.config.context.warm_threshold if a.w is None else a.w))
-
-
-def cmd_audit(args):
-    directory = Path(args.sessions_dir).resolve() if args.sessions_dir else None
-    data = audit.report(args.config, date.fromisoformat(args.date) if args.date else None, args.days, directory)
-    print(audit.to_json(data) if args.json else audit.render(data), end="" if not args.json else "\n")
-
-
 def cmd_health(args):
     data = health.report(args.config, date.fromisoformat(args.date) if args.date else None)
     if args.write:
@@ -1385,20 +1370,6 @@ def cmd_session_context(args):
         print(json.dumps({"block": text, "owner": who == "owner", "member": who == "member",
                           "answering": session_context.answering(text, args.config)}, ensure_ascii=False))
     elif text:
-        print(text)
-
-
-def cmd_show_skill(args):
-    try:
-        print(install.render_skill(args.config, args.name), end="")
-    except ValueError as error:
-        print(error, file=sys.stderr)
-        sys.exit(1)
-
-
-def cmd_people_mentioned(args):
-    text = session_context.mentioned(Vault(args.config.vault_path), args.config, args.text, args.form)
-    if text:
         print(text)
 
 
@@ -1725,7 +1696,7 @@ def main(argv=None):
     s.add_argument("--goal", metavar="G-n")
     s.set_defaults(fn=cmd_ideas)
     s = sub.add_parser("goals", help="the person's goals; only this command writes goal blocks", parents=[vault])
-    s.add_argument("which", help="new, list, show, activity, due, refused, asked, migrate, or G-n")
+    s.add_argument("which", help="new, list, show, activity, due, refused, migrate, or G-n")
     s.add_argument("action", nargs="?", help="title with new; id with show; operation with G-n")
     s.add_argument("text", nargs="?", help="dated evidence, a note with link, or the active goal with superseded-by")
     s.add_argument("--words"); s.add_argument("--title"); s.add_argument("--why")
@@ -1859,13 +1830,6 @@ def main(argv=None):
     s = sub.add_parser("health", parents=[vault]); s.add_argument("--date")
     s.add_argument("--json", action="store_true"); s.add_argument("--write", action="store_true", help="write <runtime_dir>/health.md")
     s.set_defaults(fn=cmd_health)
-    s = sub.add_parser("audit", parents=[vault]); s.add_argument("--date"); s.add_argument("--days", type=int, default=14)
-    s.add_argument("--sessions-dir"); s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_audit)
-    s = sub.add_parser("show-skill", help="print the package's current text of one routine, rendered for this vault", parents=[vault])
-    s.add_argument("name"); s.set_defaults(fn=cmd_show_skill)
-    s = sub.add_parser("people-mentioned", parents=[vault]); s.add_argument("text")
-    s.add_argument("--form", choices=("line", "card"), default="line")
-    s.set_defaults(fn=cmd_people_mentioned)
     s = sub.add_parser("prefetch", help="what goes before an owner's message: the people it names and the notes that match, by [context]",
                        parents=[vault])
     s.add_argument("message"); s.add_argument("--owner", action="store_true", help="the owner's own session: name the people it mentions")
@@ -1876,8 +1840,6 @@ def main(argv=None):
         s.add_argument("--" + option, default="")
     s.add_argument("--ack-notices", action="store_true", help="acknowledge displayed app-change notices for this owner or routine session")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_session_context)
-    s = sub.add_parser("simulate", parents=[vault]); s.add_argument("--h", type=int); s.add_argument("--w", type=int)
-    s.set_defaults(fn=cmd_simulate)
 
     s = sub.add_parser("responsibility", help="build a hub, an own skill and a records folder for standing work", parents=[vault])
     s.add_argument("name"); s.add_argument("--skill", required=True); s.add_argument("--records")

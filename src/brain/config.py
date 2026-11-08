@@ -105,7 +105,7 @@ class Config:
     owner_user_ids: list[str] = field(default_factory=list)   # the owner's platform ids; "<platform>:<id>" matches one platform only
     log_dirs: list[str] = field(default_factory=list)   # folders under agent_dir holding receipts and ledgers, never notes
     skill_prefix: str = "brain-"
-    timezone: str = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest day boundaries, health and audit dates
+    timezone: str = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest day boundaries and health dates
     update_source: str = "git+https://github.com/RoshuAmir918/agent-brain"   # empty string disables brain update
     edition: str = "personal"
     _vault_path: Path | None = None

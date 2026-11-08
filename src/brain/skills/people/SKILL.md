@@ -36,4 +36,4 @@ Run `brain portrait coverage --json`; for each account in `unreadBackfill`, load
 7. Overwrite `$AGENT_HOME/records/people/state.json` with the reviewed window and the ids handled, so a rerun does not count a speaker twice. `brain commit -m "people(<date>)" --push`.
 
 ## Boundaries
-External services read-only; send nothing. No fixed character labels, no sensitive-trait or mental-health inference, no secrets, no raw message dumps. Preserve {human_name}'s edits. Never load `Dreams/`.
+External services read-only; send nothing. No fixed character labels, no sensitive-trait or mental-health inference, no secrets, no raw message dumps. Preserve {human_name}'s edits.

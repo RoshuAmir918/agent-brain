@@ -12,6 +12,11 @@ from brain.vault import Vault
 from conftest import snapshot
 
 
+def waiting(data):
+    """The harness's view of tasks resting on the owner's computer, derived from the task rows."""
+    return [row["id"] for row in data["tasks"] if row["open"] and row["resume"] == "computer"]
+
+
 @pytest.fixture
 def resting(vault, tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
@@ -72,7 +77,7 @@ def test_wake_updates_full_entry_and_warm_state(resting, capsys, location):
         data, _ = fm.read(path)
         fm.write(path, data, "# Tasks\n\n" + (task.render_line(config) if location == "warm" else ""))
     assert validate.task_states(Vault(config.vault_path)) == []
-    assert state.build(config, config.today())["waitingOnComputer"] == ["T-001"]
+    assert waiting(state.build(config, config.today())) == ["T-001"]
     assert json.loads(cli(config, capsys, "--wake", "computer", "--json")) == ["T-001"]
     assert current(config).task_state == "in_progress" and current(config).resume is None
     if location == "warm":
@@ -80,7 +85,7 @@ def test_wake_updates_full_entry_and_warm_state(resting, capsys, location):
     if location != "register":
         body = tasks.archive_path(config, "T-001").read_text()
         assert "Resume:" not in body and "state=in_progress" in body
-    assert state.build(config, config.today())["waitingOnComputer"] == []
+    assert waiting(state.build(config, config.today())) == []
 
 
 @pytest.mark.parametrize("as_json", [False, True])
@@ -167,6 +172,6 @@ def test_state_json_preserves_computer_and_lists_only_open_waits(resting, capsys
         tasks.append_task(config, tasks.Task(tid, "Other", f"- **Resume:** {resume}\n", {"state": task_state}))
     brain_cli.main(["state", "--json", "--vault", str(config.vault_path)])
     data = json.loads(capsys.readouterr().out)
-    assert data["schema"] == 2
-    assert data["waitingOnComputer"] == ["T-001", "T-002"]
+    assert data["schema"] == 3
+    assert waiting(data) == ["T-001", "T-002"]
     assert [row["resume"] for row in data["tasks"]] == ["computer", "computer", "2026-11-07", "computer"]

@@ -2,7 +2,9 @@ from importlib.resources import files
 import json
 import os
 import re
+import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -21,7 +23,7 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
     assert capsys.readouterr().out == str(config.skills_path) + "\n"
     templates = [path for path in files("brain").joinpath("skills").iterdir()
                  if path.joinpath("SKILL.md").is_file() and "editions: [enterprise]" not in path.joinpath("SKILL.md").read_text()]
-    assert len(templates) == 16
+    assert len(templates) == 14
     assert len(list(config.skills_path.glob("*/SKILL.md"))) == len(templates)
     for routine in templates:
         text = (config.skills_path / (prefix + routine.name) / "SKILL.md").read_text()
@@ -38,7 +40,7 @@ def test_install_scripts_copies_executable_package_resources(tmp_path, monkeypat
     monkeypatch.setenv("AGENT_HOME", str(home))
     cli.main(["install-scripts"])
     installed = sorted((home / "scripts").glob("*.sh"))
-    assert [path.name for path in installed] == ["continue-daily-signal.sh", "continue-signal.sh", "export-sessions.sh", "refresh.sh", "watch-signal.sh"]
+    assert [path.name for path in installed] == ["attribution.sh", "continue-daily-signal.sh", "continue-signal.sh", "export-sessions.sh", "refresh.sh", "watch-signal.sh"]
     refresh = (home / "scripts/refresh.sh").read_text()
     assert refresh.index("brain people sync --run >/dev/null 2>&1 || true") < refresh.index("brain compile-context --write")
     output = capsys.readouterr().out
@@ -84,7 +86,27 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
     assert (vault / "Conversations/Sessions/s1.md").exists()
     assert (home / "records/sessions/cron_j_1.md").exists() and not (vault / "Conversations/Sessions/cron_j_1.md").exists()
     assert len(list((vault / "Conversations/Digests").glob("*.md"))) == 1
-    assert len(list((vault / "Runtime/skills").glob("*/SKILL.md"))) == 16
+    assert len(list((vault / "Runtime/skills").glob("*/SKILL.md"))) == 14
+
+
+def test_attribution_script_writes_observed_rows_without_a_model(vault, tmp_path, monkeypatch):
+    home = tmp_path / "agent-home"
+    monkeypatch.setenv("AGENT_HOME", str(home))
+    monkeypatch.setenv("VAULT_REPO", str(vault.parent))
+    monkeypatch.setenv("BRAIN_HOT_WORDS", "0")
+    commands = tmp_path / "bin"
+    commands.mkdir()
+    (commands / "git").write_text("#!/bin/sh\nexit 0\n")
+    (commands / "git").chmod(0o755)
+    monkeypatch.setenv("PATH", str(commands) + os.pathsep + os.environ["PATH"])
+    fm.write(vault / "Acme Context.md", {"tier": "hot", "uses": [], "uses_inferred": []}, "# Fixture\n")
+    shutil.copytree(Path(__file__).parent / "fixtures/sessions", home / "records/sessions/jsonl")
+    cli.main(["install-scripts"])
+    subprocess.run(["bash", str(home / "scripts/attribution.sh")], cwd=tmp_path,
+                   env=dict(os.environ), check=True, capture_output=True, text=True)
+    log = (vault / "agent/Use Log/2026-10.md").read_text()
+    assert "| Acme Context.md | opened on demand in session cli-session | observed" in log
+    assert "judged:" not in log
 
 
 def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
@@ -160,7 +182,7 @@ def test_update_uses_own_interpreter_and_reinstalls_scripts(tmp_path, monkeypatc
     installed = install.update(Config.load(tmp_path / "memory"))
     assert calls[0][:4] == [sys.executable, "-m", "pip", "install"]
     assert calls[0][-1] == "git+https://github.com/RoshuAmir918/agent-brain"
-    assert {path.name for path in installed} == {"refresh.sh", "export-sessions.sh", "watch-signal.sh", "continue-signal.sh", "continue-daily-signal.sh"}
+    assert {path.name for path in installed} == {"attribution.sh", "refresh.sh", "export-sessions.sh", "watch-signal.sh", "continue-signal.sh", "continue-daily-signal.sh"}
     for path in installed:
         resource_dir = "scripts"
         assert path.read_bytes() == files("brain").joinpath(resource_dir, path.name).read_bytes()
@@ -305,16 +327,6 @@ def test_a_migration_prompt_has_its_tokens_rendered(vault, monkeypatch):
     monkeypatch.setattr(install, "installed_version", lambda name: "0.51.1")
     (tag, prompt), = install.pending_migrations(config)
     assert tag == "0.51.1" and "{agent_dir}" not in prompt and f"{config.agent_dir}/Primed.md" in prompt
-
-
-def test_show_skill_renders_one_routine_for_this_vault(vault, capsys):
-    (vault.parent / "brain.toml").write_text('[brain]\nvault = "memory"\nhuman_name = "Mira"\nagent_name = "Echo"\nskill_prefix = "echo-"\n')
-    cli.main(["show-skill", "morning", "--vault", str(vault)])
-    text = capsys.readouterr().out
-    assert text.startswith("---\nname: echo-morning\n") and "What today is for Mira" in text and "{human_name}" not in text
-    with pytest.raises(SystemExit):
-        cli.main(["show-skill", "nope", "--vault", str(vault)])
-    assert "no such routine: nope" in capsys.readouterr().err
 
 
 def test_the_memory_spec_follows_the_engine_and_keeps_the_vaults_local_section(tmp_path):
