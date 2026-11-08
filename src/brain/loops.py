@@ -17,6 +17,7 @@ KINDS = ("promised", "owed", "waiting")
 OUTCOMES = ("done", "dropped")
 STALE_HOURS = 4
 WAITING_HOURS = 24
+STALE_DAYS = 2      # past due this long, watch has had its chances: the evening decides the loop
 CLOSED_KEEP = 50
 TEMPLATE = """---
 kind: orientation
@@ -299,19 +300,25 @@ def close(config: Config, which: str, at: datetime, outcome: str, because: str) 
         return item
 
 
+def _deadline(config: Config, item: Item) -> datetime:
+    """When a loop becomes due: its named date, else a few hours (a day for a wait) after it opened. A wait is never due
+    before its day has passed, whatever date it names."""
+    opened = config.local(_time(item.since)).astimezone(timezone.utc)
+    hours = WAITING_HOURS if item.kind == "waiting" else STALE_HOURS
+    if item.due:
+        deadline = config.local(_time(item.due)).astimezone(timezone.utc)
+        return max(deadline, opened + timedelta(hours=WAITING_HOURS)) if item.kind == "waiting" else deadline
+    return opened + timedelta(hours=hours)
+
+
 def due(config: Config, now: datetime) -> list[Item]:
     now = config.local(now).astimezone(timezone.utc)
-    out = []
-    for item in open_loops(config):
-        if item.ready:
-            out.append(item)
-            continue
-        opened = config.local(_time(item.since)).astimezone(timezone.utc)
-        age = now - opened
-        if item.kind == "waiting" and age < timedelta(hours=WAITING_HOURS):
-            continue
-        deadline = config.local(_time(item.due)).astimezone(timezone.utc) if item.due else None
-        hours = WAITING_HOURS if item.kind == "waiting" else STALE_HOURS
-        if (deadline is not None and now >= deadline) or (deadline is None and age >= timedelta(hours=hours)):
-            out.append(item)
-    return out
+    return [item for item in open_loops(config) if item.ready or now >= _deadline(config, item)]
+
+
+def stale(config: Config, now: datetime, days: int = STALE_DAYS) -> list[Item]:
+    """Open loops due `days` or more ago that nothing has moved, oldest first: watch has done what it can, so the evening
+    closes, converts or drops each. A ready loop is watch's to relay and is never stale."""
+    now = config.local(now).astimezone(timezone.utc)
+    old = [item for item in open_loops(config) if not item.ready and now - _deadline(config, item) >= timedelta(days=days)]
+    return sorted(old, key=lambda item: _deadline(config, item))

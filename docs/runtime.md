@@ -129,6 +129,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.111.0: a loop that stays stuck is decided. `brain loops --stale` lists loops two days or more past due (never a ready one), and `--json` adds `stale`; the evening closes each as done, turns it into a task, moves a standing direction to Working together, or drops it, naming in the briefing anything at stake. The after-conversation record no longer files work or a standing direction as a loop, and watch turns any promised work, not only the owner's, into a handed-off task. No migration.
 - 0.109.0: another intellect's question is answered now from what may be told, even in part, saying what has no record; only what is the owner's to decide or give (an invitation, a yes or no, their time), or a request to check with them, goes to the owner. No migration.
 - 0.107.1: a dated commitment (an exam, a class) stays `schedule` in the tellable note, not `work`.
 - 0.107.0: goals gain weekly accounts, readable activity with expandable records, effort weights and permanent "Not this" corrections. The owner can change weights or correct items from the app; people writes the account and explore/improve read steering before choosing work. The state export includes weight, this/last week's account and bounded recent activity. No migration.
