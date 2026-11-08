@@ -58,10 +58,3 @@ def simulate(h: int = H_DAYS, w: int = W_DAYS, d: float = EXPONENT, max_days: in
         return max_days
 
     return [(name, until(p, hot_t), until(p, warm_t)) for name, p in patterns.items()]
-
-
-def simulate_table(h: int = H_DAYS, w: int = W_DAYS) -> str:
-    rows = ["| Use pattern | Hot for | Warm until |", "| --- | --- | --- |"]
-    for name, hot, warm in simulate(h, w):
-        rows.append(f"| {name} | {hot} days | {warm} days |")
-    return "\n".join(rows)

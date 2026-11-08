@@ -107,18 +107,6 @@ def test_t6_contract_argv_special_titles_words_and_edit(vault, capsys):
     assert not goals.problems(cfg)
 
 
-@pytest.mark.parametrize("speaker", ["", "demiurge:visitor", "subagent:run", "demiurge:owner", "cron:morning"])
-def test_asked_is_harmless_for_every_old_caller(vault, capsys, monkeypatch, speaker):
-    cfg = Config.load(vault)
-    assert "never ask whether" in goals.context(cfg)
-    monkeypatch.setenv("BRAIN_SPEAKER", speaker)
-    before = snapshot(vault)
-    for _ in range(2):
-        assert goals.asked(cfg) == "Goals are inferred now; don't ask."
-        assert run(vault, capsys, "goals", "asked") == "Goals are inferred now; don't ask.\n"
-    assert snapshot(vault) == before
-
-
 @pytest.mark.parametrize("platform,user_id,visible", [("cli", "", True), ("cron", "", True), ("demiurge", "visitor", False)])
 def test_session_context_preview_has_no_writes_or_lock_and_ack_is_explicit(vault, capsys, monkeypatch, platform, user_id, visible):
     cfg = Config.load(vault)

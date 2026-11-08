@@ -276,14 +276,13 @@ def build(config: Config, today: date) -> dict:
     version = health.git(config.vault_path, "rev-parse", "--short", "HEAD")
     if version and health.git(config.vault_path, "--no-optional-locks", "status", "--porcelain"):
         version += "+dirty"
-    return {"schema": 2, "engine": _engine(), "version": version, "tasks": task_entries, "hubs": hubs,
+    return {"schema": 3, "engine": _engine(), "version": version, "tasks": task_entries, "hubs": hubs,
             "goals": _goals(vault, task_entries),
             "routines": routine_entries, "ledger": recent,
             "needsYou": owner_items, "outputs": _outputs(vault),
             "loops": _loops(vault, loops.open_loops(config)),
             "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
             "idea": owner_idea,
-            "waitingOnComputer": [task["id"] for task in task_entries if task["open"] and task["resume"] == "computer"],
             "responsibilities": responsibility_entries,
             # an organisation's stage is the whole team's, so it shows what was stated and seen
             "portrait": [line.public() for line in portrait.shown(portrait.load(config))]

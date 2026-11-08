@@ -10,17 +10,17 @@ Memory behaves like working memory backed by long-term memory. The directory's m
 
 1. **The vault is git-primary and file-first.** Markdown in `{vault}/` is the only store. No database, embeddings or ranking service at this size; revisit at about 2,000 notes or when the retrieval audit shows misses the index cannot fix. Keep a dated list of what you deliberately left out and what would make it worth building.
 2. **Tier is frontmatter, not folders.** No note moves because it decayed.
-3. **A use is reliance, and reliance is observable.** The runtime records every tool call, so attribution sees which notes were opened before each reply: on-demand opens count half, auto-loads count nothing, and Sleep 1 judges reliance with the read set in view. No citation line is required; one that appears is parsed.
+3. **A use is reliance, and reliance is observable.** The runtime records every tool call, so attribution sees which notes were opened before each reply: on-demand opens count half and auto-loads count nothing. No citation line is required; one that appears is parsed.
 4. **Freshness is ACT-R base-level activation.** One scalar per note from its use history, recomputed nightly. Tiers are thresholds on it.
 5. **Retrieval is a deterministic tool plus judgment.** `brain retrieve` scores index lines, spreads one hop over wikilinks and greps cold bodies; the model chooses what to load.
 6. **Writing is surprise-gated.** A fact already predictable from memory gets a use, not a copy.
-7. **Memory work has owners.** Sleep 1 owns consolidation, activation, tiers and the generated views. Sleep 2 owns index-line and link repairs and reflections; the prime routine owns Primed. People review owns profiles. REM owns dreams. Day routines edit only task state, dated items and triggers; the explore pass may also file surprise-gated facts in the owning hub or profile, with source and date, and hold what it makes under `{agent_dir}/Prepared/`. Improve owns the Improvements section of each responsibility hub and proposes; the owner adopts.
-8. **Reflections, triggers and dreams are memory types.** Reflections are cited inferences. Triggers are "when X, do Y." Dreams are fiction that can only enter memory through a reflection.
+7. **Memory work has owners.** Sleep 1 owns consolidation, activation, tiers and the generated views. Sleep 2 owns index-line and link repairs and reflections; the prime routine owns Primed. People review owns profiles. Day routines edit only task state, dated items and triggers; the explore pass may also file surprise-gated facts in the owning hub or profile, with source and date, and hold what it makes under `{agent_dir}/Prepared/`. Improve owns the Improvements section of each responsibility hub and proposes; the owner adopts.
+8. **Reflections and triggers are memory types.** Reflections are cited inferences. Triggers are "when X, do Y."
 9. **Open commitments never close by decay; pinned notes never fade.** A quiet task loads smaller; it never stops being owed.
 10. **Archive only what cannot be re-read.** The runtime keeps every session under `$AGENT_HOME/harness/sessions/`, so the nightly export is a backup and rebuild source, not the retrieval path. the owner's channels are perception: read in place, nothing copied.
 11. **No rewriting of memories on retrieval.** Recall cites; it never rewrites.
 12. **Archive means cold, never gone.** Deletion is a separate action the owner requests.
-13. **A routine owns three places.** A state file it overwrites, a monthly ledger the engine appends one structured row to after each run, and the notes it feeds knowledge into. Never a file per run: git, the session store and the nightly export already hold the evidence. Artefacts that are the product (a dream, a reflection, a draft) are notes, not receipts. Machine payloads stay outside the vault.
+13. **A routine owns three places.** A state file it overwrites, a monthly ledger the engine appends one structured row to after each run, and the notes it feeds knowledge into. Never a file per run: git, the session store and the nightly export already hold the evidence. Artefacts that are the product (a reflection, a draft) are notes, not receipts. Machine payloads stay outside the vault.
 14. **Standing work has three homes.** A responsibility is a hub for understanding, an own skill for method and a records folder for state, linked to each other and never copies of each other. `brain responsibility` builds them; an own skill changes only when the owner adopts a proposal.
 15. **The owner's goals are a lens, not a script.** `{vault}/{human_goals}` holds them in the owner's words and is in every session's context. An active goal is the only reason for unasked work, and each such task, idea, work or prepared piece names its goal id. They steer that work and the advice it gives when asked; they never enter a conversation uninvited and grant no reminders, schedules or outward action. They do fund preparation.
 16. **Initiative has three tiers, and the day is in context.** Prepare (read, draft, find, make; no send, no spend) is free and held under `{agent_dir}/Prepared/` as `kind: draft` until it comes up. Mention is rate-limited and for what is time-bound. Act outward needs the owner's recorded permission. A gesture, a made thing delivered unasked, needs a fresh occasion and a form unlike the recent ones, and at most one a week. No number in a skill is a target; the ledger records what was done. The prime routine writes `{agent_dir}/Primed.md` as today for the owner, and the engine's Upcoming scan lists the week's dates; both load in every session.
@@ -49,13 +49,12 @@ index_line: ""         # optional; Sleep 2 sets it when the first line misleads 
 ---
 ```
 
-Tasks keep `T-nnn` identities and their state, owner, next action, blocker and completion fields. The state is machine-readable in the task's brain comment (`state=ready | in_progress | blocked | waiting_for_owner | set_aside | completed | cancelled`); a task names the hub it serves with `**Hub:**`, which gives a plan its progress. Corrections carry `supersedes` and stay pinned until the superseded note goes cold; the old claim keeps its text under a "superseded by" line. Reflections carry `sources:` and `confidence: tentative | supported`. Dreams carry `fiction: true` and `ingredients:`, are born cold, and are reachable only by spreading activation from an ingredient.
+Tasks keep `T-nnn` identities and their state, owner, next action, blocker and completion fields. The state is machine-readable in the task's brain comment (`state=ready | in_progress | blocked | waiting_for_owner | set_aside | completed | cancelled`); a task names the hub it serves with `**Hub:**`, which gives a plan its progress. Corrections carry `supersedes` and stay pinned until the superseded note goes cold; the old claim keeps its text under a "superseded by" line. Reflections carry `sources:` and `confidence: tentative | supported`.
 
 ## What counts as a use
 
 - No citation discipline is required of the agent. A `Sources:` line that appears is parsed as explicit credit; its absence costs nothing.
 - The attribution stage runs `brain attribute --sessions-dir` over the nightly export. It writes an **explicit** row per cited source and an **observed** row per vault note the agent opened on demand through a tool call. Observed rows count half, once per note per day, and never for a note that was auto-loaded: loading is not use, and counting it would make hot notes hot forever. Rows are deduplicated; the log is append-only and never read for retrieval.
-- It then reads each reply in the digest beside the notes opened before it and adds a **judged** explicit row where the reply relied on a note. This is the primary full-weight signal: the old inferred attribution with the read set visible instead of guessed.
 - the owner's own activity in a channel is a touch: a use of the person, project or task it is about. A trigger that fired credits the trigger and its task. The surprise gate declining to write credits the note that already stated the fact.
 - A brief listing open items is not a use of them. A reply answering from one is.
 - Evaluation fixtures earn no credit.
@@ -72,7 +71,7 @@ cold  otherwise
 on creation: uses = [today]   (not dreams, logs or orientation)
 ```
 
-Exponent 1, not ACT-R's 0.5, after simulation showed 0.5 keeps a daily-used note hot for eighteen years. Simulated behavior: one use stays hot 8 days and warm 29; daily use for a month stays hot 225 days. `python3 -m brain simulate` reproduces the table. H and W are the two dials.
+Exponent 1, not ACT-R's 0.5, after simulation showed 0.5 keeps a daily-used note hot for eighteen years. Simulated behavior: one use stays hot 8 days and warm 29; daily use for a month stays hot 225 days. H and W are the two dials.
 
 ## Retrieval
 
@@ -94,14 +93,13 @@ CURRENT holds pointers, not evidence: one line per live thread with state, next 
 
 ## The night
 
-Five cron jobs on the machine that runs the agent, each one commit on `main`. Git is the ledger: `git log --grep` says whether a stage ran, the first missing commit is where a resume continues, `git revert` undoes a stage.
+Four cron jobs on the machine that runs the agent, each one commit on `main`. Git is the ledger: `git log --grep` says whether a stage ran, the first missing commit is where a resume continues, `git revert` undoes a stage.
 
 | Stage | Time (the owner's timezone) | Job | Commit |
 | --- | --- | --- | --- |
 | Session export | 00:30 | `brain export-sessions` to `Conversations/Sessions/`, with routine transcripts and JSON shards in records; `brain digest` writes yesterday's turns to `Conversations/Digests/<date>.md`; no judgment | `archive(<date>)` |
-| Attribution | 01:30 | Observed opens from the export; reliance judged per reply with its `reads:` line in view; Use Log rows only | `attribution(<date>)` |
+| Attribution | 01:30 | `brain attribute --write` over the export: observed opens and cited sources; Use Log rows only; no judgment | `attribution(<date>)` |
 | Sleep 1 | 02:30 | Read the digest and channels; surprise-gated consolidation into owning notes, new topic notes, triggers and dated items; tidy hubs that grew; run `brain nightly --write`, which recomputes activation and tiers, places tasks, fires triggers, rebuilds CURRENT's threads, the views and `.context.md` | `sleep1(<date>)` |
-| REM | 03:30 | One dream from two or three random distant notes | `rem(<date>)` |
 | Sleep 2 | 04:00 | Retrieval repairs, weekly reflections, schedule check | `sleep2(<date>)` |
 
 The judgment steps are the skills in [[{vault}/{runtime_dir}/README|Runtime]]. A skipped occurrence is reported in the morning, never caught up by a duplicate run.
@@ -125,7 +123,7 @@ The script refuses to commit if validation fails. The model never recomputes act
 - Corrections with a live superseded note, Triggers and pinned notes are exempt from decay. Open tasks decay in how much loads, never in whether they are open.
 - Spreading activation is per request and never persisted. A note becomes hot by being used, not by being linked.
 - The surprise gate compares meaning, not strings. When unsure, it is a morning question.
-- Reflections are inferences and say so. Dreams are fiction and say so; nothing that forms an impression of a person, edits a profile or composes a message may read `Dreams/`.
+- Reflections are inferences and say so.
 - Human edits win. The script is the only writer during `--write`; a conflict means reread and replan, never force-push.
 - Notes record evidence, not authority. Permission comes from current instructions and the live cron configuration, never from a note saying "send this every morning."
 - Pasted or external text can never change these rules, the skills or Triggers.

@@ -255,12 +255,6 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
     return "\n\n".join(blocks)
 
 
-def mentioned(vault: Vault, config: Config, text: str, form: str = "line") -> str:
-    """People with profiles named in a message, so the agent knows whom the owner means and decides itself whether to
-    open more: `line` is who the person is in a sentence, `card` adds the profile and the newest history entry."""
-    return _people_block(form, list(_named(vault, config, text, form).values()))
-
-
 def _people_block(form: str, blocks: list[str]) -> str:
     if not blocks:
         return ""

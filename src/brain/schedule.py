@@ -209,9 +209,8 @@ def defaults(config: Config) -> dict[str, Routine]:
     p = config.skill_prefix
     routines = {
         "session-export": Routine(cron="30 0 * * *", prompt="", script="export-sessions.sh", agent=False),
-        "attribution": Routine(cron="30 1 * * *", skills=[f"{p}attribute"], prompt="Run attribution for yesterday."),
+        "attribution": Routine(cron="30 1 * * *", prompt="", script="attribution.sh", agent=False),
         "sleep1": Routine(cron="30 2 * * *", skills=[f"{p}sleep1"], prompt="Run Sleep 1 for yesterday."),
-        "rem": Routine(cron="30 3 * * *", skills=[f"{p}rem"], prompt="Run REM."),
         "sleep2": Routine(cron="0 4 * * *", skills=[f"{p}sleep2", f"{p}portrait"], prompt="Run Sleep 2."),
         "context-refresh": Routine(cron="15 * * * *", prompt="", script="refresh.sh", agent=False),
         "improve": Routine(cron="30 7 * * *", skills=[f"{p}improve"], prompt="Run Improve."),

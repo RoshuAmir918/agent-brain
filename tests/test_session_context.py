@@ -342,7 +342,11 @@ def test_a_stranger_on_demiurge_is_told_to_look_the_sender_up_first(people_vault
     assert "demiurge intellects" not in session_context.build(people_vault, people_vault.config, platform="slack", user_id="NOPE")
 
 
-def test_people_mentioned_line_and_card_forms(people_vault, capsys):
+def mentioned(vault, text, form="line"):
+    return session_context._people_block(form, list(session_context._named(vault, vault.config, text, form).values()))
+
+
+def test_people_named_line_and_card_forms(people_vault):
     root = people_vault.root
     (root / "people/Hope_Dobbelaere").mkdir()
     fm.write(root / "people/Hope_Dobbelaere/Profile.md", {"kind": "profile", "tier": "warm"},
@@ -351,17 +355,15 @@ def test_people_mentioned_line_and_card_forms(people_vault, capsys):
         "# Hope history\n\nNewest first.\n- a preamble bullet that is not an entry\n\n"
         "- 2026-10-28 · Slack · asked whether Mira is free Thursday.\n- 2026-10-01 · older entry.\n")
     vault = Vault(root)
-    line = session_context.mentioned(vault, vault.config, "hope texted me, and alice too")
+    line = mentioned(vault, "hope texted me, and alice too")
     assert line == ("People named in this message, from their profiles:\n"
                     "- Alice: Slack: U_ALICE (memory/people/Alice)\n"
                     "- Hope Dobbelaere: Mira's partner, in Family since 2024. (memory/people/Hope_Dobbelaere)")
-    assert session_context.mentioned(vault, vault.config, "nothing about anyone") == ""
-    assert "Hope" not in session_context.mentioned(vault, vault.config, "hopeful about Bob")
-    card = session_context.mentioned(vault, vault.config, "Hope", form="card")
+    assert mentioned(vault, "nothing about anyone") == ""
+    assert "Hope" not in mentioned(vault, "hopeful about Bob")
+    card = mentioned(vault, "Hope", form="card")
     assert card.startswith("People named in this message, from their profiles:\n### Hope Dobbelaere (memory/people/Hope_Dobbelaere)\n\n# Hope")
     assert "Newest history:\n2026-10-28 · Slack · asked whether Mira is free Thursday." in card and "older entry" not in card
-    cli.main(["people-mentioned", "--vault", str(root), "--form", "line", "--", "hope?"])
-    assert capsys.readouterr().out.splitlines()[1].startswith("- Hope Dobbelaere: Mira's partner")
 
 
 def test_prefetch_applies_the_context_settings_and_names_each_person_once(people_vault, capsys, monkeypatch):

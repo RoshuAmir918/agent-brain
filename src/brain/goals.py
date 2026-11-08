@@ -30,7 +30,6 @@ ENDING = re.compile(r"^- \*\*(?:Reached|Superseded|Set-Aside):\*\* (\d{4}-\d{2}-
 ACTIVE_DESCRIPTION = "What the owner is working toward, said or inferred from repeated, dated evidence."
 LEGACY_DESCRIPTION = "What the owner has chosen to cultivate: called a goal in their words, or returned to on a second day."
 TEMPLATE = "# Goals\n\n## Aspirations\n\n## Active goals\n\n## Adopted practices\n\n## Set aside\n"
-ASKED = "Goals are inferred now; don't ask."
 
 
 def day(value: str) -> str:
@@ -256,10 +255,6 @@ def save_capture(config: Config, values: dict) -> None:
     path = _state_path(config)
     path.parent.mkdir(parents=True, exist_ok=True)
     fm.write_text(path, json.dumps(values, ensure_ascii=False, indent=2) + "\n")
-
-
-def asked(config: Config) -> str:
-    return ASKED
 
 
 def _owner(config: Config, from_app: bool = False) -> bool:
