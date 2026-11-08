@@ -14,21 +14,9 @@ RUNS = ("owner-mac", "runtime", "agent")
 
 class Nothing(ValueError):
     """The source has nothing to read: no account connected, no file synced. Not a failure."""
-# What a link, a sender or an event title says about which part of a life it belongs to; first matches win in order.
-HINTS = (("places", ("maps.", "goo.gl/maps", "yelp.", "tripadvisor.", "airbnb.", "booking.com", "zillow.", "redfin.",
-                     "streeteasy.", "expedia.", "flight", "hotel", "trip ")),
-         ("food & drink", ("opentable.", "resy.", "doordash.", "ubereats.", "seamless.", "tock.", "dinner", "lunch", "brunch",
-                           "restaurant", "drinks")),
-         ("music", ("spotify.", "music.apple.", "soundcloud.", "bandcamp.", "tidal.", "songlink.", "ra.co", "concert", "gig")),
-         ("play", ("strava.", "chess.com", "lichess.", "steampowered.", "twitch.tv", "ticketmaster.", "eventbrite.", "partiful.",
-                   "gym", "climb", "boulder", "run ", "running", "yoga", "tennis", "game", "match", "hike", "poker")),
-         ("health", ("doctor", "dentist", "therapy", "clinic", "physio")),   # said-only: the judging pass never reads it
-         ("reading & ideas", ("book club", "lecture", "talk:", "reading")))
 
 
-def hints(text: str, default: str = "reading & ideas") -> tuple[str, ...]:
-    text = text.casefold()
-    return tuple(facet for facet, marks in HINTS if any(mark in text for mark in marks)) or (default,)
+from .hinting import HINTS, hints  # noqa: F401  (sources import hints from the registry)
 
 
 @dataclass(frozen=True)
