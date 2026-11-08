@@ -284,3 +284,18 @@ def test_claims_match_whole_words_never_open_a_said_only_row_and_names_ignore_ca
     assert {name: [row.pointer for row in rows] for name, rows in routed.items()} == {
         "Home & routine": ["m:2"], "Food & drink": ["m:3"]}
     assert [row.pointer for row in image.evidence_for(config, "FOOD & DRINK")] == ["m:3"]
+
+
+def test_the_most_telling_evidence_is_judged_first_not_the_most_rows(config, vault, tmp_path, monkeypatch):
+    from brain import evidence
+    from brain.evidence import Evidence
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
+    notices = [Evidence(date(2026, 11, 1), "received", f"{n + 2} notices from shop{n}.example.com, last 2026-11-01", "own",
+                        ("shopping",), f"mail:from/{n}") for n in range(20)]
+    did = [Evidence(date(2026, 11, 2), "went", f"Bouldering, {n + 2} times", "own", ("play",), f"calendar:{n}") for n in range(3)]
+    theirs = [Evidence(date(2026, 11, 3), "shared", f"A link {n}", f"other:Jo", ("music",), f"imessage:link/{n}") for n in range(9)]
+    evidence.append("mail", notices)
+    evidence.append("calendar", did)
+    evidence.append("imessage", theirs)
+    order = [(entry["facet"], entry["new"], entry["weight"]) for entry in image.due(config)]
+    assert order == [("Play", 3, 6.0), ("Shopping", 20, 5.0), ("Music", 9, 4.5)]
