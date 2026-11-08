@@ -1,7 +1,7 @@
 ---
 name: {prefix}portrait
 description: The rules of the portrait and its facets, for every pass that writes them
-version: 1.1.1
+version: 1.1.2
 metadata:
   runtime:
     tags: [memory, portrait]
@@ -17,7 +17,7 @@ The rules every pass that writes the portrait follows: the People review, Sleep 
 - `  - test: <a cheap way to check, asked once at a natural moment>` on every guess;
 - `  - against: <counterevidence>` where what is said and what is done differ; it never leaves the vault.
 
-**Bases.** `said`: {human_name} said it about themselves, in their framing. `seen`: a pattern seen at least twice, stated as behaviour (what they do, decide, ask for, return to, push back on). `guess`: an inference from one signal, with its test. Health, mood, relationships, money and other sensitive subjects are only ever `said`, in their own words. Someone else's words never become {human_name}'s statement. Be honest, not flattering.
+**Bases.** `said`: {human_name} said it about themselves, in their framing. `seen`: a pattern seen at least twice, stated as behaviour (what they do, decide, ask for, return to, push back on). `guess`: an inference from one signal, with its test. Health, mood, relationships, money and other sensitive subjects are only ever `said`, in their own words. Someone else's words never become {human_name}'s statement. Be honest, not flattering. A line states what the evidence shows, with its specifics (texted since 2019, five sessions since October, four bookings this month), never a hedge in its words ("possibly", "unconfirmed"): how sure you are is its basis and confidence, and what would settle it is its test.
 
 **One claim, one line.** A line that says the same thing as a new one gets the newer date and, with more evidence, a higher confidence; never a duplicate. A line contradicted by new evidence is revised, never appended to, and its old version goes to `History.md` beside the portrait, dated, with its id. An id belongs to one claim: rewording it, or changing its basis or confidence, keeps the id, but a different claim, or one that belongs in another section, is a new line written without an id, and the line it grew from stays where it is or goes to History by the rules below (a guess under After that the evidence now shows {human_name} doing has been reached: it goes to History as reached, and what they now do is a new line). A claim retired or corrected (in History, or as a `Not` line) is never proposed again: read both before writing.
 
