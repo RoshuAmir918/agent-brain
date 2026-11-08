@@ -1,7 +1,7 @@
 ---
 name: {prefix}portrait
 description: The rules of the portrait and its facets, for every pass that writes them
-version: 1.4.0
+version: 1.5.0
 metadata:
   runtime:
     tags: [memory, portrait]
@@ -20,7 +20,7 @@ The portrait is a picture of {human_name}, not a log of what they did. It is bui
 - Never put a line, a date or a source in a sketch; the lines carry those.
 
 ## A line
-`- <text> · <said|seen|guess> · <high|medium|low> · <latest evidence, YYYY-MM-DD> · <source> ^<id>`, about {human_name}, not about an event: a trait, a want, a pattern, a tension ("Wants peers among builders, not only teammates"), never "registered for a meetup on November 18". What happened is its evidence, in `because:`. Lines sit under one of six headings: `After`, `Cares about`, `Taste`, `How they decide` (an organisation's may say `How it decides`), `Energy`, `Not`. No ` · ` inside the text. The source is a link to the note it rests on (`[[<note>]]`) or, for a line drawn from evidence, `evidence:<source>` in plain text (`evidence:imessage`). Indented under it:
+`- <text> · <said|seen|guess> · <high|medium|low> · <latest evidence, YYYY-MM-DD> · <source> ^<id>`, about {human_name}, not about an event: a trait, a want, a pattern, a tension ("Wants peers among builders, not only teammates"), never "registered for a meetup on November 18". What happened is its evidence, in `because:`. Before writing a line, ask what it would tell someone who wants to know {human_name}: a habit that says nothing about what they value, want or are like (uses multi-leg flights; books tables) is evidence for a line that does, so fold it into that line's `because:` (a life split between San Francisco and Philadelphia; meals as where friendship and work meet), and write no line of its own. Lines sit under one of six headings: `After`, `Cares about`, `Taste`, `How they decide` (an organisation's may say `How it decides`), `Energy`, `Not`. No ` · ` inside the text. The source is a link to the note it rests on (`[[<note>]]`) or, for a line drawn from evidence, `evidence:<source>` in plain text (`evidence:imessage`). Indented under it:
 - `  - horizon: now|year|longer` and `  - for: <where you can help get there>` on every After line, and `  - goal: G-n` on the After line that reflects an active goal;
 - `  - test: <a cheap way to check, asked once at a natural moment>` on every guess;
 - `  - because: <what was said or seen, with its specifics>` on every line from mail, calendar, messages or evidence (registered for the November 18 SF builders meetup; texted Jo most days since 2019); only what happened, never a caveat about the evidence ("not proof of", "counts establish only"): what the evidence cannot show is the line's basis and confidence, and your notes on it go in the Seeds note;
