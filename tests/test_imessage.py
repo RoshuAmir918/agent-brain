@@ -203,3 +203,17 @@ def test_the_script_runs_on_its_own_on_the_owners_mac_and_its_rows_import(messag
     assert missing.returncode == 2 and "no Messages database" in missing.stderr
     with pytest.raises(SystemExit, match="has no script to carry"):
         cli.main(["source", "mail", "script", "--vault", str(tmp_path / "none")])
+
+
+def test_an_organisations_brain_refuses_a_persons_source(messages, vault, tmp_path, capsys, monkeypatch):
+    import io
+    db, book = messages
+    monkeypatch.setattr(imessage, "default_books", lambda: [book])
+    rows = [json.dumps(evidence.to_json(row)) for row in imessage.rows(imessage.export(db, [book], NOW), NOW.date())]
+    path = vault.parent / "brain.toml"
+    path.write_text(path.read_text() + 'edition = "enterprise"\n')
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
+    monkeypatch.setattr("sys.stdin", io.StringIO("\n".join(rows) + "\n"))
+    with pytest.raises(SystemExit, match="imessage is read for personal brains, and this one is enterprise; nothing imported"):
+        cli.main(["evidence", "import", "--source", "imessage", "--vault", str(vault)])
+    assert evidence.read() == []
