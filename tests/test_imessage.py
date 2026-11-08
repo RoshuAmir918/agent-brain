@@ -178,3 +178,28 @@ def test_rows_cross_machines_as_json_lines_and_import_is_idempotent(messages, tm
                        ({**json.loads(lines[0]), "hints": []}, "non-empty list")):
         with pytest.raises(ValueError, match=error):
             evidence.from_json(row)
+
+
+def test_the_script_runs_on_its_own_on_the_owners_mac_and_its_rows_import(messages, tmp_path, capsys, monkeypatch):
+    import io
+    import subprocess
+    import sys
+    db, book = messages
+    cli.main(["source", "imessage", "script", "--vault", str(tmp_path / "none")])
+    script = tmp_path / "carried" / "imessage.py"
+    script.parent.mkdir()
+    script.write_text(capsys.readouterr().out)
+    run = subprocess.run([sys.executable, "-I", str(script), "--db", str(db)], capture_output=True, text=True,
+                         env={"HOME": str(tmp_path)}, cwd=script.parent)   # isolated: nothing of the package is importable
+    assert run.returncode == 0, run.stderr
+    lines = run.stdout.splitlines()
+    assert lines and all(evidence.from_json(json.loads(line)) for line in lines)
+    assert "dinner" not in run.stdout and "token=abc" not in run.stdout and "5550100199" not in run.stdout
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(run.stdout))
+    cli.main(["evidence", "import", "--source", "imessage", "--vault", str(tmp_path / "none")])
+    assert capsys.readouterr().out.strip() == f"imessage: {len(lines)} rows, {len(lines)} new"
+    missing = subprocess.run([sys.executable, "-I", str(script), "--db", str(tmp_path / "nope.db")], capture_output=True, text=True)
+    assert missing.returncode == 2 and "no Messages database" in missing.stderr
+    with pytest.raises(SystemExit, match="has no script to carry"):
+        cli.main(["source", "mail", "script", "--vault", str(tmp_path / "none")])
