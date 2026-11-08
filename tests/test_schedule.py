@@ -129,6 +129,10 @@ skills = []
     *[(f'[routines.x]\nevery="1h"\n{key}=""', f'{key}: must be a nonempty string')
       for key in ('monitor', 'script', 'workdir')],
     ('[routines.x]\nevery="1h"\nagent=false', 'agent=false requires script'),
+    ('[routines.x]\nafter="missing"', "no routine named 'missing'"),
+    ('[routines.x]\nafter="x"', 'leads back to x'),
+    ('[routines.x]\nafter="y"\n[routines.y]\nafter="x"', 'leads back to'),
+    ('[routines.x]\nafter="y"\ncron="* * * * *"\n[routines.y]\nevery="1h"', 'exactly one'),
 ])
 def test_validation_problems(config, source, expected):
     write(config, source)
@@ -487,3 +491,28 @@ def test_every_default_script_and_monitor_is_installed(config, edition):
     for name, routine in schedule.defaults(replace(config, edition=edition)).items():
         for script in (routine.script, routine.monitor):
             assert script is None or script in installed, (name, script)
+
+
+def test_after_chains_from_a_timed_routine_and_round_trips(config, capsys):
+    cli(config, "set", "close", "--cron", "30 0 * * *", "--script", "export-sessions.sh", "--no-agent")
+    cli(config, "set", "before", "--after", "close", "--script", "nightly-before.sh", "--no-agent")
+    cli(config, "set", "remember", "--after", "before", "--skills", "sleep1")
+    assert schedule.problems(config) == []
+    routines = schedule.load(config)
+    assert routines["remember"].after == "before" and routines["remember"].cron is None
+    assert schedule.render(routines) == schedule.path(config).read_text()
+    capsys.readouterr()
+    cli(config, "list", "--json")
+    listed = json.loads(capsys.readouterr().out)
+    assert listed["before"]["after"] == "close" and listed["close"]["after"] is None
+    cli(config, "set", "remember", "--cron", "30 2 * * *")   # a time replaces after
+    assert schedule.load(config)["remember"].after is None
+    with pytest.raises(SystemExit):
+        cli(config, "remove", "close")   # before would follow nothing
+    assert "close" in schedule.load(config)
+
+
+def test_import_reads_an_after_job(config):
+    found = schedule.from_jobs(config, [{"name": "close", "schedule": {"kind": "cron", "expr": "30 0 * * *"}},
+                                        {"name": "remember", "schedule": {"kind": "after", "routine": "close"}}])
+    assert found["remember"].after == "close"

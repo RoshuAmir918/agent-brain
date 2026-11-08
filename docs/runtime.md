@@ -58,7 +58,7 @@ Fields, per routine (the table name is the routine's name, `[a-z0-9-]+`, unique)
 
 | Field | Meaning |
 | --- | --- |
-| `cron`, `every`, `at` | exactly one: when it runs |
+| `cron`, `every`, `at`, `after` | exactly one: when it runs. `after = "<routine>"` runs it when that routine finishes |
 | `skills` | skills loaded for the run, by name, from `brain paths skills` or the agent's own skills folder |
 | `prompt` | the run's instruction; default `Run <name>.` |
 | `deliver` | where the run's final response goes, default `local` (nowhere) |
@@ -77,6 +77,7 @@ Reconciliation, by the runtime, at start and whenever the file's modification ti
 
 - A routine in the file and not in the runtime's store is created. One in the store and not in the file is removed. One in both takes the file's definition and keeps its run state (last run, next run, the monitor's last hash, failure streak).
 - An invalid file changes nothing: the runtime keeps the last valid set, logs `schedule: invalid <path>: <reason>; keeping jobs`, and the engine's `brain validate` names the problem. A valid but empty file removes every job.
+- An `after` routine runs once each time the routine it names finishes, whether it succeeded, failed or skipped, and never on a clock of its own. A routine cut off by a restart has not finished: it runs again when the runtime is back, and its successor follows that run. A paused successor is skipped and the chain stops there. Every chain starts from a routine with `cron`, `every` or `at`; a chain that leads back on itself, or names a routine that is not declared, is invalid. The night is built this way (see `docs/night.md` in demiurge).
 - A one-shot (`at`) routine that already ran stays done even if its time is edited; declare a new name to run it again.
 - The runtime records each job's state as in section 4, keyed by the routine's name.
 
@@ -129,6 +130,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.118.0: a routine can run `after` another, when it finishes, instead of at a time. `brain schedule set <name> --after <routine>` sets it; validation refuses a successor of an undeclared routine and a chain that loops. Nothing uses it yet: the night's chains arrive with a later migration, once the runtime runs them.
 - 0.117.0: `brain nightly --stage before|after` runs the night in two halves around its model passes: `before` does what they read, and `after` compiles the portrait, CURRENT's threads and the context from what they wrote. The default runs both as before. No migration: sleep1 still runs the whole night, until the runtime can chain steps.
 - 0.113.0: dead weight removed. `brain simulate`, `people-mentioned`, `show-skill`, `audit` and `goals asked` are gone; the REM routine and its skill are gone (existing `Dreams/` notes are kept and still excluded from retrieval and attribution); the attribution routine is the `attribution.sh` script, `brain attribute --write` with no model, and the attribute skill is gone. `brain state --json` drops `waitingOnComputer` (schema 3): the tasks waiting on the owner's computer are the open task rows with `resume: "computer"`. The migration removes REM from each schedule and turns attribution into the script.
 - 0.111.0: a loop that stays stuck is decided. `brain loops --stale` lists loops two days or more past due (never a ready one), and `--json` adds `stale`; the evening closes each as done, turns it into a task, moves a standing direction to Working together, or drops it, naming in the briefing anything at stake. The after-conversation record no longer files work or a standing direction as a loop, and watch turns any promised work, not only the owner's, into a handed-off task. No migration.
