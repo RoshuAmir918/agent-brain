@@ -1255,10 +1255,20 @@ def cmd_portrait(args):
         try:
             with vault_lock(args.config):
                 path = image.judged(args.config, args.id, date.fromisoformat(args.through) if args.through
-                                       else args.config.today())
+                                       else args.config.today(), args.empty or "")
         except ValueError as error:
             raise SystemExit(f"brain portrait judged: {error}")
         print(f"{path.stem}: judged through {args.through or args.config.today().isoformat()}")
+        return
+    if args.action == "open":
+        if not args.id:
+            raise SystemExit("brain portrait open: FACET")
+        try:
+            with vault_lock(args.config):
+                path = image.open_facet(args.config, args.id)
+        except ValueError as error:
+            raise SystemExit(f"brain portrait open: {error}")
+        print(f"{path.stem}: {path.relative_to(args.config.vault_path).as_posix()}")
         return
     if args.action == "move":
         if not (args.id and args.verdict):
@@ -1802,17 +1812,18 @@ def main(argv=None):
     s.add_argument("--reviews", metavar="DIR"); s.add_argument("--author", metavar="LOGIN")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_reception)
     s = sub.add_parser("portrait", help="the agent's ranked understanding of the owner, with line ids", parents=[vault])
-    s.add_argument("action", nargs="?", choices=["seed", "coverage", "stamp", "mark", "compile", "facets", "move", "due", "evidence", "judged"],
+    s.add_argument("action", nargs="?", choices=["seed", "coverage", "stamp", "mark", "compile", "facets", "move", "due", "evidence", "judged", "open"],
                    help="seed: what to read to seed the portrait; coverage: what it knows and from where; "
                         "stamp: give new lines their ids now; mark ID right|wrong|not-this: the owner's answer to a line; "
                         "compile: write the portrait from its facets; facets: list them; move ID FACET: a line to a facet; "
                         "due: facets with evidence newer than their last pass; evidence FACET: the rows its pass reads; "
-                        "judged FACET: record a facet's pass")
+                        "judged FACET: record a facet's pass; open FACET: make a new facet's note")
     s.add_argument("id", nargs="?"); s.add_argument("verdict", nargs="?", metavar="VERDICT|FACET")
     s.add_argument("--words", metavar="TEXT", help="mark: the owner's own words, kept when a line is wrong")
     s.add_argument("--through", metavar="YYYY-MM-DD", help="judged: the newest evidence the pass read (default today)")
     s.add_argument("--since", metavar="YYYY-MM-DD", help="evidence: rows after this date instead of after the facet's last pass")
     s.add_argument("--all", action="store_true", help="evidence: every row routed to the facet")
+    s.add_argument("--empty", metavar="WHY", help="judged: why nothing in a facet's new rows makes a line")
     s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments, for Taste")
     s.add_argument("--plans", metavar="DIR", help="seed: one file per project with the issues done on it, for After and Energy")
     s.add_argument("--account", metavar="ADDRESS|all", help="seed: the owner's synced mail and calendar")

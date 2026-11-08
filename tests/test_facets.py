@@ -228,7 +228,10 @@ def test_due_lists_facets_with_new_evidence_and_judged_moves_the_mark(config, va
     assert (found["People"]["exists"], found["People"]["new"], found["People"]["newest"]) == (False, 2, "2026-11-05")
     assert found["Play"]["exists"] and found["Play"]["since"] == "" and found["Play"]["sources"] == ["imessage"]
     assert image.due(config)[0]["facet"] == "People"
-    cli.main(["portrait", "judged", "people", "--through", "2026-11-03", "--vault", str(vault)])
+    with pytest.raises(SystemExit, match="People has no lines, and 1 of its new rows say something"):
+        cli.main(["portrait", "judged", "people", "--through", "2026-11-03", "--vault", str(vault)])
+    cli.main(["portrait", "judged", "people", "--through", "2026-11-03", "--empty", "only a count, no pattern yet",
+              "--vault", str(vault)])
     assert capsys.readouterr().out.strip() == "People: judged through 2026-11-03"
     data = fm.read(vault / "human/Portrait/People.md")[0]
     assert data["judged"] == "2026-11-03" and data["facet"] == "People" and data["audience"] == "owner"
@@ -260,7 +263,8 @@ def test_a_facet_that_claims_hints_takes_those_rows_from_the_broader_one(config,
     assert [entry["facet"] for entry in image.due(config)] == ["Climbing", "Play"]
     cli.main(["portrait", "evidence", "climbing", "--vault", str(vault)])
     assert capsys.readouterr().out.splitlines()[0].startswith("calendar: 2026-11-03 · booked · Climbing gym day pass")
-    cli.main(["portrait", "judged", "Climbing", "--through", "2026-11-03", "--vault", str(vault)])
+    cli.main(["portrait", "judged", "Climbing", "--through", "2026-11-03", "--empty", "nothing beyond its one line yet",
+              "--vault", str(vault)])
     capsys.readouterr()
     cli.main(["portrait", "evidence", "Climbing", "--vault", str(vault)])
     assert capsys.readouterr().out.strip() == "no new evidence for Climbing"
@@ -330,3 +334,24 @@ def test_the_portrait_leads_with_the_whole_picture_and_each_facet_with_its_own(c
     fm.write(vault / "human/Portrait/Overview.md", {"kind": "hub", "tier": "warm", "overview": True},
              "## Sketch\n" + "word " * 200 + "\n")
     assert any("keep the whole picture under 160" in p for p in validate.portrait_hygiene(Vault(vault)))
+
+
+def test_a_facet_is_opened_empty_but_never_judged_empty_when_its_rows_say_something(config, vault, tmp_path, monkeypatch, capsys):
+    from brain import evidence
+    from brain.evidence import Evidence
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
+    evidence.append("mail", [Evidence(date(2026, 11, 1), "received", "3 notices from shop.example.com, last 2026-11-01", "own",
+                                      ("shopping",), "mail:from/1")])
+    evidence.append("calendar", [Evidence(date(2026, 11, 2), "went", "Bouldering, 4 times", "own", ("play",), "calendar:1")])
+    cli.main(["portrait", "open", "play", "--vault", str(vault)])
+    assert capsys.readouterr().out.strip() == "Play: human/Portrait/Play.md"
+    assert "judged" not in fm.read(vault / "human/Portrait/Play.md")[0]
+    with pytest.raises(SystemExit, match="Play has no lines, and 1 of its new rows say something about Human \\(went\\)"):
+        cli.main(["portrait", "judged", "Play", "--vault", str(vault)])
+    cli.main(["portrait", "judged", "Shopping", "--vault", str(vault)])   # only notices: nothing to say yet, so it may pass
+    assert fm.read(vault / "human/Portrait/Shopping.md")[0]["judged"]
+    path = vault / "human/Portrait/Play.md"
+    data, body = fm.read(path)
+    fm.write(path, data, body + "\n## Taste\n- Boulders most weeks · seen · medium · 2026-11-02 · evidence:calendar\n")
+    cli.main(["portrait", "judged", "Play", "--vault", str(vault)])
+    assert fm.read(path)[0]["judged"]
