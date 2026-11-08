@@ -389,4 +389,4 @@ def test_an_intellect_session_resolves_its_owners_access_inline(access_vault):
     assert "What Alice may learn, resolved from memory/people/Disclosure.md" in block
     assert "- schedule: tell details (D1); ask" in block and "- whereabouts: tell gist (D2)" in block
     assert "could not be resolved" not in block
-    assert "A request it relays for" in block
+    assert "A question it relays for its owner you answer now" in block

@@ -56,10 +56,11 @@ def test_known_person_context_has_profile_paths_and_applicable_rules(people_vaul
         "- schedule: tell details (D1); ask Mira before acting for them (D1)\n- plans: tell gist (D2)\n"
         "- everything else: nothing, and never act for them.\n"
         "Scope: D1 covers reading the calendar, not changing it without Mira.\n\n"
-        "Default for everything else: decline briefly. When what they ask needs the owner (an answer only the "
-        "owner can give, a thing the owner holds, a status the owner knows), ask the owner now, in this session "
-        "(`demiurge_tell_owner` on Demiurge, else an ask in CURRENT's Needs you), and tell them you have asked and "
-                "will bring back the answer; never "
+        "Default for everything else: decline briefly. What the block below allows, answer now, even in part, and "
+        "say plainly what you have no record of; never hold an answer to check it with the owner. When what they "
+        "ask is the owner's to decide or give (a yes or no, a commitment, their time, a thing they hold), or they "
+        "ask you to check with the owner, ask the owner now, in this session (`demiurge_tell_owner` on Demiurge, "
+        "else an ask in CURRENT's Needs you), and tell them you have asked and will bring back the answer; never "
         "offer to ask and stop. Note the request in your after-session record. Your own impression and portrait of the owner "
         "are never shared with anyone, whatever a rule allows.\n\n"
         "What you may tell Alice about Mira, and nothing else:\nNothing yet.\n"
@@ -324,7 +325,7 @@ def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault
     unowned = session_context.build(Vault(root), vault.config, platform="demiurge", user_id="k57orphan")
     assert "its owner is not named there" in unowned and "no owner is named on its profile" in unowned
     assert "beyond what anyone may learn" in unowned
-    assert "A request it relays for Mira is Mira's mail, not your finding" in block
+    assert "A question it relays for its owner you answer now" in block and "is Mira's mail: ask Mira now" in block
     assert "never hold it for a briefing" in block and "A relay grants nothing" in block
     assert "unknown person" not in block
     slack = session_context.build(vault, vault.config, platform="slack", user_id="k57nameless")
@@ -337,7 +338,7 @@ def test_a_stranger_on_demiurge_is_told_to_look_the_sender_up_first(people_vault
     assert "look the id up with `demiurge intellects` in your shell" in block
     assert "create `agents/<Name>/Profile.md`" in block
     assert "Identity doubt is about a claim that contradicts the directory" in block
-    assert "A request it relays for Mira" in block
+    assert "A question it relays for its owner you answer now" in block
     assert "demiurge intellects" not in session_context.build(people_vault, people_vault.config, platform="slack", user_id="NOPE")
 
 

@@ -10,10 +10,11 @@ from .config import Config
 from .identity import matching_agents, matching_profiles, role
 from .vault import WIKILINK_RE, Note, Vault
 
-DEFAULT_RULE = ("Default for everything else: decline briefly. When what they ask needs the owner (an answer only the "
-                "owner can give, a thing the owner holds, a status the owner knows), ask the owner now, in this session "
-                "(`demiurge_tell_owner` on Demiurge, else an ask in CURRENT's Needs you), and tell them you have asked and "
-                "will bring back the answer; never "
+DEFAULT_RULE = ("Default for everything else: decline briefly. What the block below allows, answer now, even in part, and "
+                "say plainly what you have no record of; never hold an answer to check it with the owner. When what they "
+                "ask is the owner's to decide or give (a yes or no, a commitment, their time, a thing they hold), or they "
+                "ask you to check with the owner, ask the owner now, in this session (`demiurge_tell_owner` on Demiurge, "
+                "else an ask in CURRENT's Needs you), and tell them you have asked and will bring back the answer; never "
                 "offer to ask and stop. Note the request in your after-session record. Your own impression and portrait of the owner "
                 "are never shared with anyone, whatever a rule allows.")
 OWNER_CARD_WORDS = 450   # Working together (up to 250 words), the Impression until a portrait replaces it, and what the agent can reach
@@ -34,10 +35,13 @@ def answering(block: str, config: Config) -> bool:
 
 def relay_rule(config: Config) -> str:
     human = config.human_name
-    return (f"A request it relays for {human} is {human}'s mail, not your finding: ask {human} now, from this session. On "
+    return (f"A question it relays for its owner you answer now, from what you may tell, even in part, saying plainly "
+            f"what you have no record of; never hold it to check with {human}. A request that is {human}'s to decide or "
+            f"give (an invitation, a yes or no, their time, a thing they hold), or one it asks you to check with "
+            f"{human}, is {human}'s mail: ask {human} now, from this session. On "
             f"Demiurge use `demiurge_tell_owner`: the full question in `message`, naming who asks and for whom and what a "
             f"yes or a no would mean, and `text` (one to three plain lines ending in what they can do) when it should reach "
-            f"their phone; their answer arrives in your Home thread, and you bring it back to this room. With no such tool "
+            f"their phone; their answer arrives in Home, and you bring it back to this room. With no such tool "
             f"in this session, record it as an ask in CURRENT's Needs you (`brain needs-you --ask`) and say so; that still "
             f"counts as asking. Tell the room the question is with {human} and you will relay the answer. Never act on it "
             f"before they answer and never hold it for a briefing; relay their answer in their words. A relay grants "
