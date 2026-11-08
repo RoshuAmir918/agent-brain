@@ -396,13 +396,15 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     if goal is not None:
         values["goal"] = goal
     parent = _working_on(config)
-    from .goals import active, guard
+    from .goals import active, guard, is_routine
     if inherit_goal and parent is not None and "goal" not in values and any(g.gid == parent.goal for g in active(config)):
         values["goal"] = parent.goal  # a worker's follow-up serves what the task it is working on serves
     guard(config, values.get("goal"), source, parent=parent)
     if set(values) - {"status", "next", "delivers", "hub", "goal", "after", "due"}:
         raise ValueError("unsupported new task field")
     body = "".join(f"- **{name.title()}:** {_field_value(config, name, value)}\n" for name, value in values.items())
+    unasked = (is_routine() and bool(values.get("goal")) and not re.search(r'["“][^"”\n]+["”]', source)
+               and state != "yours" and not (parent and parent.handoff))
     resolved = Vault(config.vault_path).resolve(source)
     if resolved:
         source = f"[[{resolved.removesuffix('.md')}]]"
@@ -412,6 +414,8 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     if work is not None:
         body += f"- **Work:** {work}\n"
     task = Task(next_id(config), title, body, {"state": state})
+    if values.get("goal"):
+        task.state["unasked"] = str(bool(unasked)).lower()
     if task.after:
         validate_after(config, task.tid, task.after)
     if (words := current_words(task, config)) > MAX_WORDS:
