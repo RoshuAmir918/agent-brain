@@ -35,8 +35,9 @@ The note is filled broadly, not curated. Every fact the night files that is the 
 ```md
 ## experiences
 - Has been seeing Dr. Lee, a dentist on Mission St, since 2024 and likes her · said · 2026-10-30 · [[Conversations/2026-10-30 Noted]]
-  - gist: has a dentist they like in the Mission
-- Stayed at the Memmo Alfama in Lisbon in March; would go back · transactional · 2026-03-16 · mail: Memmo booking confirmation
+  - gist: has a dentist they like
+- Ate at Tartine Manufactory in March; would go back for the bread · transactional · 2026-03-16 · mail: Tartine receipt
+  - gist: has a bakery they would go back to
 
 ## schedule
 - Climbing at Mission Cliffs most Tuesday evenings · calendar · 2026-11-04 · calendar: Climbing (weekly)
@@ -45,7 +46,8 @@ The note is filled broadly, not curated. Every fact the night files that is the 
 
 - **Sections** are subjects from the vocabulary (`docs/access.md`), lower case. `people` and `anything` are not sections: the first is someone else's by definition, and the second is not a subject of facts. `setup` is not one either.
 - **A line** is text, then the kind of source, then the date of the evidence, then the source, separated by ` · `. The kind is one of `said` (the owner said it), `sent` (mail the owner sent), `transactional` (mail addressed to the owner by a business) or `calendar` (an event the owner created or accepted). There is no kind for someone else's information, so it cannot be filed.
-- **`gist:`**, indented under a line, is the shape without the specifics, written when the line is filed. At `gist` level only gist forms are told, and a line without one is not told at all.
+- **`gist:`**, indented under a line, is the shape without the specifics, written when the line is filed. At `gist` level only gist forms are told, and a line without one is not told at all. A gist names no business, venue, person, street or exact time, and no place smaller than a city: the kind of place and how it went, or for whereabouts the city and roughly when.
+- **Which subject:** education and qualifications are `work`; money (income, savings, spending, prices, budgets, cards, debts) is `finances`, even phrased as a plan or an opinion; `schedule` holds only upcoming or recurring commitments, and a past one is dropped.
 - **Health and finances** are filed like anything else; the defaults tell them to nobody, and the owner widens them per person or group.
 - The portrait stays out of this note and is never disclosed. A taste the owner stated may appear in both, as a `said` line here and as a portrait line; the portrait's ranking, guesses and basis never do.
 

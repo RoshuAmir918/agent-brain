@@ -356,3 +356,14 @@ def test_skills_render_tellable_path_and_keep_enterprise_boundary(tellable_vault
     enterprise_recall = install.render_skill(replace(config, edition="enterprise"), "recall")
     assert "Talking to people other than" not in enterprise_recall
     assert 'session\'s "What you may tell" block' in enterprise_recall
+
+
+@pytest.mark.parametrize("who", ["known", "anyone"])
+def test_cli_access_resolves_audiences_like_tellable(tellable_vault, capsys, who):
+    cli.main(["access", who, "--vault", str(tellable_vault.root), "--json"])
+    captured = capsys.readouterr()
+    expected = access.resolve(tellable_vault, tellable_vault.config, audience=access.Audience(who))
+    assert captured.err == ""
+    assert json.loads(captured.out)["subjects"]["experiences"]["tell"] == expected.subjects["experiences"].tell
+    cli.main(["access", who, "--vault", str(tellable_vault.root)])
+    assert capsys.readouterr().out.startswith(f"Person: {who} · Groups: none\n")
