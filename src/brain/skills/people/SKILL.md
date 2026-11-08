@@ -1,7 +1,7 @@
 ---
 name: {prefix}people
 description: Daily source-backed People profile review
-version: 2.8.1
+version: 2.9.0
 metadata:
   runtime:
     tags: [memory, people]
@@ -30,6 +30,7 @@ Run `brain portrait coverage --json`; for each account in `unreadBackfill`, load
    - **Goal endings, nightly.** Judge each active goal against its evidence and recent sources; check `brain goals show G-n` and never end one {human_name} reopened or edited in the last fourteen days (`owner_updated`). At most three endings a night, including stale set-asides and endings already dated today: reached → `brain goals G-n reached --evidence "<date> · <what> · [[note]] or evidence:<source>"`; replaced by another active goal → `brain goals G-n superseded-by G-m --evidence "<dated evidence>" [--why "<reason>"]`. After either, `brain needs-you --confirm "<plain sentence: what you marked reached or replaced and why; you can reopen it>"`. For each `brain goals due --json` entry, `brain needs-you --ask "<goal> was due <date>: move the date, call it reached, or let it go?"`, then `brain goals G-n asked-missed`; a missed date alone never ends it. Stale keeps the thirty-day inferred expiry and the said goal's sixty-day nudge plus thirty more days; when judging one stale, apply `brain goals G-n set-aside --why "<judged reason>"`.
    - **After and goals.** Each active goal has one After line naming it (`goal: G-n`), with its `horizon:` and a `for:` naming where you can help. Reached, superseded, set-aside, refused or converted goals leave After for History. An unsupported guess funds nothing. A supported aim becomes an inferred goal now; a correction goes to History.
    - **Promote and retire** by those rules, from the reception summary and their corrections.
+   - **The picture.** End the portrait's part of this pass by rewriting the sketch of every facet you changed and then the overview, by those rules: who {human_name} is now, not a summary of the lines.
    - **From evidence.** The evidence pass those rules describe, for the first three facets `brain portrait due` lists (the most telling evidence first).
    For a `seen` or `guess` line outside After that is new or changed, add one `confirm` to CURRENT's `## Needs you`, written so {human_name} understands it cold ("I've come to think you … — right?"); count the confirms of this kind in Needs you and History over the last seven days, and add none past two. Their answer is evidence: record it on the line. Your portrait of {human_name} is never told to anyone else.
 6. Each profile's title is the person's name once you know it; their ids stay as platform lines (`- **Slack:** \`U…\``, `- **Demiurge:** \`k57…\``). A profile you cannot resolve says so in its title ("unresolved Demiurge speaker"), never matching a rule by accident. The engine logs requests and raises the declines no rule covers; do not add them to Needs you yourself. Keep `{people_dir}/README.md` a current list of profiles, including any Sleep 1 created for someone only mentioned.

@@ -14,8 +14,8 @@ from pathlib import Path
 from . import evidence, fm
 from .config import Config
 from .lock import vault_lock
-from .portrait import (CONFIDENCES, HEADINGS, ID, LINE, SECTION_LINES, SECTIONS, VERDICTS, WORDS, Line, block,
-                       heading, hygiene, insert, load, parse, portrait_path)
+from .portrait import (CONFIDENCES, HEADINGS, ID, LINE, SECTION_LINES, SECTIONS, SKETCH, VERDICTS, WORDS, Line,
+                       block, heading, hygiene, insert, load, parse, portrait_path, sketch)
 
 FACET_WORDS = 1500
 
@@ -36,6 +36,7 @@ class Facet:
     lines: list[Line] = field(default_factory=list)
     hints: tuple[str, ...] = ()   # what it claims beyond its name: rows naming these come here before a broader facet
     judged: str = ""   # the newest evidence its last judging pass read
+    sketch: str = ""   # its prose picture of this area, which its lines bear out
 
 
 def folder(config: Config) -> Path:
@@ -51,6 +52,8 @@ def facets(config: Config) -> list[Facet]:
             data, body = fm.read(path)
         except fm.Malformed:
             continue   # validate names it
+        if data.get("overview"):
+            continue   # the whole picture, not an area of it
         name = str(data.get("facet") or path.stem)
         lines = parse(body)[0]
         for line in lines:
@@ -59,8 +62,22 @@ def facets(config: Config) -> list[Facet]:
         out.append(Facet(name, rank if isinstance(rank, int) and not isinstance(rank, bool) else 99,
                          str(data.get("sensitivity") or "open"), path.relative_to(config.vault_path).as_posix(), lines,
                          tuple(str(hint).casefold() for hint in hints) if isinstance(hints, list) else (),
-                         str(data.get("judged") or "")))
+                         str(data.get("judged") or ""), sketch(body)))
     return sorted(out, key=lambda facet: (facet.rank, facet.name))
+
+
+OVERVIEW = "Overview.md"
+OVERVIEW_WORDS = 160
+
+
+def overview(config: Config) -> str:
+    """The whole picture: the sketch in `Portrait/Overview.md` (frontmatter `overview: true`), which ties the facets
+    together and leads the compiled portrait."""
+    path = folder(config) / OVERVIEW
+    try:
+        return sketch(fm.read(path)[1]) if path.is_file() else ""
+    except fm.Malformed:
+        return ""
 
 
 def lines(config: Config) -> list[Line]:
@@ -76,7 +93,8 @@ def digest(body: str) -> str:
 
 def render(line: Line, link: str) -> str:
     head = f"- {line.text} · {line.basis} · {line.confidence} · {line.evidence} · [[{link}]] ^{line.id}"
-    details = (("horizon", line.horizon), ("for", line.for_), ("goal", line.goal), ("test", line.test))
+    details = (("horizon", line.horizon), ("for", line.for_), ("goal", line.goal), ("because", line.because),
+               ("test", line.test))
     return "\n".join([head, *(f"  - {key}: {value}" for key, value in details if value)])
 
 
@@ -99,7 +117,8 @@ def compile(config: Config) -> int | None:
     rank = {facet.name: facet.rank for facet in found}
     link = {facet.name: config.link(facet.rel[:-3]) for facet in found}
     order = {confidence: i for i, confidence in enumerate(CONFIDENCES)}
-    out, count = ["# Portrait"], 0
+    whole = overview(config)
+    out, count = (["# Portrait", "", f"## {SKETCH}", whole] if whole else ["# Portrait"]), 0
     for section in SECTIONS:
         pool = sorted((line for facet in found for line in facet.lines if line.section == section and line.id),
                       key=lambda line: (line.rank, rank[line.facet], order.get(line.confidence, len(order))))
@@ -138,8 +157,16 @@ def owner_lines(config: Config) -> list[dict]:
     found = facets(config)
     if not found:
         return [line.public() | {"inPortrait": True} for line in load(config)]
-    out = []
+
+    def picture(text: str, facet: str, shown: bool) -> dict:
+        # The prose travels as a line in a section of its own, which an app that does not know it leaves out.
+        return Line("", SKETCH, 0, text, "seen", "", "", "", facet=facet).public() | {"inPortrait": shown, "facetRank": 0}
+
+    whole = overview(config)
+    out = [picture(whole, "", True)] if whole else []
     for facet in found:
+        if facet.sketch:
+            out.append(picture(facet.sketch, facet.name, False))
         for line in facet.lines:
             entry = line.public() | {"inPortrait": line.id in compiled, "facetRank": line.rank}
             if line.id in compiled:
