@@ -356,16 +356,17 @@ def cmd_loops(args):
             raise ValueError("--outcome and --because go with --close")
     except ValueError as error:
         raise SystemExit(f"brain loops: {error}")
-    due = loops.due(config, now)
+    due = loops.stale(config, now) if args.stale else loops.due(config, now)
     if args.quiet:
         raise SystemExit(0 if due else 1)
     if args.json:
         print(json.dumps({"open": [loops.as_dict(item) for item in loops.open_loops(config)],
-                          "due": [loops.as_dict(item) for item in due],
+                          "due": [loops.as_dict(item) for item in loops.due(config, now)],
+                          "stale": [loops.as_dict(item) for item in loops.stale(config, now)],
                           "closed_recent": [loops.as_dict(item) for item in loops.closed_recent(config)]},
                          ensure_ascii=False, indent=2))
     else:
-        for item in due if args.due else loops.open_loops(config):
+        for item in due if args.due or args.stale else loops.open_loops(config):
             details = ((f" · with: {item.with_}" if item.with_ else "") + (f" · due: {item.due}" if item.due else "")
                        + (f" · ready: {item.ready}" if item.ready else ""))
             print(f"{item.id} · {item.since} · {item.kind} · {item.text} · [[{item.source}]]{details}")
@@ -1633,6 +1634,7 @@ def main(argv=None):
     mode.add_argument("--close", metavar="ID_OR_TEXT")
     s.add_argument("--due", nargs="?", const=True, metavar="DATE", help="only due loops, or a due date with --add")
     s.add_argument("--quiet", action="store_true", help="print nothing; exit 1 when nothing is due, 0 otherwise")
+    s.add_argument("--stale", action="store_true", help=f"only loops due {loops.STALE_DAYS} days or more ago, for the evening")
     s.add_argument("--kind", choices=loops.KINDS); s.add_argument("--source", metavar="NOTE")
     s.add_argument("--with", dest="with_", metavar="WHO"); s.add_argument("--outcome", choices=loops.OUTCOMES)
     s.add_argument("--because", metavar="TEXT"); s.set_defaults(fn=cmd_loops)
