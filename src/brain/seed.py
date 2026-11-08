@@ -141,7 +141,8 @@ def seeds(vault) -> list[dict]:
         if rel.startswith(prefix) and account and re.fullmatch(r"\d{4}-\d{2}-\d{2}", when):
             read[account] = max(read.get(account, ""), when)
     reading = _reading(config)
-    return [{"account": account, "read": read.get(account), "task": reading.get(account)}
+    # An open seed task is the truth: its Seeds note is written as it goes, dated before the reading is done.
+    return [{"account": account, "read": None if account in reading else read.get(account), "task": reading.get(account)}
             for account in sorted(read.keys() | reading.keys())]
 
 def _reading(config) -> dict[str, str]:

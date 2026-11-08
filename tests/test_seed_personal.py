@@ -393,6 +393,10 @@ def test_hand_off_opens_one_seed_task_per_account_and_state_reports_it(vault, ca
     assert json.loads(capsys.readouterr().out) == {**opened, 'status': 'reading'}
     assert seed.seeds(Vault(vault)) == [{'account': 'new@example.com', 'read': None, 'task': opened['task']}]
     assert state.build(Config.load(vault), TODAY)['seeds'] == seed.seeds(Vault(vault))
+    (vault / 'agent/Seeds').mkdir()   # the seed writes its note as it goes, dated before the reading is done
+    fm.write(vault / 'agent/Seeds/2026-11-04 new@example.com.md',
+             {'kind': 'log', 'source': 'mail', 'read': '2026-11-04', 'channel': 'new@example.com'}, '')
+    assert seed.seeds(Vault(vault)) == [{'account': 'new@example.com', 'read': None, 'task': opened['task']}]
 
 
 def test_hand_off_skips_an_account_a_seeds_note_has_read(vault, capsys):
