@@ -469,3 +469,26 @@ def test_record_does_not_resolve_or_ready_a_partial_text_match(config):
     journal.append_entry(config, {"headline": "Quiet", "outcome": "nothing", "resolved": ["Which date"],
                                  "ready": ["Relay the date"]}, "cli", AT)
     assert snapshot(config.vault_path) == before
+
+
+def test_stale_lists_loops_two_days_past_due_oldest_first_and_never_a_ready_one(config):
+    loops.add(config, AT, "promised", "Send the link", "Trip", "Kevin")                        # due 4 hours after AT
+    loops.add(config, AT, "waiting", "Hear back on the dates", "Trip", "Kevin")               # due a day after AT
+    loops.add(config, AT, "owed", "Tell Kevin the plan", "Trip", "Kevin", "2026-11-05")      # due on its date
+    loops.add(config, AT, "owed", "Relay the answer", "Trip", "Kevin")
+    loops.ready(config, "Relay the answer", AT)
+    texts = lambda now: [item.text for item in loops.stale(config, now)]
+    assert texts(AT + timedelta(days=2, hours=3)) == []
+    assert texts(AT + timedelta(days=2, hours=4)) == ["Send the link"]
+    assert texts(AT + timedelta(days=3)) == ["Send the link", "Hear back on the dates"]
+    assert texts(datetime(2026, 11, 7, 0, 0)) == ["Send the link", "Hear back on the dates", "Tell Kevin the plan"]
+
+
+def test_cli_stale_prints_only_stale_loops_and_json_carries_them(config, capsys):
+    loops.add(config, AT, "promised", "Send the link", "Trip", "Kevin")
+    loops.add(config, datetime.now(), "promised", "Fresh promise", "Trip", "Kevin")
+    cli.main(["loops", "--stale", "--vault", str(config.vault_path)])
+    out = capsys.readouterr().out
+    assert "Send the link" in out and "Fresh promise" not in out
+    cli.main(["loops", "--json", "--vault", str(config.vault_path)])
+    assert [item["text"] for item in json.loads(capsys.readouterr().out)["stale"]] == ["Send the link"]
