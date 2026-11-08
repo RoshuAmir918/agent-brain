@@ -365,9 +365,21 @@ def evidence_for(config: Config, name: str, since: str | None = None, home: Path
     return [row for row in routed.get(key, []) if row.date.isoformat() > floor]
 
 
+# How much a row tells about the owner. What they said or decided outweighs where they went or whom they wrote to,
+# which outweighs a link; a routine notice says little, however many there are.
+WEIGHTS = {"said": 3, "decided": 3, "corrected": 2, "talks": 2, "went": 2, "booked": 2, "bought": 1.5, "plans": 1.5,
+           "did": 1.5, "shared": 1, "reviewed": 1, "received": 0.25}
+
+
+def weight(row: evidence.Evidence) -> float:
+    """A row's weight in choosing which facets to judge first; someone else's row counts half."""
+    return WEIGHTS.get(row.verb, 1) * (0.5 if row.whose != "own" else 1)
+
+
 def due(config: Config, home: Path | None = None) -> list[dict]:
-    """The facets with evidence newer than their last judging pass, most new evidence first: the facet when it exists,
-    and the area a source's rows name when none covers it yet."""
+    """The facets with evidence newer than their last judging pass, the most telling first: by the weight of their new
+    rows, not their number, so a pile of notices never jumps a handful of things the owner did. The facet when it
+    exists, and the area a source's rows name when none covers it yet."""
     found = facets(config)
     judged = {facet.name: facet.judged for facet in found}
     out = []
@@ -375,8 +387,9 @@ def due(config: Config, home: Path | None = None) -> list[dict]:
         new = [row for row in rows if row.date.isoformat() > judged.get(name, "")]
         if new:
             out.append({"facet": name, "exists": name in judged, "since": judged.get(name, ""), "new": len(new),
+                        "weight": round(sum(weight(row) for row in new), 2),
                         "newest": max(row.date for row in new).isoformat(), "sources": sorted({row.source for row in new})})
-    return sorted(out, key=lambda entry: (-entry["new"], entry["facet"]))
+    return sorted(out, key=lambda entry: (-entry["weight"], -entry["new"], entry["facet"]))
 
 
 def judged(config: Config, name: str, through: date) -> Path:
