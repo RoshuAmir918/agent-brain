@@ -40,6 +40,7 @@ class Item:
     context: str = ""
     needs: str = ""
     goal: str | None = None
+    session: str = ""   # the conversation it was asked in (`demiurge:<id>`), so what settles it can be said there
     label: InitVar[str | None] = None   # what the id is keyed on, when the text is built from changing fields
     task: str = field(init=False)       # the task it stands for (T-nnn), when its source names one; else ""
     owner: str = field(init=False, default="")   # who it is for: its task's owner, in an organisation's intellect; else ""
@@ -85,7 +86,7 @@ def _bullet(line: str) -> Item | None:
     return Item(kind, text, "current", since, source)
 
 
-WHY = re.compile(r"^[ \t]+-[ \t]+why:[ \t]*(.+?)[ \t]*$")   # an indented line under a bullet: why it needs the owner
+WHY = re.compile(r"^[ \t]+-[ \t]+(why|session):[ \t]*(.+?)[ \t]*$")   # an indented line under a bullet: why it needs the owner, or where it was asked
 
 
 def parse_section(body: str) -> list[Item]:
@@ -95,8 +96,10 @@ def parse_section(body: str) -> list[Item]:
     out = []
     for line in body[span[0]:span[1]].splitlines():
         why = WHY.match(line)
-        if why and out:
-            out[-1].detail = fm.cut((out[-1].detail + " " + why[1]).strip(), WHY_WORDS)
+        if why and out and why[1] == "session":
+            out[-1].session = why[2]
+        elif why and out:
+            out[-1].detail = fm.cut((out[-1].detail + " " + why[2]).strip(), WHY_WORDS)
         elif (item := _bullet(line)) is not None:
             out.append(item)
     return out

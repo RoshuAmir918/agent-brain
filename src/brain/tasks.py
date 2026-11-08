@@ -274,10 +274,11 @@ def _replace_field(body: str, name: str, value: str | None) -> str:
 
 def set_fields(config: Config, tid: str, today: date, *, state: str | None = None,
                values: dict[str, str] | None = None, clear: list[str] | tuple[str, ...] = (),
-               reviewed: str | None = None, report: str | None = None, title: str | None = None) -> Task:
+               reviewed: str | None = None, report: str | None = None, title: str | None = None,
+               agent_delivers: bool = False) -> Task:
     """Update an open task's full entry; the caller holds the vault lock. `reviewed` appends a dated Reviewed line
     (the evening's decisions accumulate; they are never replaced). Clearing `handoff` takes the task back from its
-    worker: it stays open, worked only when someone asks."""
+    worker: it stays open, worked only when someone asks. `agent_delivers` marks a Delivers the agent wrote itself."""
     values = values or {}
     if set(values) - set(FIELDS) or set(clear) - set(FIELDS) - {"handoff"}:
         raise ValueError("unknown task field")
@@ -322,6 +323,8 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
             task.body = task.body.rstrip("\n") + f"\n- **morning:** {values[name]}\n"
         else:
             task.body = _replace_field(task.body, name, values.get(name))
+    if "delivers" in values or "delivers" in clear:
+        _delivers_by(task, agent_delivers and "delivers" in values)
     if reviewed:
         task.body = task.body.rstrip("\n") + f"\n- **Reviewed:** {today.isoformat()} — {reviewed}\n"
     if report is not None:
@@ -340,6 +343,18 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
                          "a sentence or two per field, the detail in a note linked with --evidence")
     save_task(config, task, today, previous)
     return task
+
+
+def _delivers_by(task: Task, agent: bool) -> None:
+    """A Delivers the agent wrote is its working proposal: the owner's "what would done look like" stays open."""
+    if agent:
+        task.state["delivers_by"] = "agent"
+    else:
+        task.state.pop("delivers_by", None)
+
+
+def proposed_delivers(task: Task) -> bool:
+    return bool(task.delivers) and task.state.get("delivers_by") == "agent"
 
 
 def _owner_ask(body: str) -> str | None:
@@ -382,7 +397,7 @@ def append_task(config: Config, task: Task) -> None:
 
 def new_task(config: Config, title: str, source: str, *, state: str = "ready",
              values: dict[str, str] | None = None, work: str | None = None, goal: str | None = None,
-             inherit_goal: bool = True) -> Task:
+             inherit_goal: bool = True, agent_delivers: bool = False) -> Task:
     """Create a task without handing it off; the caller holds the vault lock."""
     title, source = single_line("title", title), single_line("source", source)
     if not title or not source:
@@ -416,6 +431,8 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     task = Task(next_id(config), title, body, {"state": state})
     if values.get("goal"):
         task.state["unasked"] = str(bool(unasked)).lower()
+    if agent_delivers and values.get("delivers"):
+        _delivers_by(task, True)
     if task.after:
         validate_after(config, task.tid, task.after)
     if (words := current_words(task, config)) > MAX_WORDS:
@@ -536,6 +553,11 @@ def close(config: Config, tid: str, today: date, done: bool, why: str, left: str
     task.body = body.rstrip("\n") + "\n" + "\n".join(lines) + "\n"
     save_task(config, task, today, before)
     _work_history(task, today, why)
+    # A task blocked on this one moves again now; its Blocker stays as the last evidence, as when a rest ends.
+    for other in sum(load_tasks(config), []):
+        if (is_open(other) and other.task_state == "blocked"
+                and re.search(r"\b" + tid + r"\b", fm.field(other.body, "Blocker") or "")):
+            set_fields(config, other.tid, today, state="in_progress")
     return task
 
 

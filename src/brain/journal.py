@@ -38,7 +38,7 @@ def _coerce(record: dict) -> dict:
 
 
 def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
-                 user_id: str = "", user_id_alt: str = "") -> Path | None:
+                 user_id: str = "", user_id_alt: str = "", session: str = "") -> Path | None:
     """Records open loops, keeping only touched notes that exist; a `needsYou` becomes an ask in CURRENT; requests from
     anyone but the owner go to the access log. A record of nothing that captures nothing writes nothing (None)."""
     record = _coerce(record)
@@ -98,7 +98,8 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
             print(f"skipped ask {needs_you!r}: {reason}", file=sys.stderr)
         else:
             with vault_lock(config):
-                add_ask(config, local.date(), needs_you, touched[0] if touched else None)
+                add_ask(config, local.date(), needs_you, touched[0] if touched else None,
+                        session=f"{platform}:{session}" if session and ":" not in session else session)
     if owner:
         working_together(config, local.date(), record.get("workingTogether"))
         promote_touched(config, vault, record.get("touched") or [], local.date(), speaker)
@@ -199,7 +200,7 @@ def noted(config: Config, at: datetime, lines, speaker: str | None) -> Path | No
 
 
 def add_ask(config: Config, day: date, text: str, source: str | None, why: str = "", *,
-            distinct_source: bool = False, kind: str = "ask") -> bool:
+            distinct_source: bool = False, kind: str = "ask", session: str = "") -> bool:
     """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing; the caller
     holds the vault lock. Always adds: a question is never lost to a full list. Past the ceiling, the evening decides
     the lowest-ranked ones down to it."""
@@ -215,6 +216,8 @@ def add_ask(config: Config, day: date, text: str, source: str | None, why: str =
     why = " ".join(why.split())
     if why:
         bullet += f"\n  - why: {why}"
+    if session.strip():
+        bullet += f"\n  - session: {session.strip()}"
     span = fm.section(body, "Needs you")
     if span is None:
         body = body.rstrip("\n") + ("\n\n" if body.strip() else "") + "## Needs you\n\n" + bullet + "\n"
