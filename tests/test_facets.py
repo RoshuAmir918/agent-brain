@@ -355,3 +355,38 @@ def test_a_facet_is_opened_empty_but_never_judged_empty_when_its_rows_say_someth
     fm.write(path, data, body + "\n## Taste\n- Boulders most weeks · seen · medium · 2026-11-02 · evidence:calendar\n")
     cli.main(["portrait", "judged", "Play", "--vault", str(vault)])
     assert fm.read(path)[0]["judged"]
+
+
+def test_rows_that_arrive_late_are_still_read_once_a_facet_records_what_it_read(config, vault, tmp_path, monkeypatch):
+    from brain import evidence
+    from brain.evidence import Evidence
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
+    sort_into_facets(config)
+    evidence.append("calendar", [Evidence(date(2026, 11, 3), "went", "Bouldering, 4 times", "own", ("play",), "calendar:1")])
+    with vault_lock(config):
+        image.judged(config, "Play", date(2026, 11, 5))
+    assert image.due(config) == [] and image.read_rows("Play") is not None
+    # Messages brought in afterwards, dated before Play's last pass: the date alone would skip them
+    evidence.append("imessage", [Evidence(date(2026, 10, 12), "shared", "A poker room link, shared in two groups", "own",
+                                          ("play",), "imessage:link/1")])
+    assert [(entry["facet"], entry["new"]) for entry in image.due(config)] == [("Play", 1)]
+    assert [row.pointer for row in image.evidence_for(config, "Play")] == ["imessage:link/1"]
+    with vault_lock(config):
+        image.judged(config, "Play", date(2026, 11, 5))
+    assert image.due(config) == [] and image.evidence_for(config, "Play") == []
+
+
+def test_a_facet_judged_before_it_recorded_its_reading_keeps_what_the_date_counted(config, vault, tmp_path, monkeypatch):
+    from brain import evidence
+    from brain.evidence import Evidence
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent"))
+    sort_into_facets(config)
+    path = vault / "human/Portrait/Play.md"
+    data, body = fm.read(path)
+    fm.write(path, {**data, "judged": "2026-11-01"}, body)   # judged by an engine that kept no record
+    evidence.append("calendar", [Evidence(date(2026, 10, 20), "went", "Old climb", "own", ("play",), "calendar:old"),
+                                 Evidence(date(2026, 11, 3), "went", "New climb", "own", ("play",), "calendar:new")])
+    assert [row.pointer for row in image.evidence_for(config, "Play")] == ["calendar:new"]
+    with vault_lock(config):
+        image.judged(config, "Play", date(2026, 11, 4))
+    assert image.due(config) == []   # the old row stays read, as the date rule had it
