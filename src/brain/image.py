@@ -419,17 +419,42 @@ def due(config: Config, home: Path | None = None) -> list[dict]:
     return sorted(out, key=lambda entry: (-entry["weight"], -entry["new"], entry["facet"]))
 
 
-def judged(config: Config, name: str, through: date) -> Path:
-    """Record that a facet's pass has read its evidence through this date, creating the facet when it is new.
-    The caller holds the vault lock."""
+def facet_path(config: Config, name: str) -> Path:
+    """Where a facet's note is, in any letter case, or where a new one goes."""
     name = " ".join(name.split())
     if not name or "/" in name or name.startswith("."):
         raise ValueError(f"facet name {name!r}; a plain name such as Music")
     root, name = folder(config), named(name)
-    path = next((p for p in root.glob("*.md") if p.stem.lower() == name.lower()), root / f"{name}.md") \
+    return next((p for p in root.glob("*.md") if p.stem.lower() == name.lower()), root / f"{name}.md") \
         if root.is_dir() else root / f"{name}.md"
-    data, body = fm.read(path) if path.is_file() else (new_facet(config, name), f"# {name}\n")
-    root.mkdir(parents=True, exist_ok=True)
-    fm.write(path, {**data, "judged": through.isoformat()}, body)
+
+
+def open_facet(config: Config, name: str) -> Path:
+    """Make a facet's note when it is new, ready for lines, without marking any evidence read. The caller holds the
+    vault lock."""
+    path = facet_path(config, name)
+    if not path.is_file():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fm.write(path, new_facet(config, path.stem), f"# {path.stem}\n")
+    return path
+
+
+TELLING = {verb for verb, weight in WEIGHTS.items() if weight >= 1}   # rows that say something about the owner
+
+
+def judged(config: Config, name: str, through: date, empty: str = "", home: Path | None = None) -> Path:
+    """Record that a facet's pass has read its evidence through this date. A facet still without a line whose new rows
+    say something about the owner was not judged but skipped: refused, unless the pass says why nothing in them makes a
+    line (`empty`). The caller holds the vault lock."""
+    path = open_facet(config, name)
+    data, body = fm.read(path)
+    if not parse(body)[0] and not empty.strip():
+        telling = [row for row in evidence_for(config, path.stem, home=home) if row.date <= through and row.verb in TELLING]
+        if telling:
+            raise ValueError(f"{path.stem} has no lines, and {len(telling)} of its new rows say something about "
+                             f"{config.human_name} ({', '.join(sorted({row.verb for row in telling}))}); write the lines "
+                             "they support first, or pass --empty \"<why nothing in them makes a line>\"")
+    fm.write(path, {**data, "judged": through.isoformat(), **({"empty": " ".join(empty.split())} if empty.strip() else {})},
+             body)
     return path
 
