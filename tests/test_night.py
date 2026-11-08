@@ -301,3 +301,31 @@ def test_the_night_keeps_triggers_and_frontmatter_written_while_it_ran(night_vau
     assert "TR-002" in fm.read(root / "agent/Triggers.md")[1]
     data, body = fm.read(root / "Warm Hub.md")
     assert data["aliases"] == ["Meanwhile"] and "Added meanwhile." in body and data["uses"]
+
+
+def test_before_then_after_is_the_whole_night(night_vault, tmp_path):
+    root, _ = night_vault
+    whole = tmp_path / "whole/memory"
+    shutil.copytree(root, whole)
+    brain_cli.main(nightly_argv(whole, DAY, "--write"))
+
+    brain_cli.main(nightly_argv(root, DAY, "--write", "--stage", "before"))
+    assert "STALE_THREAD" in (root / "CURRENT.md").read_text()   # threads are compiled after the model passes
+    assert fm.read(root / "Hot Hub.md")[0]["uses"] == [DAY, "2026-10-04"]
+    brain_cli.main(nightly_argv(root, DAY, "--write", "--stage", "after"))
+
+    def contents(tree):
+        return {p.relative_to(tree).as_posix(): p.read_bytes() for p in tree.rglob("*")
+                if p.is_file() and not p.relative_to(tree).as_posix().startswith("agent/Sleep Log/")}
+
+    assert contents(root) == contents(whole)
+    log = (root / "agent/Sleep Log/2026-10.md").read_text()
+    assert f"## {DAY} nightly script (write, before)" in log and f"## {DAY} nightly script (write, after)" in log
+
+
+def test_after_alone_threads_what_is_open_now(night_vault):
+    root, _ = night_vault
+    brain_cli.main(nightly_argv(root, DAY, "--write", "--stage", "after"))
+    current = (root / "CURRENT.md").read_text()
+    assert "STALE_THREAD" not in current and "T-001" in current
+    assert fm.read(root / "Hot Hub.md")[0]["uses"] == ["2026-10-04"]   # uses are folded only before

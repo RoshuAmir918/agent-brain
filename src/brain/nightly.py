@@ -373,11 +373,40 @@ def ask_library(config: Config, today: date, report: list[str], records_path: Pa
     return changed
 
 
+STAGES = ("all", "before", "after")
+
+
 def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_records: Path | None = None,
-        evidence_home: Path | None = None) -> list[str]:
-    """Apply the whole night to the vault at root. Returns the report; exits 1 on validation failure."""
-    report: list[str] = []
+        evidence_home: Path | None = None, stage: str = "all") -> list[str]:
+    """Apply the night to the vault at root. Returns the report; exits 1 on validation failure.
+
+    `before` is everything the model passes read (uses, tiers, triggers, tasks, expiry, the sources' evidence);
+    `after` is everything compiled from what they wrote (the portrait, CURRENT's threads, the context)."""
     vault = Vault(root)
+    config = vault.config
+    report: list[str] = []
+    changed: set[str] = set()
+    if stage != "after":
+        changed |= _before(vault, today, sessions_dir, library_records, evidence_home, report)
+    if stage != "before":
+        changed |= _after(vault, today, report)
+    vault.load()
+    problems = validate.run(vault, changed | vault.config.generated_views)
+    if problems:
+        report += [f"VALIDATION: {p}" for p in problems]
+        sleep_log(config, today, report, "write, validation failed, not committed")
+        for ln in report:
+            print(ln)
+        sys.exit(1)
+    hygiene = validate.hygiene(vault)
+    if hygiene:
+        report.append(f"checks: {len(hygiene)} problem(s) beyond structure; `brain validate` names them, and the evening fixes the Needs you ones")
+    sleep_log(config, today, report, "write" if stage == "all" else f"write, {stage}")
+    return report
+
+
+def _before(vault: Vault, today: date, sessions_dir: Path | None, library_records: Path | None,
+            evidence_home: Path | None, report: list[str]) -> set[str]:
     config = vault.config
     rollover(config, today, report)
     vault.load()
@@ -410,7 +439,7 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
                 if days:
                     t.state[key] = ",".join(sorted(days, reverse=True)[:30])
         fired = fire_triggers(vault, tasks + archived, today, report)
-        open_tasks, _ = process_tasks(config, today, tasks, archived, report)
+        process_tasks(config, today, tasks, archived, report)
         if fired is not None:   # consumed only after the task uses it supplied are saved
             rel = config.agent("Triggers.md")
             fm.write(vault.root / rel, fm.read(vault.root / rel)[0], fired)
@@ -425,7 +454,6 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
         if expired_goals:
             changed.add(config.human_goals)
             report.extend(f"goal: {gid} set aside after 30 days without evidence" for gid in expired_goals)
-        rebuild_current(config, open_tasks, today, report)
         if ask_library(config, today, report, library_records):
             changed.add("CURRENT.md")
         removed = needs.expire_confirms(config, today)
@@ -449,6 +477,15 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
         report.append(f"ledger: collapsed nothing rows in {rel}")
     from . import sources
     report.extend(sources.nightly(vault, today, evidence_home))
+    return changed
+
+
+def _after(vault: Vault, today: date, report: list[str]) -> set[str]:
+    config = vault.config
+    changed: set[str] = set()
+    with vault_lock(config):   # the model passes and workers change the register: thread what is open now
+        rebuild_current(config, [t for t in load_tasks(config)[0] if is_open(t)], today, report)
+    changed.add("CURRENT.md")
     if stamped := image.stamp(config):
         changed.add(config.human_portrait)
         report.append(f"portrait: {stamped} new line id(s)")
@@ -461,22 +498,10 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
             report.append(f"portrait: not compiled: {error}")
     vault.load()
     report.append(compile_context.write(vault))
-    vault.load()
-    problems = validate.run(vault, changed | vault.config.generated_views)
-    if problems:
-        report += [f"VALIDATION: {p}" for p in problems]
-        sleep_log(config, today, report, "write, validation failed, not committed")
-        for ln in report:
-            print(ln)
-        sys.exit(1)
-    hygiene = validate.hygiene(vault)
-    if hygiene:
-        report.append(f"checks: {len(hygiene)} problem(s) beyond structure; `brain validate` names them, and the evening fixes the Needs you ones")
-    sleep_log(config, today, report, "write")
-    return report
+    return changed
 
 
-def preview(root: Path, today: date, sessions_dir: Path | None = None) -> list[str]:
+def preview(root: Path, today: date, sessions_dir: Path | None = None, stage: str = "all") -> list[str]:
     """Run the full pass on a disposable copy of the agent tree; human notes are linked for resolution only."""
     with tempfile.TemporaryDirectory(prefix="brain-preview-") as tmp:
         config = Config.load(root)
@@ -505,4 +530,4 @@ def preview(root: Path, today: date, sessions_dir: Path | None = None) -> list[s
                 library_records.parent.mkdir(parents=True, exist_ok=True)
                 library_records.write_bytes(saved)
         # and keeps what the sources find in the copy, never the agent's evidence
-        return run(shadow, today, sessions_dir, library_records=library_records, evidence_home=Path(tmp) / "agent")
+        return run(shadow, today, sessions_dir, library_records=library_records, evidence_home=Path(tmp) / "agent", stage=stage)

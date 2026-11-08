@@ -20,7 +20,7 @@ from .tasks import load_tasks, quiet
 from .vault import Vault
 from .config import FORMS, SECTIONS, Config
 from .lock import repo_lock, vault_lock
-from .nightly import preview, run
+from .nightly import STAGES, preview, run
 from . import install
 from . import signals
 from . import coverage, record, routing, runtime, schedule, sessions
@@ -111,7 +111,7 @@ def cmd_nightly(a):
     root = a.config.vault_path
     today = date.fromisoformat(a.date) if a.date else a.config.today()
     sessions_dir = Path(a.sessions_dir).resolve() if a.sessions_dir else None
-    report = run(root, today, sessions_dir) if a.write else preview(root, today, sessions_dir)
+    report = run(root, today, sessions_dir, stage=a.stage) if a.write else preview(root, today, sessions_dir, a.stage)
     for ln in report:
         print(ln)
     if not a.write:
@@ -119,7 +119,8 @@ def cmd_nightly(a):
         return
     if a.commit:
         summary = "; ".join(ln for ln in report if not ln.startswith("frontmatter"))[:900]
-        sha = commit(root, f"sleep1({today.isoformat()}): {summary or 'no changes'}")
+        label = "sleep1" if a.stage == "all" else f"night-{a.stage}"
+        sha = commit(root, f"{label}({today.isoformat()}): {summary or 'no changes'}")
         print(f"commit {sha}" if sha else "nothing to commit")
         if a.push and sha:
             push(root)
@@ -1560,6 +1561,8 @@ def main(argv=None):
     s = sub.add_parser("nightly", parents=[vault]); s.add_argument("--date")
     s.add_argument("--write", action="store_true"); s.add_argument("--commit", action="store_true"); s.add_argument("--push", action="store_true")
     s.add_argument("--sessions-dir")
+    s.add_argument("--stage", choices=STAGES, default="all",
+                   help="before: what the night's model passes read; after: what is compiled from what they wrote")
     s.set_defaults(fn=cmd_nightly)
     s = sub.add_parser("ledger")
     ledger_sub = s.add_subparsers(dest="ledger_cmd", required=True)

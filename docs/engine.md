@@ -440,6 +440,8 @@ Hubs and outputs exclude the configured sources directory, the human profile's f
 
 Run only one nightly process per vault. The engine assumes it is the only writer during `--write`.
 
+`--stage` splits the night around its model passes. `before` does what they read: it folds uses and tiers, fires triggers, places tasks, decays goals, expires confirms and retires asks, settles reception, collapses ledgers, and routes the sources' evidence. `after` compiles from what they wrote: CURRENT's active threads from the register as it is then, the portrait's stamp and compile, and the context. Each stage validates, writes its own Sleep Log entry and commits as `night-before(<date>)` or `night-after(<date>)`. The default, `all`, does both in one run and commits as `sleep1(<date>)`.
+
 ## Commands
 
 `brain version` prints the installed package version. Without `AGENT_HOME`, `brain paths scripts` and `brain paths records` exit with `AGENT_HOME is not set`; the other paths and `brain validate` remain available.
@@ -461,6 +463,8 @@ brain nightly --date 2026-10-10
 brain nightly --date 2026-10-10 --write
 brain nightly --date 2026-10-10 --write --commit --push
 brain nightly --date 2026-10-10 --sessions-dir "$AGENT_HOME/records/sessions" --write
+brain nightly --write --commit --push --stage before
+brain nightly --write --commit --push --stage after
 brain validate
 brain portrait [--top N] [--json]
 brain portrait seed --account <address|all> [--days N] [--json]
