@@ -14,7 +14,7 @@ from .config import Config
 from .responsibilities import ID_PATTERN
 
 HEADER = "# The routines this agent runs. Edit with `brain schedule`; the runtime applies changes within a minute.\n"
-TIMING = ("cron", "every", "at")
+TIMING = ("cron", "every", "at", "after")
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,7 @@ class Routine:
     cron: str | None = None
     every: str | None = None
     at: str | None = None
+    after: str | None = None   # runs when that routine finishes, ok or failed: the night's steps in order
     skills: list[str] = field(default_factory=list)
     prompt: str | None = None
     deliver: str = "local"
@@ -88,7 +89,7 @@ def _problems(raw: dict, *, known_needs: bool = True) -> list[str]:
         for key in sorted(values.keys() - Routine.__dataclass_fields__.keys()):
             out.append(f"{where}: unknown field {key}")
         if sum(key in values for key in TIMING) != 1:
-            out.append(f"{where}: exactly one of cron, every or at is required")
+            out.append(f"{where}: exactly one of cron, every, at or after is required")
         for key, value in values.items():
             label = f"{where}.{key}"
             if key in ("agent", "enabled", "owner"):
@@ -115,6 +116,8 @@ def _problems(raw: dict, *, known_needs: bool = True) -> list[str]:
                             raise ValueError
                     except ValueError:
                         out.append(f"{label}: must be an ISO datetime with an offset")
+                elif key == "after" and value not in routines:
+                    out.append(f"{label}: no routine named {value!r}")
                 elif key == "deliver" and not re.fullmatch(r"local|demiurge(?::[^\s:]+)?", value):
                     out.append(f"{label}: must be local, demiurge or demiurge:<id>")
                 elif key == "responsibility" and not re.fullmatch(ID_PATTERN, value):
@@ -123,6 +126,14 @@ def _problems(raw: dict, *, known_needs: bool = True) -> list[str]:
                     out.append(f"{label}: must be a nonempty string")
         if values.get("agent") is False and not values.get("script"):
             out.append(f"{where}: agent=false requires script")
+        # A chain must start from a routine with a time of its own, or nothing in it would ever run.
+        seen, step = {name}, values
+        while isinstance(step, dict) and isinstance(step.get("after"), str):
+            if step["after"] in seen:
+                out.append(f"{where}.after: a chain of after leads back to {step['after']}")
+                break
+            seen.add(step["after"])
+            step = routines.get(step["after"])
     return out
 
 
@@ -252,6 +263,8 @@ def from_jobs(config: Config, jobs: list[dict]) -> dict[str, Routine]:
                 continue
         if once:
             when = {"at": timing.get("at")}
+        elif kind == "after":
+            when = {"after": timing.get("routine")}
         elif kind == "cron":
             when = {"cron": timing.get("expr")}
         elif kind == "interval":
