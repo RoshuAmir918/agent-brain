@@ -94,7 +94,7 @@ Handed-off tasks run through background workers, outside the routine schedule. T
 
 `$AGENT_HOME/harness/jobs.json`: a JSON array of jobs (a reader also accepts `{"jobs": [...]}`), each job `{id, name, schedule, skills, prompt, script?, noAgent?, monitorScript?, monitorHash?, deliver, workdir?, enabled, nextRunAt?, lastRunAt?, lastStatus?: "ok" | "failed" | "skipped", lastError?, failureStreak?}`. The engine reads it through `brain.runtime.jobs()` and nowhere else.
 
-`$AGENT_HOME/harness/runs.jsonl`: one line per run, `{id, jobId, status, startedAt, finishedAt?, outcome?: "delivered" | "silent" | "skipped" | "local", error?, sessionId?}`.
+`$AGENT_HOME/harness/runs/<YYYY-MM-DD>.jsonl`: one line per routine run, in the file for the UTC day it started, `{id, jobId, status: "completed" | "failed", startedAt, finishedAt?, outcome?: "delivered" | "silent" | "skipped" | "local", error?, outage?, sessionId?, result?}`. Worker chunks are logged the same way in `harness/worker-runs/<YYYY-MM-DD>.jsonl`. Before demiurge #453 both were single files, `runs.jsonl` and `worker-runs.jsonl`, which the harness splits into the daily files once and renames to `.migrated`.
 
 `$AGENT_HOME/harness/sessions/<YYYY-MM-DD>/<session id>.json`, one per conversation or routine run:
 
