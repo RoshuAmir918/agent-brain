@@ -156,7 +156,7 @@ def access_problems(vault: Vault) -> list[str]:
     return problems
 
 
-OWNER_PROFILE_WORDS = 500
+OWNER_PROFILE_WORDS = 400
 
 
 def owner_profile(vault: Vault) -> list[str]:

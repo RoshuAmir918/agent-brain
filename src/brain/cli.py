@@ -683,13 +683,15 @@ def cmd_ideas(args):
 def cmd_access(args):
     config = args.config
     vault = Vault(config.vault_path)
-    matches = access.matching_people(vault, config, args.who)
+    audience = args.who in ("known", "anyone")
+    matches = [] if audience else access.matching_people(vault, config, args.who)
     if len(matches) > 1:
         raise SystemExit("brain access: ambiguous person; matching profiles: "
                          + ", ".join(config.link(note.rel) for note in matches))
-    result = access.resolve(vault, config, matches[0].rel if matches else None)
+    result = (access.resolve(vault, config, audience=access.Audience(args.who)) if audience
+              else access.resolve(vault, config, matches[0].rel if matches else None))
     if args.json:
-        if not matches:
+        if not audience and not matches:
             print(f"brain access: no profile matches {args.who!r}; resolving as stranger.", file=sys.stderr)
         data = {"person": result.person, "groups": result.groups,
                 "subjects": {subject: {"tell": value.tell, "tellRule": value.tell_rule,
@@ -697,7 +699,8 @@ def cmd_access(args):
                              for subject, value in result.subjects.items()}, "scope": result.scope}
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return
-    person = config.link(result.person) if result.person else f"stranger (no profile matches {args.who!r})"
+    person = config.link(result.person) if result.person else (
+        args.who if audience else f"stranger (no profile matches {args.who!r})")
     print(f"Person: {person} · Groups: {', '.join(config.link(rel) for rel in result.groups) or 'none'}")
     for subject, value in result.subjects.items():
         if value.tell != "none" or value.do != "no":
