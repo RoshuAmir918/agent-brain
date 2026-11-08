@@ -195,7 +195,12 @@ def _outputs(vault: Vault) -> list[dict]:
 def _goals(vault: Vault, task_entries: list[dict]) -> list[dict]:
     if vault.config.edition != "personal":
         return []
-    entries = [goal.public() for goal in goals.load(vault.config)]
+    loaded = goals.load(vault.config)
+    entries = [goal.public() for goal in loaded]
+    activity = goals.activity(vault.config, vault=vault)
+    for entry, goal in zip(entries, loaded):
+        entry["account"] = goals.account(goal, vault.config.today())
+        entry["activity"] = [{**item, "detail": item["detail"][:12]} for item in activity.get(goal.gid, [])[:20]]
     by_id = {entry["id"]: entry["links"] for entry in entries}
     def link(gid, kind, ident):
         if gid in by_id and ident not in by_id[gid][kind]:
@@ -303,12 +308,15 @@ def stamp(config: Config) -> str:
             if not name.startswith("."):
                 path = os.path.join(folder, name)
                 add(path, os.lstat(path))
+    paths = [goals._state_path(config)]
     if (home := runtime.configured()) is not None:
-        for path in [home / "records" / "continue" / "progress.json", home / "works" / "LIBRARY.md",
-                     *sorted((home / "works").glob("*/GOAL.md"))]:
-            try:
-                add(str(path), path.lstat())
-            except OSError:
-                add(str(path), None)
+        paths += [home / "records" / "continue" / "progress.json", home / "works" / "LIBRARY.md",
+                  *sorted((home / "works").glob("*/GOAL.md")), *sorted((home / "works").glob("*/HISTORY.md")),
+                  *sorted((home / "records" / "continue" / "tasks").glob("T-*.json"))]
+    for path in paths:
+        try:
+            add(str(path), path.lstat())
+        except OSError:
+            add(str(path), None)
     digest.update(f"{_engine()}\0{health.git(config.vault_path, 'rev-parse', 'HEAD')}\0{config.today()}".encode())
     return digest.hexdigest()[:16]

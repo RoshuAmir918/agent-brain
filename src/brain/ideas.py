@@ -243,7 +243,7 @@ def respond(config: Config, which: str, today: date, answer: str) -> Item:
             line = f"- {today.isoformat()} · dismissed {answer} · idea · {text} · id:{item.id}"
         else:
             line = f"- {today.isoformat()} · idea · {text} · {answer}" + (f" · {tid}" if tid else "") + f" · id:{item.id}"
-        needs_mod.answered(config, today, line + f" · [[{item.source}]]")
+        needs_mod.answered(config, today, line + (f" · goal:{item.goal}" if item.goal else "") + f" · [[{item.source}]]")
         from . import reception
         reception.answered(config, "idea", item.text, "used" if answer == "yes" else f"declined:{answer}")
         return item

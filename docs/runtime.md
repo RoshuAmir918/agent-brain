@@ -94,7 +94,7 @@ Handed-off tasks run through background workers, outside the routine schedule. T
 
 `$AGENT_HOME/harness/jobs.json`: a JSON array of jobs (a reader also accepts `{"jobs": [...]}`), each job `{id, name, schedule, skills, prompt, script?, noAgent?, monitorScript?, monitorHash?, deliver, workdir?, enabled, nextRunAt?, lastRunAt?, lastStatus?: "ok" | "failed" | "skipped", lastError?, failureStreak?}`. The engine reads it through `brain.runtime.jobs()` and nowhere else.
 
-`$AGENT_HOME/harness/runs.jsonl`: one line per run, `{id, jobId, status, startedAt, finishedAt?, outcome?: "delivered" | "silent" | "skipped" | "local", error?, sessionId?}`.
+`$AGENT_HOME/harness/runs/<YYYY-MM-DD>.jsonl`: one line per routine run, in the file for the UTC day it started, `{id, jobId, status: "completed" | "failed", startedAt, finishedAt?, outcome?: "delivered" | "silent" | "skipped" | "local", error?, outage?, sessionId?, result?}`. Worker chunks are logged the same way in `harness/worker-runs/<YYYY-MM-DD>.jsonl`. Before demiurge #453 both were single files, `runs.jsonl` and `worker-runs.jsonl`, which the harness splits into the daily files once and renames to `.migrated`.
 
 `$AGENT_HOME/harness/sessions/<YYYY-MM-DD>/<session id>.json`, one per conversation or routine run:
 
@@ -129,6 +129,9 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.107.1: a dated commitment (an exam, a class) stays `schedule` in the tellable note, not `work`.
+- 0.107.0: goals gain weekly accounts, readable activity with expandable records, effort weights and permanent "Not this" corrections. The owner can change weights or correct items from the app; people writes the account and explore/improve read steering before choosing work. The state export includes weight, this/last week's account and bounded recent activity. No migration.
+- 0.106.0: a tellable gist names no business, venue, person, street, exact time or place smaller than a city; education is `work`, money is `finances` even as a plan or opinion, and a past commitment is never `schedule`. `brain access known|anyone` resolves those audiences, as `brain tellable` does. The migration revises each vault's tellable note.
 - 0.98.0: shareable experiences hold only what a friend could act on (no account, login, shipping or billing paperwork, one line per place), and past trips are no longer whereabouts; the migration prunes each vault's tellable note.
 - 0.97.0: the owner's own things go on their plate. `brain task new … --state yours` creates one, and `--due YYYY-MM-DD` (new or set) records the day they named, exported as the task row's `due`; the app reminds them of a dated one. The recall skill captures "I have to do X eventually" this way, never as a handoff, a loop or an ask, and never brings it up on a schedule. No migration.
 - 0.88.0: no maintainer role. `brain.toml`'s `maintainers` is ignored, a former maintainer's id is identified like anyone else's, and `brain migrate-done --defer` and `deferred-steps.md` are gone: a migration step may edit SOUL.md or the runtime config unattended. Machinery is run outside conversations (engine commands in the vault, or a prompt run as the agent's own routine).

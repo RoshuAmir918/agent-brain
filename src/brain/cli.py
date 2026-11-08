@@ -683,13 +683,15 @@ def cmd_ideas(args):
 def cmd_access(args):
     config = args.config
     vault = Vault(config.vault_path)
-    matches = access.matching_people(vault, config, args.who)
+    audience = args.who in ("known", "anyone")
+    matches = [] if audience else access.matching_people(vault, config, args.who)
     if len(matches) > 1:
         raise SystemExit("brain access: ambiguous person; matching profiles: "
                          + ", ".join(config.link(note.rel) for note in matches))
-    result = access.resolve(vault, config, matches[0].rel if matches else None)
+    result = (access.resolve(vault, config, audience=access.Audience(args.who)) if audience
+              else access.resolve(vault, config, matches[0].rel if matches else None))
     if args.json:
-        if not matches:
+        if not audience and not matches:
             print(f"brain access: no profile matches {args.who!r}; resolving as stranger.", file=sys.stderr)
         data = {"person": result.person, "groups": result.groups,
                 "subjects": {subject: {"tell": value.tell, "tellRule": value.tell_rule,
@@ -697,7 +699,8 @@ def cmd_access(args):
                              for subject, value in result.subjects.items()}, "scope": result.scope}
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return
-    person = config.link(result.person) if result.person else f"stranger (no profile matches {args.who!r})"
+    person = config.link(result.person) if result.person else (
+        args.who if audience else f"stranger (no profile matches {args.who!r})")
     print(f"Person: {person} · Groups: {', '.join(config.link(rel) for rel in result.groups) or 'none'}")
     for subject, value in result.subjects.items():
         if value.tell != "none" or value.do != "no":
@@ -794,20 +797,25 @@ def cmd_channels(args):
 def cmd_goals(args):
     config = args.config
     which, action = args.which, args.action
-    operations = ("edit", "evidence", "reached", "superseded-by", "set-aside", "reopen", "nudge", "asked-missed", "link", "keep", "not-a-goal", "to-task")
+    operations = ("edit", "evidence", "reached", "superseded-by", "set-aside", "reopen", "nudge", "asked-missed", "link", "keep", "not-a-goal", "to-task", "account", "weight", "correct")
     if which in operations and action and goals.ID.fullmatch(action):
         which, action = action, which
     try:
         operation = action if goals.ID.fullmatch(which) else which
         if (args.dry_run or args.apply) and which != "migrate":
             raise ValueError("--dry-run and --apply go with migrate")
-        if args.json and which not in ("list", "show", "due", "refused"):
-            raise ValueError("--json goes with list, show, due or refused")
-        if args.from_app and operation not in ("new", "edit", "reached", "superseded-by", "set-aside", "reopen", "keep", "not-a-goal", "to-task"):
-            raise ValueError("--from-app goes with new, edit, reached, superseded-by, set-aside, reopen, keep, not-a-goal or to-task")
+        if args.json and which not in ("list", "show", "due", "refused", "activity"):
+            raise ValueError("--json goes with list, show, due, refused or activity")
+        if args.from_app and operation not in ("new", "edit", "reached", "superseded-by", "set-aside", "reopen", "keep", "not-a-goal", "to-task", "weight", "correct"):
+            raise ValueError("--from-app goes with new, edit, reached, superseded-by, set-aside, reopen, keep, not-a-goal, to-task, weight or correct")
+        if args.weeks is not None and which != "activity":
+            raise ValueError("--weeks goes with activity")
+        if args.week is not None and operation != "account":
+            raise ValueError("--week goes with account")
         allowed = {"new": {"words", "reach", "by", "said", "inferred", "evidence"}, "edit": {"title", "words", "kind", "by", "clear_by", "said"},
                    "evidence": {"text"}, "link": {"text"}, "reached": {"why", "evidence"},
-                   "superseded-by": {"text", "why", "evidence"}, "set-aside": {"why"}, "reopen": {"why"}, "not-a-goal": {"why"}}
+                   "superseded-by": {"text", "why", "evidence"}, "set-aside": {"why"}, "reopen": {"why"}, "not-a-goal": {"why"},
+                   "account": {"text"}, "weight": {"text"}, "correct": {"text", "why"}}
         supplied = {name for name in ("words", "title", "why", "reach", "kind", "by", "clear_by", "said", "text", "inferred", "evidence")
                     if getattr(args, name) is not None and getattr(args, name) is not False}
         if supplied - allowed.get(operation, set()):
@@ -816,6 +824,12 @@ def cmd_goals(args):
             raise ValueError(f"{which} takes no positional arguments")
         if which == "asked":
             print(goals.asked(config))
+            return
+        if which == "activity":
+            entries = goals.activity(config, action, weeks=args.weeks if args.weeks is not None else 2)
+            print(json.dumps(entries, ensure_ascii=False, indent=2) if args.json else
+                  "\n".join(f"{gid} · {item['at'] or 'undated'} · {item['state']} · {item['text']}"
+                            for gid, items in entries.items() for item in items) or "no goal activity")
             return
         if which == "refused":
             entries = goals.capture(config)["refused"]
@@ -829,7 +843,10 @@ def cmd_goals(args):
                 if not entries:
                     raise ValueError(f"{action} is not a goal; use `brain goals list`")
             if args.json:
-                print(json.dumps([entry.public() for entry in entries], ensure_ascii=False, indent=2))
+                corrections = goals.capture(config)["corrections"]
+                print(json.dumps([{**entry.public(), "corrections": [{"id": ident, **value}
+                                   for ident, value in corrections.get(entry.gid, {}).items()]}
+                                  for entry in entries], ensure_ascii=False, indent=2))
             else:
                 for entry in entries:
                     print(entry.render().rstrip() if which == "show" else f"{entry.gid} · {entry.state.get('state')} · {entry.title}")
@@ -849,6 +866,11 @@ def cmd_goals(args):
                 entry = goals.new(config, action or "", args.words or "", reach=args.reach, by=args.by, said=args.said,
                                   inferred=args.inferred, evidence=args.evidence, from_app=args.from_app)
             elif goals.ID.fullmatch(which) and action in operations:
+                if action in ("account", "weight", "correct"):
+                    entry = goals.steer(config, which, action, args.text or "", why=args.why, from_app=args.from_app,
+                                        account_week=args.week)
+                    print(f"{entry.gid} · {action}: {args.text}")
+                    return
                 if action == "link":
                     goals.link_note(config, which, args.text or "")
                     print(f"{which} linked: {args.text}")
@@ -860,7 +882,7 @@ def cmd_goals(args):
                     print(f"{which} · became {entry.tid}")
                     return
             else:
-                raise ValueError("use new, list, show G-n, due, refused, asked, migrate, or G-n edit|evidence|reached|superseded-by|set-aside|reopen|nudge|asked-missed|link|keep|not-a-goal|to-task")
+                raise ValueError("use new, list, show G-n, activity [G-n], due, refused, asked, migrate, or G-n edit|evidence|reached|superseded-by|set-aside|reopen|nudge|asked-missed|link|keep|not-a-goal|to-task|account|weight|correct")
         print(f"{entry.gid} · {entry.state['state']} · {entry.title}")
     except ValueError as error:
         raise SystemExit(f"brain goals: {error}")
@@ -1686,7 +1708,7 @@ def main(argv=None):
     s.add_argument("--goal", metavar="G-n")
     s.set_defaults(fn=cmd_ideas)
     s = sub.add_parser("goals", help="the person's goals; only this command writes goal blocks", parents=[vault])
-    s.add_argument("which", help="new, list, show, due, refused, asked, migrate, or G-n")
+    s.add_argument("which", help="new, list, show, activity, due, refused, asked, migrate, or G-n")
     s.add_argument("action", nargs="?", help="title with new; id with show; operation with G-n")
     s.add_argument("text", nargs="?", help="dated evidence, a note with link, or the active goal with superseded-by")
     s.add_argument("--words"); s.add_argument("--title"); s.add_argument("--why")
@@ -1697,6 +1719,8 @@ def main(argv=None):
     by = s.add_mutually_exclusive_group()
     by.add_argument("--by"); by.add_argument("--clear-by", action="store_true")
     s.add_argument("--from-app", action="store_true"); s.add_argument("--json", action="store_true")
+    s.add_argument("--weeks", type=int, help="activity window in weeks (default 2)")
+    s.add_argument("--week", help="account's ISO week, YYYY-Www (before noon: yesterday's week; otherwise today's)")
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", action="store_true"); mode.add_argument("--apply", action="store_true")
     s.set_defaults(fn=cmd_goals)

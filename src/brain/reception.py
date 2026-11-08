@@ -18,7 +18,7 @@ OUTCOMES = ("pending", "delivered", "opened", "used", "liked", "declined", "igno
 SETTLE_DAYS = 7
 HEADER = "---\nkind: log\ntier: cold\n---\n# Reception\n\nOne row per thing offered, and how it landed: time, id, kind, what, outcome, source, the portrait line it served.\n\n"
 ROW = re.compile(r"^- (?P<at>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) · (?P<id>[0-9a-f]{6}) · (?P<kind>[a-z]+) · (?P<what>.+?) · "
-                 r"(?P<outcome>[a-z]+(?::[a-z-]+)?) · \[\[(?P<source>[^\]]*)\]\](?: · portrait:(?P<portrait>[0-9a-f]{4}))?\s*$")
+                 r"(?P<outcome>[a-z]+(?::[^\r\n]+?)?) · \[\[(?P<source>[^\]]*)\]\](?: · portrait:(?P<portrait>[0-9a-f]{4}))?\s*$")
 
 
 @dataclass
@@ -46,7 +46,8 @@ def _plain(text: str) -> str:
 
 def valid_outcome(outcome: str) -> bool:
     head, _, reason = outcome.partition(":")
-    return head in OUTCOMES and (head == "declined" or not reason) and (bool(reason) == (":" in outcome))
+    return (head in OUTCOMES and (head == "declined" or not reason) and (bool(reason) == (":" in outcome))
+            and not any(ord(char) < 32 or char in "\x85\u2028\u2029" for char in outcome))
 
 
 def rows(config: Config, since: date | None = None) -> list[tuple[Path, Row]]:
