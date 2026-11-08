@@ -299,3 +299,34 @@ def test_the_most_telling_evidence_is_judged_first_not_the_most_rows(config, vau
     evidence.append("imessage", theirs)
     order = [(entry["facet"], entry["new"], entry["weight"]) for entry in image.due(config)]
     assert order == [("Play", 3, 6.0), ("Shopping", 20, 5.0), ("Music", 9, 4.5)]
+
+
+def test_the_portrait_leads_with_the_whole_picture_and_each_facet_with_its_own(config, vault):
+    sort_into_facets(config)
+    places = vault / "human/Portrait/Places.md"
+    data, body = fm.read(places)
+    fm.write(places, data, body.replace("# Places\n", "# Places\n\n## Sketch\nLisbon is the next home: a year out, already "
+                                                      "shopping neighbourhoods.\n- not a line, only prose\n"))
+    fm.write(vault / "human/Portrait/Overview.md", {"kind": "hub", "tier": "warm", "overview": True},
+             "# Overview\n\n## Sketch\nA designer leaving New York for Lisbon, who reads in short bursts and decides "
+             "from two options.\n")
+    fm.write(vault / "human/Portrait/Play.md", *(lambda d, b: (d, b.replace(
+        "- Wants to start climbing · guess · low · 2026-11-02 · [[START]] ^c1a0\n",
+        "- Wants to start climbing · guess · low · 2026-11-02 · [[START]] ^c1a0\n  - because: saved two bouldering gyms\n")))(
+        *fm.read(vault / "human/Portrait/Play.md")))
+    assert [facet.name for facet in image.facets(config)] == ["Places", "Play", "Reading & ideas"]   # the overview is not one
+    assert image.facets(config)[0].sketch.startswith("Lisbon is the next home") and "not a line" in image.facets(config)[0].sketch
+    with vault_lock(config):
+        image.compile(config)
+    body = (vault / "human/Portrait.md").read_text()
+    assert body.index("## Sketch\nA designer leaving New York") < body.index("## After")
+    assert "  - because: saved two bouldering gyms" in body
+    assert [line.id for line in portrait.load(config)] == ["3f2a", "c1a0", "e55a", "0bad"]   # the sketch is no line
+    exported = image.owner_lines(config)
+    sketches = [(entry["facet"], entry["inPortrait"], entry["text"][:12]) for entry in exported if entry["section"] == "Sketch"]
+    assert sketches == [("", True, "A designer l"), ("Places", False, "Lisbon is th")]
+    assert next(entry for entry in exported if entry["id"] == "c1a0")["because"] == "saved two bouldering gyms"
+    assert validate.portrait_hygiene(Vault(vault)) == []
+    fm.write(vault / "human/Portrait/Overview.md", {"kind": "hub", "tier": "warm", "overview": True},
+             "## Sketch\n" + "word " * 200 + "\n")
+    assert any("keep the whole picture under 160" in p for p in validate.portrait_hygiene(Vault(vault)))

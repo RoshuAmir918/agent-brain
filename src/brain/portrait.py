@@ -26,6 +26,8 @@ WORDS = 700
 SECTION_LINES = 8
 
 STALE_GUESS_DAYS = 30
+SKETCH = "Sketch"   # a note's prose picture of its area, before its lines: never parsed as lines
+SKETCH_WORDS = 120
 
 LINE = re.compile(r"^- (?P<text>.+?) · (?P<basis>[^ ·]+) · (?P<confidence>[^ ·]+) · (?P<evidence>[^ ·]+) · "
                   r"(?P<source>.+?)(?: \^(?P<id>[0-9a-f]{4}))?[ \t]*$")
@@ -52,13 +54,15 @@ class Line:
     test: str = ""
     against: str = ""
     goal: str = ""
+    because: str = ""   # what was seen or said that the claim rests on; the line itself says who they are
     facet: str = ""
 
     def public(self) -> dict:
         """What leaves the vault: everything but the counterevidence."""
         return {"id": self.id, "section": self.section, "rank": self.rank, "text": self.text, "basis": self.basis,
                 "confidence": self.confidence, "evidence": self.evidence, "source": self.source,
-                "horizon": self.horizon, "for": self.for_, "test": self.test, "goal": self.goal, "facet": self.facet}
+                "horizon": self.horizon, "for": self.for_, "test": self.test, "goal": self.goal, "because": self.because,
+                "facet": self.facet}
 
 
 def parse(body: str) -> tuple[list[Line], list[str]]:
@@ -69,7 +73,7 @@ def parse(body: str) -> tuple[list[Line], list[str]]:
     for raw in body.splitlines():
         if raw.startswith("## "):
             section = HEADINGS.get(raw[3:].strip(), raw[3:].strip())
-            if section not in SECTIONS:
+            if section not in SECTIONS and section != SKETCH:
                 problems.append(f"unknown section {section!r}; sections are {', '.join(SECTIONS)}")
             continue
         if section not in SECTIONS or not raw.strip():
@@ -78,7 +82,7 @@ def parse(body: str) -> tuple[list[Line], list[str]]:
             key, value = detail["key"], detail["value"]
             if not lines or lines[-1].section != section:
                 problems.append(f"{section}: {key}: line with no claim above it")
-            elif key not in ("for", "test", "against", "horizon", "goal"):
+            elif key not in ("for", "test", "against", "horizon", "goal", "because"):
                 problems.append(f"{section} · {lines[-1].text}: unknown field {key!r}")
             elif key in AFTER_ONLY and section != "After":
                 problems.append(f"{section} · {lines[-1].text}: {key} belongs to After lines only")
@@ -108,6 +112,12 @@ def parse(body: str) -> tuple[list[Line], list[str]]:
         lines.append(Line(match["id"] or "", section, rank, match["text"], match["basis"], match["confidence"],
                           match["evidence"], match["source"]))
     return lines, problems
+
+
+def sketch(body: str) -> str:
+    """A note's prose picture, the paragraph under its `## Sketch` heading, joined into one."""
+    found = re.search(r"^## Sketch[ \t]*\n(.*?)(?=^## |\Z)", body, re.M | re.S)
+    return " ".join(found[1].split()) if found else ""
 
 
 def portrait_path(config: Config) -> Path:
@@ -146,6 +156,8 @@ def hygiene(body: str, today: date, where: str, company: bool = False, cap: int 
         count = sum(line.section == section for line in lines)
         if count > SECTION_LINES:
             out.append(f"{where} · {section}: {count} lines; at most {SECTION_LINES}, ranked, the rest retired to History.md")
+    if len(sketch(body).split()) > SKETCH_WORDS:
+        out.append(f"{where} · Sketch: {len(sketch(body).split())} words; keep the picture under {SKETCH_WORDS}")
     seen: set[str] = set()
     floor = (today - timedelta(days=STALE_GUESS_DAYS)).isoformat()
     for line in lines:
