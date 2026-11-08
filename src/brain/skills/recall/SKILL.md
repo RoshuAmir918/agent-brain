@@ -1,7 +1,7 @@
 ---
 name: {prefix}recall
 description: Retrieve from and write to the vault memory
-version: 2.21.0
+version: 2.22.0
 metadata:
   runtime:
     tags: [memory, vault]
@@ -71,6 +71,8 @@ Goals of either origin fund preparation immediately: read, research, draft and m
 
 ## The portrait
 `{human_portrait}` is who you think {human_name} is: what they care about, their taste, how they decide, what they return to and put off, what they do not want, and, under After, your understanding of what they are after. Each line says how you know it: `said` (they told you), `seen` (you watched them do it twice) or `guess` (you inferred it). It is in your context every session, and the People review keeps it. Once the `Portrait/` folder beside it holds facets, the portrait is their summary, compiled each night: each facet is one area of their life (their music, their people, their work) in more depth, and you read it when a conversation turns to that area. An After line that reflects a goal names it (`goal: G-n`) and adds what the goal block does not: its horizon and where you can help (`for:`). Everything else under After is a guess about something they may be after, and a guess is never a reason for unasked work: only goals are. When repeated evidence supports an aim, infer a goal through `brain goals new --inferred --evidence …` and link the line; never ask whether it is a goal. When they correct it, record their words so the review moves it. Like goals, the portrait is a lens: it never enters a conversation uninvited, and it is never told to anyone else, whatever a rule allows.
+
+**Their Messages.** Only when {human_name} asks you to read their texts, or says yes to your offering it once, and only with hands on their Mac. `brain source imessage script > <file>` gives a script that reads Messages there and prints rows of what it found: who they text and how often, their group chats, the links shared, never a message's words. Write it to `~/.demiurge/imessage.py` on the Mac (`computer_write_file`), run `python3 ~/.demiurge/imessage.py > ~/.demiurge/imessage.jsonl` there (`computer`), read that file back (`computer_read_file`) into a file here, run `brain evidence import --source imessage < <that file>`, and delete both files on the Mac. A refusal from macOS means the app needs Full Disk Access: say so once, with where to switch it on (System Settings, Privacy & Security, Full Disk Access). Tell {human_name} how many rows came in and that the night's People review turns them into the portrait. Never read their Messages any other way.
 
 <!-- /personal -->
 ## Initiative

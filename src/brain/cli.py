@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import subprocess
@@ -458,8 +459,14 @@ def cmd_source(args):
         return
     if args.target not in registry:
         raise SystemExit(f"brain source: no source {args.target!r}; `brain source list` shows them")
+    if args.action == "script":
+        module = importlib.import_module(f"brain.sources.{args.target}")
+        if not hasattr(module, "script"):
+            raise SystemExit(f"brain source {args.target}: reads where the vault is; it has no script to carry")
+        print(module.script(), end="")
+        return
     if args.action != "extract":
-        raise SystemExit(f"brain source {args.target}: say extract")
+        raise SystemExit(f"brain source {args.target}: say extract or script")
     if registry[args.target].extract is None:
         raise SystemExit(f"brain source {args.target}: the agent reads this one with its own tools and the seed skill")
     home = Path(args.home).expanduser() if args.home else runtime.configured()
@@ -1633,7 +1640,8 @@ def main(argv=None):
     s.add_argument("--limit", type=int, default=20, help="with --about: how many facts (default 20)")
     s.set_defaults(fn=cmd_evidence)
     s = sub.add_parser("source", help="the evidence sources: list them, or extract one", parents=[vault])
-    s.add_argument("target", metavar="list|ID"); s.add_argument("action", nargs="?", choices=["extract"])
+    s.add_argument("target", metavar="list|ID"); s.add_argument("action", nargs="?", choices=["extract", "script"],
+                   help="extract: read it into evidence here; script: print a script that reads it on the owner's own computer")
     s.add_argument("--since", metavar="YYYY-MM-DD", help="extract: only what is this recent")
     s.add_argument("--input", metavar="PATH", help="extract: where the raw input is, when not the source's default")
     s.add_argument("--home", metavar="DIR", help="extract: the agent workspace to keep evidence in (default AGENT_HOME)")
