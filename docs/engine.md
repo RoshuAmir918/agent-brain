@@ -165,6 +165,10 @@ Held work lives under `<agent_dir>/Prepared/`: things made or drafted for the ow
 - `brain goals due [--json]`, `brain goals G-n asked-missed`
 - `brain goals G-n keep|not-a-goal|to-task [--from-app]` (`not-a-goal` accepts optional `--why`, at most 200 characters, no controls, leading `-` or HTML comment delimiters)
 - `brain goals list [--json]`, `brain goals show G-n`, `brain goals refused [--json]`
+- `brain goals G-n account "<2–4 plain sentences>" [--week YYYY-Www]` overwrites that ISO week's account. Before noon local, the default is yesterday's week; from noon it is today's week. Only the owner or the people routine (`BRAIN_RUN=routine` with `BRAIN_SKILL=people|<prefix>people` or its `cron:people|cron:<prefix>people` speaker) may write it. Text must contain no goal/task ids, wikilinks, `.md` or paths. Eight weeks stay on the goal; older accounts move to its Goals Archive note. People writes only after new activity, reviewing the whole target week and saying what is held or not sent.
+- `brain goals activity [G-n] --json [--weeks N]` returns an object keyed by goal id, each value its newest-first items. The default is the last 14 calendar days, including today; `--weeks` must be positive. It reads tasks and their results/history, prepared drafts, Library works, ideas and answers, explore/improve receipts naming a goal, and reception outcomes. Undated work is not assigned a made-up activity date.
+- `brain goals G-n weight more|less|normal|pause [--from-app]` changes unasked effort. Normal is the default; explore and improve prefer more about twice as often and less about half as often among comparable candidates. Pause excludes unasked work until changed; explicit requests and existing duties retain their permissions.
+- `brain goals G-n correct <item-id> [--why "…"] [--from-app]` records permanent "Not this" feedback for that goal. It declines associated reception rows with the reason and sets an open task aside. A completed task remains completed. Weight and correct require the owner, like keep, and refresh cached context immediately. `list --json`, `show --json` and `due --json` include each goal's `corrections` as `{id, at, why, kind, text}` entries so routines read them before forming candidates.
 
 App new/edit/transitions add `--from-app`; the next session's context carries the person's change once. Context shows each active goal's origin, id, title and latest evidence, and the refused readings. `brain session-context` previews app-change notices without writing; `--ack-notices` consumes the notices displayed to an owner or cron run. `brain goals asked` is a harmless, read-only compatibility command: "Goals are inferred now; don't ask."
 
@@ -179,6 +183,33 @@ Non-inferred new, keep, not-a-goal and to-task require `--from-app` or a session
 In personal runtime routines (a task worker, cron/subagent, or a run marked `BRAIN_RUN=routine|worker`), a new task or idea needs an active goal, or `--source` containing the owner's actual words in quotation marks. For example, `--source '"Please find three books"'`. No active goals means nothing unasked is made. Conversations are unaffected. Organisations follow their initiatives and duties and export `goals: []`.
 
 `brain state --json` adds `goals`: `id`, `title`, `kind`, `origin` (`said` or `inferred`), `state`, nullable `by` and `supersededBy`, `words`, nullable `saidAt`, the latest five evidence objects (`at`, `text`, nullable `link`), and `links` arrays of task ids, work slugs, prepared draft paths without `.md`, existing idea ids and hub names. Every identified goal is exported, including reached, set aside and superseded. Existing tasks and ideas add nullable `goal`; linked private notes remain private.
+
+Each goal also exports these fields:
+
+```typescript
+{
+  weight: "more" | "less" | "normal" | "pause",
+  account: {
+    thisWeek: {week: string, text: string | null},
+    lastWeek: {week: string, text: string | null}
+  },
+  activity: Array<{
+    id: string,
+    at: string,
+    kind: "task" | "made" | "research" | "offer",
+    text: string,
+    state: "done" | "in progress" | "held for you" | "declined",
+    link: string,
+    detail: string[],
+    unasked: boolean,
+    corrected?: {at: string, why: string}
+  }>
+}
+```
+
+Weeks use ISO week years, such as `2026-W45`; missing accounts have null text and retain their week. Activity covers the last 14 calendar days including today, newest first, capped at 20 items per goal and 12 detail lines per item. Dates come from source records, never file modification times; undated items are omitted. `at` is a local ISO date or datetime. Drafts and Library works owned by a task under the same goal fold into that task's detail; receipts naming an existing task or draft attach as detail too, so effort counts the work once. A reception outcome attaches to its corresponding item without adding a second offer. Remaining offers are attributed only through a hub's own Goal or a draft's own goal; separate reception offers keep their own outcomes and corrections. `unasked` lets the app count this week's unasked items for effort share. Tasks must record creation inside a routine or worker for a goal; missing provenance, quoted owner requests, handoff follow-ups, handed-off tasks and `yours` tasks are excluded, as are their attached made things. `link` is a task's bare id (`T-012`), a Library work's bare slug, or a vault-relative note path without any `#anchor` (including hubs, drafts and ideas). Item ids are task ids, `draft:<hash>`, `work:<slug>` (a hash for a long slug), `idea:<existing-id>`, `research:<hash>` or `offer:<reception-id>`, always matching `[A-Za-z0-9._:-]{1,80}`. Corrections persist in runtime goal state after notices are acknowledged.
+
+The app's weight and correction controls run `brain goals G-n weight <weight> --from-app` and `brain goals G-n correct <item-id> [--why <reason>] --from-app`. Reasons follow the existing one-line goal reason rules. `brain goals activity [G-n] --json [--weeks N]` returns `{ "G-n": [<activity item>, ...], ... }`, without the export's item/detail caps.
 
 `brain goals migrate --dry-run` reports only whether Active goals has legacy content and where it would be archived; blank lines, placeholders, the template's section description and "None…" lines do not count. `--apply` archives the entire original `Goals.md` under `<agent_dir>/Goals Archive/Migration.md` (tier cold), then replaces Active goals with only the template's section description. Aspirations, Adopted practices and Set aside stay untouched. Empty templates and retries without legacy content write nothing; the helper never creates goals. The intellect reads the archive and recreates real active goals and their dated evidence through `brain goals`, keeping quoted words and stated dates and adding evidence newest last. Field labels and superseded approaches are not goals; instructions to the intellect become or join responsibilities through the setup skill, carrying existing permission and a Needs you confirm for each change. The 0.66.0 migration covers these judgments, linking clearly related open tasks and hubs, validation and context refresh. The 0.82.0 unattended migration refreshes skills and performs an inference pass now, including empty goal files; it never asks a capture question.
 

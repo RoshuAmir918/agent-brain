@@ -1,7 +1,7 @@
 ---
 name: {prefix}explore
 description: Do one thing for {human_name}, or nothing
-version: 3.4.1
+version: 3.5.0
 metadata:
   runtime:
     tags: [routine, day, research]
@@ -14,6 +14,8 @@ The standing-attention pass. Every two hours while {human_name} is awake, {agent
 
 ## Procedure
 <!-- personal -->
+**Read weights and corrections first.** Run `brain goals list --json`: each goal carries its `weight` and permanent `corrections` ("Not this", with the kind, text and reason). Read these before forming candidates; do not repeat that kind of work unless {human_name} explicitly changes direction. Among comparably useful candidates, choose `more` about twice as often as `normal`, and `less` about half as often; `pause` gets no unasked work until changed. These settings change unasked effort, not work {human_name} explicitly requested or an existing duty.
+
 **Infer, then choose by goals.** Read `brain goals list --json` and `brain goals refused --json`, then the portrait, recent owner conversations and the connected evidence you may read (synced Anki hours, calendar, Canvas, Library works, what they are building or preparing for). Follow recall's Goals rules: repeated evidence across days, never one passing mention; their own words quoted and dated, never your paraphrase. Merge the same aim by adding evidence; never re-propose a refused title, words or aim. Create at most two new readings per night, counting readings made earlier today, with `brain goals new "<title>" --words "<their quoted words>" --said YYYY-MM-DD --inferred --evidence "<date> · <what> · [[note]] or evidence:<source>"`, and never exceed five active inferred goals. Never ask whether it is a goal or wait for confirmation; silence keeps it. The night sets aside inferred goals after thirty days without evidence.
 
 Every unasked candidate advances one active goal and names its id. Said and inferred goals fund preparation immediately: read, research, draft, make; hold it. A person, interest, deadline or occasion alone is not a reason. Without an evidenced goal, make nothing unasked. Work explicitly requested by {human_name} may proceed from their quoted words. Offers keep their high bar and outward action its existing permissions.

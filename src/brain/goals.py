@@ -21,6 +21,9 @@ HEAD = re.compile(r"^### (G-\d+) — (.+?)[ \t]*$", re.M)
 STATES = ("active", "reached", "set_aside", "superseded")
 KINDS = ("reach", "become")
 ORIGINS = ("said", "inferred")
+WEIGHTS = ("more", "less", "normal", "pause")
+ITEM_ID = re.compile(r"[A-Za-z0-9._:-]{1,80}")
+ACCOUNT = re.compile(r"^- \*\*Account \((\d{4}-W\d{2})\):\*\* (.+)$", re.M)
 WORDS = re.compile(r'^- \*\*In their words:\*\* "(.*)" \((\d{4}-\d{2}-\d{2}|unknown)\)$', re.M)
 EVIDENCE = re.compile(r"^- \*\*Evidence:\*\* (\d{4}-\d{2}-\d{2}) · (.+)$", re.M)
 ENDING = re.compile(r"^- \*\*(?:Reached|Superseded|Set-Aside):\*\* (\d{4}-\d{2}-\d{2}) — ", re.M)
@@ -94,7 +97,7 @@ class Goal:
 
     def public(self) -> dict:
         return {"id": self.gid, "title": self.title, "kind": self.state.get("kind"),
-                "origin": self.origin,
+                "origin": self.origin, "weight": self.state.get("weight", "normal"),
                 "state": self.state.get("state"), "by": self.state.get("by"),
                 "supersededBy": self.state.get("superseded_by"),
                 "words": self.words, "saidAt": self.said_at, "evidence": self.evidence[:5],
@@ -164,6 +167,8 @@ def problems(config: Config) -> list[str]:
             out.append(prefix + "superseded needs a different goal in superseded_by")
         if goal.origin not in ORIGINS:
             out.append(prefix + "origin must be said or inferred")
+        if goal.state.get("weight", "normal") not in WEIGHTS:
+            out.append(prefix + "weight must be more, less, normal or pause")
         if goal.origin == "inferred" and not goal.evidence:
             out.append(prefix + "an inferred goal needs evidence")
         if goal.state.get("by") and goal.state.get("kind") != "reach":
@@ -212,16 +217,24 @@ def require_active(config: Config, gid: str) -> str:
     return gid
 
 
+def is_routine() -> bool:
+    return bool(os.environ.get("BRAIN_RUN", "").strip() in ("routine", "worker") or
+                os.environ.get("DEMIURGE_TASK", "").strip() or
+                os.environ.get("BRAIN_SPEAKER", "").split(":", 1)[0] in ("cron", "subagent"))
+
+
 def guard(config: Config, gid: str | None, source: str, parent=None) -> None:
     """The harness explicitly identifies routines/workers; other sessions are conversations.
     A worker's follow-up to the task it is running was asked for when that task was: it passes."""
     if gid:
         require_active(config, gid)
+    routine = is_routine()
+    if routine and gid and not re.search(r'["“][^"”\n]+["”]', source) and not (parent and parent.handoff):
+        goal = next(goal for goal in active(config) if goal.gid == gid)
+        if goal.state.get("weight") == "pause":
+            raise ValueError(f"{gid} is paused; no unasked work until the person changes its weight")
     if parent is not None:
         return
-    routine = bool(os.environ.get("BRAIN_RUN", "").strip() in ("routine", "worker") or
-                   os.environ.get("DEMIURGE_TASK", "").strip() or
-                   os.environ.get("BRAIN_SPEAKER", "").split(":", 1)[0] in ("cron", "subagent"))
     if config.edition != "personal" or not routine or gid or re.search(r'["“][^"”\n]+["”]', source):
         return
     names = ", ".join(f"{goal.gid} — {goal.title}" for goal in active(config))
@@ -236,7 +249,7 @@ def _state_path(config: Config):
 
 def capture(config: Config) -> dict:
     path = _state_path(config)
-    return {"asked": None, "app": [], "refused": [], **(json.loads(path.read_text()) if path.exists() else {})}
+    return {"asked": None, "app": [], "refused": [], "corrections": {}, **(json.loads(path.read_text()) if path.exists() else {})}
 
 
 def save_capture(config: Config, values: dict) -> None:
@@ -257,6 +270,7 @@ def _owner(config: Config, from_app: bool = False) -> bool:
 def _require_owner(config: Config, from_app: bool) -> None:
     if not _owner(config, from_app):
         raise ValueError("the intellect infers (--inferred) or sets aside; the person keeps, refuses or demotes. "
+                         "Only the person changes weights or corrects work. "
                          "Use --from-app or an owner session (BRAIN_SPEAKER naming the owner).")
 
 
@@ -295,11 +309,14 @@ def notices(config: Config) -> str:
 
 def context(config: Config, *, app_changes: bool = True) -> str:
     lines = []
+    corrections = capture(config)["corrections"]
     for goal in active(config):
         latest = goal.evidence[0] if goal.evidence else None
-        lines.append(f"- {goal.gid} — {goal.title} ({goal.origin})" + (f" (by {goal.state['by']})" if goal.state.get("by") else ""))
+        lines.append(f"- {goal.gid} — {goal.title} ({goal.origin}) (weight: {goal.state.get('weight', 'normal')})" + (f" (by {goal.state['by']})" if goal.state.get("by") else ""))
         if latest:
             lines.append(f"  Latest evidence: {latest['at']} · {latest['text']}" + (f" · [[{latest['link']}]]" if latest['link'] else ""))
+        for correction in corrections.get(goal.gid, {}).values():
+            lines.append(f"  Not this ({correction['kind']}): {correction['text']} — {correction['why'] or 'Do not repeat this kind of work'}")
     if not lines:
         lines.append("No active goals. Infer from repeated, dated evidence before preparing unasked work; never ask whether something is a goal.")
     for entry in capture(config)["refused"]:
@@ -307,6 +324,107 @@ def context(config: Config, *, app_changes: bool = True) -> str:
     if app_changes and (notice := notices(config)):
         lines.append(notice)
     return "\n".join(lines)
+
+
+def week(today: date) -> str:
+    year, number, _ = today.isocalendar()
+    return f"{year}-W{number:02}"
+
+
+def account(goal: Goal, today: date) -> dict:
+    saved = {match[1]: match[2] for match in ACCOUNT.finditer(goal.body)}
+    return {name: {"week": week(at), "text": saved.get(week(at))}
+            for name, at in (("thisWeek", today), ("lastWeek", today - timedelta(weeks=1)))}
+
+
+def activity(config: Config, gid: str | None = None, *, weeks: int | None = 2, vault: Vault | None = None) -> dict:
+    from . import goal_activity
+    return goal_activity.build(config, gid, weeks=weeks, vault=vault)
+
+
+def steer(config: Config, gid: str, operation: str, text: str, *, why: str | None = None,
+          from_app: bool = False, account_week: str | None = None) -> Goal:
+    if operation in ("weight", "correct"):
+        _require_owner(config, from_app)
+    if account_week is not None and operation != "account":
+        raise ValueError("--week goes with account")
+    if operation == "account":
+        people = (os.environ.get("BRAIN_RUN", "").strip() == "routine" and
+                  (os.environ.get("BRAIN_SKILL", "").strip() in ("people", config.skill_prefix + "people") or
+                   os.environ.get("BRAIN_SPEAKER", "").strip() in ("cron:people", "cron:" + config.skill_prefix + "people")))
+        if not (_owner(config) or people):
+            raise ValueError("only the owner or the people routine may write a goal account")
+    if errors := problems(config):
+        raise ValueError(errors[0])
+    data, body = read(config)
+    goal = next((entry for entry in load(config) if entry.gid == gid), None)
+    if goal is None:
+        raise ValueError(f"{gid} is not a goal; use `brain goals list`")
+    if operation == "account":
+        text = line("account", text, 2000)
+        if any(marker in text for marker in ("<!--", "-->")):
+            raise ValueError("account cannot contain HTML comment delimiters")
+        if re.search(r"\b(?:G-\d+|T-\d{3})\b|\[\[|\.md|[/\\]", text, re.I):
+            raise ValueError("account must be plain text without goal/task ids, wikilinks, .md or paths")
+        now = config.local()
+        current = account_week if account_week is not None else week(now.date() - timedelta(days=now.hour < 12))
+        try:
+            if not re.fullmatch(r"\d{4}-W\d{2}", current):
+                raise ValueError
+            date.fromisocalendar(int(current[:4]), int(current[6:]), 1)
+        except ValueError:
+            raise ValueError("--week must be a valid ISO week: YYYY-Www") from None
+        saved = {match[1]: match[2] for match in ACCOUNT.finditer(goal.body)}
+        saved[current] = text
+        latest = max(saved)
+        cutoff = week(date.fromisocalendar(int(latest[:4]), int(latest[6:]), 1) - timedelta(weeks=7))
+        older = [f"- **Account ({at}):** {value}" for at, value in sorted(saved.items()) if at < cutoff]
+        if older:
+            path = config.vault_path / config.agent(f"Goals Archive/{gid}.md")
+            previous = fm.read(path)[1] if path.exists() else f"# {gid} — {goal.title}\n"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fm.write(path, {"kind": "log", "tier": "cold"}, previous.rstrip() + "\n\n" + "\n".join(older) + "\n")
+        goal.body = ACCOUNT.sub("", goal.body).rstrip() + "\n"
+        goal.body += "\n".join(f"- **Account ({at}):** {value}" for at, value in sorted(saved.items(), reverse=True) if at >= cutoff) + "\n"
+        return _write(config, data, body, goal)
+    if operation == "weight":
+        if text not in WEIGHTS:
+            raise ValueError("weight must be more, less, normal or pause")
+        goal.state["weight"] = text
+        result = _write(config, data, body, goal)
+        detail = f"weight: {text}"
+    elif operation == "correct":
+        if not ITEM_ID.fullmatch(text):
+            raise ValueError("item id must match [A-Za-z0-9._:-]{1,80}")
+        reason = line("why", why, 200) if why is not None else ""
+        item = next((item for item in activity(config, gid, weeks=None)[gid] if item["id"] == text), None)
+        if item is None:
+            raise ValueError(f"{text} is not an activity item for {gid}")
+        from . import reception, tasks
+        if item["kind"] == "task":
+            task = tasks.find(config, text, archived_closed=True)
+            if task is not None and tasks.is_open(task) and task.task_state != "set_aside":
+                tasks.set_aside(config, task.tid, config.today(), reason or "Not this")
+        from .goal_activity import receptions_for
+        for row in receptions_for(config, item):
+            reception.set_outcome(config, row.id, "declined:" + (reason or "not-this"))
+        values = capture(config)
+        values["corrections"].setdefault(gid, {})[text] = {
+            "at": config.now().isoformat(), "why": reason, "kind": item["kind"], "text": item["text"]}
+        save_capture(config, values)
+        result, detail = goal, f"Not this: {item['text']}" + (f" — {reason}" if reason else "")
+    else:
+        raise ValueError("unknown goal operation")
+    if from_app:
+        _app_change(config, goal, "changed", detail)
+    else:
+        _refresh_context(config)
+    return result
+
+
+def _refresh_context(config: Config) -> None:
+    from . import compile_context
+    compile_context.write(Vault(config.vault_path))
 
 
 def _write(config: Config, data: dict, body: str, goal: Goal, *, new: bool = False, from_app: bool = False) -> Goal:

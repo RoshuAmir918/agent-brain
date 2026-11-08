@@ -1,7 +1,7 @@
 ---
 name: {prefix}improve
 description: Get better at one responsibility; notice work that should become one
-version: 1.7.0
+version: 1.8.0
 metadata:
   runtime:
     tags: [routine, day, research]
@@ -16,6 +16,8 @@ A responsibility is standing work with judgment in it, held for {human_name} und
 
 ## Procedure
 <!-- personal -->
+**Read weights and corrections first.** Run `brain goals list --json`: each goal carries its `weight` and permanent `corrections` ("Not this", with the kind, text and reason). Read these before forming candidates; do not repeat that kind of work unless {human_name} explicitly changes direction. Among comparably useful candidates, choose `more` about twice as often as `normal`, and `less` about half as often; `pause` gets no unasked work until changed. These settings change unasked effort, not work {human_name} explicitly requested or an existing duty.
+
 Goals first. Read `brain goals list --json`. Every new investigation or offer must name the active goal it advances; a new connection, an interest or a possible feature alone is no reason. Said and inferred goals both fund preparation immediately, held; do not wait for confirmation or ask whether something is a goal. With no active goal, read the portrait and connected evidence and follow recall's inference rules (including `brain goals refused --json`), then propose only when the offer clears the high bar. Without evidence for a goal, propose nothing unasked. Existing duties still run under the permission {human_name} gave.
 <!-- /personal -->
 1. **Inventory.** Find every responsibility hub: `grep -l '^skill:' {vault}/*.md`. Read each hub's Improvements section and the last rows of the improve ledger (`{agent_dir}/Improve/`, or an older vault's `Improvements/`). An improvement in `trialing` whose trial period has passed is assessed first: compare what happened in the records and ledgers with the intended result, then mark it `adopted` or `dropped` with the date and the evidence.
@@ -24,7 +26,7 @@ Goals first. Read `brain goals list --json`. Every new investigation or offer mu
 4. **Name the gap**, one of four: knowledge or strategy; a broken implementation; a permission {agent_name} holds and does not use; a permission it lacks. The first three are {agent_name}'s to close. The fourth becomes an idea for {human_name}, with `--needs` naming the permission, and the research still happens so it arrives with a case, not a wish.
 5. **Research as a practitioner.** What would a skilled person in this role investigate, measure and do? Real sources and outside expertise, applied to the actual situation in the hub and the records, not a summary of the field. Depth over breadth.
 6. **Write the recommendation** in the hub's Improvements section, for {human_name} to read cold on their phone, since two of its lines are all they see: a `- **Ask:**` line, the proposition in at most 16 words ("Want me to only reread the mail threads that changed?", "Should I stop judging the game and just play along with you?"), and a `- **Why:**` line, one or two plain sentences (at most 40 words) on what changes for them. Both are read cold on a phone by someone who never saw your notes: the idea, never the details; no task ids, file or routine names, dates, or what you checked and when. Never shorthand like "recheck changed correspondence" or "join the shared fiction". The heading, a plain name for the change, and everything below are your record: date, the gap, the evidence, the specific move or operating change, the expected benefit and how it would be judged, and a `- **Status:** proposed` line, dated. A strategy that has not been tested is labelled hypothesis. A proposal is not an improvement, and a change that ran is not a change that worked; the status says which. Each proposal names its active goal with `- **Goal:** G-n`, and its Ask says what it is toward. A `proposed` status is enough: {human_name} sees it as an idea, from `brain ideas`.
-7. **Record.** Write no ledger row: the engine records the run. Its account names the responsibility, the gap and the status, or `nothing to recommend`.
+7. **Record.** Write no ledger row: the engine records the run. Its account names the goal id, the responsibility, the gap and the status, or `nothing to recommend`.
 
 ## Boundaries
 Writes only responsibility hubs' Improvements sections and ideas through `brain ideas --add`. Never a skill, a permission, a schedule, Triggers, the Memory Spec or `{sources_dir}/`; the skill edit happens in the session where {human_name} adopts, under the recall skill's rule. No sends. No action inside the responsibility itself: its own routine acts, this one studies. A finding never widens what {agent_name} may do; it argues for it.
