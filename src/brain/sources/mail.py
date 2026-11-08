@@ -14,7 +14,7 @@ from pathlib import Path
 from .. import channel_files, fm, routing, tasks
 from ..routing import DAYS, Row
 from ..evidence import Evidence
-from . import Context, Nothing, Source, globbed, hints
+from . import Context, Nothing, Source, domain, globbed, hints, work_account
 
 SOURCE = Source(id="mail", editions=("personal", "enterprise"), runs="runtime", where="own", rank=6, needs="google",
                 files=("mail/*/*.md", "backfill/mail/*/*.md"), facets=("people", "places", "food & drink", "play"),
@@ -108,11 +108,15 @@ def pointer(kind: str, key: str) -> str:
     return f"mail:{kind}/{hashlib.sha256(key.encode()).hexdigest()[:8]}"
 
 
+NOTICES = 2   # a sender heard from once is a sign-up or a one-off, not a part of the owner's life
+
+
 def rows(mails: list[Mail]) -> list[Evidence]:
-    """Each row is dated by the newest mail it counts, so a rerun with nothing new writes the same rows."""
+    """Each row is dated by the newest mail it counts, so a rerun with nothing new writes the same rows. A
+    correspondent or a sender reached through a work account is Work as well."""
     out = []
-    written: dict[str, dict] = defaultdict(lambda: {"name": "", "named": "", "count": 0, "newest": ""})
-    notices: dict[str, dict] = defaultdict(lambda: {"count": 0, "newest": ""})
+    written: dict[str, dict] = defaultdict(lambda: {"name": "", "named": "", "count": 0, "newest": "", "work": False})
+    notices: dict[str, dict] = defaultdict(lambda: {"count": 0, "newest": "", "work": False})
     for mail in mails:
         if mail.excluded:
             continue
@@ -125,21 +129,26 @@ def rows(mails: list[Mail]) -> list[Evidence]:
                         entry["name"], entry["named"] = name.strip(), day
                     entry["count"] += 1
                     entry["newest"] = max(entry["newest"], day)
+                    entry["work"] = entry["work"] or work_account(mail.account)
         elif mail.kind == "transactional":
-            entry = notices[min(mail.senders)]
+            entry = notices[domain(min(mail.senders).split("@")[-1])]
             entry["count"] += 1
             entry["newest"] = max(entry["newest"], day)
+            entry["work"] = entry["work"] or work_account(mail.account)
     for address, entry in written.items():
         out.append(Evidence(datetime.fromisoformat(entry["newest"]).date(), "talks",
-                            f"Wrote to {entry['name'] or address.split('@')[0]} {entry['count']} times, last {entry['newest']}", "own", ("people",),
-                            pointer("to", address)))
-    for address, entry in notices.items():
-        domain = address.split("@")[-1]
-        notice = "1 notice" if entry["count"] == 1 else f"{entry['count']} notices"
+                            f"Wrote to {entry['name'] or address.split('@')[0]} {entry['count']} times, last {entry['newest']}",
+                            "own", ("people", "work") if entry["work"] else ("people",), pointer("to", address)))
+    for site, entry in notices.items():
+        if entry["count"] < NOTICES:
+            continue
+        found = hints(site, "shopping")
+        if entry["work"] and "work" not in found:
+            found = (*found, "work")
         out.append(Evidence(datetime.fromisoformat(entry["newest"]).date(),
-                            "booked" if any(mark in domain for mark in BOOKED) else "received",
-                            f"{notice} from {domain}, last {entry['newest']}", "own", hints(domain, "home & routine"),
-                            pointer("from", address)))
+                            "booked" if any(mark in site for mark in BOOKED) else "received",
+                            f"{entry['count']} notices from {site}, last {entry['newest']}", "own", found,
+                            pointer("from", site)))
     return out
 
 

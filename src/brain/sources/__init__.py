@@ -16,7 +16,7 @@ class Nothing(ValueError):
     """The source has nothing to read: no account connected, no file synced. Not a failure."""
 
 
-from .hinting import HINTS, hints  # noqa: F401  (sources import hints from the registry)
+from .hinting import HINTS, domain, hints, work_account  # noqa: F401  (sources import hints from the registry)
 
 
 @dataclass(frozen=True)

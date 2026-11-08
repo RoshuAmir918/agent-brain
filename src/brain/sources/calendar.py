@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .. import channel_files
 from ..evidence import Evidence
-from . import Context, Nothing, Source, globbed, hints
+from . import Context, Nothing, Source, globbed, hints, work_account
 
 SOURCE = Source(id="calendar", editions=("personal",), runs="runtime", where="own", rank=7, needs="google",
                 files=("calendar/*.md", "backfill/calendar/*.md"), facets=("play", "places", "food & drink", "home & routine"),
@@ -66,8 +66,10 @@ def rows(groups: list[dict]) -> list[Evidence]:
         where = f" at {event['location']}" if event.get("location") else ""
         times = "once" if count == 1 else f"{count} times"
         fact = f"{title}{where}, {times}" + (f", last {last}" if last else "") + (f", next {upcoming}" if upcoming else "")
-        out.append(Evidence(date.fromisoformat(last or upcoming), "went" if last else "plans", fact, "own",
-                            hints(f"{title} {event.get('location') or ''}", "home & routine"),
+        found = hints(f"{title} {event.get('location') or ''}", "home & routine")
+        if work_account(event.get("account", "")):   # an event on a work calendar is work, whatever else it is
+            found = tuple(hint for hint in found if hint != "home & routine") + ("work",) if "work" not in found else found
+        out.append(Evidence(date.fromisoformat(last or upcoming), "went" if last else "plans", fact, "own", found,
                             f"calendar:{hashlib.sha256(title.encode()).hexdigest()[:8]}"))
     return out
 
