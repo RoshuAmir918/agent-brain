@@ -367,9 +367,9 @@ def test_an_owner_profile_past_its_budget_is_a_validation_problem(access_vault):
     from brain import fm
     path = access_vault.root / access_vault.config.human_profile
     path.parent.mkdir(parents=True, exist_ok=True)
-    fm.write(path, {"kind": "hub"}, "# Owner\n" + "word " * 501)
+    fm.write(path, {"kind": "hub"}, "# Owner\n" + "word " * 401)
     assert validate.owner_profile(Vault(access_vault.root)) == [
-        f"{access_vault.config.human_profile}: 503 words; keep it under 500, dated material in History.md"]
+        f"{access_vault.config.human_profile}: 403 words; keep it under 400, dated material in History.md"]
     fm.write(path, {"kind": "hub"}, "# Owner\nShort.\n")
     assert validate.owner_profile(Vault(access_vault.root)) == []
 

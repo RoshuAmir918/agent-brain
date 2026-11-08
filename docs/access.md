@@ -108,12 +108,13 @@ leaves it untouched.
 
 ## The owner's profile and the agent's impression
 
-`{human_profile}` keeps six sections, under 500 words (`brain validate` flags more): Who, Working together, Their
-people, What they're about, On my own, and Impression. The People review maintains it like any profile; dated material
-lives in `History.md` beside it. The Impression is the agent's own view of its owner, honest rather than flattering,
-each point dated, sourced and revised when contradicted, and raised to the owner as a `confirm` when new. Sessions with
-the owner carry Working together and Impression (about 250 words). The impression is never disclosed, whatever a rule
-allows: that is an engine rule, not a default.
+`{human_profile}` keeps four sections, under 400 words (`brain validate` flags more): Who, Working together, Their
+people and On my own, ending with a link to the owner's portrait. The People review maintains it like any profile;
+dated material lives in `History.md` beside it. Since 0.69.0 the agent's own view of its owner lives in the portrait
+(`human/Portrait.md`), not in an Impression section; a vault that has no portrait yet still reads an Impression section
+if one is there. Sessions with the owner carry Working together and the portrait's said and seen lines, or the
+Impression until a portrait exists (about 450 words). The portrait and any Impression are never disclosed, whatever a
+rule allows: that is an engine rule, not a default.
 
 ## Defaults
 
