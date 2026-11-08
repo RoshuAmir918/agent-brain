@@ -397,6 +397,11 @@ def cmd_evidence(args):
     if args.action == "import":
         if not args.source:
             raise SystemExit("brain evidence import: --source NAME")
+        from . import sources
+        declared = sources.registry().get(args.source)
+        if declared and args.config.edition not in declared.source.editions:
+            raise SystemExit(f"brain evidence import: {args.source} is read for {' and '.join(declared.source.editions)} "
+                             f"brains, and this one is {args.config.edition}; nothing imported")
         rows = []
         for number, line in enumerate(sys.stdin, 1):
             if not line.strip():
