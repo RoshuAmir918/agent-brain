@@ -381,15 +381,40 @@ def route(rows: list[evidence.Evidence], found: list[Facet]) -> dict[str, list[e
     return out
 
 
+def row_key(row: evidence.Evidence) -> str:
+    return hashlib.sha256(f"{row.source}\n{evidence.render(row)}".encode()).hexdigest()[:16]
+
+
+def _read_path(name: str, home: Path | None = None) -> Path | None:
+    root = evidence.folder(home)
+    return root.parent / "records" / "portrait" / "read" / f"{name.casefold()}.txt" if root else None
+
+
+def read_rows(name: str, home: Path | None = None) -> set[str] | None:
+    """The rows a facet's passes have read, by key, kept beside the evidence; None before its first recorded pass."""
+    path = _read_path(name, home)
+    return set(path.read_text(encoding="utf-8").split()) if path and path.is_file() else None
+
+
+def unread(rows: list[evidence.Evidence], judged: str, seen: set[str] | None) -> list[evidence.Evidence]:
+    """Rows a facet has not read. Once it records what it read, a row that arrives late, dated before its last pass,
+    is still new; before that, the date of its last pass is all there is."""
+    if seen is None:
+        return [row for row in rows if row.date.isoformat() > judged]
+    return [row for row in rows if row_key(row) not in seen]
+
+
 def evidence_for(config: Config, name: str, since: str | None = None, home: Path | None = None) -> list[evidence.Evidence]:
-    """The rows a facet's judging pass reads: those routed to it, newer than its last pass unless `since` says
-    otherwise ("" for all of them), newest first."""
+    """The rows a facet's judging pass reads: those routed to it it has not read yet, or since a date when `since` says
+    so ("" for all of them), newest first."""
     found = facets(config)
     facet = next((facet for facet in found if facet.name.casefold() == name.casefold()), None)
-    floor = facet.judged if facet and since is None else since or ""
     routed = route(evidence.read(home=home), found)
     key = facet.name if facet else next((key for key in routed if key.casefold() == name.casefold()), named(name))
-    return [row for row in routed.get(key, []) if row.date.isoformat() > floor]
+    rows = routed.get(key, [])
+    if since is not None:
+        return [row for row in rows if row.date.isoformat() > since]
+    return unread(rows, facet.judged if facet else "", read_rows(key, home))
 
 
 # How much a row tells about the owner. What they said or decided outweighs where they went or whom they wrote to,
@@ -411,7 +436,7 @@ def due(config: Config, home: Path | None = None) -> list[dict]:
     judged = {facet.name: facet.judged for facet in found}
     out = []
     for name, rows in route(evidence.read(home=home), found).items():
-        new = [row for row in rows if row.date.isoformat() > judged.get(name, "")]
+        new = unread(rows, judged.get(name, ""), read_rows(name, home))
         if new:
             out.append({"facet": name, "exists": name in judged, "since": judged.get(name, ""), "new": len(new),
                         "weight": round(sum(weight(row) for row in new), 2),
@@ -454,7 +479,17 @@ def judged(config: Config, name: str, through: date, empty: str = "", home: Path
             raise ValueError(f"{path.stem} has no lines, and {len(telling)} of its new rows say something about "
                              f"{config.human_name} ({', '.join(sorted({row.verb for row in telling}))}); write the lines "
                              "they support first, or pass --empty \"<why nothing in them makes a line>\"")
+    read = [row for row in evidence_for(config, path.stem, home=home) if row.date <= through]
     fm.write(path, {**data, "judged": through.isoformat(), **({"empty": " ".join(empty.split())} if empty.strip() else {})},
              body)
+    record = _read_path(path.stem, home)
+    if record is not None:
+        record.parent.mkdir(parents=True, exist_ok=True)
+        keys = (read_rows(path.stem, home) or set()) | {row_key(row) for row in read}
+        before = str(data.get("judged") or "")
+        if read_rows(path.stem, home) is None and before:   # its first record: what the date rule counted as read is read
+            keys |= {row_key(row) for row in route(evidence.read(home=home), facets(config)).get(path.stem, [])
+                     if row.date.isoformat() <= before}
+        record.write_text("".join(f"{key}\n" for key in sorted(keys)), encoding="utf-8")
     return path
 

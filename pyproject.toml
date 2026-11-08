@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-brain"
-version = "0.115.0"
+version = "0.116.0"
 description = "Configurable Markdown memory mechanics for a personal agent"
 readme = "README.md"
 license = {text = "MIT"}
