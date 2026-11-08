@@ -447,7 +447,9 @@ def cmd_source(args):
         for row in evidence.read():
             n, newest = counts.get(row.source, (0, ""))
             counts[row.source] = (n + 1, max(newest, row.date.isoformat()))
-        names = sorted(set(registry) | set(counts))
+        config = getattr(args, "config", None)
+        mine = {source.id for source in sources.declared(config.edition)} if config else set(registry)
+        names = sorted(mine | set(counts))   # this edition's sources, and any whose evidence is already here
         listed = [{"id": name, "registered": name in registry, "rows": counts.get(name, (0, ""))[0],
                    "newest": counts.get(name, (0, ""))[1],
                    **({"runs": registry[name].source.runs, "editions": list(registry[name].source.editions),
