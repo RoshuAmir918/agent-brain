@@ -129,6 +129,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.107.1: a dated commitment (an exam, a class) stays `schedule` in the tellable note, not `work`.
 - 0.107.0: goals gain weekly accounts, readable activity with expandable records, effort weights and permanent "Not this" corrections. The owner can change weights or correct items from the app; people writes the account and explore/improve read steering before choosing work. The state export includes weight, this/last week's account and bounded recent activity. No migration.
 - 0.106.0: a tellable gist names no business, venue, person, street, exact time or place smaller than a city; education is `work`, money is `finances` even as a plan or opinion, and a past commitment is never `schedule`. `brain access known|anyone` resolves those audiences, as `brain tellable` does. The migration revises each vault's tellable note.
 - 0.98.0: shareable experiences hold only what a friend could act on (no account, login, shipping or billing paperwork, one line per place), and past trips are no longer whereabouts; the migration prunes each vault's tellable note.
