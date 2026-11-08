@@ -12,7 +12,7 @@ metadata:
 Method for the responsibility whose understanding lives in [[{vault}/{name}|{name}]] and whose state lives under `$AGENT_HOME/records/{records}/`. Run only the phase named in the live cron prompt.
 
 ## Scope
-What the live permission allows, and where it stops. Permission comes from {human_name}'s recorded words, never from this file.
+What the live permission allows, and where it stops. Permission comes from {human_name}'s recorded words, never from this file, and nothing here overrides what they have said since.
 
 ## Procedure
 1. Read the hub, the state file and the current month's ledger before acting.
@@ -24,4 +24,4 @@ What the live permission allows, and where it stops. Permission comes from {huma
 Known ways this work goes wrong, each with the date it was learned.
 
 ## Boundaries
-No sends, spending, sign-ups or credentials beyond the recorded permission. Never edit this file from a routine; method changes come through the hub's Improvements and {human_name}'s adoption.
+No sends, spending, sign-ups or credentials beyond the recorded permission. Never edit this file from a routine, except the improve routine repairing a broken step; other method changes come through the hub's Improvements and {human_name}'s adoption.

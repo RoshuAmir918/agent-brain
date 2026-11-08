@@ -161,8 +161,9 @@ def cmd_journal_append(args):
         record = json.load(sys.stdin)
         if not isinstance(record, dict):
             raise ValueError("needs one JSON object")
+        session = args.session or (os.environ.get("DEMIURGE_CONVERSATION", "").strip() if args.platform == "demiurge" else "")
         written = journal.append_entry(args.config, record, args.platform, at,
-                                       user_id=args.user_id, user_id_alt=args.user_id_alt)
+                                       user_id=args.user_id, user_id_alt=args.user_id_alt, session=session)
         print(written or "skipped: nothing worth recording")
     except (OSError, ValueError) as error:
         sys.exit(f"journal append: {error}")
@@ -287,7 +288,9 @@ def cmd_needs_you(args):
             print(f"ask refused: {reason}", file=sys.stderr)
             sys.exit(2)
         with vault_lock(args.config):
-            journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "")
+            here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
+            journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "",
+                            session=f"demiurge:{here}" if here else "")
         count = len(needs.open_asks((args.config.vault_path / "CURRENT.md").read_bytes().decode("utf-8")))
         if count > needs.OPEN_ASKS:
             print(f"Needs you now holds {count} asks; tonight's evening decides the lowest-ranked down to {needs.OPEN_ASKS}.",
@@ -934,7 +937,7 @@ def cmd_task(args):
         with vault_lock(args.config):
             if args.tid == "new":
                 task = tasks_mod.new_task(args.config, args.action, args.source, state="ready" if args.state is None else args.state,
-                                          values=values, work=args.work)
+                                          values=values, work=args.work, agent_delivers=not in_conversation())
             elif args.action == "reopen":
                 task = tasks_mod.reopen(args.config, args.tid, args.config.today(), args.why)
             elif args.action in ("set", "yours"):
@@ -942,7 +945,8 @@ def cmd_task(args):
                 task = tasks_mod.set_fields(args.config, args.tid, args.config.today(),
                                             state="yours" if args.action == "yours" else args.state,
                                             values=fields, clear=args.clear or (),
-                                            reviewed=args.reviewed, report=args.report, title=args.title)
+                                            reviewed=args.reviewed, report=args.report, title=args.title,
+                                            agent_delivers=not in_conversation())
             else:
                 task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
                                        args.why or "the owner closed it in their app", args.left, args.then or ())
@@ -1006,7 +1010,7 @@ def cmd_handoff(args):
         with vault_lock(args.config):
             task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work, owner=owner)
             from . import continuation
-            continuation.mark_engaged(args.config, task.tid, by=speaker(), fresh=True)
+            continuation.mark_engaged(args.config, task.tid, by=speaker())
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(1)
@@ -1092,6 +1096,10 @@ def cmd_continue(args):
             ready = tasks_mod.due(task_list, pace="daily" if args.daily else None,
                                  worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks,
                                  now=tasks_mod.local_now(args.config), budgets=limits, caps=caps)
+            for task in task_list:
+                if task.handoff and tasks_mod.is_open(task) and not task.delivers:
+                    print(f"{task.tid} skipped: handed off with no Delivers line; it waits until its owner says what "
+                          "done looks like", file=sys.stderr)
         output = []
         stage_entries = tasks_mod.all_tasks(args.config)
         for task in ready:
@@ -1570,6 +1578,7 @@ def main(argv=None):
     journal_sub = s.add_subparsers(dest="journal_cmd", required=True)
     s = journal_sub.add_parser("append", parents=[vault]); s.add_argument("--platform", default="demiurge")
     s.add_argument("--user-id", default=""); s.add_argument("--user-id-alt", default="")
+    s.add_argument("--session", default="", help="the conversation the record is of; an ask it raises names it")
     s.add_argument("--at"); s.set_defaults(fn=cmd_journal_append)
     s = sub.add_parser("validate", parents=[vault]); s.set_defaults(fn=cmd_validate)
     s = sub.add_parser("access", parents=[vault]); s.add_argument("who")

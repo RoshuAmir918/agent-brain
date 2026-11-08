@@ -31,6 +31,20 @@ def _work_commit(work: str | None) -> tuple[str, str] | None:
         return None
 
 
+def _work_refusal(work: str | None, since: str) -> str | None:
+    """Why the runtime refused to save the work after `since` (it found what looks like a secret), from its sync state."""
+    if not work:
+        return None
+    try:
+        refusal = json.loads((runtime.home() / "records" / "works" / "state.json").read_text(encoding="utf-8"))[work]["refusal"]
+        when, at = datetime.fromisoformat(refusal["when"]), datetime.fromisoformat(since)
+        if (when.tzinfo is None) != (at.tzinfo is None) or when <= at:
+            return None
+        return f"{refusal['file']} contains {refusal['kind']}"
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
 def _work_saved(work: str | None, pushed: tuple[str, str] | None, previous: dict, config: Config) -> bool:
     """Only a push makes work visible to the owner, and only one that changed more than whitespace moved it."""
     if not work or pushed is None:
@@ -119,14 +133,15 @@ def engaged_at(config: Config) -> dict[str, str]:
         return {}
 
 
-def mark_engaged(config: Config, tid: str, instruction: str | None = None, by: str | None = None, *,
-                 fresh: bool = False) -> bool:
-    """The owner engaged: restore the budget and restart the direction check; the caller holds the vault lock. A task's
-    budget follows its own owner's engagement: in an organisation, someone else (`by`) asking about it is interest, not
-    the owner steering it, and nothing is written. A `fresh` handoff also forgets the earlier quiet chunks."""
-    task = tasks.find(config, tid) if by else None
-    if task is not None and task.owner and by != task.owner:
+def mark_engaged(config: Config, tid: str, instruction: str | None = None, by: str | None = None) -> bool:
+    """The owner engaged: restore the budget and the regular pace, forget the quiet chunks and restart the direction
+    check; the caller holds the vault lock. A task's budget follows its own owner's engagement: in an organisation,
+    someone else (`by`) asking about it is interest, not the owner steering it, and nothing is written."""
+    task = tasks.find(config, tid, archived_closed=True)
+    if by and task is not None and task.owner and by != task.owner:
         return False
+    if task is not None and task.handoff and tasks.pace(task) == "daily":
+        tasks.set_pace(config, tid, "regular", config.today())
     if runtime.configured() is None:
         return True
     path = _engaged_path()
@@ -142,8 +157,7 @@ def mark_engaged(config: Config, tid: str, instruction: str | None = None, by: s
         row["chunks_since_review"] = 0
         row.pop("circling", None)
         row.pop("budget_cap", None)
-        if fresh:
-            row["quiet"] = 0
+        row["quiet"] = 0
         if instruction:
             row["instruction"] = {"at": config.local().isoformat(), "text": instruction}
     return True
@@ -190,7 +204,23 @@ def finish_lines(config: Config) -> list[tasks.Task]:
             if not task.handoff or not tasks.is_open(task) or task.task_state in ("yours", "set_aside"):
                 continue
             waiting = task.task_state == "waiting_for_owner"
-            if (task.delivers or waiting) and task.state.get("finish_asked") == "pending":
+            if tasks.proposed_delivers(task):
+                # The worker's own Delivers is a working proposal: the owner's answer still decides done. Once their
+                # ask is gone (answered or dismissed) nothing is raised again; until it is asked, it is asked once.
+                current = config.vault_path / "CURRENT.md"
+                asked = any(task.tid in item.source and item.text.startswith("What would done look like for ")
+                            for item in (needs.open_asks(current.read_text(encoding="utf-8")) if current.exists() else []))
+                if task.state.get("finish_asked") == "pending" and not asked:
+                    task.state["finish_asked"] = "answered"
+                    tasks.save_task(config, task, config.today())
+                elif "finish_asked" not in task.state and not waiting:
+                    journal.add_ask(config, config.today(),
+                                    f"What would done look like for {task.title}? Until you say, {config.agent_name} "
+                                    f"works toward its own guess: {fm.cut(task.delivers, 20)}",
+                                    config.agent(f"Tasks#{task.tid}"))
+                    task.state["finish_asked"] = "pending"
+                    tasks.save_task(config, task, config.today())
+            elif (task.delivers or waiting) and task.state.get("finish_asked") == "pending":
                 # A task waiting on its owner already asks them one thing; the finish line waits until it moves again.
                 because = "the task now has a Delivers line" if task.delivers else "the task already waits on its owner"
                 current = config.vault_path / "CURRENT.md"
@@ -466,6 +496,10 @@ def chunk(config: Config, tid: str) -> str:
                         message = f"{tid} back to regular: {why}"
                     else:
                         message = f"{tid} progress: {why}; quiet reset to 0"
+                elif refused := _work_refusal(task.work, previous["at"]):
+                    # The worker made something the runtime would not save: fixing that is the next chunk, not quiet.
+                    current["quiet"] = previous.get("quiet", 0)
+                    message = f"{tid} work not saved: refused ({refused}); remove it and save again"
                 else:
                     # An owner promotion starts a fresh run of regular chunks.
                     promoted = previous.get("pace") == "daily" and tasks.pace(task) == "regular"
