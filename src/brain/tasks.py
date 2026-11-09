@@ -275,11 +275,13 @@ def _replace_field(body: str, name: str, value: str | None) -> str:
 def set_fields(config: Config, tid: str, today: date, *, state: str | None = None,
                values: dict[str, str] | None = None, clear: list[str] | tuple[str, ...] = (),
                reviewed: str | None = None, report: str | None = None, title: str | None = None,
-               agent_delivers: bool = False) -> Task:
+               agent_delivers: bool = False, said: str | None = None) -> Task:
     """Update an open task's full entry; the caller holds the vault lock. `reviewed` appends a dated Reviewed line
     (the evening's decisions accumulate; they are never replaced). Clearing `handoff` takes the task back from its
     worker: it stays open, worked only when someone asks. `agent_delivers` marks a Delivers the agent wrote itself."""
     values = values or {}
+    if said is not None and "delivers" not in values:
+        raise ValueError("--said goes with --delivers")
     if set(values) - set(FIELDS) or set(clear) - set(FIELDS) - {"handoff"}:
         raise ValueError("unknown task field")
     if set(values) & set(clear):
@@ -308,6 +310,8 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         validate_after(config, tid, values["after"])
     previous = replace(task, state=dict(task.state))
     before = current_words(task, config)
+    if said is not None:
+        said = grounded_said(config, task, said)
     if state is not None:
         task.set_state(state)
     if title is not None:
@@ -324,7 +328,7 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         else:
             task.body = _replace_field(task.body, name, values.get(name))
     if "delivers" in values or "delivers" in clear:
-        _delivers_by(task, agent_delivers and "delivers" in values)
+        _delivers_by(task, agent_delivers and "delivers" in values and said is None, said, today)
     if reviewed:
         task.body = task.body.rstrip("\n") + f"\n- **Reviewed:** {today.isoformat()} — {reviewed}\n"
     if report is not None:
@@ -342,15 +346,69 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         raise ValueError(f"{tid} would hold {after} words of current fields; the limit is {MAX_WORDS}. Say it shorter: "
                          "a sentence or two per field, the detail in a note linked with --evidence")
     save_task(config, task, today, previous)
+    if "delivers" in values or "delivers" in clear or title is not None:
+        from . import continuation
+        continuation.propose_finish_line(config, task)
     return task
 
 
-def _delivers_by(task: Task, agent: bool) -> None:
-    """A Delivers the agent wrote is its working proposal: the owner's "what would done look like" stays open."""
+def _delivers_by(task: Task, agent: bool, said: str | None = None, today: date | None = None) -> None:
+    """Keep the owner's quoted words separate from the agent's working proposal."""
     if agent:
         task.state["delivers_by"] = "agent"
     else:
         task.state.pop("delivers_by", None)
+    task.state.pop("delivers_said", None)
+    task.body = _replace_field(task.body, "said", f'"{said}"' if said else None)
+    if said:
+        task.state["delivers_said"] = today.isoformat()
+
+
+def _said_text(text: str) -> str:
+    return " ".join(text.translate(str.maketrans({
+        "“": '"', "”": '"', "„": '"', "‘": "'", "’": "'", "‚": "'",
+        "‐": "-", "‑": "-", "‒": "-", "–": "-", "—": "-", "―": "-", "−": "-",
+    })).casefold().split())
+
+
+def _owner_words(task: Task) -> list[str]:
+    # Only Source holds the owner's own words; the rest of the body is the agent's. A previously checked Said can
+    # outlive the thirty-day session window.
+    said = [fm.field(task.body, "Said") or ""] if task.state.get("delivers_said") else []
+    return [fm.field(task.body, "Source") or "", *said]
+
+
+def grounded_said(config: Config, task: Task, said: str) -> str:
+    from . import digest, install, runtime, session_tools, sessions
+    said = " ".join(said.split())
+    if sum(bool(re.search(r"\w", word)) for word in said.split()) < 4:
+        raise ValueError("--said needs at least four words quoted from the owner")
+    needle = _said_text(said)
+    if any(needle in _said_text(words) for words in _owner_words(task)):
+        return said
+    if runtime.configured() is not None:
+        paths = sorted((runtime.home() / "harness/sessions").glob("*/*.json")) + digest.json_sources(install.sessions_records_path())
+        for path in paths:
+            try:
+                record = sessions.read(path)
+                if (record.get("owner") is not True or record["speaker"]["platform"] in runtime.ROUTINE_PLATFORMS
+                        or session_tools.session_kind(record) != "conversation"):
+                    continue
+                who = record["speaker"]
+                if task.owner and task.owner not in (f"{who['platform']}:{who.get('userId', '')}",
+                                                     f"{who['platform']}:{who.get('userIdAlt', '')}"):
+                    continue
+                for entry in record["entries"]:
+                    item = entry["item"]
+                    at = digest.parse_timestamp(entry["at"], config.zone)
+                    text = entry.get("said", item.get("text", ""))
+                    if (item["type"] == "message" and item.get("role") == "user" and at
+                            and 0 <= (config.today() - at.date()).days <= 30
+                            and isinstance(text, str) and needle in _said_text(text)):
+                        return said
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                continue
+    raise ValueError("--said words were not found in what the owner said; drop --said to record a proposal")
 
 
 def proposed_delivers(task: Task) -> bool:
@@ -397,7 +455,7 @@ def append_task(config: Config, task: Task) -> None:
 
 def new_task(config: Config, title: str, source: str, *, state: str = "ready",
              values: dict[str, str] | None = None, work: str | None = None, goal: str | None = None,
-             inherit_goal: bool = True, agent_delivers: bool = False) -> Task:
+             inherit_goal: bool = True, agent_delivers: bool = False, said: str | None = None) -> Task:
     """Create a task without handing it off; the caller holds the vault lock."""
     title, source = single_line("title", title), single_line("source", source)
     if not title or not source:
@@ -408,6 +466,8 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     if work is not None and not works.SLUG.fullmatch(work):
         raise ValueError("work slug must match [a-z0-9-]+")
     values = dict(values or {})
+    if said is not None and "delivers" not in values:
+        raise ValueError("--said goes with --delivers")
     if goal is not None:
         values["goal"] = goal
     parent = _working_on(config)
@@ -431,8 +491,9 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     task = Task(next_id(config), title, body, {"state": state})
     if values.get("goal"):
         task.state["unasked"] = str(bool(unasked)).lower()
-    if agent_delivers and values.get("delivers"):
-        _delivers_by(task, True)
+    if values.get("delivers"):
+        quote = grounded_said(config, task, said) if said is not None else None
+        _delivers_by(task, agent_delivers and quote is None, quote, config.today())
     if task.after:
         validate_after(config, task.tid, task.after)
     if (words := current_words(task, config)) > MAX_WORDS:
@@ -440,6 +501,8 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
                          "a sentence or two per field")
     task.add_use(config.today().isoformat())   # made today is used today: a new task starts in the register
     append_task(config, task)
+    from . import continuation
+    continuation.propose_finish_line(config, task)
     return task
 
 
@@ -544,6 +607,10 @@ def close(config: Config, tid: str, today: date, done: bool, why: str, left: str
     if task is None:
         raise ValueError(f"{tid} is not an open task")
     from . import continuation
+    if done and proposed_delivers(task):
+        continuation.propose_finish_line(config, task)
+        if continuation.finish_confirm_open(config, task):
+            why = why.rstrip(".") + ". Closed on the intellect's own definition of done."
     continuation.clear_close_out(config, tid)
     before = replace(task, state=dict(task.state))
     task.set_state("completed" if done else "cancelled")
@@ -625,7 +692,7 @@ def due(tasks: list[Task], worked: dict[str, str] | None = None, *,
     chunks = chunks or {}
 
     def eligible(t: Task) -> bool:
-        if not (is_open(t) and t.handoff and t.delivers) or t.resume == "computer":
+        if not (is_open(t) and t.handoff) or t.resume == "computer":
             return False   # computer rests end only on an explicit wake, regardless of time or pace
         # A task resting until a time (`now` is the owner's local "YYYY-MM-DD HH:MM") waits for it.
         resume_at = (t.resume if " " in t.resume else t.resume + " 00:00") if t.resume else None

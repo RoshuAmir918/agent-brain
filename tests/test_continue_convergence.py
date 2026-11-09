@@ -55,66 +55,51 @@ def count(config, capsys, clock, n=1):
 
 
 @pytest.mark.parametrize("work", [False, True])
-def test_missing_delivers_raises_one_standing_ask_and_returns_when_set(worker, capsys, work):
-    config, clock = worker
+@pytest.mark.parametrize("pace", ["regular", "daily"])
+def test_missing_delivers_stays_due_without_an_owner_question(worker, capsys, work, pace):
+    config, _ = worker
     tasks.set_fields(config, "T-001", config.today(), clear=["delivers", *([] if work else ["work"])])
-    before = (config.vault_path / "agent/Tasks.md").read_text()
+    tasks.set_pace(config, "T-001", pace, config.today())
+    before = (config.vault_path / "agent/Tasks.md").read_bytes()
     for _ in range(3):
-        assert due(config, capsys) == []
-    questions = needs.items(config, config.today())
-    assert len(questions) == 1
-    assert questions[0].text.startswith("What would done look like for Sample?")
-    assert "T-001" in questions[0].source
-    first = (config.vault_path / "agent/Tasks.md").read_text()
-    due(config, capsys)
-    assert (config.vault_path / "agent/Tasks.md").read_text() == first != before
-    assert task(config).task_state == "in_progress"
+        assert due(config, capsys)[0]["id"] == "T-001"
+    assert needs.items(config, config.today()) == []
+    assert (config.vault_path / "agent/Tasks.md").read_bytes() == before
+    assert json.loads(cli(config, capsys, "T-001", "--json"))["delivers"] is None
+
+
+def test_clearing_delivers_does_not_ask_the_owner(worker, capsys):
+    config, _ = worker
+    tasks.set_fields(config, "T-001", config.today(), clear=["delivers", "work"])
+    assert due(config, capsys)[0]["id"] == "T-001"
     tasks.set_fields(config, "T-001", config.today(), values={"delivers": "a published shortlist"})
+    tasks.set_fields(config, "T-001", config.today(), clear=["delivers"])
     assert due(config, capsys)[0]["id"] == "T-001"
     assert needs.items(config, config.today()) == []
 
 
-def test_clearing_delivers_after_an_answered_finish_line_asks_again(worker, capsys):
+def test_missing_delivers_does_not_replace_a_real_owner_question(worker, capsys):
     config, _ = worker
     tasks.set_fields(config, "T-001", config.today(), clear=["delivers", "work"])
-    due(config, capsys)
-    finish = [item.text for item in needs.items(config, config.today())]
-    tasks.set_fields(config, "T-001", config.today(), values={"delivers": "a published shortlist"})
-    due(config, capsys)
-    assert task(config).state["finish_asked"] == "answered"
-    tasks.set_fields(config, "T-001", config.today(), clear=["delivers"])
-    due(config, capsys)
-    assert len(finish) == 1 and [item.text for item in needs.items(config, config.today())] == finish
-
-
-def test_a_task_waiting_on_its_owner_is_not_asked_its_finish_line_until_it_moves(worker, capsys):
-    config, _ = worker
-    tasks.set_fields(config, "T-001", config.today(), clear=["delivers", "work"])
-    due(config, capsys)
-    finish = [item.text for item in needs.items(config, config.today())]
-    assert len(finish) == 1
     tasks.set_fields(config, "T-001", config.today(), state="waiting_for_owner",
                      values={"ask": "Does the shortlist page open for you?", "why": "Then I can finish it."})
-    due(config, capsys)
+    assert due(config, capsys) == []
     assert [item.text for item in needs.items(config, config.today())] == ["Does the shortlist page open for you?"]
-    assert "finish_asked" not in task(config).state
     tasks.set_fields(config, "T-001", config.today(), state="in_progress")
-    due(config, capsys)
-    assert [item.text for item in needs.items(config, config.today())] == finish
+    assert due(config, capsys)[0]["id"] == "T-001"
+    assert needs.items(config, config.today()) == []
 
 
-def test_gate_works_without_runtime_and_does_not_touch_unhanded_tasks(worker, capsys, monkeypatch):
+def test_scheduling_works_without_runtime_and_does_not_touch_unhanded_tasks(worker, capsys, monkeypatch):
     config, _ = worker
     monkeypatch.delenv("AGENT_HOME")
     tasks.set_fields(config, "T-001", config.today(), clear=["delivers", "handoff"])
     before = (config.vault_path / "agent/Tasks.md").read_bytes()
     assert due(config, capsys) == []
     assert (config.vault_path / "agent/Tasks.md").read_bytes() == before
-    assert needs.items(config, config.today()) == []
     tasks.hand_off(config, "T-001", config.today())
-    assert due(config, capsys) == []
-    assert due(config, capsys) == []
-    assert len(needs.items(config, config.today())) == 1
+    assert due(config, capsys)[0]["id"] == "T-001"
+    assert needs.items(config, config.today()) == []
 
 
 def test_review_count_default_cadence_reset_on_review_and_engagement(worker, capsys):

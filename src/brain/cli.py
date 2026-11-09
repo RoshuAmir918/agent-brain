@@ -911,6 +911,8 @@ def cmd_task(args):
         elif args.action != "set" and (set(values) - {"why"} or args.state is not None or args.clear
                                        or args.reviewed is not None or args.report is not None or args.title is not None):
             raise ValueError("field flags, --state, --title, --reviewed, --report and --clear go with task T-nnn set")
+        if args.said is not None and (args.tid != "new" and args.action != "set" or args.delivers is None):
+            raise ValueError("--said goes with task new|set --delivers")
         if args.action == "view":
             if values or args.why:
                 raise ValueError("task T-nnn view takes its view as JSON on stdin, nothing else")
@@ -927,7 +929,7 @@ def cmd_task(args):
         with vault_lock(args.config):
             if args.tid == "new":
                 task = tasks_mod.new_task(args.config, args.action, args.source, state="ready" if args.state is None else args.state,
-                                          values=values, work=args.work, agent_delivers=not in_conversation())
+                                          values=values, work=args.work, agent_delivers=not in_conversation(), said=args.said)
             elif args.action == "reopen":
                 task = tasks_mod.reopen(args.config, args.tid, args.config.today(), args.why)
             elif args.action in ("set", "yours"):
@@ -936,17 +938,8 @@ def cmd_task(args):
                                             state="yours" if args.action == "yours" else args.state,
                                             values=fields, clear=args.clear or (),
                                             reviewed=args.reviewed, report=args.report, title=args.title,
-                                            agent_delivers=not in_conversation())
+                                            agent_delivers=not in_conversation(), said=args.said)
             else:
-                if args.action == "done" and not args.by_owner and not in_conversation():
-                    from . import continuation
-                    open_task = tasks_mod.find(args.config, args.tid, open_only=True)
-                    if open_task is not None and continuation.hold_finish_line(args.config, open_task):
-                        raise ValueError(
-                            f"{args.tid} is not done until {args.config.human_name} says so: its Delivers is your own "
-                            "proposal, and they have been asked what done looks like. Show them the result where the "
-                            f"task reports, then brain task {args.tid} set --state waiting_for_owner --ask \"<what you "
-                            "made, and whether that is done>\" --why \"…\"; it closes when they answer.")
                 task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
                                        args.why or "the owner closed it in their app", args.left, args.then or ())
             # A conversation's task edit is engagement; worker writes never are.
@@ -1079,23 +1072,22 @@ def cmd_continue(args):
                     tasks_mod.set_pace(args.config, tid, pace, args.config.today())
                 print(f"{tid} pace: {pace}")
             return
-        task_list = continuation.finish_lines(args.config)
+        finish_report = []
+        task_list = continuation.finish_lines(args.config, finish_report)
+        for line in finish_report:
+            print(line, file=sys.stderr)
         worked = continuation.last_worked(args.config)
         chunks = continuation.chunks_today(args.config)
         caps = continuation.budget_caps(args.config)
         limits = continuation.budgets(args.config, task_list, caps)
         if args.tid:
             task = next((t for t in task_list if t.tid == args.tid and t.handoff and tasks_mod.is_open(t)), None)
-            if task is None or not task.delivers:
-                raise ValueError(f"{args.tid} needs an open handed-off task with a Delivers line")
+            if task is None:
+                raise ValueError(f"{args.tid} needs an open handed-off task")
             ready = [task]
         else:
             ready = tasks_mod.due(task_list, worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks,
                                  now=tasks_mod.local_now(args.config), budgets=limits, caps=caps)
-            for task in task_list:
-                if task.handoff and tasks_mod.is_open(task) and not task.delivers:
-                    print(f"{task.tid} skipped: handed off with no Delivers line; it waits until its owner says what "
-                          "done looks like", file=sys.stderr)
         output = []
         stage_entries = tasks_mod.all_tasks(args.config)
         for task in ready:
@@ -1792,6 +1784,7 @@ def main(argv=None):
     s.add_argument("--report", metavar="WHERE", help="with set: where a handed-off task reports (demiurge:<conversation id>, or Home)")
     s.add_argument("--reviewed", metavar="TEXT", help="with set: append a dated Reviewed line (the evening's decision and why)")
     s.add_argument("--source", help="with new: the owner's words or a note name")
+    s.add_argument("--said", help="with --delivers: at least four exact words the owner said, checked against Source or recent conversations")
     s.add_argument("--work", metavar="SLUG", help="with new or set: Library work slug")
     s.add_argument("--json", action="store_true", help="with new: print {id, title}")
     s.add_argument("--by-owner", action="store_true",

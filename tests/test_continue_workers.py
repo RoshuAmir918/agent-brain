@@ -164,7 +164,7 @@ def test_combined_due_orders_both_paces_by_last_chunk(worker, capsys):
 
 
 @pytest.mark.parametrize("gate", ["completed", "cancelled", "waiting_for_owner", "yours", "set_aside",
-                                 "blocked", "computer", "resume", "delivers", "handoff", "cap"])
+                                 "blocked", "computer", "resume", "handoff", "cap"])
 def test_combined_daily_keeps_existing_gates(worker, capsys, monkeypatch, gate):
     config, home, clock = worker
     clock[0] = clock[0].replace(hour=12)
@@ -176,7 +176,7 @@ def test_combined_daily_keeps_existing_gates(worker, capsys, monkeypatch, gate):
     elif gate in ("computer", "resume"):
         resume = "computer" if gate == "computer" else config.today().isoformat() + " 14:00"
         tasks.set_fields(config, "T-001", config.today(), values={"resume": resume})
-    elif gate in ("delivers", "handoff"):
+    elif gate == "handoff":
         tasks.set_fields(config, "T-001", config.today(), clear=[gate])
     else:
         monkeypatch.setenv("BRAIN_DAILY_CHUNKS", "1")
