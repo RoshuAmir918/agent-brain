@@ -76,7 +76,8 @@ CONVERSATION = (
     "Record what you did, never what you did not do.")
 ROUTINE = (
     "The routine run above has ended. Record it for the routine's ledger.\n"
-    "- headline: what the run found or did, under 90 characters; for a quiet run, say what was checked.\n"
+    "- headline: what the run found or did, under 90 characters; for a quiet run, name what it weighed "
+    "and why that lost (\"weighed Contracts outline, worker owns it; renal deck, made 11-06\"), not that it checked.\n"
     "- outcome: done, progress, waiting, blocked, failed (the run could not do its job), or nothing "
     "(it ran and there was nothing to act on).\n"
     "- next: the next step it leaves, or null.")

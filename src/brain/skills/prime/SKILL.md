@@ -1,7 +1,7 @@
 ---
 name: {prefix}prime
 description: Write today for the owner, after the night and the People review
-version: 1.5.0
+version: 1.6.0
 metadata:
   runtime:
     tags: [memory, night]
@@ -23,7 +23,7 @@ One job: overwrite `{agent_dir}/Primed.md` with what today is for {human_name}. 
    - **Likely to come up.** The three notes most likely needed today, each with the note to load and its state in a sentence.
    - **Nudge.** At most one: a quiet open task reached from what is hot this week, not set aside, not `yours` (the evening asks about those), and not nudged since it last went quiet ("related to what you're on, untouched since <date>: still want this?"). Goal nudges and endings belong to people.
 
-4. Goals are the only reason for new unasked work: any task uses `--goal G-n`, any prepared piece `goal: G-n`. Asked work needs none and uses `--source` with their actual words in quotation marks. With no active goal, the next people pass may infer from evidence; without evidence, make nothing unasked. Offers keep their high bar and outward permissions stay. Nothing about the machinery: no audits, counts, stages, versions, commits or routine drift. Those are the Sleep Log's.
+4. Goals are the first reason for new unasked work: any task uses `--goal G-n`, any prepared piece `goal: G-n`. A prepared piece may instead be held `for:` their own words in the last three days, an open loop or a dated item this week. Asked work needs none and uses `--source` with their actual words in quotation marks. With no active goal, the next people pass may infer from evidence; without a goal or one of those reasons, make nothing unasked. Offers keep their high bar and outward permissions stay. Nothing about the machinery: no audits, counts, stages, versions, commits or routine drift. Those are the Sleep Log's.
 5. `brain compile-context --write`, record `last_run` as above, `brain commit -m "prime(<date>)" --push <the files you changed>`.
 
 ## Boundaries
