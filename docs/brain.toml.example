@@ -27,5 +27,5 @@ hot_threshold = 7
 warm_threshold = 28
 
 [continue]
-daily_chunks = 16   # BRAIN_DAILY_CHUNKS: positive daily chunk budget per regular-pace task
+daily_chunks = 24   # BRAIN_DAILY_CHUNKS: positive daily chunk budget per regular-pace task
 review_every = 4    # chunks between direction reviews, reset by owner engagement
