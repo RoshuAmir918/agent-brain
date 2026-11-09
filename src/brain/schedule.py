@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 import tomllib
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
@@ -241,48 +240,3 @@ def defaults(config: Config) -> dict[str, Routine]:
         }
     return routines
 
-
-def from_jobs(config: Config, jobs: list[dict]) -> dict[str, Routine]:
-    """Import the harness's schedule and execution fields, never its run state."""
-    found, seen = {}, {}
-    for job in jobs:
-        name = job.get("name") or job.get("id")
-        timing = job.get("schedule") or {}
-        if not isinstance(name, str):
-            raise ValueError("runtime job has no routine name")
-        if not isinstance(timing, dict):
-            raise ValueError(f"{name}: runtime schedule must be an object")
-        kind = timing.get("kind")
-        once = kind == "once"
-        enabled = job.get("enabled", True)
-        # Migration jobs and completed one-shots are not recurring routines.
-        if name.startswith("brain-migration") or once and not enabled and job.get("last_run_at"):
-            continue
-        rank = (bool(enabled), str(job.get("last_run_at") or ""))
-        if name in found:
-            # A runtime may hold two jobs under one name; the enabled, most recently run one is the routine.
-            print(f"schedule import: two runtime jobs named {name}; keeping the {'enabled' if rank[0] else 'latest'} one",
-                  file=sys.stderr)
-            if rank <= seen[name]:
-                continue
-        if once:
-            when = {"at": timing.get("at")}
-        elif kind == "after":
-            when = {"after": timing.get("routine")}
-        elif kind == "cron":
-            when = {"cron": timing.get("expr")}
-        elif kind == "interval":
-            minutes = timing.get("minutes")
-            if type(minutes) is not int or minutes <= 0:
-                raise ValueError(f"{name}: interval minutes must be a positive integer")
-            when = {"every": f"{minutes // 60}h" if minutes % 60 == 0 else f"{minutes}m"}
-        else:
-            raise ValueError(f"{name}: unknown runtime schedule {timing!r}")
-        prompt, workdir = job.get("prompt"), job.get("workdir")
-        found[name] = Routine(**when, skills=job.get("skills") or [],
-                              prompt=None if prompt == f"Run {name}." else prompt,
-                              deliver=job.get("deliver", "local"), monitor=job.get("monitor_script"),
-                              script=job.get("script"), agent=not job.get("no_agent", False),
-                              workdir=_workdir(config, workdir), enabled=enabled)
-        seen[name] = rank
-    return found

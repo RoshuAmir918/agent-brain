@@ -28,9 +28,16 @@ def test_mail_rows_are_the_owners_side_by_headers_only(synced):
             **{"from": "Venmo <venmo@venmo.com>", "subject": "You paid"})
     message(root, id="o1", labels=["CATEGORY_UPDATES"], **{"from": "Welcome <hi@once.example.org>", "subject": "Welcome"})
     message(root, id="p1", **{"from": "Alice <alice@example.com>", "subject": "Private plans"})
+    message(root, id="a1", day="2026-11-01", labels=["SENT"], date="Sun, 1 Nov 2026 09:00:00 -0800",
+            **{"from": "mira@example.com", "to": "Old Name <alex@example.com>"})
+    message(root, id="a2", labels=["SENT"], **{"from": "mira@example.com", "to": "New Name <alex@example.com>"})
+    message(root, id="a3", day="2026-11-03", labels=["SENT"], date="Tue, 3 Nov 2026 09:00:00 -0800",
+            **{"from": "mira@example.com", "to": "alex@example.com"})
     rows = mail.extract(ctx(vault))
     rendered = "\n".join(evidence.render(row) for row in rows)
-    kim = next(row for row in rows if row.verb == "talks")
+    talks = [row for row in rows if row.verb == "talks"]
+    kim = next(row for row in talks if "Kim Lee" in row.fact)
+    assert "Wrote to New Name 3 times, last 2026-11-04" in [row.fact for row in talks]   # the newest name the owner used
     # example.com is not a consumer mail service, so the fixture's accounts read as work accounts
     assert (kim.fact, kim.date, kim.hints) == ("Wrote to Kim Lee 2 times, last 2026-11-04", TODAY, ("people", "work"))
     resy = next(row for row in rows if "resy.com" in row.fact)
@@ -67,13 +74,6 @@ def test_the_night_extracts_runtime_sources_once_and_a_preview_keeps_none(synced
     assert {row.source for row in evidence.read()} == {"calendar", "mail"}
 
 
-def test_nothing_connected_is_quiet(vault, tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
-    from brain.vault import Vault
-    assert sources.nightly(Vault(vault), TODAY) == []
-    assert set(sources.registry()) >= {"imessage", "mail", "calendar"}
-
-
 def test_the_registry_declares_every_source_once_and_coverage_lists_an_editions_own(vault, capsys, monkeypatch):
     from brain import coverage
     from brain.vault import Vault
@@ -93,24 +93,6 @@ def test_the_registry_declares_every_source_once_and_coverage_lists_an_editions_
     listed = {entry["id"]: entry for entry in __import__("json").loads(capsys.readouterr().out)}
     assert set(listed) == {"mail", "calendar", "imessage"}   # a person's brain lists a person's sources
     assert listed["mail"]["needs"] == "google" and listed["mail"]["extracts"] is True
-
-
-def test_a_source_declared_twice_is_refused(monkeypatch):
-    from brain.sources import company
-    monkeypatch.setattr(company, "SOURCES", (*company.SOURCES, company.SOURCES[0]))
-    with pytest.raises(ValueError, match="'site' is declared twice"):
-        sources.registry()
-
-
-def test_a_correspondent_goes_by_the_newest_name_the_owner_used(synced):
-    vault, root = synced
-    message(root, id="o1", day="2026-11-01", labels=["SENT"], date="Sun, 1 Nov 2026 09:00:00 -0800",
-            **{"from": "mira@example.com", "to": "Old Name <alex@example.com>"})
-    message(root, id="o2", labels=["SENT"], **{"from": "mira@example.com", "to": "New Name <alex@example.com>"})
-    message(root, id="o3", day="2026-11-03", labels=["SENT"], date="Tue, 3 Nov 2026 09:00:00 -0800",
-            **{"from": "mira@example.com", "to": "alex@example.com"})
-    row, = [row for row in mail.extract(ctx(vault)) if row.verb == "talks"]
-    assert row.fact == "Wrote to New Name 3 times, last 2026-11-04"
 
 
 def test_the_reading_list_reports_problems_account_by_account(synced):

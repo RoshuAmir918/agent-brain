@@ -40,21 +40,3 @@ def tier_for(b: float, pinned: bool = False, h: int = H_DAYS, w: int = W_DAYS) -
         return "warm"
     return "cold"
 
-
-def simulate(h: int = H_DAYS, w: int = W_DAYS, d: float = EXPONENT, max_days: int = 20000) -> list[tuple[str, int, int]]:
-    """Days a pattern stays hot, and until when it stays warm, after its last use."""
-    hot_t, warm_t = thresholds(h, w)
-    patterns = {
-        "One use": [0],
-        "Five uses over a month": [0, 7, 14, 21, 28],
-        "Daily for 30 days": list(range(30)),
-        "Weekly for 30 weeks": [7 * i for i in range(30)],
-    }
-
-    def until(offsets, thr):
-        for day in range(max_days):
-            if activation([day + a for a in offsets], d=d) < thr:
-                return day
-        return max_days
-
-    return [(name, until(p, hot_t), until(p, warm_t)) for name, p in patterns.items()]

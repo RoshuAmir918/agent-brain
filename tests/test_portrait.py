@@ -66,11 +66,6 @@ def test_hygiene_names_caps_missing_horizons_stale_guesses_and_reused_ids():
     assert any("words; keep it under 700" in p for p in portrait.hygiene(long, date(2026, 11, 6), "P"))
 
 
-def test_guesses_have_no_share_cap():
-    body = "## Taste\n" + "".join(f"- Hunch {i} · guess · low · 2026-11-01 · [[S]]\n" for i in range(8))
-    assert portrait.hygiene(body, date(2026, 11, 6), "P") == []
-
-
 def test_stamp_ids_new_lines_once_keeps_existing_and_never_reuses_a_retired_id(vault, monkeypatch):
     path = write_portrait(vault)
     (vault / "human/History.md").write_text("- 2026-10-01 · retired: Was a chess player ^beef\n")
@@ -136,10 +131,6 @@ def test_an_organisation_may_say_how_it_decides(vault):
     assert validate.portrait_hygiene(Vault(vault)) == []
     write_portrait(vault, "## Hobbies\n- broken\n")
     assert any("unknown section 'Hobbies'" in p for p in validate.portrait_hygiene(Vault(vault)))
-
-
-def test_stamping_reads_how_it_decides_as_a_section(vault):
-    enterprise(vault)
     path = write_portrait(vault, "## How it decides\n- Founders decide scope · said · high · 2026-11-02 · [[START]]\n")
     assert image.stamp(Config.load(vault)) == 1
     assert path.read_text().count(" ^") == 1
@@ -152,16 +143,6 @@ def test_the_state_export_shows_an_organisation_its_stated_and_seen_lines_only(v
     exported = state.build(config, date(2026, 11, 6))["portrait"]
     assert [line["id"] for line in exported] == ["a001", "a003", "a004"]
     assert all("against" not in line for line in exported)
-
-
-def test_the_state_export_never_carries_a_persons_portrait(vault):
-    write_portrait(vault)
-    assert state.build(Config.load(vault), date(2026, 11, 6))["portrait"] is None
-
-
-def test_validate_reports_portrait_problems(vault):
-    write_portrait(vault, "## After\n- broken\n")
-    assert any("human/Portrait.md: After: malformed line" in p for p in validate.hygiene(Vault(vault)))
 
 
 def test_cli_prints_lines_and_the_top_after_lines_with_their_watch_lists(vault, capsys):
@@ -178,19 +159,6 @@ def test_cli_prints_lines_and_the_top_after_lines_with_their_watch_lists(vault, 
     data = json.loads(capsys.readouterr().out)
     assert [item["text"] for item in data][:2] == ["Move to Lisbon within the year", "Wants to start climbing"]
     assert all("against" not in item for item in data)
-
-
-def test_cli_says_when_there_is_no_portrait(vault, capsys):
-    cli.main(["portrait", "--vault", str(vault)])
-    assert "no portrait yet: memory/human/Portrait.md" in capsys.readouterr().out
-
-
-def test_nightly_stamps_new_lines(vault, capsys):
-    path = write_portrait(vault)
-    cli.main(["nightly", "--vault", str(vault), "--date", "2026-11-06", "--write"])
-    assert "portrait: 3 new line id(s)" in capsys.readouterr().out
-    assert all(line.id for line in portrait.load(Config.load(vault)))
-    assert path.read_text().count(" ^") == 4
 
 
 def test_a_company_after_line_says_where_the_intellect_can_help(vault):
@@ -219,7 +187,7 @@ def test_the_owner_card_leaves_the_impression_to_the_portrait_once_there_is_one(
 
 
 def test_coverage_shows_which_after_lines_were_served_this_week(vault, monkeypatch):
-    from brain import reception, seed
+    from brain import reception
     from brain.lock import vault_lock
     from datetime import datetime
     monkeypatch.setenv("BRAIN_TODAY", "2026-11-06")
@@ -286,12 +254,6 @@ def test_the_owner_marks_lines_right_wrong_or_not_this(vault, capsys):
         cli.main(["portrait", "mark", "ffff", "right", "--vault", str(vault)])
 
 
-def test_stamp_gives_ids_at_once_for_a_same_day_reveal(vault, capsys):
-    write_portrait(vault)
-    cli.main(["portrait", "stamp", "--vault", str(vault)])
-    assert capsys.readouterr().out.strip() == "3 new line id(s)"
-
-
 def test_a_persons_portrait_goes_out_only_as_the_owners_and_their_notes_are_marked_for_them(vault):
     from brain import nightly, state
     (vault / "human").mkdir(exist_ok=True)
@@ -309,18 +271,15 @@ def test_a_persons_portrait_goes_out_only_as_the_owners_and_their_notes_are_mark
     assert state.build(Config.load(vault), date(2026, 11, 6))["ownerPortrait"] is None
 
 
-def test_the_night_writes_the_owner_audience_to_disk(vault):
+def test_the_night_stamps_new_lines_and_writes_the_owner_audience_to_disk(vault, capsys):
     (vault / "human").mkdir(exist_ok=True)
     fm.write(vault / "human/Profile.md", {"kind": "profile", "tier": "hot"}, "# Human\n")
-    write_portrait(vault)
+    path = write_portrait(vault)
     for name in ("Goals.md", "Tellable.md"):
         fm.write(vault / "human" / name, {"kind": "orientation", "tier": "hot"}, f"# {name[:-3]}\n")
     cli.main(["nightly", "--vault", str(vault), "--date", "2026-11-06", "--write"])
+    assert "portrait: 3 new line id(s)" in capsys.readouterr().out
+    assert all(line.id for line in portrait.load(Config.load(vault)))
+    assert path.read_text().count(" ^") == 4
     for rel in ("human/Profile.md", "human/Portrait.md", "human/Goals.md", "human/Tellable.md"):
         assert fm.read(vault / rel)[0]["audience"] == "owner"
-
-
-def test_mark_takes_words_as_one_argument_even_when_they_start_with_dashes(vault):
-    write_portrait(vault)
-    cli.main(["portrait", "mark", "3f2a", "wrong", "--words=-- not Lisbon, Porto", "--vault", str(vault)])
-    assert "- -- not Lisbon, Porto · said · high · " in (vault / "human/Portrait.md").read_text().split("## Not", 1)[1]

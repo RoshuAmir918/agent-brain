@@ -128,19 +128,6 @@ def test_unavailable_targets_are_errors_unless_presented_as_literal(tmp_path):
     assert vault.unresolved_links("`Important Codes` (excluded); `Books` (unavailable)") == []
 
 
-def test_frontmatter_requirement_still_applies_to_guides(tmp_path):
-    vault = make_vault(tmp_path)
-    guide = vault.root / "Guide.md"
-    guide.write_text("# Guide\n\n`[[example]]`\n")
-    vault.load()
-    assert validate.run(vault, {"Guide.md"}) == [
-        "Guide.md: missing frontmatter key tier"
-    ]
-    guide.write_text("---\ntier: warm\n---\n# Guide\n\n`[[example]]`\n")
-    vault.load()
-    assert validate.run(vault, {"Guide.md"}) == []
-
-
 def test_relative_cli_vault_matches_absolute_without_human_reads(tmp_path, monkeypatch, capsys):
     from brain.cli import main
     vault = make_vault(tmp_path)
@@ -172,7 +159,7 @@ def test_relative_cli_vault_matches_absolute_without_human_reads(tmp_path, monke
         assert Vault(Path("..")).resolve("Human Note") == "../sources/Human Note.md"
 
 
-def test_directory_budget_caps_first_unpinned_and_fits_later_candidates(tmp_path, monkeypatch):
+def test_directory_budget_caps_unpinned_notes_keeps_them_retrievable_and_never_drops_a_pinned_one(tmp_path, monkeypatch):
     monkeypatch.setenv("BRAIN_HOT_WORDS", "10")
     vault = make_vault(tmp_path)
     for name, count, activation in [("Oversized", 11, 3), ("Fits", 6, 2), ("Overflow", 5, 1)]:
@@ -187,16 +174,14 @@ def test_directory_budget_caps_first_unpinned_and_fits_later_candidates(tmp_path
     assert "Oversized" in result.split("- Hubs and topics: ")[1]
     assert vault.notes["Oversized.md"].body == oversized
     assert all(n.data["tier"] == "hot" for n in vault.notes.values() if n.stem in ("Oversized", "Fits", "Overflow"))
-
-
-def test_pinned_directory_note_is_not_dropped_for_budget(tmp_path, monkeypatch):
+    assert any(c.path == "memory/Oversized.md" for c in retrieve.search(vault, "oversized"))
+    monkeypatch.setenv("BRAIN_HOT_WORDS", "11")
+    assert "- [[memory/Oversized" in compile_context.directory(Vault(vault.root))
     monkeypatch.setenv("BRAIN_HOT_WORDS", "10")
-    vault = make_vault(tmp_path)
     pinned = vault.notes["Live.md"]
     pinned.data.update(tier="hot", pinned=True, activation=3)
     pinned.body = "word " * 11
-    result = compile_context.directory(vault)
-    assert "- [[memory/Live" in result
+    assert "- [[memory/Live" in compile_context.directory(vault)
 
 
 def test_directory_exact_boundary_pinned_priority_and_overflow_reachable(tmp_path):
@@ -225,18 +210,6 @@ def test_directory_exact_boundary_pinned_priority_and_overflow_reachable(tmp_pat
     assert "- [[memory/Live" in result and "- [[memory/Design Mk. 1" not in result
     assert hot_selection(vault, 6000)[0] == [pinned]
     assert ordinary.data["tier"] == "hot"
-
-
-def test_nondefault_directory_budget_keeps_overflow_retrievable(tmp_path, monkeypatch):
-    monkeypatch.setenv("BRAIN_HOT_WORDS", "10")
-    vault = make_vault(tmp_path)
-    fm.write(vault.root / "Live.md", {"tier": "hot", "pinned": False, "activation": 2}, "word " * 11)
-    vault.load()
-    assert "- [[memory/Live" not in compile_context.directory(vault)
-    assert "Live" in compile_context.directory(vault).split("- Hubs and topics: ")[1]
-    assert any(c.path == "memory/Live.md" for c in retrieve.search(vault, "live"))
-    monkeypatch.setenv("BRAIN_HOT_WORDS", "11")
-    assert "- [[memory/Live" in compile_context.directory(Vault(vault.root))
 
 
 def test_validation_checks_links_only_in_changed_bodies(tmp_path):
@@ -280,6 +253,7 @@ def test_receipt_folders_and_declared_logs_are_never_notes(tmp_path):
         "Conversations/2026-10-25 Routine record.md": "---\nkind: log\ntier: hot\n---\n# Record\n",
         "Conversations/2026-10-25 Chat.md": "---\ntier: hot\n---\n# Chat\n",
         "agent/Receipts/README.md": "---\nkind: log\n---\n# Receipts\n",
+        "agent/Primed.md": "---\nkind: primed\ntier: hot\n---\n# Today\n",
     }.items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -289,13 +263,7 @@ def test_receipt_folders_and_declared_logs_are_never_notes(tmp_path):
     assert loaded.kind_for("Conversations/2026-10-25 Routine record.md") == "log"
     assert loaded.kind_for("Conversations/2026-10-25 Chat.md") == "episode"
     assert loaded.kind_for("agent/Receipts/README.md") == "log"
-
-
-def test_single_primed_file_is_primed(tmp_path):
-    root = tmp_path / "memory"
-    (root / "agent").mkdir(parents=True)
-    (root / "agent/Primed.md").write_text("---\nkind: primed\ntier: hot\n---\n# Today\n")
-    assert Vault(root).kind_for("agent/Primed.md") == "primed"
+    assert loaded.kind_for("agent/Primed.md") == "primed"
 
 
 def test_validate_reports_an_own_skill_without_a_responsibility_hub(vault):

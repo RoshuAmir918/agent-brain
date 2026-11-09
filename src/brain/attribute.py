@@ -15,9 +15,6 @@ HEADER = ("# Use log — {month}\n\n"
           "One row per actual reliance: `timestamp | target | reason | explicit/inferred/observed/live [| confirmed/unconfirmed]`. "
           "Only rows starting with a date count. A wrong row is edited or removed in place; git keeps the history. "
           "Never read for retrieval.\n\n")
-ROLES = "assistant|user|human|system|developer|tool|function"
-ROLE_RE = re.compile(r"^\s*(?:#{1,6}\s+|\*\*|(?:-\s+)?role\s*:\s*['\"]?|"
-                     r"(?=(?:" + ROLES + r")\s*:))(" + ROLES + r")\b", re.I)
 TIMESTAMP_RE = re.compile(r"\b\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?"
                           r"(?:[Zz]|[+-]\d{2}:?\d{2})?\b")
 DAY_RE = re.compile(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)")
@@ -118,29 +115,6 @@ def last_timestamp(line: str) -> str | None:
     return None
 
 
-def session_rows(vault: Vault, path: Path) -> list[Use]:
-    from . import digest   # digest imports this module; keep the dependency one-directional at import time
-
-    if digest.markdown_kind(path) == "evaluation":
-        return []
-    lines = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
-    has_roles = any(ROLE_RE.match(line) for line in lines)
-    role, timestamp = "", fallback_date(path)
-    reason = f"cited in session {path.stem}"
-    uses = []
-    for line in lines:
-        marker = ROLE_RE.match(line)
-        if marker:
-            role = marker[1].lower()
-        if line.lstrip().lower().startswith("sources:") and (not has_roles or role == "assistant"):
-            rows = explicit_uses(vault, line, timestamp, reason)
-            for use in rows:
-                use.reason = reason
-            uses.extend(rows)
-        timestamp = last_timestamp(line) or timestamp
-    return uses
-
-
 def automatic_notes(vault: Vault) -> set[str]:
     selected, _, _ = index.hot_selection(vault, vault.config.context.hot_words)
     active = {n.rel for n in selected} if "directory" in vault.config.context.sections else set()
@@ -190,12 +164,9 @@ def sessions(vault: Vault, directory: Path, write: bool = False) -> list[Use]:
         raise ValueError(f"sessions directory does not exist: {directory}")
     known, monthly, uses = {}, {}, []
     from . import digest
-    shards = set(digest.json_sources(directory))
-    paths = sorted(shards) if shards else sorted(directory.rglob("*.md"))
-    automatic = automatic_notes(vault) if shards else set()
-    for path in paths:
-        rows = json_session_rows(vault, path, automatic) if path in shards else session_rows(vault, path)
-        for use in rows:
+    automatic = automatic_notes(vault)
+    for path in digest.json_sources(directory):
+        for use in json_session_rows(vault, path, automatic):
             month = use.ts[:7]
             log = vault.root / vault.config.agent("Use Log") / f"{month}.md"
             if month not in known:

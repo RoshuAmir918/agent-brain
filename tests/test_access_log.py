@@ -217,13 +217,7 @@ def test_strangers_non_declines_old_and_future_requests_are_log_only(config):
     assert access_items(config) == []
 
 
-def test_no_group_uses_them(config):
-    (config.vault_path / GROUP).unlink()
-    append(config)
-    assert access_items(config)[0].text.endswith("Let them see your schedule from now on?")
-
-
-def test_cli_journal_passes_identity_and_state_exports_the_access_item(config, monkeypatch, capsys):
+def test_cli_journal_passes_identity_and_state_exports_the_access_item(config, monkeypatch):
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(
         {"headline": "Declined a schedule request.", "outcome": "progress", "access": [request()]})))
     cli.main(["journal", "append", "--vault", str(config.vault_path), "--platform", "slack",
@@ -234,9 +228,6 @@ def test_cli_journal_passes_identity_and_state_exports_the_access_item(config, m
     snapshot = state.build(config, TODAY)
     assert [value for value in snapshot["needsYou"] if value["origin"] == "access"] == [asdict(item)]
     assert not any(hub["source"].startswith("People/") for hub in snapshot["hubs"])
-    assert state._source(Vault(config.vault_path), PERSON) is None
-    assert capsys.readouterr().out.strip().endswith("agent/Loops.md")
-
 
 
 def test_a_quiet_conversation_logs_its_requests_but_keeps_no_journal_row(config):

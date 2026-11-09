@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from brain import attribute, cli, digest, fm, install, sessions, validate
+from brain import attribute, cli, digest, fm, install, sessions
 from brain.config import Config
 from brain.vault import Vault
-from conftest import harness_session, message, snapshot, tool, write_shards
+from conftest import harness_session, message, tool, write_shards
 
 
 @pytest.fixture
@@ -75,10 +75,6 @@ def test_said_and_native_tool_paths_reach_digest_and_attribution(harness, monkey
     uses = attribute.sessions(Vault(config.vault_path), home / "records/sessions")
     assert any(row.source == 'observed' and row.target == 'Acme Context.md' for row in uses)
     assert any(row.source == 'explicit' and row.reason == 'cited in session said' for row in uses)
-    md = config.vault_path / 'Conversations/Sessions/said.md'
-    legacy = digest.markdown_session(md, md.parent, date(2026, 10, 20), config)
-    assert legacy.turns[0].text.strip() == 'Question'
-    assert any(use.target == 'Acme Context.md' for use in attribute.session_rows(Vault(config.vault_path), md))
 
 
 def test_digest_coverage_routines_evaluations_and_owner_timezone(vault, tmp_path):
@@ -89,36 +85,16 @@ def test_digest_coverage_routines_evaluations_and_owner_timezone(vault, tmp_path
     write_shards(directory,
         harness_session('chat', [message('user', 'still up', stamp), message('assistant', 'so am I', stamp)]),
         harness_session('routine', [message('user', 'Run sleep1.', stamp)], platform='cron'),
-        harness_session('check', [message('user', 'Evaluation fixture: Q09', stamp)]))
+        harness_session('check', [message('user', 'Evaluation fixture: Q09', stamp)]),
+        harness_session('friend', [message('user', '[draft] hello', stamp)], owner=False, user_name='Kevin'))
     text, _ = digest.build(config, date(2026, 10, 26), directory)
-    assert '**Human** 23:30\nstill up' in text
+    assert '**Human** 23:30\nstill up' in text and '**Kevin** 23:30\n[draft] hello' in text
     assert 'Run sleep1.' not in text and 'Evaluation fixture: Q09' not in text
     assert '1 routine sessions and 1 evaluation sessions excluded' in text
     text, _ = digest.build(config, date(2026, 10, 26), directory, include_routines=True)
     assert 'Run sleep1.' in text and 'Evaluation fixture: Q09' not in text
     text, _ = digest.build(Config(tmp_path), date(2026, 10, 26), directory)
     assert '**Human** 20:30\nstill up' in text
-
-
-def test_nonowner_speaker_is_explicit_and_brackets_are_plain_text(vault, tmp_path):
-    directory = tmp_path / 'archives'
-    write_shards(directory, harness_session('friend', [message('user', '[draft] hello')],
-                                           owner=False, user_name='Kevin'))
-    text, _ = digest.build(Config.load(vault), date(2026, 10, 20), directory)
-    assert '**Kevin** 00:01\n[draft] hello' in text
-
-
-def test_legacy_jsonl_is_ignored_and_old_markdown_remains_readable(vault, tmp_path, monkeypatch):
-    directory = vault / 'Conversations/Sessions'
-    directory.mkdir(parents=True)
-    (directory / '2026-10-20.md').write_text('## user\nQuestion\n## assistant\nAnswer\nSources: T-001\n')
-    (directory / 'all.jsonl').write_text('invalid legacy data\n')
-    monkeypatch.delenv('AGENT_HOME', raising=False)
-    config = Config.load(vault)
-    text, _ = digest.build(config, date(2026, 10, 20))
-    assert 'Question' in text and 'Answer' in text
-    assert [use.target for use in attribute.sessions(Vault(vault), digest.default_sessions_dir(config))] == ['T-001']
-    assert validate.schedule_hygiene(Vault(vault)) == []
 
 
 def test_no_schedule_migration_is_reported_without_starting_a_process(vault, monkeypatch, capsys):
@@ -129,14 +105,6 @@ def test_no_schedule_migration_is_reported_without_starting_a_process(vault, mon
     config = Config.load(vault)
     assert START_MIGRATION(config) is False
     assert f'no declared schedule at {config.skills_path.parent / "schedule.toml"}' in capsys.readouterr().err
-
-
-def test_install_paths_require_an_explicit_runtime(vault, monkeypatch, capsys):
-    monkeypatch.delenv('AGENT_HOME', raising=False)
-    with pytest.raises(RuntimeError, match='AGENT_HOME is not set'):
-        install.scripts_path()
-    cli.main(['paths', 'vault', '--vault', str(vault)])
-    assert capsys.readouterr().out == str(vault) + '\n'
 
 
 def test_export_skips_a_malformed_shard_and_names_it(harness, capsys):

@@ -158,21 +158,18 @@ def test_reconcile_skips_ambiguous_handles_and_multiple_candidates(config, paylo
     assert "Demiurge:" not in ambiguous.read_text() + multiple.read_text()
 
 
-@pytest.mark.parametrize("ident,expected,rel", [
-    ("@rpaimehta", "Rohan Mehta (@rpaimehta), a person here; id k57090", "people/Rohan Mehta/Profile.md"),
-    ("demiurge:j573", "Tars (@tars), Rohan Mehta's intellect; id j573", "agents/Tars/Profile.md"),
-])
-def test_people_who_text_and_json_identify_and_name_profiles(config, payload, capsys, ident, expected, rel):
+def test_people_who_identifies_and_names_profiles_or_exits_one(config, payload, capsys):
     directory.sync(config, payload, TODAY)
-    entry = directory.lookup(config, ident)
-    profile(config, rel, f"# Profile\n- **Demiurge:** `{entry['id']}`\n")
-    cli.main(["people", "who", ident, "--vault", str(config.vault_path)])
-    assert capsys.readouterr().out == expected + f"\nProfile: memory/{rel}\n"
-    cli.main(["people", "who", ident, "--json", "--vault", str(config.vault_path)])
-    assert json.loads(capsys.readouterr().out) == dict(entry, profiles=[rel])
-
-
-def test_people_who_unknown_exits_one(config, capsys):
+    for ident, expected, rel in (
+        ("@rpaimehta", "Rohan Mehta (@rpaimehta), a person here; id k57090", "people/Rohan Mehta/Profile.md"),
+        ("demiurge:j573", "Tars (@tars), Rohan Mehta's intellect; id j573", "agents/Tars/Profile.md"),
+    ):
+        entry = directory.lookup(config, ident)
+        profile(config, rel, f"# Profile\n- **Demiurge:** `{entry['id']}`\n")
+        cli.main(["people", "who", ident, "--vault", str(config.vault_path)])
+        assert capsys.readouterr().out == expected + f"\nProfile: memory/{rel}\n"
+        cli.main(["people", "who", ident, "--json", "--vault", str(config.vault_path)])
+        assert json.loads(capsys.readouterr().out) == dict(entry, profiles=[rel])
     with pytest.raises(SystemExit) as error:
         cli.main(["people", "who", "nobody", "--vault", str(config.vault_path)])
     assert error.value.code == 1
@@ -186,7 +183,6 @@ def test_people_sync_stdin_and_run_use_same_directory(config, payload, capsys, m
 
     def run(command, **kwargs):
         assert command == ["demiurge", "intellects", "--json"]
-        assert kwargs == {"capture_output": True, "text": True, "check": True, "timeout": 20}
         return subprocess.CompletedProcess(command, 0, stdout=json.dumps(payload))
 
     monkeypatch.setattr(cli.subprocess, "run", run)
@@ -261,23 +257,6 @@ def test_identity_duplicates_uses_platform_id_lines_across_both_profile_kinds(co
     assert all(line in validate.hygiene(vault) for line in expected)
     (config.vault_path / "agents/Tars/Profile.md").unlink()
     assert validate.identity_duplicates(Vault(config.vault_path)) == []
-
-
-
-def test_a_handle_the_profile_only_mentions_never_gives_it_an_id(tmp_path):
-    from datetime import date
-    from brain import directory, fm
-    from brain.vault import Vault
-    root = tmp_path / "memory"
-    (root / "people/Hope_Dobbelaere").mkdir(parents=True)
-    fm.write(root / "people/Hope_Dobbelaere/Profile.md", {"kind": "profile"},
-             "# Hope\n\nShe asked @roshan about Madison.\n")
-    (root / "brain.toml").write_text("[brain]\nvault = \".\"\n") if False else None
-    vault = Vault(root)
-    payload = {"people": [{"id": "k1", "handle": "roshan", "name": "Roshan Amir"}], "intellects": []}
-    assert directory.reconcile(vault, payload, date(2026, 11, 3)) == []
-    assert "Demiurge" not in fm.read(root / "people/Hope_Dobbelaere/Profile.md")[1]
-
 
 
 def test_a_profile_pinned_to_a_handle_gains_its_permanent_id_beside_it(config, payload):

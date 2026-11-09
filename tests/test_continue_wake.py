@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from brain import cli as brain_cli, continuation, fm, signals, state, tasks, validate
+from brain import cli as brain_cli, continuation, fm, state, tasks, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -40,31 +40,25 @@ def current(config):
     return next(t for t in registered + archived if t.tid == "T-001")
 
 
-@pytest.mark.parametrize("daily", [False, True])
 @pytest.mark.parametrize("task_state", ["blocked", "in_progress", "ready"])
-def test_computer_rest_is_never_due_until_woken(resting, capsys, daily, task_state):
+def test_computer_rest_is_never_due_until_woken(resting, capsys, task_state):
     config, clock = resting
     tasks.set_fields(config, "T-001", config.today(), state=task_state)
-    if daily:
-        tasks.set_pace(config, "T-001", "daily", config.today())
-    options = ["--daily"] if daily else []
     before = current(config).body
     clock[0] += timedelta(days=100)
-    assert tasks.due([current(config)], pace="daily" if daily else "regular") == []
-    assert json.loads(cli(config, capsys, "--due", "--json", *options)) == []
+    assert tasks.due([current(config)]) == []
+    assert json.loads(cli(config, capsys, "--due", "--json")) == []
     with pytest.raises(SystemExit) as error:
-        cli(config, capsys, "--due", *options)
+        cli(config, capsys, "--due")
     assert error.value.code == 1
     capsys.readouterr()
-    assert signals.continue_(config, daily=daily) == "date: none"
     assert current(config).task_state == task_state
     assert cli(config, capsys, "--wake", "computer") == "T-001 woken: Sample"
     assert current(config).resume is None
     assert current(config).task_state == ("in_progress" if task_state == "blocked" else task_state)
     assert current(config).body == tasks._replace_field(before, "resume", None)
-    assert [row["id"] for row in json.loads(cli(config, capsys, "--due", "--json", *options))] == ["T-001"]
-    assert "T-001" in cli(config, capsys, "--due", *options)
-    assert "T-001" in signals.continue_(config, daily=daily)
+    assert [row["id"] for row in json.loads(cli(config, capsys, "--due", "--json"))] == ["T-001"]
+    assert "T-001" in cli(config, capsys, "--due")
 
 
 @pytest.mark.parametrize("location", ["register", "warm", "archive"])
@@ -149,13 +143,7 @@ def test_wake_holds_lock_and_does_not_record_engagement_or_reset_progress(restin
     assert snapshot(continuation.runtime.home()) == before
 
 
-@pytest.mark.parametrize("options", [
-    ["--wake", "network"], ["--wake", "Computer"], ["--wake", ""],
-    ["--wake", "computer", "--daily"], ["--wake", "computer", "T-001"],
-    ["--wake", "computer", "--due"], ["--wake", "computer", "--chunk", "T-001"],
-    ["--wake", "computer", "--resume", "computer"],
-    ["--wake", "computer", "--instruction", "wake it"],
-])
+@pytest.mark.parametrize("options", [["--wake", "network"], ["--wake", "computer", "--chunk", "T-001"]])
 def test_invalid_wake_arguments_do_not_write(resting, capsys, options):
     config, _ = resting
     before = snapshot(config.vault_path)

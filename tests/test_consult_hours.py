@@ -1,6 +1,6 @@
 """Colleagues' stated working hours and absences live in the ownership map."""
-from dataclasses import asdict, replace
-from datetime import date, datetime
+from dataclasses import replace
+from datetime import datetime
 import json
 
 import pytest
@@ -302,27 +302,3 @@ def test_default_hours_and_went_ahead_exports(enterprise, monkeypatch, capsys):
     assert confirm.away == "2026-11-16"
     cli.main(["consult", "list", "--vault", str(enterprise.vault_path), "--json"])
     assert json.loads(capsys.readouterr().out)[0]["hours"] == SCHEDULE
-
-
-def test_owners_cli_lists_area_and_people_rows(enterprise, capsys):
-    people(enterprise, f"| Kim ({KIM}) | Tue-Thu 10:00-14:00 America/New_York | 2026-11-12 to 2026-11-16 |\n")
-    cli.main(["owners", "--vault", str(enterprise.vault_path), "--json"])
-    area, person = json.loads(capsys.readouterr().out)
-    assert area == asdict(owners.load(enterprise)[0])
-    assert person == dict(person=KIM, name="Kim", hours=SCHEDULE, away="2026-11-16", away_start="2026-11-12")
-    cli.main(["owners", "--vault", str(enterprise.vault_path)])
-    text = capsys.readouterr().out
-    assert "infrastructure" in text and "Kim (slack:U01KIM) · Tue,Wed,Thu 10:00-14:00 America/New_York" in text
-    assert "away: 2026-11-12 to 2026-11-16" in text
-
-
-def test_personal_edition_keeps_empty_delivery_defaults(enterprise):
-    ask(enterprise)
-    people(enterprise, f"| Kim ({KIM}) | Tue-Thu 10:00-14:00 America/New_York | until 2026-11-16 |\n")
-    personal = replace(enterprise, edition="personal")
-    assert consults.items(personal) == []
-    assert not any(item.origin == "consult" for item in needs.items(personal, date(2026, 11, 12)))
-    item = needs.Item("ask", "Use the new export pipeline?", "current", "2026-11-12", "CURRENT.md")
-    assert asdict(item)["hours"] == {} and asdict(item)["away"] == ""
-    with pytest.raises(ValueError, match="enterprise edition"):
-        ask(personal)

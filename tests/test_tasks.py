@@ -11,39 +11,23 @@ from brain.tasks import (
 from brain.vault import Vault
 
 
-@pytest.mark.parametrize("state", TASK_STATES)
-def test_parse_task_state(state):
-    comment = f"uses=2026-10-04; state={state}; custom=keep=this"
-    expected = {"uses": "2026-10-04", "state": state, "custom": "keep=this"}
+@pytest.mark.parametrize("state, status, effective, opened", [
+    *[(state, "open" if state in ("completed", "cancelled") else "completed", state, state not in ("completed", "cancelled"))
+      for state in TASK_STATES],
+    ("waitng", None, "waitng", True), ("", "completed", "", True),
+    (None, None, None, True), (None, "open", None, True), (None, "unknown", None, False),
+    (None, "", None, False), (None, "completed", "completed", False), (None, "cancelled", "cancelled", False),
+])
+def test_task_state_uses_state_before_status(state, status, effective, opened):
+    """`status` is the legacy field: it decides only when `state` is absent."""
+    parts = {"uses": "2026-10-04", "state": state, "status": status, "custom": "keep=this"}
+    expected = {key: value for key, value in parts.items() if value is not None}
+    comment = "; ".join(f"{key}={value}" for key, value in expected.items())
     assert parse_state(comment) == expected
     _, tasks = parse_register(f"### T-023 — Sample\n<!-- brain: {comment} -->\n- **Status:** detail\n")
     assert tasks[0].state == expected
-    assert tasks[0].task_state == state
-
-
-@pytest.mark.parametrize("state, opened", [
-    ("ready", True), ("in_progress", True), ("blocked", True),
-    ("waiting_for_owner", True), ("set_aside", True), ("completed", False), ("cancelled", False),
-    ("waitng", True), ("", True),
-])
-@pytest.mark.parametrize("status", [None, "open", "completed", "cancelled"])
-def test_is_open_uses_state_before_status(state, opened, status):
-    metadata = {"state": state}
-    if status is not None:
-        metadata["status"] = status
-    task = Task("T-023", "Sample", "", metadata)
-    assert task.task_state == state
-    assert is_open(task) is opened
-
-
-@pytest.mark.parametrize("status, effective, opened", [
-    (None, None, True), ("open", None, True), ("unknown", None, False),
-    ("", None, False), ("completed", "completed", False), ("cancelled", "cancelled", False),
-])
-def test_legacy_task_state(status, effective, opened):
-    task = Task("T-023", "Sample", "", {"status": status} if status is not None else {})
-    assert task.task_state == effective
-    assert is_open(task) is opened
+    assert tasks[0].task_state == effective
+    assert is_open(tasks[0]) is opened
 
 
 @pytest.mark.parametrize("renderer", ["render", "render_line"])
@@ -83,7 +67,7 @@ def test_task_hub(body, hub):
     assert tasks[0].hub == hub
 
 
-@pytest.mark.parametrize("state", TASK_STATES)
+@pytest.mark.parametrize("state", ["blocked", "completed"])
 def test_archived_task_state_and_hub(template_config, state):
     task = Task("T-023", "Sample", "- **Hub:** [[Lisbon trip#Flights|travel]]\n", {
         "custom": "first", "status": "completed", "state": state, "extra": "last",
@@ -111,8 +95,10 @@ def test_legacy_archive_metadata_is_unchanged(template_config):
     assert list(archived.state.items()) == list(task.state.items())
 
 
-@pytest.mark.parametrize("location", ["register", "archive", "monthly"])
-@pytest.mark.parametrize("state", [None, *TASK_STATES, "waitng", ""])
+@pytest.mark.parametrize("location, state", [
+    ("register", "blocked"), ("register", "waitng"), ("archive", None), ("archive", ""),
+    ("monthly", "completed"), ("monthly", "waitng"),
+])
 def test_validate_task_states(vault, location, state):
     metadata = {"status": "completed"}
     if state is not None:

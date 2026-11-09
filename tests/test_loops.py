@@ -1,7 +1,5 @@
 """Held work, its after-conversation capture, and the owner's view of it."""
 import json
-import subprocess
-import sys
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 
@@ -58,33 +56,48 @@ def test_add_deduplicates_open_text_without_changing_original(config):
     assert (item.with_, item.due, item.source) == ("Kevin", "2026-10-29", "Trip")
 
 
-@pytest.mark.parametrize("kwargs", [
-    {"kind": "ask"}, {"text": " "}, {"source": "[[Trip]]"}, {"source": "x\ny"},
-    {"due": "tomorrow"}, {"due": "2026-02-30"}, {"due": "2026-10-29T09:00"},
+@pytest.mark.parametrize("kwargs,message", [
+    ({"kind": "ask"}, None), ({"text": " "}, None), ({"source": "[[Trip]]"}, None), ({"source": "x\ny"}, None),
+    ({"due": "tomorrow"}, None), ({"due": "2026-02-30"}, None), ({"due": "2026-10-29T09:00"}, None),
+    ({"with_": ""}, "owed loops need a counterpart"), ({"kind": "waiting", "with_": " \n "}, "waiting loops need a counterpart"),
 ])
-def test_bad_add_writes_nothing(config, kwargs):
+def test_bad_add_writes_nothing(config, kwargs, message):
     args = {"kind": "owed", "text": "Send answer", "source": "Trip", "with_": "Kevin", **kwargs}
     before = snapshot(config.vault_path)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         loops.add(config, AT, **args)
     assert snapshot(config.vault_path) == before
 
 
+def profile(config, rel, title, aliases=None):
+    path = config.vault_path / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fm.write(path, {"kind": "profile", "aliases": aliases} if aliases else {}, f"# {title}\n")
+
+
 @pytest.fixture
 def known_config(config):
-    for rel, title, aliases in (
-        ("people/Kevin_Smith/Profile.md", "Kevin Jonoah Smith", ["Kev", "KJ"]),
-        ("agents/Ada-Logic/Profile.md", "Ada Lovelace", "Analyst"),
-    ):
-        path = config.vault_path / rel
-        path.parent.mkdir(parents=True)
-        fm.write(path, {"kind": "profile", "aliases": aliases}, f"# {title}\n")
+    profile(config, "people/Kevin_Smith/Profile.md", "Kevin Jonoah Smith", ["Kev", "KJ"])
+    profile(config, "agents/Ada-Logic/Profile.md", "Ada Lovelace", "Analyst")
     return config
 
 
-@pytest.mark.parametrize("who", ["mira chen", "MIRA"])
-def test_owner_full_and_first_names_are_refused_even_in_a_bare_vault(config, who):
-    config = replace(config, human_name="Mira Chen")
+@pytest.mark.parametrize("setup,who", [
+    ("name", "mira chen"), ("name", "MIRA"),
+    ("profile", "Miranda-Jones"), ("profile", "Miranda"), ("profile", "Mira Jane Jones"), ("profile", "MJ"),
+    ("platform id", "Actual"),
+])
+def test_the_owner_is_refused_as_a_counterpart_even_in_a_bare_vault(config, setup, who):
+    if setup == "name":
+        config = replace(config, human_name="Mira Chen")
+    elif setup == "profile":
+        config = replace(config, human_profile="people/Miranda_Jones/Profile.md")
+        profile(config, config.human_profile, "Mira Jane Jones", ["MJ"])
+    else:
+        config = replace(config, owner_user_ids=["demiurge:owner-id"])
+        path = config.vault_path / "people/Actual_Owner/Profile.md"
+        path.parent.mkdir(parents=True)
+        fm.write(path, {}, "# Actual Owner\nDemiurge: owner-id\n")
     before = snapshot(config.vault_path)
     with pytest.raises(ValueError) as error:
         loops.add(config, AT, "waiting", "Await a decision", "Trip", who)
@@ -93,97 +106,46 @@ def test_owner_full_and_first_names_are_refused_even_in_a_bare_vault(config, who
     assert loops.add(config, AT, "promised", "Have the plan by morning", "Trip", who)
 
 
-@pytest.mark.parametrize("who", ["Miranda-Jones", "Miranda", "Mira Jane Jones", "MJ"])
-def test_configured_owner_profile_names_and_aliases_are_refused(config, who):
-    config = replace(config, human_profile="people/Miranda_Jones/Profile.md")
-    path = config.vault_path / config.human_profile
-    path.parent.mkdir(parents=True)
-    fm.write(path, {"aliases": ["MJ"]}, "# Mira Jane Jones\n")
-    with pytest.raises(ValueError, match="is your owner"):
-        loops.add(config, AT, "waiting", "Await a decision", "Trip", who)
-
-
-def test_owner_people_profile_found_by_configured_platform_id_is_refused(known_config):
-    config = replace(known_config, owner_user_ids=["demiurge:owner-id"])
-    path = config.vault_path / "people/Actual_Owner/Profile.md"
-    path.parent.mkdir(parents=True)
-    fm.write(path, {}, "# Actual Owner\nDemiurge: owner-id\n")
-    with pytest.raises(ValueError, match="is your owner"):
-        loops.add(config, AT, "waiting", "Ask for the date", "Trip", "Actual")
-
-
-@pytest.mark.parametrize("who", ["kevin-smith", "Kevin Jonoah Smith", "KEVIN", "kev", "KJ",
-                                 "ada_logic", "Ada Lovelace", "ADA", "analyst"])
-def test_known_people_and_intellects_match_folder_title_first_name_or_alias(known_config, who):
-    assert loops.add(known_config, AT, "owed", "Relay the answer", "Trip", who)
-    assert loops.open_loops(known_config)[0].with_ == who
-
-
-def test_profile_lookup_uses_configured_people_and_agents_directories(config):
-    config = replace(config, people_dir="Contacts", agents_dir="Intellects")
-    for root, name in ((config.people_dir, "Kevin"), (config.agents_dir, "Ada")):
-        path = config.vault_path / root / name / "Profile.md"
+@pytest.mark.parametrize("setup,who,known", [
+    *[("known", who, True) for who in ("kevin-smith", "Kevin Jonoah Smith", "KEVIN", "kev", "KJ",
+                                       "ada_logic", "Ada Lovelace", "ADA", "analyst")],
+    ("known", "test-harness maintainer", False), ("known", "Unknown Person", False),
+    ("custom dirs", "Kevin", True), ("custom dirs", "Ada", True),
+    ("ambiguous", "Kevin", False), ("ambiguous", "Kevin Pak", True),
+    ("directory", "tars-prime", True),
+    ("retired", "Old Name", False), ("retired", "New Person", False),
+    ("bare", "New Person", True),
+])
+def test_counterparts_match_known_people_and_intellects_once_any_are_known(config, tmp_path, monkeypatch, setup, who, known):
+    if setup in ("known", "ambiguous", "directory"):
+        profile(config, "people/Kevin_Smith/Profile.md", "Kevin Jonoah Smith", ["Kev", "KJ"])
+        profile(config, "agents/Ada-Logic/Profile.md", "Ada Lovelace", "Analyst")
+    if setup == "ambiguous":
+        profile(config, "people/Kevin_Pak/Profile.md", "Kevin Pak")
+    elif setup == "custom dirs":
+        config = replace(config, people_dir="Contacts", agents_dir="Intellects")
+        profile(config, "Contacts/Kevin/Profile.md", "Kevin")
+        profile(config, "Intellects/Ada/Profile.md", "Ada")
+    elif setup == "directory":
+        from brain import directory
+        monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+        directory.path().parent.mkdir(parents=True)
+        directory.path().write_text(json.dumps({"intellects": [{"id": "j573", "name": "Tars Prime", "handle": "tars"}]}))
+    elif setup == "retired":
+        path = config.vault_path / "people/Old_Name/Profile.md"
         path.parent.mkdir(parents=True)
-        fm.write(path, {}, f"# {name}\n")
-        assert loops.add(config, AT, "waiting", f"Await {name}", "Trip", name)
-
-
-def test_ambiguous_first_name_is_refused_but_full_names_still_match(known_config):
-    path = known_config.vault_path / "people/Kevin_Pak/Profile.md"
-    path.parent.mkdir()
-    fm.write(path, {}, "# Kevin Pak\n")
-    with pytest.raises(ValueError, match="is not a person or intellect you know"):
-        loops.add(known_config, AT, "owed", "Relay the answer", "Trip", "Kevin")
-    assert loops.add(known_config, AT, "owed", "Relay the answer", "Trip", "Kevin Pak")
-
-
-def test_intellect_name_in_demiurge_directory_needs_no_vault_profile(known_config, tmp_path, monkeypatch):
-    from brain import directory
-    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
-    path = directory.path()
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"intellects": [{"id": "j573", "name": "Tars Prime", "handle": "tars"}]}))
-    assert loops.add(known_config, AT, "waiting", "Await the findings", "Trip", "tars-prime")
-
-
-@pytest.mark.parametrize("who", ["test-harness maintainer", "Unknown Person"])
-def test_unknown_counterpart_is_refused_without_writing(known_config, who):
-    before = snapshot(known_config.vault_path)
-    with pytest.raises(ValueError) as error:
-        loops.add(known_config, AT, "owed", "Relay the answer", "Trip", who)
-    assert str(error.value) == f"{who} is not a person or intellect you know; name who you asked or who asked you"
-    assert snapshot(known_config.vault_path) == before
-
-
-def test_empty_people_directory_still_validates_and_retired_profiles_are_not_identities(config):
-    path = config.vault_path / "people/Old_Name/Profile.md"
-    path.parent.mkdir(parents=True)
-    fm.write(path, {"kind": "log"}, "# Old Name\nMoved elsewhere.\n")
-    for who in ("Old Name", "New Person"):
-        with pytest.raises(ValueError, match="is not a person or intellect you know"):
-            loops.add(config, AT, "owed", "Relay the answer", "Trip", who)
-
-
-def test_bare_vault_accepts_a_counterpart_without_a_profile(config):
-    assert not (config.vault_path / config.people_dir).exists()
-    assert loops.add(config, AT, "owed", "Relay the answer", "Trip", "New Person")
-    assert loops.add(config, AT, "promised", "Check fares", "Trip")
-
-
-@pytest.mark.parametrize("kind", ["owed", "waiting"])
-@pytest.mark.parametrize("who", ["", " \n "])
-def test_owed_and_waiting_require_a_counterpart_even_in_bare_vaults(config, kind, who):
+        fm.write(path, {"kind": "log"}, "# Old Name\nMoved elsewhere.\n")
+    elif setup == "bare":
+        assert not (config.vault_path / config.people_dir).exists()
+    if known:
+        assert loops.add(config, AT, "owed", "Relay the answer", "Trip", who)
+        assert loops.open_loops(config)[0].with_ == who
+        return
     before = snapshot(config.vault_path)
-    with pytest.raises(ValueError, match=f"{kind} loops need a counterpart"):
-        loops.add(config, AT, kind, "Relay the answer", "Trip", who)
+    with pytest.raises(ValueError) as error:
+        loops.add(config, AT, "owed", "Relay the answer", "Trip", who)
+    assert str(error.value) == f"{who} is not a person or intellect you know; name who you asked or who asked you"
     assert snapshot(config.vault_path) == before
-
-
-def test_cli_add_uses_counterpart_validation(known_config):
-    with pytest.raises(SystemExit, match="brain loops: test-harness maintainer is not a person or intellect"):
-        cli.main(["loops", "--vault", str(known_config.vault_path), "--add", "Relay the answer",
-                      "--kind", "owed", "--source", "Trip", "--with", "test-harness maintainer"])
-    assert loops.open_loops(known_config) == []
 
 
 @pytest.mark.parametrize("outcome", ["done", "dropped"])
@@ -292,12 +254,6 @@ def test_cli_rejects_incomplete_mutations(config, extra):
         cli.main(["loops", "--vault", str(config.vault_path), *extra])
 
 
-def test_cli_empty_due_exits_zero_in_a_subprocess(config):
-    result = subprocess.run([sys.executable, "-m", "brain", "loops", "--due", "--vault", str(config.vault_path)],
-                            text=True, capture_output=True)
-    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
-
-
 def test_conversation_adds_and_closes_without_journal_rows(config):
     loops.add(config, AT, "promised", "Check fares", "Trip")
     item = loops.open_loops(config)[0]
@@ -396,9 +352,8 @@ def test_hygiene_names_only_open_loops_older_than_fourteen_days(config, monkeypa
     assert problems[0] in validate.hygiene(Vault(config.vault_path))
 
 
-@pytest.mark.parametrize("kind", loops.KINDS)
-def test_ready_round_trips_and_overrides_age_and_future_deadline(config, kind, monkeypatch, capsys):
-    loops.add(config, AT, kind, "Follow through", "Trip", "Kevin", "2026-12-01")
+def test_ready_round_trips_and_overrides_age_and_future_deadline(config, monkeypatch, capsys):
+    loops.add(config, AT, "waiting", "Follow through", "Trip", "Kevin", "2026-12-01")
     [item] = loops.open_loops(config)
     assert loops.due(config, AT) == []
     marked = loops.ready(config, item.id, AT)

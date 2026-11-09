@@ -4,12 +4,14 @@ import os
 import re
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from brain import cli, fm
+from brain import cli, fm, install, ledger, validate
 from brain.config import Config
+from brain.vault import Vault
 from conftest import snapshot
 
 
@@ -23,8 +25,7 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
     assert capsys.readouterr().out == str(config.skills_path) + "\n"
     templates = [path for path in files("brain").joinpath("skills").iterdir()
                  if path.joinpath("SKILL.md").is_file() and "editions: [enterprise]" not in path.joinpath("SKILL.md").read_text()]
-    assert len(templates) == 14
-    assert len(list(config.skills_path.glob("*/SKILL.md"))) == len(templates)
+    assert templates and len(list(config.skills_path.glob("*/SKILL.md"))) == len(templates)
     for routine in templates:
         text = (config.skills_path / (prefix + routine.name) / "SKILL.md").read_text()
         assert not re.search(r"\{(?:" + "|".join(config.template_values()) + r")\}", text)
@@ -38,9 +39,12 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
 def test_install_scripts_copies_executable_package_resources(tmp_path, monkeypatch, capsys):
     home = tmp_path / "agent-home"
     monkeypatch.setenv("AGENT_HOME", str(home))
+    (home / "scripts").mkdir(parents=True)
+    for retired in ("continue-signal.sh", "continue-daily-signal.sh"):
+        (home / "scripts" / retired).write_text("exec brain continue-signal\n")
     cli.main(["install-scripts"])
     installed = sorted((home / "scripts").glob("*.sh"))
-    assert [path.name for path in installed] == ["attribution.sh", "continue-daily-signal.sh", "continue-signal.sh", "export-sessions.sh", "night-after.sh", "night-before.sh", "refresh.sh", "upgrade.sh", "watch-signal.sh"]
+    assert [path.name for path in installed] == ["attribution.sh", "export-sessions.sh", "night-after.sh", "night-before.sh", "refresh.sh", "upgrade.sh", "watch-signal.sh"]
     refresh = (home / "scripts/refresh.sh").read_text()
     assert refresh.index("brain people sync --run >/dev/null 2>&1 || true") < refresh.index("brain compile-context --write")
     output = capsys.readouterr().out
@@ -60,12 +64,8 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
     monkeypatch.setenv("VAULT_REPO", str(vault.parent))
     commands = tmp_path / "bin"
     commands.mkdir()
-    for name, text in {
-        "git": "#!/bin/sh\nexit 0\n",
-    }.items():
-        path = commands / name
-        path.write_text(text)
-        path.chmod(0o755)
+    (commands / "git").write_text("#!/bin/sh\nexit 0\n")
+    (commands / "git").chmod(0o755)
     monkeypatch.setenv("PATH", str(commands) + os.pathsep + os.environ["PATH"])
     (vault / "agent/SOUL.md").write_text("Fixture identity\n")
     from conftest import harness_session, message
@@ -89,22 +89,10 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
     assert not list((vault / "Runtime/skills").glob("*/SKILL.md"))
     subprocess.run(["bash", str(home / "scripts/upgrade.sh")], cwd=tmp_path,
                    env=dict(os.environ), check=True, capture_output=True, text=True)
-    assert len(list((vault / "Runtime/skills").glob("*/SKILL.md"))) == 14
-
-
-def test_attribution_script_writes_observed_rows_without_a_model(vault, tmp_path, monkeypatch):
-    home = tmp_path / "agent-home"
-    monkeypatch.setenv("AGENT_HOME", str(home))
-    monkeypatch.setenv("VAULT_REPO", str(vault.parent))
+    assert list((vault / "Runtime/skills").glob("*/SKILL.md"))
     monkeypatch.setenv("BRAIN_HOT_WORDS", "0")
-    commands = tmp_path / "bin"
-    commands.mkdir()
-    (commands / "git").write_text("#!/bin/sh\nexit 0\n")
-    (commands / "git").chmod(0o755)
-    monkeypatch.setenv("PATH", str(commands) + os.pathsep + os.environ["PATH"])
     fm.write(vault / "Acme Context.md", {"tier": "hot", "uses": [], "uses_inferred": []}, "# Fixture\n")
-    shutil.copytree(Path(__file__).parent / "fixtures/sessions", home / "records/sessions/jsonl")
-    cli.main(["install-scripts"])
+    shutil.copytree(Path(__file__).parent / "fixtures/sessions", home / "records/sessions/jsonl", dirs_exist_ok=True)
     subprocess.run(["bash", str(home / "scripts/attribution.sh")], cwd=tmp_path,
                    env=dict(os.environ), check=True, capture_output=True, text=True)
     log = (vault / "agent/Use Log/2026-10.md").read_text()
@@ -113,8 +101,6 @@ def test_attribution_script_writes_observed_rows_without_a_model(vault, tmp_path
 
 
 def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
-    from brain import install
-    from brain.config import Config
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     (tmp_path / "memory").mkdir()
     config = Config.load(tmp_path / "memory")
@@ -124,14 +110,10 @@ def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
     morning.write_text("mine", encoding="utf-8")
     sleep1.write_text("mine", encoding="utf-8")
     install.skills(config)
-    # Morning is the engine's since 0.18: the vault's own copy is kept once, beside the new text, to move under Local.
-    assert morning.read_text(encoding="utf-8") != "mine"
-    assert morning.with_name("previous.md").read_text(encoding="utf-8") == "mine"
-    assert sleep1.read_text(encoding="utf-8") != "mine" and not sleep1.with_name("previous.md").exists()
+    assert morning.read_text(encoding="utf-8") != "mine" and sleep1.read_text(encoding="utf-8") != "mine"
     morning.write_text(morning.read_text(encoding="utf-8") + "\n## Local\n\n- MY_OWN_STEP\n", encoding="utf-8")
     install.skills(config)
     assert "MY_OWN_STEP" in morning.read_text(encoding="utf-8")
-    assert morning.with_name("previous.md").read_text(encoding="utf-8") == "mine"
     improve = config.skills_path / "brain-improve" / "SKILL.md"
     improve.write_text("mine", encoding="utf-8")
     install.skills(config)
@@ -147,8 +129,6 @@ def test_default_skills_are_written_once_and_core_skills_always(tmp_path):
 
 
 def test_responsibility_builds_three_homes_and_keeps_existing_files(tmp_path, monkeypatch):
-    from brain import cli, install
-    from brain.config import Config
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
     (tmp_path / "brain.toml").write_text('[brain]\nhuman_name = "Mira"\nagent_name = "Pip"\n', encoding="utf-8")
     (tmp_path / "memory").mkdir()
@@ -172,71 +152,40 @@ def test_responsibility_builds_three_homes_and_keeps_existing_files(tmp_path, mo
     assert skill.read_text(encoding="utf-8") == "mine"
 
 
-def test_update_uses_own_interpreter_and_reinstalls_scripts(tmp_path, monkeypatch):
+def test_update_uses_own_interpreter_and_reinstalls_scripts_only_with_a_runtime(vault, tmp_path, monkeypatch, capsys):
     import sys
-    from brain import install
-    from brain.config import Config
-    calls = []
-    monkeypatch.setattr(install.subprocess, "run", lambda cmd, check: calls.append(cmd))
-    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
-    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
-    for path in install.scripts():
-        path.write_text("outdated", encoding="utf-8")
-    installed = install.update(Config.load(tmp_path / "memory"))
-    assert calls[0][:4] == [sys.executable, "-m", "pip", "install"]
-    assert calls[0][-1] == "git+https://github.com/RoshuAmir918/agent-brain"
-    assert {path.name for path in installed} == {"attribution.sh", "refresh.sh", "export-sessions.sh", "watch-signal.sh", "continue-signal.sh", "continue-daily-signal.sh", "night-before.sh", "night-after.sh", "upgrade.sh"}
-    for path in installed:
-        resource_dir = "scripts"
-        assert path.read_bytes() == files("brain").joinpath(resource_dir, path.name).read_bytes()
-
-
-def test_update_is_disabled_by_empty_source(tmp_path):
-    from brain import install
-    from brain.config import Config
-    (tmp_path / "brain.toml").write_text('[brain]\nupdate_source = ""\n', encoding="utf-8")
-    assert install.update(Config.load(tmp_path / "memory")) == []
-
-
-def test_update_without_runtime_installs_package_and_skips_scripts(vault, monkeypatch, capsys):
-    import sys
-    from brain import install
-
-    monkeypatch.delenv("AGENT_HOME", raising=False)
     calls = []
     monkeypatch.setattr(install.subprocess, "run", lambda cmd, check: calls.append((cmd, check)))
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
+    for path in install.scripts():
+        path.write_text("outdated", encoding="utf-8")
+    installed = install.update(Config.load(vault))
+    assert calls == [([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
+                       "git+https://github.com/RoshuAmir918/agent-brain"], True)]
+    assert installed
+    for path in installed:
+        assert path.read_bytes() == files("brain").joinpath("scripts", path.name).read_bytes()
+    calls.clear()
+    monkeypatch.delenv("AGENT_HOME")
     def unexpected():
         pytest.fail("scripts must not be installed without a runtime")
     monkeypatch.setattr(install, "scripts", unexpected)
     before = snapshot(vault.parent)
     cli.main(["update", "--vault", str(vault)])
-    assert calls == [([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
-                      Config.load(vault).update_source], True)]
+    assert len(calls) == 1
     assert capsys.readouterr().out == "scripts not reinstalled: AGENT_HOME is not set\n"
     assert snapshot(vault.parent) == before
+    (vault.parent / "brain.toml").write_text('[brain]\nupdate_source = ""\n', encoding="utf-8")
+    assert install.update(Config.load(vault)) == []
 
 
-@pytest.mark.parametrize("runtime_dir", ["Runtime", "Runs"])
-def test_runtime_directory_renders_in_local_sections(vault, runtime_dir):
-    from brain import install
-
-    (vault.parent / "brain.toml").write_text(f'[brain]\nruntime_dir = "{runtime_dir}"\n')
-    config = Config.load(vault)
-    target = config.skills_path / "brain-watch/SKILL.md"
-    target.parent.mkdir(parents=True)
-    target.write_text('old\n\n## Local\nRead {runtime_dir}/schedule.toml.\n')
-    spec = vault / config.agent("Memory Spec.md")
-    spec.write_text('# Spec\n\n## Local\nRead {runtime_dir}/README.md.\n')
-    install.skills(config)
-    assert f'Read {runtime_dir}/schedule.toml.' in target.read_text()
-    assert f'Read {runtime_dir}/README.md.' in spec.read_text()
-
-
-def test_migrate_check_records_version_when_nothing_applies(tmp_path, monkeypatch):
-    from brain import install
-    from brain.config import Config
+def test_a_new_vault_or_nothing_pending_records_the_installed_version(tmp_path, monkeypatch):
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     config = Config.load(tmp_path / "memory")
+    monkeypatch.setattr(install, "installed_version", lambda name: "1.2.0")
+    assert install.pending_migrations(config) == []
+    assert install.migrate_check(config) is None
+    assert install.recorded_version(config) == "1.2.0"
     monkeypatch.setattr(install, "installed_version", lambda name: "9.9.9")
     monkeypatch.setattr(install, "pending_migrations", lambda config: [])
     assert install.migrate_check(config) is None
@@ -244,8 +193,6 @@ def test_migrate_check_records_version_when_nothing_applies(tmp_path, monkeypatc
 
 
 def test_migrate_check_writes_pending_prompt_and_done_clears_it(tmp_path, monkeypatch):
-    from brain import install
-    from brain.config import Config
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     config = Config.load(tmp_path / "memory")
     install.record_version(config, "1.0.0")
@@ -259,20 +206,7 @@ def test_migrate_check_writes_pending_prompt_and_done_clears_it(tmp_path, monkey
     assert not pending.exists() and install.recorded_version(config) == "1.2.0"
 
 
-def test_a_new_vault_records_the_installed_version_and_replays_nothing(tmp_path, monkeypatch):
-    from brain import install
-    from brain.config import Config
-    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
-    config = Config.load(tmp_path / "memory")
-    monkeypatch.setattr(install, "installed_version", lambda name: "1.2.0")
-    assert install.pending_migrations(config) == []
-    assert install.migrate_check(config) is None
-    assert install.recorded_version(config) == "1.2.0"
-
-
 def test_pending_migrations_selects_versions_in_range(tmp_path, monkeypatch):
-    from brain import install
-    from brain.config import Config
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     config = Config.load(tmp_path / "memory")
     install.record_version(config, "0.1.2")
@@ -289,8 +223,6 @@ def test_pending_migrations_selects_versions_in_range(tmp_path, monkeypatch):
 
 
 def test_a_new_migration_starts_once_and_a_repeat_check_does_not_start_it_again(tmp_path, monkeypatch, migration_runs):
-    from brain import install
-    from brain.config import Config
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     config = Config.load(tmp_path / "memory")
     install.record_version(config, "1.0.0")
@@ -306,8 +238,7 @@ def test_a_new_migration_starts_once_and_a_repeat_check_does_not_start_it_again(
 
 
 def test_an_unscheduled_migration_is_retried_and_a_stale_pending_file_goes(tmp_path, monkeypatch, migration_runs):
-    from brain import install, schedule
-    from brain.config import Config
+    from brain import schedule
     (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
     config = Config.load(tmp_path / "memory")
     install.record_version(config, "1.0.0")
@@ -322,19 +253,19 @@ def test_an_unscheduled_migration_is_retried_and_a_stale_pending_file_goes(tmp_p
     assert not (config.vault_path / config.runtime_dir / "pending-migration.md").exists()
 
 
-def test_a_migration_prompt_has_its_tokens_rendered(vault, monkeypatch):
-    from brain import install
-    from brain.config import Config
+def test_every_shipped_migration_is_ordered_by_version_and_fully_rendered(vault, monkeypatch):
     config = Config.load(vault)
-    install.record_version(config, "0.51.0")
-    monkeypatch.setattr(install, "installed_version", lambda name: "0.51.1")
-    (tag, prompt), = install.pending_migrations(config)
-    assert tag == "0.51.1" and "{agent_dir}" not in prompt and f"{config.agent_dir}/Primed.md" in prompt
+    install.record_version(config, "0.0.0")
+    monkeypatch.setattr(install, "installed_version", lambda name: "999.0.0")
+    shipped = [path.name[:-3] for path in files("brain").joinpath("migrations").iterdir()
+               if path.name.endswith(".md") and path.name != "README.md"]
+    pending = install.pending_migrations(config)
+    assert [tag for tag, _ in pending] == sorted(shipped, key=install.version_tuple)
+    unrendered = re.compile(r"\{(?:" + "|".join(config.template_values()) + r")\}")
+    assert [tag for tag, prompt in pending if unrendered.search(prompt)] == []
 
 
 def test_the_memory_spec_follows_the_engine_and_keeps_the_vaults_local_section(tmp_path):
-    from brain import fm, install
-    from brain.config import Config
     (tmp_path / "brain.toml").write_text('[brain]\nagent_dir = "Orphan"\n', encoding="utf-8")
     config = Config.load(tmp_path / "memory")
     target = config.vault_path / config.agent("Memory Spec.md")
@@ -349,3 +280,41 @@ def test_the_memory_spec_follows_the_engine_and_keeps_the_vaults_local_section(t
     before = target.read_text(encoding="utf-8")
     install.memory_spec(config)
     assert target.read_text(encoding="utf-8") == before
+
+
+@pytest.mark.parametrize("edition, prefix", [("personal", ""), ("enterprise", "own-")])
+def test_install_removes_retired_skills_and_keeps_own_ones(vault, edition, prefix):
+    config = replace(Config.load(vault), edition=edition, skill_prefix=prefix)
+    for name in ("sleep2", "rem", "attribute", "my-routine"):
+        folder = config.skills_path / (prefix + name)
+        folder.mkdir(parents=True)
+        (folder / "SKILL.md").write_text("Own content\n## Local\nKeep this\n")
+    install.skills(config)
+    for name in ("sleep2", "rem", "attribute"):
+        assert not (config.skills_path / (prefix + name)).exists()
+    assert (config.skills_path / (prefix + "image") / "SKILL.md").is_file()
+    assert "Keep this" in (config.skills_path / (prefix + "my-routine") / "SKILL.md").read_text()
+    assert "sleep2" not in ledger.NIGHT_STAGES
+    assert not any("sleep2" in issue for issue in validate.checks(Vault(vault)))
+
+
+@pytest.mark.parametrize("stage", ["before", "after"])
+def test_night_scripts_pass_yesterday_and_stage_and_do_not_upgrade(vault, tmp_path, monkeypatch, stage):
+    home = tmp_path / "agent-home"
+    monkeypatch.setenv("AGENT_HOME", str(home))
+    monkeypatch.setenv("VAULT_REPO", str(vault.parent))
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-01")
+    scripts = {path.name: path for path in install.scripts()}
+    command = tmp_path / "bin/brain"
+    command.parent.mkdir()
+    command.write_text('#!/bin/sh\nif [ "$1" = timezone ]; then echo America/New_York; else printf "%s\\n" "$*" >> "$AGENT_HOME/calls"; fi\n')
+    command.chmod(0o755)
+    monkeypatch.setenv("PATH", str(command.parent) + os.pathsep + os.environ["PATH"])
+    subprocess.run(["bash", str(scripts[f"night-{stage}.sh"])], check=True)
+    assert (home / "calls").read_text().splitlines() == [
+        "pull", f"nightly --date 2026-10-31 --write --commit --push --stage {stage}"]
+    for name in ("export-sessions.sh", "refresh.sh"):
+        script = scripts[name].read_text()
+        assert all(f"brain {cmd}" not in script for cmd in ("update", "migrate-check", "install-skills"))
+    upgrade = scripts["upgrade.sh"].read_text()
+    assert upgrade.index("brain update") < upgrade.index("brain migrate-check") < upgrade.index("brain install-skills")

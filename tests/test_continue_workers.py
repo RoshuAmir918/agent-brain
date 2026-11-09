@@ -1,12 +1,11 @@
-"""Worker-facing continue state and compatibility with the legacy daily list."""
+"""Worker-facing continue state: the due list the harness reads, budgets and checkpoints."""
 import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from brain import cli as brain_cli, continuation, fm, signals, tasks
+from brain import cli as brain_cli, continuation, tasks
 from brain.config import Config
 
 
@@ -57,41 +56,22 @@ def test_checkpoint_atomic_per_task_and_visible_in_due(worker, capsys):
     assert not (home / "records/continue/progress.json").exists()
 
 
-def test_checkpoint_failed_replace_keeps_previous_and_cleans_temp(worker, monkeypatch):
-    config, home, _ = worker
-    continuation.checkpoint(config, "T-001", "previous")
-    original = fm.os.replace
-
-    def fail(source, target):
-        if Path(target).name == "T-001.json":
-            raise OSError("replace failed")
-        return original(source, target)
-
-    monkeypatch.setattr(fm.os, "replace", fail)
-    with pytest.raises(OSError, match="replace failed"):
-        continuation.checkpoint(config, "T-001", "new")
-    assert continuation.checkpoint_text("T-001") == "previous"
-    assert not list((home / "records/continue/tasks").glob("*.tmp"))
-
-
-@pytest.mark.parametrize("args", [("--checkpoint", "T-001"), ("--text", "orphan"),
-                                  ("--checkpoint", "T-001", "--text", "x", "--json"),
-                                  ("--checkpoint", "T-999", "--text", "x"),
-                                  ("--checkpoint", "../../oops", "--text", "x")])
-def test_checkpoint_rejects_invalid_command(worker, capsys, args):
+@pytest.mark.parametrize("args,runtime", [
+    (("--checkpoint", "T-001"), True), (("--text", "orphan"), True),
+    (("--checkpoint", "T-001", "--text", "x", "--json"), True),
+    (("--checkpoint", "T-999", "--text", "x"), True),
+    (("--checkpoint", "../../oops", "--text", "x"), True),
+    (("--checkpoint", "T-001", "--text", "x"), False),
+])
+def test_checkpoint_rejects_invalid_command(worker, capsys, monkeypatch, args, runtime):
     config, _, _ = worker
+    if not runtime:
+        monkeypatch.delenv("AGENT_HOME")
     with pytest.raises(SystemExit) as error:
         cli(config, capsys, *args)
     assert error.value.code == 2
-    assert capsys.readouterr().err
-
-
-def test_checkpoint_requires_runtime(worker, monkeypatch, capsys):
-    config, _, _ = worker
-    monkeypatch.delenv("AGENT_HOME")
-    with pytest.raises(SystemExit) as error:
-        cli(config, capsys, "--checkpoint", "T-001", "--text", "x")
-    assert error.value.code == 2 and "AGENT_HOME" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert err and (runtime or "AGENT_HOME" in err)
 
 
 @pytest.mark.parametrize("raw", [None, "invalid", "[]", "null", '{"task":"T-999","text":"wrong task"}', '{"task":"T-001","text":3}'])
@@ -104,7 +84,7 @@ def test_missing_or_bad_checkpoint_is_null(worker, capsys, raw):
     assert json.loads(cli(config, capsys, "--due", "--json"))[0]["checkpoint"] is None
 
 
-def test_due_json_shape_order_and_daily(worker, capsys):
+def test_due_json_shape_and_order(worker, capsys):
     config, home, clock = worker
     tasks.set_fields(config, "T-001", config.today(), values={"next": "deliver the notes", "delivers": "notes in Home"})
     first = clock[0].isoformat()
@@ -126,16 +106,11 @@ def test_due_json_shape_order_and_daily(worker, capsys):
                          "reviewDue": False, "chunksSinceReview": 1, "lastReview": None}
     assert output[0]["lastChunk"] is None and output[0]["next"] is None and output[0]["work"] is None
     assert output[0]["chunksToday"] == 0 and output[0]["budgetLeft"] == 16
-    tasks.set_pace(config, "T-001", "daily", config.today())
-    daily = json.loads(cli(config, capsys, "--due", "--daily", "--json"))
-    assert [item["id"] for item in daily] == ["T-001"]
-    assert daily[0]["pace"] == "daily" and daily[0]["budgetLeft"] is None
 
 
 def test_due_empty_json_exits_zero_text_still_one(vault, capsys):
     config = Config.load(vault)
     assert json.loads(cli(config, capsys, "--due", "--json")) == []
-    assert json.loads(cli(config, capsys, "--due", "--daily", "--json")) == []
     with pytest.raises(SystemExit) as error:
         cli(config, capsys, "--due")
     assert error.value.code == 1 and "nothing handed off is due" in capsys.readouterr().out
@@ -147,13 +122,10 @@ def test_combined_due_daily_once_per_owner_day(worker, capsys):
     # Noon in UTC is still early morning for this owner.
     clock[0] = datetime(2026, 11, 5, 19, 59, tzinfo=timezone.utc)
     assert json.loads(cli(config, capsys, "--due", "--json")) == []
-    assert signals.continue_(config) == "date: none"
     with pytest.raises(SystemExit) as error:
         cli(config, capsys, "--due")
     assert error.value.code == 1
     capsys.readouterr()
-    assert "T-001" in cli(config, capsys, "--due", "--daily")
-    assert json.loads(cli(config, capsys, "--due", "--daily", "--json"))[0]["id"] == "T-001"
 
     clock[0] += timedelta(minutes=1)
     for _ in range(2):
@@ -162,14 +134,10 @@ def test_combined_due_daily_once_per_owner_day(worker, capsys):
         assert (daily[0]["id"], daily[0]["pace"], daily[0]["chunksToday"]) == ("T-001", "daily", 0)
         assert daily[0]["budget"] is None and daily[0]["budgetLeft"] is None
         assert "T-001" in cli(config, capsys, "--due")
-        assert "T-001" in signals.continue_(config)
     cli(config, capsys, "--chunk", "T-001")  # The baseline counts too.
     for at in (clock[0], datetime(2026, 11, 6, 7, 59, tzinfo=timezone.utc)):
         clock[0] = at
         assert json.loads(cli(config, capsys, "--due", "--json")) == []
-        assert signals.continue_(config) == "date: none"
-    # The legacy daily selection still includes a task already counted today.
-    assert json.loads(cli(config, capsys, "--due", "--daily", "--json"))[0]["chunksToday"] == 1
     clock[0] = datetime(2026, 11, 6, 19, 59, tzinfo=timezone.utc)
     assert json.loads(cli(config, capsys, "--due", "--json")) == []
     clock[0] += timedelta(minutes=1)
@@ -193,7 +161,6 @@ def test_combined_due_orders_both_paces_by_last_chunk(worker, capsys):
     output = json.loads(cli(config, capsys, "--due", "--json"))
     assert [item["id"] for item in output] == [line.split(" · ")[0] for line in listed] == [three.tid, "T-001", two.tid]
     assert [item["pace"] for item in output] == ["regular", "daily", "regular"]
-    assert {line.split(" · ")[0] for line in signals.continue_(config).splitlines()[1:]} == {three.tid, "T-001", two.tid}
 
 
 @pytest.mark.parametrize("gate", ["completed", "cancelled", "waiting_for_owner", "yours", "set_aside",
@@ -216,7 +183,6 @@ def test_combined_daily_keeps_existing_gates(worker, capsys, monkeypatch, gate):
         cli(config, capsys, "--review", "T-001", "--verdict", "circling", "--reason", "No visible result",
             "--ask", "Which notes should I finish?")
     assert json.loads(cli(config, capsys, "--due", "--json")) == []
-    assert signals.continue_(config) == "date: none"
     if gate == "resume":
         clock[0] = clock[0].replace(hour=14)
         assert json.loads(cli(config, capsys, "--due", "--json"))[0]["id"] == "T-001"
@@ -233,14 +199,12 @@ def test_sixteenth_chunk_budget_waits_until_next_local_day(worker, capsys):
             assert json.loads(cli(config, capsys, "--due", "--json"))[0]["budgetLeft"] == 16 - n
         clock[0] += timedelta(minutes=30)
     assert message == "T-001 reached today's budget of 16 chunks; it waits until tomorrow"
-    assert continuation.DAILY_CHUNKS == 16
     assert tasks.pace(tasks.load_tasks(config)[0][0]) == "regular"
     assert json.loads(cli(config, capsys, "--due", "--json")) == []
     with pytest.raises(SystemExit) as error:
         cli(config, capsys, "--due")
     assert error.value.code == 1
     capsys.readouterr()
-    assert signals.continue_(config) == "date: none"
     # A bare due() keeps its historical behavior; callers supply the budget counts.
     registered, archived = tasks.load_tasks(config)
     assert len(tasks.due(registered + archived, worked=continuation.last_worked(config))) == 1
@@ -253,7 +217,6 @@ def test_sixteenth_chunk_budget_waits_until_next_local_day(worker, capsys):
     result = json.loads(cli(config, capsys, "--due", "--json"))[0]
     # A new local day with no owner engagement since the handoff: the budget halves (whole again on engagement).
     assert result["chunksToday"] == 0 and result["budget"] == 8 and result["budgetLeft"] == 8
-    assert "T-001" in signals.continue_(config)
     cli(config, capsys, "--chunk", "T-001")
     assert row(config, home)["chunks"] == {"date": "2026-11-06", "count": 1}
 
@@ -266,9 +229,6 @@ def test_daily_task_unaffected_and_budget_message_only_on_crossing(worker, capsy
     assert "budget" not in cli(config, capsys, "--chunk", "T-001")
     tasks.set_pace(config, "T-001", "daily", config.today())
     assert "budget" not in cli(config, capsys, "--chunk", "T-001")
-    daily = json.loads(cli(config, capsys, "--due", "--daily", "--json"))
-    assert daily[0]["id"] == "T-001" and daily[0]["chunksToday"] == 3
-    assert daily[0]["budgetLeft"] is None
 
 
 def test_toml_budget_drives_chunk_and_due(worker, capsys):

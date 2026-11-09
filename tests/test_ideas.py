@@ -27,8 +27,8 @@ def bullet(text, day=TODAY, source="Topic", why="A useful result.", needs=""):
 
 
 def owner(vault, monkeypatch, age=100, hubs=3):
-    monkeypatch.setattr(health, "git", lambda repo, *args: (TODAY - timedelta(days=age)).isoformat()
-                        if args == ("log", "--max-parents=0", "--format=%cs") else None)
+    roots = None if age is None else f"{TODAY.isoformat()}\n{(TODAY - timedelta(days=age)).isoformat()}"   # the oldest root counts
+    monkeypatch.setattr(health, "git", lambda repo, *args: roots if args == ("log", "--max-parents=0", "--format=%cs") else None)
     for number in range(hubs):
         fm.write(vault / f"Hub {number}.md", {"skill": f"own-{number}", "records": f"records-{number}"}, "# Hub\n")
     return Config.load(vault)
@@ -65,26 +65,13 @@ def test_parse_skips_malformed_bullets(line):
 
 
 @pytest.mark.parametrize("age,hubs,expected", [(0, 3, True), (20, 3, True), (21, 3, False),
-                                              (100, 0, False), (100, 3, False)])
+                                              (100, 0, False), (100, 3, False), (None, 3, True)])
 def test_new_owner_by_repo_age_alone(vault, monkeypatch, age, hubs, expected):
     config = owner(vault, monkeypatch, age, hubs)
     fm.write(vault / "Ordinary.md", {}, "# Not a responsibility\n")
     fm.write(vault / "agent/Nested.md", {"skill": "nested"}, "# Not at the root\n")
     fm.write(vault / "Log.md", {"skill": "record", "kind": "log"}, "# Not a hub\n")
     assert ideas.new_owner(config, TODAY) is expected
-
-
-def test_new_owner_uses_first_commit_and_handles_no_history(vault, monkeypatch):
-    config = owner(vault, monkeypatch)
-    calls = []
-    def history(repo, *args):
-        calls.append((repo, args))
-        return "2026-10-01\n2026-11-02"
-    monkeypatch.setattr(health, "git", history)
-    assert not ideas.new_owner(config, TODAY)
-    assert calls == [(config.repo, ("log", "--max-parents=0", "--format=%cs"))]
-    monkeypatch.setattr(health, "git", lambda *args: None)
-    assert ideas.new_owner(config, TODAY)
 
 
 @pytest.mark.parametrize("answer", ideas.ANSWERS)
@@ -249,7 +236,7 @@ def test_response_matching_errors_do_not_write(vault):
     assert snapshot(vault.parent) == before
 
 
-def test_state_exports_one_idea(vault):
+def test_state_exports_one_idea_with_a_normalized_source_and_withholds_private_ideas(vault):
     write_ideas(vault, bullet("First?") + bullet("Second?", TODAY - timedelta(days=1)))
     config = Config.load(vault)
     result = state.build(config, TODAY)
@@ -259,18 +246,14 @@ def test_state_exports_one_idea(vault):
     result = state.build(config, TODAY)
     assert result["idea"] is None
     assert state.build(config, TODAY + timedelta(days=1))["idea"]["text"] == "Second?"
-
-
-def test_export_normalizes_idea_sources_and_withholds_private_ideas(vault):
     fm.write(vault / "Topic.md", {}, "# Topic")
     write_ideas(vault, bullet("Public?", source="memory/Topic#Part"))
-    config = Config.load(vault)
-    result = state.build(config, TODAY)
+    later = TODAY + timedelta(days=1)
+    result = state.build(config, later)
     assert result["idea"]["source"] == "Topic.md#Part"
-    assert result["idea"]["id"] == ideas.shown(config, TODAY).id
+    assert result["idea"]["id"] == ideas.shown(config, later).id
     fm.write(vault / "Topic.md", {"tier": "private"}, "# Topic")
-    result = state.build(config, TODAY)
-    assert result["idea"] is None
+    assert state.build(config, later)["idea"] is None
 
 
 def test_ideas_hygiene_checks_uncut_why_and_is_part_of_hygiene(vault):

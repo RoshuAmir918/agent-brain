@@ -50,26 +50,20 @@ def test_after_new_set_clear_and_handoff_preserve(stages_config, capsys):
     assert task.work == "result" and task.handoff[1] == "Home"
 
 
-@pytest.mark.parametrize("target,message", [("T-001", "itself"), ("T-999", "does not exist"),
-                                            ("missing", "T-nnn"), ("T-002", "cycle"), ("T-003", "cycle")])
-def test_after_invalid_set_is_atomic(stages_config, capsys, target, message):
+@pytest.mark.parametrize("command,target,message", [
+    ("set", "T-001", "itself"), ("set", "T-999", "does not exist"), ("set", "missing", "T-nnn"),
+    ("set", "T-002", "cycle"), ("set", "T-003", "cycle"),
+    ("new", "T-004", "itself"), ("new", "T-999", "does not exist"), ("new", "bad", "T-nnn"),
+])
+def test_after_invalid_set_or_new_is_atomic(stages_config, capsys, command, target, message):
     config = stages_config
     archive(config, "T-002", after="T-001")
     archive(config, "T-003", after="T-002")
+    args = (("task", "T-001", "set", "--after", target, "--status", "must not be written") if command == "set"
+            else ("task", "new", "Next", "--source", '"now do X"', "--after", target))
     before = snapshot(config.vault_path)
     with pytest.raises(SystemExit) as error:
-        cli(config, capsys, "task", "T-001", "set", "--after", target, "--status", "must not be written")
-    assert error.value.code == 1 and message in capsys.readouterr().err
-    assert snapshot(config.vault_path) == before
-
-
-@pytest.mark.parametrize("target,message", [("T-002", "itself"), ("T-999", "does not exist"),
-                                            ("bad", "T-nnn")])
-def test_after_invalid_new_does_not_create(stages_config, capsys, target, message):
-    config = stages_config
-    before = snapshot(config.vault_path)
-    with pytest.raises(SystemExit) as error:
-        cli(config, capsys, "task", "new", "Next", '--source', '"now do X"', "--after", target)
+        cli(config, capsys, *args)
     assert error.value.code == 1 and message in capsys.readouterr().err
     assert snapshot(config.vault_path) == before
 
@@ -131,23 +125,6 @@ def test_same_work_alone_supplies_stages_without_a_checkpoint(stages_config, cap
     assert "earlier outcome" in text and "Stage T-003" not in text
     row = json.loads(cli(config, capsys, "continue", current.tid, "--json"))
     assert row["after"] is None and [stage["id"] for stage in row["stages"]] == ["T-002"]
-
-
-def test_after_shares_the_entry_word_cap(stages_config, capsys):
-    config = stages_config
-    archive(config, "T-002")
-    with vault_lock(config):
-        task = tasks.load_tasks(config)[0][0]
-        task.body = "- **Status:** short\n"
-        spare = tasks.MAX_WORDS - tasks.current_words(task, config)
-        task.body = task.body.replace("short", " ".join(["word"] * (spare + 1)))
-        assert tasks.current_words(task, config) == tasks.MAX_WORDS
-        tasks.save_task(config, task, TODAY)
-    before = snapshot(config.vault_path)
-    with pytest.raises(SystemExit):
-        cli(config, capsys, "task", task.tid, "set", "--after", "T-002")
-    assert "limit is 150" in capsys.readouterr().err
-    assert snapshot(config.vault_path) == before
 
 
 def test_state_due_and_positional_json_and_instruction_order(stages_config, capsys):

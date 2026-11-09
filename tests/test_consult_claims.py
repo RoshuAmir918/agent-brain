@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from brain import channel_files, channels, cli, consults, fm, identity, routing, session_context, tasks
+from brain import channel_files, channels, cli, consults, fm, identity, routing, tasks
 from brain.sources import mail as mail_source
 from brain.config import Config
 from brain.vault import Vault
@@ -178,16 +178,9 @@ def test_reading_refuses_missing_sync_and_negative_window(synced, monkeypatch):
         mail_source.deference_reading(Vault(config.vault_path), TODAY)
 
 
-def test_personal_edition_refuses_mail_and_claims_without_writing(vault, tmp_path):
-    path = tmp_path / "deference.md"
-    path.write_text(claim_line())
-    before = snapshot(vault)
+def test_personal_edition_refuses_mail_reading(vault):
     with pytest.raises(SystemExit, match="enterprise edition"):
         mail_source.deference_reading(Vault(vault), TODAY)
-    for mode in (["--mail"], ["--claims", str(path)]):
-        with pytest.raises(SystemExit, match="enterprise edition"):
-            cli.main(["consult", "seed", "--vault", str(vault)] + mode)
-    assert snapshot(vault) == before
 
 
 def test_claims_parse_valid_lines_normalize_email_and_ignore_headings_and_frontmatter():
@@ -207,20 +200,6 @@ def test_claims_parse_valid_lines_normalize_email_and_ignore_headings_and_frontm
 
 def test_frontmatter_without_a_final_newline_is_ignored():
     assert mail_source.deference_claims("---\nsource: mail\n---") == ([], [])
-
-
-def test_bare_email_normalizes_and_joins_candidate_aliases(enterprise):
-    address = "Kim.Lee@Example.com"
-    rows, problems = mail_source.deference_claims(claim_line(person=address))
-    assert problems == [] and rows[0].person == "email:" + address.lower()
-    profile = enterprise.vault_path / enterprise.people_dir / "Kim" / "Profile.md"
-    profile.parent.mkdir(parents=True)
-    fm.write(profile, {}, f"- **Slack:** U01KIM\n- **Email:** {address}\n")
-    area = routing.area_path(enterprise, "releases")
-    area.parent.mkdir(parents=True)
-    fm.write(area, {}, f"## Evidence\n- {TODAY} · {rows[0].person} · deferred-to · {CLAIM} · [[{LINK}]]\n")
-    candidate, = consults.candidates(enterprise, "release schedules", "releases")
-    assert candidate.person == SLACK and candidate.evidence[0]["via"] == rows[0].person
 
 
 @pytest.mark.parametrize("address", ["kim+releases@example.com", "lee.o'neil@example.com"])
@@ -309,28 +288,6 @@ def test_claims_cli_records_deferred_to_evidence_and_is_idempotent(enterprise, c
     assert snapshot(enterprise.repo) == before
 
 
-@pytest.mark.parametrize("flags", [[], ["--mail", "--reviews", "."], ["--mail", "--claims", "claims.md"],
-                                  ["--reviews", ".", "--claims", "claims.md"],
-                                  ["--mail", "--reviews", ".", "--claims", "claims.md"]])
-def test_cli_requires_exactly_one_source(enterprise, flags, capsys):
-    with pytest.raises(SystemExit) as error:
-        cli.main(["consult", "seed", "--vault", str(enterprise.vault_path)] + flags)
-    assert error.value.code == 2
-    assert "--reviews" in capsys.readouterr().err
-
-
-@pytest.mark.parametrize("flags,reason", [
-    (["--claims", "absent.md"], "unreadable claims file"),
-    (["--claims", "absent.md", "--account", "company@example.com"], "--account goes with --mail"),
-    (["--claims", "absent.md", "--days", "1"], "--days goes with --reviews or --mail"),
-    (["--mail", "--dry-run"], "--dry-run goes with --reviews or --claims"),
-    (["--mail", "--days", "-1"], "non-negative"),
-])
-def test_cli_refuses_inapplicable_options_and_unreadable_claims(enterprise, flags, reason):
-    with pytest.raises(SystemExit, match=reason):
-        cli.main(["consult", "seed", "--vault", str(enterprise.vault_path)] + flags)
-
-
 def test_email_profile_ids_join_slack_consults_and_retain_via(enterprise):
     path = enterprise.vault_path / enterprise.people_dir / "Kim" / "Profile.md"
     path.parent.mkdir(parents=True)
@@ -353,6 +310,8 @@ def test_email_profile_ids_join_slack_consults_and_retain_via(enterprise):
     assert "via" not in next(item for item in candidate.evidence if item["kind"] == "reviewed")
     assert identity.profile_ids("- **Email:** kim@example.com\n") == []
     assert snapshot(enterprise.repo) == before
+    rows, problems = mail_source.deference_claims(claim_line(person="Kim.Lee@Example.com"))
+    assert problems == [] and rows[0].person == "email:kim.lee@example.com"
 
 
 @pytest.mark.parametrize("line", ["Email: KIM@EXAMPLE.COM", "- email: kim@example.com",

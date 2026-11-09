@@ -27,8 +27,6 @@ ACCOUNT = re.compile(r"^- \*\*Account \((\d{4}-W\d{2})\):\*\* (.+)$", re.M)
 WORDS = re.compile(r'^- \*\*In their words:\*\* "(.*)" \((\d{4}-\d{2}-\d{2}|unknown)\)$', re.M)
 EVIDENCE = re.compile(r"^- \*\*Evidence:\*\* (\d{4}-\d{2}-\d{2}) · (.+)$", re.M)
 ENDING = re.compile(r"^- \*\*(?:Reached|Superseded|Set-Aside):\*\* (\d{4}-\d{2}-\d{2}) — ", re.M)
-ACTIVE_DESCRIPTION = "What the owner is working toward, said or inferred from repeated, dated evidence."
-LEGACY_DESCRIPTION = "What the owner has chosen to cultivate: called a goal in their words, or returned to on a second day."
 TEMPLATE = "# Goals\n\n## Aspirations\n\n## Active goals\n\n## Adopted practices\n\n## Set aside\n"
 
 
@@ -191,8 +189,7 @@ def problems(config: Config) -> list[str]:
         if len(goal.evidence) > 10 or len(re.findall(r"\*\*Evidence:\*\*", goal.body)) != len(goal.evidence):
             out.append(prefix + "malformed or unbounded evidence; use `brain goals G-n evidence`")
         if goal.state.get("digest") != goal.digest():
-            out.append(prefix + "hand-edited goal block; restore the last brain-written block from git, then use `brain goals`. "
-                       "For legacy text use `brain goals migrate --dry-run`.")
+            out.append(prefix + "hand-edited goal block; restore the last brain-written block from git, then use `brain goals`.")
     return out
 
 
@@ -864,39 +861,3 @@ def link_note(config: Config, gid: str, note: str) -> None:
         raise ValueError("link needs a hub or a prepared draft (kind: draft)")
     fm.write(path, data, body)
 
-
-def migrate(config: Config, *, apply: bool = False) -> list[str]:
-    """Archive legacy content for the intellect to judge; never create goals."""
-    if config.edition != "personal":
-        return ["organisation vault: no personal goals to migrate"]
-    path = config.vault_path / config.human_goals
-    original = path.read_bytes().decode("utf-8") if path.exists() else TEMPLATE
-    _, body = fm.split(original)
-    span = fm.section(body, "Active goals")
-    if span is None:
-        return ["no Active goals section; nothing to migrate"]
-    for raw in body[span[0]:span[1]].splitlines():
-        value = raw.strip()
-        if not value or value in (ACTIVE_DESCRIPTION, LEGACY_DESCRIPTION):
-            continue
-        value = re.sub(r"^(?:#{3,6} |[-*] )", "", value)
-        value = re.sub(r"^\*\*[^*]+:\*\*\s*", "", value)
-        if re.fullmatch(r"\[[^\[\]\n]*\]", value) or re.match(r"None\b", value, re.I):
-            continue
-        break
-    else:
-        return ["no legacy content in Active goals; nothing to migrate"]
-    archive_rel = config.agent("Goals Archive/Migration.md")
-    if not apply:
-        return [f"legacy content in Active goals; would archive to {archive_rel}"]
-    archive = config.vault_path / archive_rel
-    if archive.exists():
-        raise ValueError("a migration archive already exists; inspect it before migrating more legacy text")
-    archive.parent.mkdir(parents=True, exist_ok=True)
-    fm.write(archive, {"kind": "log", "tier": "cold"}, original)
-    # Preserve everything outside Active goals, including frontmatter and line endings.
-    offset = len(original) - len(body)
-    newline = "\r\n" if "\r\n" in original else "\n"
-    cleared = original[:offset + span[0]] + "\n" + ACTIVE_DESCRIPTION + newline * 2 + original[offset + span[1]:]
-    fm.write(path, {}, cleared)
-    return [f"archived original to {archive_rel}; Active goals cleared"]

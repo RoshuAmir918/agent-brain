@@ -613,14 +613,14 @@ def save_task(config: Config, task: Task, today: date, before: Task | None = Non
         needs.settle_tasks(config, today, [(tid, before.body)], f"{tid} is {(task.task_state or 'open').replace('_', ' ')}")
 
 
-def due(tasks: list[Task], pace: str | None = "regular", worked: dict[str, str] | None = None, *,
+def due(tasks: list[Task], worked: dict[str, str] | None = None, *,
         chunks: dict[str, int] | None = None, daily_chunks: int = DAILY_CHUNKS, now: str | None = None,
         budgets: dict[str, int] | None = None, caps: dict[str, int] | None = None) -> list[Task]:
     """Handed-off tasks a worker should work now: open and not resting on the owner. With `worked` (each
     task's last chunk), the one worked least recently comes first and a task never worked before all of them, so one
     long task cannot hold the slot; otherwise, oldest handoff first. `chunks` is
-    today's local-day count per task; regular tasks at their budget wait. `pace=None` combines both paces,
-    with daily tasks due from noon local until their first counted chunk. Explicit paces keep the legacy lists."""
+    today's local-day count per task; regular tasks at their budget wait, and daily tasks are due from noon local until
+    their first counted chunk."""
     worked = worked or {}
     chunks = chunks or {}
 
@@ -636,11 +636,9 @@ def due(tasks: list[Task], pace: str | None = "regular", worked: dict[str, str] 
         done = chunks.get(t.tid, 0)
         if t.tid in (caps or {}) and done >= caps[t.tid]:
             return False
-        own = _pace(t.body)
-        under_budget = done < (budgets or {}).get(t.tid, daily_chunks)
-        if pace is not None:   # an explicit pace keeps the legacy lists
-            return own == pace and (own == "daily" or under_budget)
-        return bool(now and now[11:] >= "12:00" and done == 0) if own == "daily" else under_budget
+        if _pace(t.body) == "daily":
+            return bool(now and now[11:] >= "12:00" and done == 0)
+        return done < (budgets or {}).get(t.tid, daily_chunks)
 
     return sorted(filter(eligible, tasks), key=lambda t: (worked.get(t.tid, ""), t.handoff[0], t.tid))
 

@@ -11,7 +11,6 @@ from pathlib import Path
 from .config import Config
 from .runtime import ROUTINE_PLATFORMS
 EVALUATION_RE = re.compile(r"evaluation fixture|retrieval[- ](check|test)|\bRC-\d{2}\b", re.I)
-ROUTINE_RE = re.compile(r"^cron\b|^cron_", re.I)
 SHELL_OPERATORS = (";", "&&", "||", "|", "&", "<", ">", ">>")
 WRITERS = ("write_file", "patch", "computer_write_file")   # a path in what they write is not a read
 

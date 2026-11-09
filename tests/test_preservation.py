@@ -9,7 +9,7 @@ from brain.tasks import Task, archive_path, read_archive_body, write_archive
 from brain.vault import Vault
 
 
-def test_existing_historical_archive_survives_repeated_register_saves(tmp_path):
+def test_archive_history_survives_repeated_saves(tmp_path):
     original = (
         "---\nkind: log\ntier: cold\n---\n# Historical register evidence\n\n"
         "Superseded waits are not current instructions.\n\n"
@@ -32,8 +32,6 @@ def test_existing_historical_archive_survives_repeated_register_saves(tmp_path):
     assert path.read_text() == first
     assert path.read_text().count(original) == 1
 
-
-def test_original_move_date_survives_repeated_archive_state_updates(tmp_path):
     task = Task("T-018", "Example", "FULL_HISTORICAL_BODY\n", {"status": "open"})
     write_archive(Config.load(tmp_path), task, "warm", date(2026, 10, 6))
     task.add_use("2026-10-09")
@@ -47,9 +45,8 @@ def test_original_move_date_survives_repeated_archive_state_updates(tmp_path):
     assert archive_path(Config.load(tmp_path), "T-018").read_text() == text
 
 
-@pytest.mark.parametrize("status", ["fulfilled/fired: read-only recheck",
-                                    "fulfilled", "fired 2026-10-08"])
-@pytest.mark.parametrize("cls", ["commitment", "intention"])
+@pytest.mark.parametrize("status, cls", [("fulfilled/fired: read-only recheck", "commitment"),
+                                         ("fulfilled", "intention"), ("fired 2026-10-08", "commitment")])
 def test_terminal_trigger_keeps_fired_section_and_evidence(status, cls, template_config):
     row = f"| TR-001 | {cls} | 2026-10-08 | recheck only | [[Source]] | {status} | 2026-10-05 |\n"
     evidence = "\nRecheck evidence: confirmed source; no transaction or new permission.\n\n"
@@ -60,6 +57,10 @@ def test_terminal_trigger_keeps_fired_section_and_evidence(status, cls, template
     result2, report2 = triggers.process(result, date(2026, 10, 10), {"Source": "cold"}, template_config)
     assert result2 == text
     assert report2 == report
+    active = triggers.TEMPLATE.replace("## Fired", row + "\nEvidence retained.\n\n## Fired")
+    moved, report3 = triggers.process(active, date(2026, 10, 9), {}, template_config)
+    assert moved.index("## Fired") < moved.index("| TR-001") and "Evidence retained." in moved
+    assert not report3["fired"]
 
 
 def test_firing_moves_attached_prose_without_losing_other_sections(template_config):
@@ -76,26 +77,19 @@ def test_firing_moves_attached_prose_without_losing_other_sections(template_conf
     assert not report2["fired"]
 
 
-def test_fulfilled_row_in_active_table_is_classified_without_refiring(template_config):
-    row = "| TR-001 | commitment | 2026-10-08 | done | [[Source]] | fulfilled/fired: recheck | 2026-10-05 |\n"
-    text = triggers.TEMPLATE.replace("## Fired", row + "\nEvidence retained.\n\n## Fired")
-    result, report = triggers.process(text, date(2026, 10, 9), {}, template_config)
-    assert result.index("## Fired") < result.index("| TR-001")
-    assert "Evidence retained." in result
-    assert not report["fired"]
-
-
 @pytest.mark.parametrize("transform", ["defaults", "tiers", "fold"])
-def test_sleep1_preserves_dream_bytes_including_frontmatter(tmp_path, transform):
+def test_sleep1_preserves_dream_bytes_and_new_notes_start_hot(tmp_path, transform):
     root = tmp_path / "memory"
     dream = root / "agent/Dreams/2026-10-08.md"
     dream.parent.mkdir(parents=True)
     fm.write(dream, {"kind": "dream", "fiction": True, "tier": "cold"}, "# Synthetic fiction fixture\n")
     original = dream.read_bytes()
+    (root / "Fresh Hub.md").write_text("# Fresh\n\nmade today\n")
     vault = Vault(root)
     report = []
     if transform == "defaults":
         changed = nightly.ensure_frontmatter(vault, date(2026, 10, 9), report)
+        assert vault.notes["Fresh Hub.md"].data["uses"] == ["2026-10-09"]
     elif transform == "tiers":
         changed = nightly.retier(vault, date(2026, 10, 9), report)
     else:

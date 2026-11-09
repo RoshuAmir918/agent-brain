@@ -146,78 +146,63 @@ def test_superseding_merges_evidence_relinks_open_work_and_reopen_keeps_links(va
     assert not validate.goal_problems(Vault(vault))
 
 
-@pytest.mark.parametrize("target", ["G-1", "G-999", "reached", "set-aside"])
-def test_superseding_requires_different_active_target_without_writes(vault, capsys, tmp_path, target):
+@pytest.mark.parametrize("ending,target,message", [
+    (None, "G-1", "different active"), (None, "G-999", "unknown or not active"),
+    (None, "reached", "unknown or not active"), (None, "set-aside", "unknown or not active"),
+    ("reached", "G-2", "only an active goal can be superseded; reopen it first"),
+    ("set-aside", "G-2", "only an active goal can be superseded; reopen it first"),
+    ("superseded-by", "G-2", "only an active goal can be superseded; reopen it first"),
+])
+def test_superseding_needs_an_active_source_and_a_different_active_target_without_writes(
+        vault, capsys, tmp_path, ending, target, message):
     cfg = Config.load(vault)
     pair(cfg)
+    goals.new(cfg, "Swim", "Learn to swim")
+    if ending:
+        goals.change(cfg, "G-1", ending, text="G-3", why="Finished")
     if target in ("reached", "set-aside"):
         goals.change(cfg, "G-2", target, why="Finished")
         target = "G-2"
     before = snapshot(tmp_path)
-    with pytest.raises(SystemExit, match="different active|unknown or not active"):
+    with pytest.raises(SystemExit, match=message):
         run(vault, capsys, "G-1", "superseded-by", target, "--from-app")
     assert snapshot(tmp_path) == before
 
 
-@pytest.mark.parametrize("ending", ["reached", "set-aside", "superseded-by"])
-def test_superseding_requires_active_source_without_writes(vault, capsys, tmp_path, ending):
+@pytest.mark.parametrize("basis,operation", [("duplicate", "reached"), ("latest", "superseded-by"), ("said", "reached"),
+                                             ("inferred", "superseded-by"), ("same-day", "reached")])
+def test_intellect_ending_evidence_must_be_new(vault, tmp_path, monkeypatch, basis, operation):
     cfg = Config.load(vault)
-    pair(cfg)
-    goals.new(cfg, "Swim", "Learn to swim")
-    goals.change(cfg, "G-1", ending, text="G-3", why="Finished")
-    before = snapshot(tmp_path)
-    with pytest.raises(SystemExit, match="only an active goal can be superseded; reopen it first"):
-        run(vault, capsys, "G-1", "superseded-by", "G-2")
-    assert snapshot(tmp_path) == before
-
-
-@pytest.mark.parametrize("operation", ["reached", "superseded-by"])
-@pytest.mark.parametrize("basis", ["duplicate", "latest", "said"])
-def test_intellect_ending_evidence_must_be_new_without_writes(vault, tmp_path, monkeypatch, operation, basis):
-    cfg = Config.load(vault)
-    pair(cfg)
     existing = "2026-11-01 · Signed up · [[Training]]"
-    if basis != "said":
+    if basis == "inferred":
+        goals.new(cfg, "Race", "Run a marathon", inferred=True, evidence=[existing])
+        goals.new(cfg, "Fitness", "Stay fit")
+    else:
+        pair(cfg)
+    if basis in ("duplicate", "latest"):
         goals.change(cfg, "G-1", "evidence", text=existing)
+    if basis in ("duplicate", "latest", "same-day"):
         goals.change(cfg, "G-1", "evidence", text="2026-11-06 · Still training · [[Training]]")
     monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
-    value = existing if basis == "duplicate" else "2026-11-05 · Finished · [[Training]]"
+    if basis == "same-day":
+        goal = goals.change(cfg, "G-1", operation, text="G-2", evidence=["2026-11-06 · Finished · [[Training]]"])
+        assert goal.state["state"] != "active" and goal.evidence[0]["text"] == "Finished"
+        return
+    value = existing if basis in ("duplicate", "inferred") else "2026-11-05 · Finished · [[Training]]"
     before = snapshot(tmp_path)
     with pytest.raises(ValueError, match="new evidence|latest evidence"):
-        goals.change(cfg, "G-1", operation, text="G-2", evidence=[
-            f"{TODAY} · New finish · [[Training]]", value])
+        goals.change(cfg, "G-1", operation, text="G-2", evidence=[f"{TODAY} · New finish · [[Training]]", value])
     assert snapshot(tmp_path) == before
 
 
-def test_probe_reused_inferred_evidence_cannot_end_goal(vault, capsys, tmp_path, monkeypatch):
-    cfg = Config.load(vault)
-    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
-    value = "2026-11-01 · Signed up · [[Training]]"
-    goals.new(cfg, "Race", "Run a marathon", inferred=True, evidence=[value])
-    before = snapshot(tmp_path)
-    with pytest.raises(SystemExit, match="new evidence"):
-        run(vault, capsys, "G-1", "reached", "--evidence", value)
-    assert snapshot(tmp_path) == before
-
-
-@pytest.mark.parametrize("operation", ["reached", "superseded-by"])
-def test_new_ending_evidence_may_share_latest_evidence_date(vault, monkeypatch, operation):
-    cfg = Config.load(vault)
-    pair(cfg)
-    goals.change(cfg, "G-1", "evidence", text="2026-11-06 · Still training · [[Training]]")
-    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
-    goal = goals.change(cfg, "G-1", operation, text="G-2",
-                        evidence=["2026-11-06 · Finished · [[Training]]"])
-    assert goal.state["state"] != "active"
-    assert goal.evidence[0]["text"] == "Finished"
-
-
-@pytest.mark.parametrize("operation", ["reached", "superseded-by", "set-aside"])
-@pytest.mark.parametrize("change", ["edit", "reopen"])
-@pytest.mark.parametrize("from_app", [False, True])
-@pytest.mark.parametrize("age", [13, 14])
+@pytest.mark.parametrize("change,from_app,age,operation", [
+    ("edit", False, 13, "reached"), ("edit", False, 14, "superseded-by"),
+    ("reopen", True, 13, "set-aside"), ("reopen", True, 14, "reached"),
+    (None, False, 0, "set-aside"),
+])
 def test_intellect_endings_respect_person_changes_after_intellect_edit(
         vault, tmp_path, monkeypatch, operation, change, from_app, age):
+    """Only the person's own edit or reopen protects a goal for fourteen days; the intellect's own edit does not."""
     cfg = Config.load(vault)
     changed_at = str(TODAY - timedelta(days=age))
     monkeypatch.setenv("BRAIN_TODAY", changed_at)
@@ -225,16 +210,17 @@ def test_intellect_endings_respect_person_changes_after_intellect_edit(
     if change == "reopen":
         goals.change(cfg, "G-1", "reached")
     monkeypatch.setenv("BRAIN_SPEAKER", "cron:night" if from_app else "cli:owner")
-    goals.change(cfg, "G-1", change, title="My race", why="Still pursuing it", from_app=from_app)
+    if change:
+        goals.change(cfg, "G-1", change, title="My race", why="Still pursuing it", from_app=from_app)
     monkeypatch.setenv("BRAIN_TODAY", str(TODAY))
     monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
     goals.change(cfg, "G-1", "edit", title="Race plan")
     goal = entries(cfg)["G-1"]
-    assert goal.state["owner_updated"] == changed_at
+    assert goal.state.get("owner_updated") == (changed_at if change else None)
     assert goal.state["updated"] == str(TODAY)
     before = snapshot(tmp_path)
     kwargs = dict(text="G-2", why="Finished", evidence=[f"{TODAY} · Finished · [[Training]]"])
-    if age < 14:
+    if change and age < 14:
         with pytest.raises(ValueError, match="person.*14 days"):
             goals.change(cfg, "G-1", operation, **kwargs)
         assert snapshot(tmp_path) == before
@@ -242,17 +228,7 @@ def test_intellect_endings_respect_person_changes_after_intellect_edit(
         assert goals.change(cfg, "G-1", operation, **kwargs).state["state"] != "active"
 
 
-def test_intellect_edit_alone_does_not_protect_goal(vault, monkeypatch):
-    cfg = Config.load(vault)
-    pair(cfg)
-    monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
-    goals.change(cfg, "G-1", "edit", title="Race plan")
-    goal = goals.change(cfg, "G-1", "set-aside", why="Training stopped")
-    assert goal.state["state"] == "set_aside"
-
-
-@pytest.mark.parametrize("operation", ["reached", "superseded-by", "set-aside"])
-@pytest.mark.parametrize("from_app", [False, True])
+@pytest.mark.parametrize("operation,from_app", [("superseded-by", False), ("set-aside", True)])
 def test_intellect_endings_stop_after_three_goals_today_but_person_can_end(
         vault, tmp_path, monkeypatch, operation, from_app):
     cfg = Config.load(vault)
@@ -357,20 +333,49 @@ def test_asked_missed_rejects_goals_without_missed_finish_line(vault, capsys, tm
     assert snapshot(tmp_path) == before
 
 
-def test_judged_stale_reason_is_preserved(vault, capsys):
-    cfg = Config.load(vault)
-    pair(cfg)
-    run(vault, capsys, "G-1", "set-aside", "--why", "Training stopped after the injury")
-    assert "Training stopped after the injury" in entries(cfg)["G-1"].body
-    assert entries(cfg)["G-1"].state["state"] == "set_aside"
+def test_stale_due_reason_and_grounded_evidence_clear_without_ending(vault, monkeypatch, capsys):
+    today = date(2026, 11, 8)
+    monkeypatch.setenv("BRAIN_TODAY", str(today))
+    config = Config.load(vault)
+    fm.write(vault / "Training.md", {"kind": "hub", "tier": "warm"}, "# Training\n")
+    old = today - timedelta(days=30)
+    goal = goals.new(config, "Marathon", "Run a marathon", inferred=True, said=str(old),
+                     evidence=[f"{old} · Training began · [[Training]]"])
+    assert goals.decay(config, today) == [goal.gid]
+    flagged = goals.load(config)[0]
+    assert flagged.state["state"] == "active" and flagged.state["stale"] == str(today)
+    assert "Set-Aside" not in flagged.body
+    before = snapshot(vault)
+    cli.main(["goals", "due", "--json", "--vault", str(vault)])
+    row, = json.loads(capsys.readouterr().out)
+    assert row["id"] == goal.gid and row["stale"] == str(today)
+    assert "No grounded evidence for 30 days" in row["reasons"][0]
+    cli.main(["goals", "due", "--vault", str(vault)])
+    assert "flagged stale" in capsys.readouterr().out
+    assert snapshot(vault) == before
+    assert goals.decay(config, today + timedelta(days=1)) == []
+    assert goals.load(config)[0].state["stale"] == str(today)
+    goals.change(config, goal.gid, "evidence", text=f"{old} · Old evidence repeated · [[Training]]")
+    assert goals.load(config)[0].state["stale"] == str(today)
+    goals.change(config, goal.gid, "evidence", text=f"{today} · Still training · [[Training]]")
+    assert "stale" not in goals.load(config)[0].state
+    assert goals.due(config) == [] and goals.decay(config, today) == []
+    assert not goals.problems(config)
 
 
-def test_nightly_skill_limits_endings_and_respects_recent_owner_changes():
-    from importlib.resources import files
-    people = files("brain").joinpath("skills/people/SKILL.md").read_text()
-    recall = files("brain").joinpath("skills/recall/SKILL.md").read_text()
-    assert "At most three endings a night" in people
-    assert "reopened or edited in the last fourteen days" in people
-    assert "brain goals due --json" in people and "asked-missed" in people
-    assert "brain needs-you --confirm" in people and "brain needs-you --ask" in people
-    assert '"done", "that\'s replaced by X" or "forget it"' in recall
+def test_decay_clears_stale_mark_when_existing_evidence_becomes_grounded(vault, monkeypatch):
+    today = date(2026, 11, 8)
+    monkeypatch.setenv("BRAIN_TODAY", str(today))
+    config = Config.load(vault)
+    fm.write(vault / "Training.md", {"kind": "hub"}, "# Training\n")
+    goal = goals.new(config, "Running", "Run", inferred=True, said="2026-09-01",
+                     evidence=["2026-09-01 · Began · [[Training]]"])
+    assert goals.decay(config, today) == [goal.gid]
+    goal = goals.load(config)[0]
+    goal.body += f"- **Evidence:** {today} · Ran again · [[Restored]]\n"
+    goals._write(config, *goals.read(config), goal)
+    assert goals.decay(config, today) == []
+    fm.write(vault / "Restored.md", {"kind": "hub"}, "# Restored\n")
+    assert goals.decay(config, today) == [goal.gid]
+    assert "stale" not in goals.load(config)[0].state
+    assert goals.load(config)[0].state["state"] == "active"

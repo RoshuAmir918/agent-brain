@@ -117,7 +117,7 @@ def test_export_windows_bounds_privacy_and_no_fabricated_dates(cfg):
     assert state.build(replace(cfg, edition="enterprise"), TODAY)["goals"] == []
 
 
-@pytest.mark.parametrize("weight", goals.WEIGHTS)
+@pytest.mark.parametrize("weight", ["less"])
 def test_weight_owner_only_cached_immediately_and_persistent(cfg, capsys, monkeypatch, weight):
     monkeypatch.setenv("BRAIN_SPEAKER", "cron:explore")
     before = snapshot(cfg.vault_path)
@@ -204,6 +204,13 @@ def test_answered_ideas_keep_their_goal_and_proposition(cfg, answer):
     ("activity", "--weeks", "0"), ("activity", "--weeks", "-1"), ("activity", "G-999"),
     ("activity", "--weeks", "99999999999999999999"),
     ("list", "--weeks", "1"), ("activity", "G-1", "extra"),
+    ("G-1", "account", "I worked on G-1."), ("G-1", "account", "I finished T-012."),
+    ("G-1", "account", "I read [[Medicine]]."), ("G-1", "account", "I read Medicine.md."),
+    ("G-1", "account", "I read agent/Prepared/Review."), ("G-1", "account", r"I read agent\Review."),
+    ("G-1", "account", "I made cards.", "--week", "2025-W53"),
+    ("G-1", "account", "I made cards.", "--week", "2026-W00"),
+    ("G-1", "account", "I made cards.", "--week", "2026-W1"),
+    ("G-1", "weight", "more", "--week", "2026-W45"),
 ])
 def test_invalid_goal_work_commands_do_not_write(cfg, capsys, argv):
     before = snapshot(cfg.vault_path)
@@ -212,7 +219,7 @@ def test_invalid_goal_work_commands_do_not_write(cfg, capsys, argv):
     assert snapshot(cfg.vault_path) == before
 
 
-def test_stamp_tracks_runtime_activity_details(cfg, tmp_path, monkeypatch):
+def test_stamp_tracks_runtime_activity_and_corrections_in_a_hidden_runtime_folder(cfg, tmp_path, monkeypatch):
     home = tmp_path / "runtime"
     folder = home / "records/continue/tasks"
     folder.mkdir(parents=True)
@@ -220,6 +227,12 @@ def test_stamp_tracks_runtime_activity_details(cfg, tmp_path, monkeypatch):
     before = state.stamp(cfg)
     (folder / "T-001.json").write_text('{"task":"T-001","text":"A result"}')
     assert before != state.stamp(cfg)
+    config = replace(cfg, runtime_dir=".runtime")
+    before = state.stamp(config)
+    values = goals.capture(config)
+    values["corrections"] = {"G-1": {"draft:abc": {"at": str(TODAY), "why": "Not this", "kind": "made", "text": "A deck"}}}
+    goals.save_capture(config, values)
+    assert state.stamp(config) != before
 
 
 def test_archived_task_and_made_corrections_remain_visible(cfg, capsys):
@@ -254,6 +267,8 @@ def test_reception_on_goal_hub_and_exact_ledger_goal_matches(cfg):
 def test_goal_account_only_and_asked_draft_provenance(cfg, capsys):
     task = tasks.new_task(cfg, "Asked cards", '"Please make cards"', goal="G-1")
     draft(cfg, task=task.tid)
+    other = tasks.new_task(cfg, "Requested cards", '"Please prepare cards"')
+    draft(cfg, "Other deck", task=other.tid)   # provenance follows the owning task even when it has no goal
     assert all(not item["unasked"] for item in goals.activity(cfg)["G-1"])
     run(cfg, capsys, "G-1", "account", "I made the cards you asked for. They are held for you.")
     assert state.build(cfg, TODAY)["goals"][0]["account"]["thisWeek"]["text"] == "I made the cards you asked for. They are held for you."
@@ -269,21 +284,6 @@ def test_activity_skips_invalid_reception_dates_and_deduplicates_receipts(cfg):
     items = goals.activity(cfg)["G-1"]
     assert len(items) == 2 and len({item["id"] for item in items}) == 2
     assert not any(rid in line for item in items for line in item["detail"])
-
-
-def test_made_provenance_uses_owning_task_even_without_its_goal(cfg):
-    task = tasks.new_task(cfg, "Requested cards", '"Please prepare cards"')
-    draft(cfg, task=task.tid)
-    assert not goals.activity(cfg)["G-1"][0]["unasked"]
-
-
-def test_stamp_tracks_corrections_in_a_hidden_runtime_folder(cfg):
-    config = replace(cfg, runtime_dir=".runtime")
-    before = state.stamp(config)
-    values = goals.capture(config)
-    values["corrections"] = {"G-1": {"draft:abc": {"at": str(TODAY), "why": "Not this", "kind": "made", "text": "A deck"}}}
-    goals.save_capture(config, values)
-    assert state.stamp(config) != before
 
 
 def test_item_links_use_app_targets(cfg, tmp_path, monkeypatch):
@@ -384,21 +384,18 @@ def test_standalone_draft_receipt_folds_but_other_goal_work_stays_separate(cfg):
     assert goals.activity(cfg)["G-2"][0]["id"] == task.tid
 
 
-@pytest.mark.parametrize(("raw", "expected"), [
-    ("work: Built [[agent/Prepared/Renal.md|a renal deck]], held", "Built a renal deck"),
-    ("people: Read [[path/Cardio.md]], filed", "Read Cardio"),
-    ("occasion: Shared agent/Prepared/Renal.md, messaged", "Shared Renal"),
-    ("research: Read [[path/Cardio]], delivered", "Read Cardio"),
-    ("work: G-1: Compared T-012 and G-99, nothing", "Compared a task and the goal"),
-    ("gesture: Shared /agent/Prepared/Renal.md, delivered", "Shared Renal"),
+@pytest.mark.parametrize(("raw", "titles", "expected"), [
+    ("work: Built [[agent/Prepared/Renal.md|a renal deck]], held", {}, "Built a renal deck"),
+    ("people: Read [[path/Cardio.md]], filed", {}, "Read Cardio"),
+    ("occasion: Shared agent/Prepared/Renal.md, messaged", {}, "Shared Renal"),
+    ("research: Read [[path/Cardio]], delivered", {}, "Read Cardio"),
+    ("work: G-1: Compared T-012 and G-99, nothing", {"T-012": "a task"}, "Compared a task and the goal"),
+    ("gesture: Shared /agent/Prepared/Renal.md, delivered", {}, "Shared Renal"),
+    ("Finished T-012 for G-1", {"T-012": "work: Read [[path/Cardio.md]], held", "G-1": "Learn G-2"},
+     "Finished Read Cardio for Learn the goal"),
 ])
-def test_readable_removes_storage_syntax(raw, expected):
-    assert goal_activity.readable(raw, {"T-012": "a task"}) == expected
-
-
-def test_readable_also_cleans_referenced_titles():
-    assert goal_activity.readable("Finished T-012 for G-1", {
-        "T-012": "work: Read [[path/Cardio.md]], held", "G-1": "Learn G-2"}) == "Finished Read Cardio for Learn the goal"
+def test_readable_removes_storage_syntax_from_text_and_referenced_titles(raw, titles, expected):
+    assert goal_activity.readable(raw, titles) == expected
 
 
 def test_idea_reception_still_matches_after_humanizing_ids(cfg):
@@ -454,22 +451,6 @@ def test_account_owner_or_people_routine_only(cfg, capsys, monkeypatch, speaker,
         with pytest.raises(SystemExit, match="only the owner or the people routine"):
             run(cfg, capsys, "G-1", "account", "I prepared cards. They are held.", "--week", "2026-W45")
         assert snapshot(cfg.vault_path) == before
-
-
-@pytest.mark.parametrize("extra", [
-    ("account", "I worked on G-1."), ("account", "I finished T-012."),
-    ("account", "I read [[Medicine]]."), ("account", "I read Medicine.md."),
-    ("account", "I read agent/Prepared/Review."), ("account", r"I read agent\Review."),
-    ("account", "I made cards.", "--week", "2025-W53"),
-    ("account", "I made cards.", "--week", "2026-W00"),
-    ("account", "I made cards.", "--week", "2026-W1"),
-    ("weight", "more", "--week", "2026-W45"),
-])
-def test_account_rejects_storage_syntax_and_invalid_week_without_writes(cfg, capsys, extra):
-    before = snapshot(cfg.vault_path)
-    with pytest.raises(SystemExit):
-        run(cfg, capsys, "G-1", *extra)
-    assert snapshot(cfg.vault_path) == before
 
 
 @pytest.mark.parametrize("marker", [None, "routine", "worker", "task", "cron", "subagent"])

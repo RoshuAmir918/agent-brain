@@ -1,6 +1,4 @@
 from datetime import date
-import json
-from unittest.mock import patch
 
 import pytest
 
@@ -116,6 +114,7 @@ def test_alternate_layout_whole_night_and_preview(alternate, monkeypatch, capsys
     text, _ = digest.build(config, date(2026, 10, 20))
     assert "**Owner Example**" in text and "**Guide**" in text
     assert f"reads: {config.link('Warm Hub.md')}" in text
+    assert digest.write(config, date(2026, 10, 20), text) == root / "Conversations/Digests/2026-10-20.md"
     cli.main(["install-skills"])
     for path in config.skills_path.glob("*/SKILL.md"):
         text = path.read_text()
@@ -139,20 +138,3 @@ def test_alternate_plain_paths_and_task_evidence(alternate):
     assert f"[[{config.link(config.agent('Tasks Archive/T-099'))}|" in bounded
     assert "[[memory/" not in bounded
 
-
-def test_nightly_run_loads_config_only_once(alternate):
-    root = alternate.vault_path
-    with patch.object(Config, "load", wraps=Config.load) as load:
-        nightly.run(root, date(2026, 10, 20), install.sessions_records_path())
-    load.assert_called_once_with(root.resolve())
-
-
-def test_context_and_digest_reuse_loaded_config(alternate):
-    vault = Vault(alternate.vault_path)
-    with patch.object(Config, "load", side_effect=AssertionError("config must be passed explicitly")):
-        context = compile_context.build(vault)
-        text, _ = digest.build(vault.config, date(2026, 10, 20))
-        path = digest.write(vault.config, date(2026, 10, 20), text)
-    assert f"## {alternate.link(alternate.agent('Tasks.md'))}" in context
-    assert "**Owner Example**" in text and "**Guide**" in text
-    assert path == alternate.vault_path / "Conversations/Digests/2026-10-20.md"

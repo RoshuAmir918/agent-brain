@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from brain import cli, continuation, needs, state, tasks
+from brain import cli, continuation, state, tasks
 from brain.config import Config
 
 

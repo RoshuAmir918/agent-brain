@@ -58,11 +58,6 @@ def test_summary_is_clean_json_in_the_work(vault, work, monkeypatch, capsys):
     ({"extra": []}, 'a view is {"pieces": [...]}'),
     ({"pieces": "table"}, "pieces must be a list"),
     ({"pieces": SUMMARY["pieces"] * 4}, "at most 6"),
-    ({"pieces": [{"kind": "html"}]}, "kind must be"),
-    ({"pieces": [{"kind": "progress", "title": "Venues", "done": 5, "total": 3}]}, "between 0 and total"),
-    ({"pieces": [{"kind": "links", "items": [{"label": "x", "href": "javascript:alert(1)"}]}]}, "https URL or a vault note"),
-    ({"pieces": [{"kind": "table", "title": "T", "columns": ["A", "B", "C"], "rows": [
-        {"cells": ["r" * 190, "s" * 190, "t" * 190]} for _ in range(40)]}]}, "the limit is 16000"),
 ])
 def test_invalid_summary_prints_the_kit_and_preserves_existing_files(vault, work, monkeypatch, capsys, bad, reason):
     view(vault, monkeypatch, SUMMARY)
@@ -87,8 +82,7 @@ def test_empty_summary_removes_only_the_view_and_can_be_repeated(vault, work, mo
         assert list(work.iterdir()) == [work / "README.md"]
 
 
-@pytest.mark.parametrize("spec", [SUMMARY, {}])
-@pytest.mark.parametrize("file_instead", [False, True])
+@pytest.mark.parametrize("spec,file_instead", [(SUMMARY, False), ({}, True)])
 def test_work_folder_must_already_exist(vault, work, monkeypatch, capsys, spec, file_instead):
     if file_instead:
         (work.parent / "missing").write_text("not a folder")

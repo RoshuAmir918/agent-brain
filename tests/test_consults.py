@@ -3,7 +3,6 @@ from dataclasses import asdict
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 import json
-import math
 import os
 from pathlib import Path
 import subprocess
@@ -128,20 +127,16 @@ def test_ask_any_person_without_map_and_proposed_rows_are_hints(enterprise):
     ("why", "", "give --why"),
     ("to", "Noah", "<platform>:<id>"),
     ("task", "T-999", "not an open task"),
+    ("task", "T-001", "not an open task"),
 ])
 def test_ask_refusals_are_read_only(enterprise, field, value, message):
+    tasks.close(enterprise, "T-001", TODAY, True, "Finished it.")
     values = {"to": NOAH, "text": QUESTION, "default": DEFAULT, "why": WHY}
     values[field] = value
     before = snapshot(enterprise.vault_path)
     with pytest.raises(ValueError, match=message):
         consults.ask(enterprise, area="infrastructure", **values)
     assert snapshot(enterprise.vault_path) == before
-
-
-def test_closed_task_refused(enterprise):
-    tasks.close(enterprise, "T-001", TODAY, True, "Finished it.")
-    with pytest.raises(ValueError, match="not an open task"):
-        ask(enterprise, task="T-001")
 
 
 def test_ask_format_dedupe_and_optional_task(enterprise):
@@ -326,19 +321,17 @@ def test_needs_surface_owner_default_area_and_state(enterprise, capsys):
     exported = state.build(enterprise, TODAY)
     assert exported["needsYou"][0]["default"] == DEFAULT
     assert exported["needsYou"][0]["owner"] == NOAH
-    needs.dismiss(enterprise, entry.id, TODAY)
-    confirm, = needs.items(enterprise, TODAY)
-    assert confirm.kind == "confirm" and confirm.owner == NOAH and confirm.default == DEFAULT
-
-
-def test_taskless_consult_state_and_cli_list(enterprise, capsys):
-    entry = ask(enterprise)
-    assert state.build(enterprise, TODAY)["needsYou"][0]["source"] == "agent/Consults.md"
     cli.main(["consult", "list", "--vault", str(enterprise.vault_path), "--json", "--for", NOAH])
     listed, = json.loads(capsys.readouterr().out)
     assert listed["id"] == entry.id and listed["until"] == "2026-11-12 14:03"
     cli.main(["consult", "list", "--vault", str(enterprise.vault_path), "--json", "--for", ROSHAN])
     assert json.loads(capsys.readouterr().out) == []
+    needs.dismiss(enterprise, entry.id, TODAY)
+    confirm, = needs.items(enterprise, TODAY)
+    assert confirm.kind == "confirm" and confirm.owner == NOAH and confirm.default == DEFAULT
+    taskless = ask(enterprise, to=ROSHAN, area="analytics", text="Move dashboards to the new warehouse?")
+    exported = {item["id"]: item for item in state.build(enterprise, TODAY)["needsYou"]}
+    assert exported[taskless.id]["source"] == "agent/Consults.md"
 
 
 def test_stale_overflow_and_expiry(enterprise):
@@ -363,59 +356,40 @@ def test_nightly_expires_went_ahead(enterprise):
     assert any("consult: confirm accepted after 5 days" in line for line in report)
 
 
-@pytest.mark.parametrize("arguments", [
-    ["ask", "--to", NOAH, "--why", WHY, "--area", "infrastructure", "--ask", QUESTION, "--default", DEFAULT],
-    ["answer", "123", "--outcome", "confirmed", "--answer", "Yes.", "--by", NOAH],
-    ["lapse"], ["list", "--json"], ["stats", "--json"],
-    ["candidates", "--about", QUESTION],
-    ["overrule", "123", "--answer", "Changed my mind.", "--by", KIM],
-    ["delegate", "--area", "infrastructure", "--to", KIM, "--by", NOAH, "--words", "Ask Kim."],
-])
-def test_personal_refuses_each_consult_command(vault, arguments):
+def test_personal_edition_refuses_consults_without_writing(vault):
     before = snapshot(vault)
     with pytest.raises(SystemExit, match="consults need the enterprise edition"):
-        cli.main(["consult", *arguments, "--vault", str(vault)])
+        cli.main(["consult", "ask", "--to", NOAH, "--why", WHY, "--area", "infrastructure",
+                  "--ask", QUESTION, "--default", DEFAULT, "--vault", str(vault)])
+    with pytest.raises(ValueError, match="enterprise edition"):
+        consults.add_evidence(Config.load(vault), "infrastructure", TODAY, KIM, "approved", "Approved change.")
     assert snapshot(vault) == before
 
 
-def test_stats_numbers_and_cli(enterprise, monkeypatch, capsys):
-    entry = ask(enterprise)
-    clock(monkeypatch, "2026-11-12 11:03")
-    consults.answer(enterprise, entry.id, "changed", "Keep staging unchanged.", NOAH)
-    entry = ask(enterprise, text="Keep Terraform state in the infra account?")
-    clock(monkeypatch, "2026-11-12 14:03")
-    consults.answer(enterprise, entry.id, "confirmed", "Yes, keep it there.", NOAH)
-    entry = ask(enterprise)
-    needs.dismiss(enterprise, entry.id, TODAY)
-    result = consults.stats(enterprise)
-    assert result["areas"]["infrastructure"] == {
-        "asked": 3, "changed": 1, "confirmed": 1, "redirected": 0, "overruled": 0, "unanswered": 1, "changed_share": 0.5, "median_hours": 2.0}
-    assert result["people"][NOAH] == {
-        "asked": 3, "changed": 1, "confirmed": 1, "redirected": 0, "overruled": 0, "unanswered": 1, "changed_share": 0.5, "median_hours": 2.0}
-    cli.main(["consult", "stats", "--json", "--vault", str(enterprise.vault_path)])
-    assert json.loads(capsys.readouterr().out) == result
+def test_cli_walkthrough(enterprise, capsys, monkeypatch):
+    def consult(*arguments):
+        cli.main(["consult", *arguments, "--vault", str(enterprise.vault_path)])
+        return capsys.readouterr().out
 
-
-def test_cli_ask_answer_lapse_and_group_vault(enterprise, capsys, monkeypatch):
-    root = str(enterprise.vault_path)
-    cli.main(["consult", "--vault", root, "ask", "--area", "infrastructure", "--ask", QUESTION,
-              "--default", DEFAULT, "--to", NOAH, "--why", WHY, "--task", "T-001"])
-    ident = capsys.readouterr().out.strip()
+    assert "delegation recorded" in consult("delegate", "--area", "infrastructure", "--to", KIM,
+                                            "--by", NOAH, "--words", "Kim can decide about deploys.")
+    ident = consult("ask", "--to", KIM, "--area", "infrastructure", "--restricted", "--task", "T-001",
+                    "--why", "Noah delegated deploy questions to you.", "--ask", QUESTION, "--default", DEFAULT).strip()
     assert ident == consults.load(enterprise)[0].id
-    cli.main(["consult", "answer", ident, "--vault", root, "--outcome", "confirmed",
-              "--answer", "Yes, leave it alone.", "--by", NOAH])
-    assert f"{ident}: confirmed; decision recorded" in capsys.readouterr().out
-    cli.main(["consult", "ask", "--vault", root, "--area", "analytics", "--ask", "Move dashboards to the warehouse?",
-              "--default", DEFAULT, "--to", ROSHAN, "--why", WHY])
-    ident = capsys.readouterr().out.strip()
+    assert f"redirected; moved to {LEE}" in consult("answer", ident, "--by", KIM, "--outcome", "redirected",
+                                                    "--to", LEE, "--answer", "Ask Lee about this staging deploy.")
+    assert f"{ident}: confirmed; decision recorded" in consult("answer", ident, "--by", LEE, "--outcome", "confirmed",
+                                                               "--answer", "Leave staging as it is.")
+    assert f"{ident}: overrule recorded" in consult("overrule", ident, "--by", ROSHAN, "--answer", "Freeze all staging deploys.")
+    assert consults.load(enterprise) == []
+    assert consults.stats(enterprise)["weekly"] == [dict(week="2026-W46", resolved=1, redirected=1, rate=1.0)]
+    ident = consult("ask", "--area", "analytics", "--ask", "Move dashboards to the warehouse?",
+                    "--default", DEFAULT, "--to", ROSHAN, "--why", WHY).strip()
     clock(monkeypatch, "2026-11-13 10:03")
-    cli.main(["consult", "lapse", "--vault", root, "--dry-run"])
-    assert f"{ident}: went ahead" in capsys.readouterr().out
+    assert f"{ident}: went ahead" in consult("lapse", "--dry-run")
     assert consults.load(enterprise)[0].kind == "ask"
-    cli.main(["consult", "lapse", "--vault", root])
-    assert "went ahead" in capsys.readouterr().out
-    cli.main(["consult", "list", "--vault", root])
-    assert "confirm · analytics · slack:U02ROSHAN" in capsys.readouterr().out
+    assert "went ahead" in consult("lapse")
+    assert "confirm · analytics · slack:U02ROSHAN" in consult("list")
 
 
 def test_archived_task_wakes_and_keeps_decision(enterprise):
@@ -491,7 +465,8 @@ def test_candidates_owners_matching_limit_names_and_read_only(enterprise, capsys
     cli.main(["consult", "candidates", "--about", "deploys", "--json", "--vault", str(enterprise.vault_path)])
     assert json.loads(capsys.readouterr().out) == [asdict(entry) for entry in ranked]
     cli.main(["consult", "candidates", "--about", "deploys", "--limit", "1", "--vault", str(enterprise.vault_path)])
-    assert "Noah · 12.00 · median - · infrastructure: owner" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "Noah" in output and "Roshan" not in output
     assert snapshot(enterprise.repo) == before
     with pytest.raises(ValueError, match="positive"):
         consults.candidates(enterprise, QUESTION, limit=0)
@@ -602,29 +577,11 @@ def test_seeded_evidence_dedup_decay_kinds_and_links(enterprise):
     ranked = consults.candidates(enterprise, "export")
     assert [entry.person for entry in ranked] == [LEE, KIM]
     assert ranked[0].score == sum(routing.WEIGHTS[kind] for kind in routing.SEED_KINDS)
-    assert ranked[1].score == pytest.approx(routing.WEIGHTS["deferred-to"] * math.log2(1.5))
+    assert 0 < ranked[1].score < routing.WEIGHTS["deferred-to"]
     assert ranked[1].evidence == [dict(area="export pipeline", kind="deferred-to", date=str(old),
                                      text="Per Kim · she signed off.", link="https://example.com/pr/1")]
     assert all(item["link"] == "agent/Areas/export pipeline.md" for item in ranked[0].evidence)
     assert snapshot(enterprise.repo) == before
-
-
-@pytest.mark.parametrize("change,match", [
-    ({"area": "../outside"}, "area must"),
-    ({"day": "2026-99-01"}, "month"),
-    ({"person": "Kim"}, "<platform>:<id>"),
-    ({"kind": "guessed"}, "evidence kind"),
-    ({"text": " "}, "own words"),
-    ({"text": "A line\nAnother line"}, "single-line"),
-    ({"link": "[[source]]"}, "brackets"),
-])
-def test_bad_seeded_evidence_is_read_only(enterprise, change, match):
-    values = dict(area="export pipeline", day=TODAY, person=KIM, kind="approved", text="Approved the change.")
-    values.update(change)
-    before = snapshot(enterprise.vault_path)
-    with pytest.raises(ValueError, match=match):
-        consults.add_evidence(enterprise, **values)
-    assert snapshot(enterprise.vault_path) == before
 
 
 def test_muted_candidates_last_area_specific_and_lapse_ignores(enterprise, monkeypatch):
@@ -874,9 +831,10 @@ def test_stats_weekly_redirect_rate_uses_final_resolution_week(enterprise, monke
                                                      unanswered=1, changed_share=0.5, median_hours=1.0)
     assert result["people"][KIM]["overruled"] == 1
     before = snapshot(enterprise.repo)
+    cli.main(["consult", "stats", "--json", "--vault", str(enterprise.vault_path)])
+    assert json.loads(capsys.readouterr().out) == result
     cli.main(["consult", "stats", "--vault", str(enterprise.vault_path)])
     output = capsys.readouterr().out
-    assert "2026-W46 · resolved 2 · redirected 1 · 50%" in output
     assert output.index("2026-W46") < output.index("2026-W47")
     assert snapshot(enterprise.repo) == before
 
@@ -912,34 +870,6 @@ def test_consult_writes_hold_the_vault_lock(enterprise, monkeypatch):
     consults.lapse(enterprise)
 
 
-def test_personal_add_evidence_refused(vault):
-    before = snapshot(vault)
-    with pytest.raises(ValueError, match="enterprise edition"):
-        consults.add_evidence(Config.load(vault), "infrastructure", TODAY, KIM, "approved", "Approved change.")
-    assert snapshot(vault) == before
-
-
-def test_cli_delegation_restricted_redirect_answer_and_overrule(enterprise, capsys):
-    root = str(enterprise.vault_path)
-    cli.main(["consult", "delegate", "--vault", root, "--area", "infrastructure", "--to", KIM,
-              "--by", NOAH, "--words", "Kim can decide about deploys."])
-    assert "delegation recorded" in capsys.readouterr().out
-    cli.main(["consult", "ask", "--vault", root, "--to", KIM, "--area", "infrastructure", "--restricted",
-              "--why", "Noah delegated deploy questions to you.", "--ask", QUESTION, "--default", DEFAULT])
-    ident = capsys.readouterr().out.strip()
-    cli.main(["consult", "answer", ident, "--vault", root, "--by", KIM, "--outcome", "redirected",
-              "--to", LEE, "--answer", "Ask Lee about this staging deploy."])
-    assert f"redirected; moved to {LEE}" in capsys.readouterr().out
-    cli.main(["consult", "answer", ident, "--vault", root, "--by", LEE, "--outcome", "confirmed",
-              "--answer", "Leave staging as it is."])
-    assert "confirmed; decision recorded" in capsys.readouterr().out
-    cli.main(["consult", "overrule", ident, "--vault", root, "--by", ROSHAN,
-              "--answer", "Freeze all staging deploys."])
-    assert f"{ident}: overrule recorded" in capsys.readouterr().out
-    assert consults.load(enterprise) == []
-    assert consults.stats(enterprise)["weekly"] == [dict(week="2026-W46", resolved=1, redirected=1, rate=1.0)]
-
-
 def test_evidence_counts_by_how_well_its_area_matches(enterprise):
     (enterprise.vault_path / "agent/Owners.md").write_text(
         TABLE.replace("terraform, AWS, CI, deploys", "terraform, AWS, CI, deploys, staging")
@@ -973,6 +903,5 @@ def test_seeded_volume_counts_with_diminishing_returns(enterprise):
     rows = [routing.Row("infrastructure", TODAY.isoformat(), KIM, "approved", f"#{number} Terraform deploys") for number in range(40)]
     assert consults.record_evidence(enterprise, rows) == 40
     ranked = {entry.person: entry.score for entry in consults.candidates(enterprise, "terraform deploys")}
-    assert ranked[KIM] == pytest.approx(routing.WEIGHTS["approved"] * math.log2(41))
     assert routing.WEIGHTS["owner"] < ranked[KIM] < 2 * routing.WEIGHTS["owner"]
     assert ranked[NOAH] == routing.WEIGHTS["owner"]

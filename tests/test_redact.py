@@ -1,6 +1,5 @@
 import pytest
 
-from brain import nightly
 from brain.redact import redact, redact_paths
 
 

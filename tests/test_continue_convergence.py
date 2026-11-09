@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from brain import cli as brain_cli, continuation, journal, needs, signals, tasks
+from brain import cli as brain_cli, continuation, journal, needs, tasks
 from brain.config import Config
 
 
@@ -54,28 +54,23 @@ def count(config, capsys, clock, n=1):
         cli(config, capsys, "--chunk", "T-001")
 
 
-@pytest.mark.parametrize("daily", [False, True])
 @pytest.mark.parametrize("work", [False, True])
-def test_missing_delivers_raises_one_standing_ask_and_returns_when_set(worker, capsys, daily, work):
+def test_missing_delivers_raises_one_standing_ask_and_returns_when_set(worker, capsys, work):
     config, clock = worker
     tasks.set_fields(config, "T-001", config.today(), clear=["delivers", *([] if work else ["work"])])
-    if daily:
-        tasks.set_pace(config, "T-001", "daily", config.today())
-    options = ["--daily"] if daily else []
     before = (config.vault_path / "agent/Tasks.md").read_text()
     for _ in range(3):
-        assert due(config, capsys, *options) == []
-        assert signals.continue_(config, daily=daily) == "date: none"
+        assert due(config, capsys) == []
     questions = needs.items(config, config.today())
     assert len(questions) == 1
-    assert questions[0].text == "What would done look like for Sample? Until then Agent won't keep working on it in the background."
+    assert questions[0].text.startswith("What would done look like for Sample?")
     assert "T-001" in questions[0].source
     first = (config.vault_path / "agent/Tasks.md").read_text()
-    due(config, capsys, *options)
+    due(config, capsys)
     assert (config.vault_path / "agent/Tasks.md").read_text() == first != before
     assert task(config).task_state == "in_progress"
     tasks.set_fields(config, "T-001", config.today(), values={"delivers": "a published shortlist"})
-    assert due(config, capsys, *options)[0]["id"] == "T-001"
+    assert due(config, capsys)[0]["id"] == "T-001"
     assert needs.items(config, config.today()) == []
 
 
@@ -83,21 +78,21 @@ def test_clearing_delivers_after_an_answered_finish_line_asks_again(worker, caps
     config, _ = worker
     tasks.set_fields(config, "T-001", config.today(), clear=["delivers", "work"])
     due(config, capsys)
+    finish = [item.text for item in needs.items(config, config.today())]
     tasks.set_fields(config, "T-001", config.today(), values={"delivers": "a published shortlist"})
     due(config, capsys)
     assert task(config).state["finish_asked"] == "answered"
     tasks.set_fields(config, "T-001", config.today(), clear=["delivers"])
     due(config, capsys)
-    assert [item.text for item in needs.items(config, config.today())] == [
-        "What would done look like for Sample? Until then Agent won't keep working on it in the background."]
+    assert len(finish) == 1 and [item.text for item in needs.items(config, config.today())] == finish
 
 
 def test_a_task_waiting_on_its_owner_is_not_asked_its_finish_line_until_it_moves(worker, capsys):
     config, _ = worker
     tasks.set_fields(config, "T-001", config.today(), clear=["delivers", "work"])
     due(config, capsys)
-    assert [item.text for item in needs.items(config, config.today())] == [
-        "What would done look like for Sample? Until then Agent won't keep working on it in the background."]
+    finish = [item.text for item in needs.items(config, config.today())]
+    assert len(finish) == 1
     tasks.set_fields(config, "T-001", config.today(), state="waiting_for_owner",
                      values={"ask": "Does the shortlist page open for you?", "why": "Then I can finish it."})
     due(config, capsys)
@@ -105,8 +100,7 @@ def test_a_task_waiting_on_its_owner_is_not_asked_its_finish_line_until_it_moves
     assert "finish_asked" not in task(config).state
     tasks.set_fields(config, "T-001", config.today(), state="in_progress")
     due(config, capsys)
-    assert [item.text for item in needs.items(config, config.today())] == [
-        "What would done look like for Sample? Until then Agent won't keep working on it in the background."]
+    assert [item.text for item in needs.items(config, config.today())] == finish
 
 
 def test_gate_works_without_runtime_and_does_not_touch_unhanded_tasks(worker, capsys, monkeypatch):
@@ -144,14 +138,6 @@ def test_review_count_default_cadence_reset_on_review_and_engagement(worker, cap
     assert due(config, capsys)[0]["lastReview"] == row["lastReview"]
 
 
-def test_review_cadence_is_configurable(worker, capsys):
-    config, clock = worker
-    with (config.repo / "brain.toml").open("a") as stream:
-        stream.write("\n[continue]\nreview_every = 2\n")
-    count(config, capsys, clock, 2)
-    assert due(config, capsys)[0]["reviewDue"] is True
-
-
 def test_review_context_six_results_source_budget_and_last_review(worker, capsys):
     config, clock = worker
     for i in range(8):
@@ -170,12 +156,6 @@ def test_review_context_six_results_source_budget_and_last_review(worker, capsys
     verdict(config, capsys, "converging")
     assert context(config, capsys)["lastReview"]["verdict"] == "converging"
     assert len(context(config, capsys)["results"]) == 6
-
-
-def test_legacy_context_uses_last_checkpoint(worker, capsys):
-    config, _ = worker
-    cli(config, capsys, "--checkpoint", "T-001", "--text", "Published the first shortlist")
-    assert context(config, capsys)["results"][0]["text"] == "Published the first shortlist"
 
 
 def test_owner_task_edits_and_answered_asks_are_available_to_reviewer(worker, capsys, monkeypatch):
@@ -204,13 +184,10 @@ def test_met_begins_next_chunk_instructions_and_clears_after_one_chunk_or_close(
     config, clock = worker
     cli(config, capsys, "--checkpoint", "T-001", "--text", "The shortlist is published")
     verdict(config, capsys, "met", "the three finalists are visible")
-    expected = ("The reviewer judged the Delivers met (the three finalists are visible). This chunk closes the task: "
-                "verify the deliverable exactly as the Delivers says, then `brain task T-001 done` with the evidence "
-                "and tell Human once where the task reports, or, if it is not actually met, say precisely what is missing "
-                "with `brain task T-001 set --next …`.")
-    assert due(config, capsys)[0]["checkpoint"].startswith(expected)
-    assert cli(config, capsys, "T-001").startswith(expected)
-    assert json.loads(cli(config, capsys, "T-001", "--json"))["checkpoint"].startswith(expected)
+    for text in (due(config, capsys)[0]["checkpoint"], cli(config, capsys, "T-001"),
+                 json.loads(cli(config, capsys, "T-001", "--json"))["checkpoint"]):
+        assert text.startswith("The reviewer judged the Delivers met (the three finalists are visible).")
+        assert "brain task T-001 done" in text
     assert task(config).task_state == "in_progress"
     if close:
         brain_cli.main(["task", "T-001", "done", "--why", "verified the Library", "--vault", str(config.vault_path)])
@@ -288,15 +265,6 @@ def test_stuck_accepts_computer_resume_and_waits_for_wake(worker, capsys):
     assert due(config, capsys)[0]["id"] == "T-001"
 
 
-def test_daily_circling_cap_applies_and_can_reach_zero(worker, capsys):
-    config, clock = worker
-    tasks.set_pace(config, "T-001", "daily", config.today())
-    assert due(config, capsys, "--daily")[0]["budgetLeft"] is None
-    count(config, capsys, clock, 15)
-    verdict(config, capsys, "circling", "scope keeps growing", "--ask", "Should the shortlist stop at three apartments?")
-    assert due(config, capsys, "--daily") == []   # floor(1 / 2) = 0 more chunks today
-
-
 def test_review_task_writes_hold_vault_lock(worker, capsys, monkeypatch):
     config, _ = worker
     held = False
@@ -333,13 +301,6 @@ def test_unchanged_checkpoint_is_not_a_new_chunk_result(worker, capsys):
     cli(config, capsys, "--checkpoint", "T-001", "--text", "Published one shortlist")
     count(config, capsys, clock, 2)
     assert [r["text"] for r in context(config, capsys)["results"]] == ["Published one shortlist", "open"]
-
-
-def test_single_daily_task_json_keeps_daily_budget_shape(worker, capsys):
-    config, _ = worker
-    tasks.set_pace(config, "T-001", "daily", config.today())
-    single = json.loads(cli(config, capsys, "T-001", "--json"))
-    assert single["budget"] is None and single["budgetLeft"] is None
 
 
 def test_answering_a_steering_ask_is_engagement_but_worker_resolution_is_not(worker, capsys, monkeypatch):

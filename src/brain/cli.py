@@ -200,18 +200,9 @@ def cmd_responsibility(a):
 
 
 def cmd_attribute(a):
-    root = a.config.vault_path
-    if not a.file:
-        directory = Path(a.sessions_dir).resolve() if a.sessions_dir else digest.default_sessions_dir(a.config)
-        for use in attribute.sessions(Vault(root), directory, a.write):
-            print(use.line())
-        return
-    text = Path(a.file).read_text(encoding="utf-8")
-    uses = attribute.explicit_uses(Vault(root), text, a.ts, a.reason or f"from {Path(a.file).name}")
-    for u in uses:
-        print(u.line())
-    if a.write and uses:
-        attribute.append_log(root / a.config.agent("Use Log") / f"{a.ts[:7]}.md", uses)
+    directory = Path(a.sessions_dir).resolve() if a.sessions_dir else install.sessions_records_path()
+    for use in attribute.sessions(Vault(a.config.vault_path), directory, a.write):
+        print(use.line())
 
 
 def cmd_compile_context(a):
@@ -820,8 +811,6 @@ def cmd_goals(args):
         which, action = action, which
     try:
         operation = action if goals.ID.fullmatch(which) else which
-        if (args.dry_run or args.apply) and which != "migrate":
-            raise ValueError("--dry-run and --apply go with migrate")
         if args.json and which not in ("list", "show", "due", "refused", "activity"):
             raise ValueError("--json goes with list, show, due, refused or activity")
         if args.from_app and operation not in ("new", "edit", "reached", "superseded-by", "set-aside", "reopen", "keep", "not-a-goal", "to-task", "weight", "correct"):
@@ -838,7 +827,7 @@ def cmd_goals(args):
                     if getattr(args, name) is not None and getattr(args, name) is not False}
         if supplied - allowed.get(operation, set()):
             raise ValueError(f"{operation} does not take " + ", ".join(sorted(supplied - allowed.get(operation, set()))))
-        if which in ("list", "due", "migrate", "refused") and action is not None:
+        if which in ("list", "due", "refused") and action is not None:
             raise ValueError(f"{which} takes no positional arguments")
         if which == "activity":
             entries = goals.activity(config, action, weeks=args.weeks if args.weeks is not None else 2)
@@ -871,15 +860,7 @@ def cmd_goals(args):
                 if not entries:
                     print("no goals")
             return
-        if which == "migrate" and args.dry_run:
-            print("\n".join(goals.migrate(config)))
-            return
         with vault_lock(config):
-            if which == "migrate":
-                if not (args.dry_run or args.apply):
-                    raise ValueError("migrate needs --dry-run or --apply; review the dry run first")
-                print("\n".join(goals.migrate(config, apply=args.apply)))
-                return
             if which == "new":
                 entry = goals.new(config, action or "", args.words or "", reach=args.reach, by=args.by, said=args.said,
                                   inferred=args.inferred, evidence=args.evidence, from_app=args.from_app)
@@ -900,7 +881,7 @@ def cmd_goals(args):
                     print(f"{which} · became {entry.tid}")
                     return
             else:
-                raise ValueError("use new, list, show G-n, activity [G-n], due, refused, asked, migrate, or G-n edit|evidence|reached|superseded-by|set-aside|reopen|nudge|asked-missed|link|keep|not-a-goal|to-task|account|weight|correct")
+                raise ValueError("use new, list, show G-n, activity [G-n], due, refused, or G-n edit|evidence|reached|superseded-by|set-aside|reopen|nudge|asked-missed|link|keep|not-a-goal|to-task|account|weight|correct")
         print(f"{entry.gid} · {entry.state['state']} · {entry.title}")
     except ValueError as error:
         raise SystemExit(f"brain goals: {error}")
@@ -1046,10 +1027,8 @@ def cmd_continue(args):
         if args.tid and (args.due or args.chunk or args.pace or args.checkpoint or args.engaged
                          or args.review or args.review_context or args.wake is not None):
             raise ValueError("TASK cannot be combined with another continue mode")
-        if (args.chunk or args.pace or args.checkpoint or args.engaged or args.review) and (args.json or args.daily):
-            raise ValueError("--json goes with --due, TASK, --review-context or --wake; --daily goes with --due")
-        if args.daily and (args.tid or args.review_context or args.wake is not None):
-            raise ValueError("--daily goes with --due")
+        if (args.chunk or args.pace or args.checkpoint or args.engaged or args.review) and args.json:
+            raise ValueError("--json goes with --due, TASK, --review-context or --wake")
         if not args.review and any(value is not None for value in (args.verdict, args.reason, args.ask, args.resume)):
             raise ValueError("--verdict, --reason, --ask and --resume go with --review")
         if args.instruction is not None and not args.engaged:
@@ -1106,8 +1085,7 @@ def cmd_continue(args):
                 raise ValueError(f"{args.tid} needs an open handed-off task with a Delivers line")
             ready = [task]
         else:
-            ready = tasks_mod.due(task_list, pace="daily" if args.daily else None,
-                                 worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks,
+            ready = tasks_mod.due(task_list, worked=worked, chunks=chunks, daily_chunks=args.config.daily_chunks,
                                  now=tasks_mod.local_now(args.config), budgets=limits, caps=caps)
             for task in task_list:
                 if task.handoff and tasks_mod.is_open(task) and not task.delivers:
@@ -1147,10 +1125,6 @@ def cmd_continue(args):
 
 def cmd_watch_signal(args):
     print(signals.watch(args.config))
-
-
-def cmd_continue_signal(args):
-    print(signals.continue_(args.config, daily=args.daily))
 
 
 def cmd_stale_tasks(args):
@@ -1505,11 +1479,6 @@ def cmd_schedule(args):
                     routines |= {name: defaults[name] for name in added}
                     changed = (f"added {len(added)} {config.edition} routine(s): {', '.join(added)}" if added
                                else f"every {config.edition} routine is already scheduled")
-            elif action == "import":
-                if schedule.path(config).exists() and not args.force:
-                    raise ValueError(f"{schedule.path(config)} exists; use --force to replace it")
-                routines = schedule.from_jobs(config, runtime.jobs(runtime.home()))
-                changed = f"imported {len(routines)} routine(s) ({', '.join(sorted(routines))}) into {schedule.path(config)}"
             else:
                 routines = schedule.load(config)
                 name = args.name
@@ -1567,14 +1536,12 @@ def main(argv=None):
     s.add_argument("--json", action="store_true", required=True); s.set_defaults(fn=cmd_record_spec)
     s = sub.add_parser("schedule")
     actions = s.add_subparsers(dest="schedule_cmd", required=True)
-    for action in ("list", "set", "remove", "pause", "resume", "check", "import", "init"):
+    for action in ("list", "set", "remove", "pause", "resume", "check", "init"):
         s = actions.add_parser(action, parents=[vault]); s.set_defaults(fn=cmd_schedule)
         if action in ("set", "remove", "pause", "resume"):
             s.add_argument("name")
         if action == "list":
             s.add_argument("--json", action="store_true")
-        if action == "import":
-            s.add_argument("--force", action="store_true")
         if action == "init":
             s.add_argument("--reset-night", action="store_true")
         if action == "set":
@@ -1620,9 +1587,8 @@ def main(argv=None):
     s = sub.add_parser("tellable", parents=[vault]); s.add_argument("who")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_tellable)
     s = sub.add_parser("attribute", parents=[vault])
-    source = s.add_mutually_exclusive_group()
-    source.add_argument("--file"); source.add_argument("--sessions-dir", help="default: $AGENT_HOME/records/sessions")
-    s.add_argument("--ts"); s.add_argument("--reason"); s.add_argument("--write", action="store_true")
+    s.add_argument("--sessions-dir", help="default: $AGENT_HOME/records/sessions")
+    s.add_argument("--write", action="store_true")
     s.set_defaults(fn=cmd_attribute)
     s = sub.add_parser("compile-context", parents=[vault]); s.add_argument("--out")
     s.add_argument("--write", action="store_true"); s.add_argument("--sections")
@@ -1749,7 +1715,7 @@ def main(argv=None):
     s.add_argument("--goal", metavar="G-n")
     s.set_defaults(fn=cmd_ideas)
     s = sub.add_parser("goals", help="the person's goals; only this command writes goal blocks", parents=[vault])
-    s.add_argument("which", help="new, list, show, activity, due, refused, migrate, or G-n")
+    s.add_argument("which", help="new, list, show, activity, due, refused, or G-n")
     s.add_argument("action", nargs="?", help="title with new; id with show; operation with G-n")
     s.add_argument("text", nargs="?", help="dated evidence, a note with link, or the active goal with superseded-by")
     s.add_argument("--words"); s.add_argument("--title"); s.add_argument("--why")
@@ -1762,8 +1728,6 @@ def main(argv=None):
     s.add_argument("--from-app", action="store_true"); s.add_argument("--json", action="store_true")
     s.add_argument("--weeks", type=int, help="activity window in weeks (default 2)")
     s.add_argument("--week", help="account's ISO week, YYYY-Www (before noon: yesterday's week; otherwise today's)")
-    mode = s.add_mutually_exclusive_group()
-    mode.add_argument("--dry-run", action="store_true"); mode.add_argument("--apply", action="store_true")
     s.set_defaults(fn=cmd_goals)
     s = sub.add_parser("channels", help="the channel registry; `sync` registers connect grants; `mail --since` lists new owner mail headers", parents=[vault])
     s.add_argument("action", nargs="?", choices=("sync", "mail")); s.add_argument("--run", action="store_true"); s.add_argument("--profile", default="")
@@ -1836,12 +1800,9 @@ def main(argv=None):
     s.add_argument("--instruction", help="with --engaged: the owner's latest words for the reviewer")
     s.add_argument("--text", help="with --checkpoint: where the chunk stopped")
     s.add_argument("--json", action="store_true", help="due array (empty exits 0), TASK/review-context object, or woken ids (empty exits 1)")
-    s.add_argument("--daily", action="store_true", help="list daily-pace tasks")
     s.set_defaults(fn=cmd_continue)
     s = sub.add_parser("watch-signal", help="stable follow-through monitor output, without a model", parents=[vault])
     s.set_defaults(fn=cmd_watch_signal)
-    s = sub.add_parser("continue-signal", help="stable due-handoff monitor output, without a model", parents=[vault])
-    s.add_argument("--daily", action="store_true"); s.set_defaults(fn=cmd_continue_signal)
     s = sub.add_parser("stale-tasks", help="open tasks gone quiet long enough for the evening review", parents=[vault])
     s.set_defaults(fn=cmd_stale_tasks)
     s = sub.add_parser("reception", help="how each thing offered landed, and correction burden on the intellect's work",
@@ -1911,8 +1872,6 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.cmd == "channels" and a.action == "mail" and not a.since:
         ap.error("channels mail requires --since")
-    if a.cmd == "attribute" and a.file and not a.ts:
-        ap.error("--ts is required with --file")
     try:
         a.config = Config.load(a.vault)
     except (OSError, ValueError) as error:

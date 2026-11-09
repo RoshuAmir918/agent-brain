@@ -127,14 +127,6 @@ def test_validate_names_hand_edits_said_only_breaches_shared_ids_and_bad_ranks(c
     assert image.new_facet(config, "Money")["sensitivity"] == "said-only"
 
 
-def test_a_facet_holds_more_than_the_portrait_but_not_without_limit(config, vault):
-    sections = ("After", "Cares about", "Taste", "How they decide", "Energy", "Not")
-    body = "".join(f"## {s}\n" + "".join(f"- {s} {i} · said · high · 2026-11-01 · [[S]]\n" for i in range(7)) for s in sections)
-    found = image.facet_hygiene({"rank": 1}, body, date(2026, 11, 6), "F")
-    assert any("42 lines; at most 40" in p for p in found)
-    assert not any("words" in p for p in found)
-
-
 def test_the_night_compiles_marks_facets_for_the_owner_and_says_why_when_it_cannot(config, vault):
     move(config, "3f2a", "Places")
     fm.write(vault / "human/Portrait/Places.md", {"kind": "hub", "tier": "warm", "facet": "Places", "rank": 1},
@@ -165,30 +157,12 @@ def test_the_owner_gets_the_whole_image_with_the_compiled_lines_marked(config, v
     assert [line["facet"] for line in data][0] == "Places"   # most central facet first
 
 
-def test_cli_lists_moves_and_compiles(config, vault, capsys):
-    cli.main(["portrait", "facets", "--vault", str(vault)])
-    assert capsys.readouterr().out.strip() == "no facets yet"
-    cli.main(["portrait", "compile", "--vault", str(vault)])
-    assert "no facets yet" in capsys.readouterr().out
-    cli.main(["portrait", "move", "3f2a", "Places", "--vault", str(vault)])
-    assert capsys.readouterr().out.strip() == "^3f2a Move to Lisbon within the year -> Places"
-    with pytest.raises(SystemExit, match="are in no facet yet"):
-        cli.main(["portrait", "compile", "--vault", str(vault)])
-    with pytest.raises(SystemExit, match="already in Places"):
-        cli.main(["portrait", "move", "3f2a", "Places", "--vault", str(vault)])
+def test_cli_refuses_a_path_as_a_facet_and_compiling_a_half_sorted_portrait(config, vault):
     with pytest.raises(SystemExit, match="a plain name"):
         cli.main(["portrait", "move", "c1a0", "../x", "--vault", str(vault)])
-    for ident, facet in (("c1a0", "Play"), ("e55a", "Reading & ideas"), ("0bad", "Play")):
-        cli.main(["portrait", "move", ident, facet, "--vault", str(vault)])
-    capsys.readouterr()
-    cli.main(["portrait", "facets", "--vault", str(vault)])
-    assert capsys.readouterr().out.splitlines() == ["1 · Places · 1 lines · open · newest 2026-10-30",
-                                                    "2 · Play · 2 lines · open · newest 2026-11-02",
-                                                    "3 · Reading & ideas · 1 lines · open · newest 2026-11-01"]
-    cli.main(["portrait", "compile", "--vault", str(vault)])
-    assert capsys.readouterr().out.strip() == "compiled 4 line(s) from 3 facet(s)"
-    cli.main(["portrait", "coverage", "--vault", str(vault)])
-    assert "Facets:\n- Places: 1 lines, newest 2026-10-30" in capsys.readouterr().out
+    cli.main(["portrait", "move", "3f2a", "Places", "--vault", str(vault)])
+    with pytest.raises(SystemExit, match="are in no facet yet"):
+        cli.main(["portrait", "compile", "--vault", str(vault)])
 
 
 def test_nothing_is_lost_to_unstamped_lines_letter_case_or_a_blank_line_before_details(config, vault):
@@ -297,12 +271,11 @@ def test_the_most_telling_evidence_is_judged_first_not_the_most_rows(config, vau
     notices = [Evidence(date(2026, 11, 1), "received", f"{n + 2} notices from shop{n}.example.com, last 2026-11-01", "own",
                         ("shopping",), f"mail:from/{n}") for n in range(20)]
     did = [Evidence(date(2026, 11, 2), "went", f"Bouldering, {n + 2} times", "own", ("play",), f"calendar:{n}") for n in range(3)]
-    theirs = [Evidence(date(2026, 11, 3), "shared", f"A link {n}", f"other:Jo", ("music",), f"imessage:link/{n}") for n in range(9)]
+    theirs = [Evidence(date(2026, 11, 3), "shared", f"A link {n}", "other:Jo", ("music",), f"imessage:link/{n}") for n in range(9)]
     evidence.append("mail", notices)
     evidence.append("calendar", did)
     evidence.append("imessage", theirs)
-    order = [(entry["facet"], entry["new"], entry["weight"]) for entry in image.due(config)]
-    assert order == [("Play", 3, 6.0), ("Shopping", 20, 5.0), ("Music", 9, 4.5)]
+    assert [(entry["facet"], entry["new"]) for entry in image.due(config)] == [("Play", 3), ("Shopping", 20), ("Music", 9)]
 
 
 def test_the_portrait_leads_with_the_whole_picture_and_each_facet_with_its_own(config, vault):

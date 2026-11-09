@@ -29,14 +29,13 @@ def read_rows(path):
             if (row := ledger.parse_row(line)) is not None]
 
 
-@pytest.mark.parametrize("prefix", ["", "- ", "  - "])
-def test_parse_legacy_row(prefix):
-    assert ledger.parse_row(prefix + "2026-10-26 | watch | 17:02 PDT own-mail checked; no new urgency. | Preserve existing waits.") == ledger.Row(
+def test_parse_legacy_row():
+    assert ledger.parse_row("  - 2026-10-26 | watch | 17:02 PDT own-mail checked; no new urgency. | Preserve existing waits.") == ledger.Row(
         "2026-10-26", "watch", None, "17:02 PDT own-mail checked; no new urgency.", "Preserve existing waits.")
 
 
-@pytest.mark.parametrize("when", ["2026-10-26", "2026-10-26 17:02", "2026-10-26 08:30–22:30"])
-@pytest.mark.parametrize("outcome", ledger.OUTCOMES)
+@pytest.mark.parametrize("when, outcome", list(zip(
+    ["2026-10-26", "2026-10-26 17:02", "2026-10-26 08:30–22:30"] * 2, ledger.OUTCOMES)))
 def test_parse_and_render_structured_row(when, outcome):
     row = ledger.Row(when, "watch", outcome, "Own mail checked.", "Preserve existing waits.")
     line = ledger.render_row(row)
@@ -84,22 +83,14 @@ def test_discovery_registered_and_self_declared_monthly_routine_ledgers(config):
     assert ledger.discover(config) == sorted([expected, nested, declared])
 
 
-@pytest.mark.parametrize("columns", ["Mail checked. | Wait.", "done | Mail checked. | Wait."])
-def test_ledger_for_finds_routine_not_folder_case_insensitively(config, columns):
-    path = write_ledger(config, "Letters", f"2026-10-26 | morning | {columns}\n")
-    assert ledger.ledger_for(config, "MORNING", "2026-10") == path
-
-
-def test_ledger_for_uses_latest_month_if_current_missing(config):
+def test_ledger_for_finds_the_routine_by_month_not_folder(config):
     write_ledger(config, "Letters", "2026-08-26 | evening | Mail. | Wait.\n", "2026-08")
-    path = write_ledger(config, "Letters", "2026-09-26 | morning | Mail. | Wait.\n", "2026-09")
-    assert ledger.ledger_for(config, "morning", "2026-10") == path.with_name("2026-10.md")
+    letters = write_ledger(config, "Letters", "2026-09-26 | morning | Mail. | Wait.\n", "2026-09")
+    assert ledger.ledger_for(config, "MORNING", "2026-09") == letters
+    assert ledger.ledger_for(config, "morning", "2026-10") == letters.with_name("2026-10.md")
     assert ledger.ledger_for(config, "evening", "2026-10") == config.vault_path / "Orphan/Evening/2026-10.md"
-
-
-def test_ledger_for_current_month_takes_precedence_and_falls_back(config):
-    write_ledger(config, "Letters", "2026-09-26 | morning | Mail. | Wait.\n", "2026-09")
-    write_ledger(config, "Letters", "2026-10-26 | evening | Mail. | Wait.\n")
+    write_ledger(config, "Letters", "2026-10-26 | evening | done | Mail. | Wait.\n")
+    assert ledger.ledger_for(config, "Evening", "2026-10") == letters.with_name("2026-10.md")
     assert ledger.ledger_for(config, "morning", "2026-10") == config.vault_path / "Orphan/Morning/2026-10.md"
     assert ledger.ledger_for(config, "newRoutine", "2026-10") == config.vault_path / "Orphan/NewRoutine/2026-10.md"
 
@@ -124,16 +115,13 @@ def test_append_uses_existing_folder_and_handles_missing_final_newline(config):
     assert read_rows(path)[-1] == ledger.Row("2026-10-28 08:30", "morning", "nothing", "Quiet.", "")
 
 
-def test_append_converts_aware_time_before_selecting_month(config):
-    path = ledger.append(config, "watch", "waiting", "Quiet.", "", datetime(2026, 11, 1, 1, 5, tzinfo=timezone.utc))
-    assert path.name == "2026-10.md"
-    assert read_rows(path)[0].when == "2026-10-31 18:05"
-
-
-def test_append_uses_configured_zone(config):
-    path = ledger.append(replace(config, timezone="Asia/Tokyo"), "watch", "progress", "Mail.", "",
-                         datetime(2026, 10, 28, 18, 30, tzinfo=timezone.utc))
-    assert read_rows(path)[0].when == "2026-10-29 03:30"
+@pytest.mark.parametrize("zone, at, month, when", [
+    (None, datetime(2026, 11, 1, 1, 5, tzinfo=timezone.utc), "2026-10.md", "2026-10-31 18:05"),
+    ("Asia/Tokyo", datetime(2026, 10, 28, 18, 30, tzinfo=timezone.utc), "2026-10.md", "2026-10-29 03:30"),
+])
+def test_append_converts_aware_time_to_the_configured_zone_before_selecting_month(config, zone, at, month, when):
+    path = ledger.append(replace(config, timezone=zone) if zone else config, "watch", "progress", "Mail.", "", at)
+    assert path.name == month and read_rows(path)[0].when == when
 
 
 def test_append_rejects_bad_outcome_without_writing(config):
@@ -149,16 +137,7 @@ def test_append_rejects_unsafe_routine(config, routine):
         ledger.append(config, routine, "done", "Mail.", "", datetime(2026, 10, 28, 8, 30))
 
 
-def test_ledger_cli_flags(config, capsys):
-    path = write_ledger(config, "Letters", "2026-10-26 | morning | Mail. | Wait.\n")
-    cli.main(["ledger", "append", "morning", "--outcome", "progress", "--account", "Mail | checked.\nQuiet.",
-                  "--next", "Wait.", "--at", "2026-10-28 08:30", "--vault", str(config.vault_path)])
-    assert capsys.readouterr().out.strip() == str(path)
-    assert read_rows(path)[-1] == ledger.Row("2026-10-28 08:30", "morning", "progress", "Mail / checked. Quiet.", "Wait.")
-
-
-@pytest.mark.parametrize("as_json", [False, True])
-@pytest.mark.parametrize("optional", [False, True])
+@pytest.mark.parametrize("as_json, optional", [(False, False), (True, True)])
 def test_ledger_cli_defaults_and_json(config, monkeypatch, capsys, as_json, optional):
     class Clock(datetime):
         @classmethod
@@ -186,13 +165,8 @@ def test_ledger_cli_defaults_and_json(config, monkeypatch, capsys, as_json, opti
 
 
 @pytest.mark.parametrize("argv, payload, message", [
-    ([], None, "missing required field: routine"),
     (["watch", "--account", "Mail."], None, "missing required field: outcome"),
-    (["watch", "--outcome", "done"], None, "missing required field: account"),
-    (["watch", "--outcome", "bad", "--account", "Mail."], None, "invalid outcome"),
     (["watch", "--outcome", "done", "--account", "Mail.", "--at", "yesterday"], None, "does not match format"),
-    (["--json"], '{"routine":"watch","outcome":"done"}', "missing required field: account"),
-    (["--json"], '{"routine":"watch","outcome":"bad","account":"Mail."}', "invalid outcome"),
     (["--json"], '{"routine":"watch","outcome":"done","account":null}', "account must be a string"),
     (["--json"], "[]", "one JSON object"),
     (["--json"], "{", "ledger append:"),

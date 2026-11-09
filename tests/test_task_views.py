@@ -80,16 +80,24 @@ V2 = {"pieces": [
     {"kind": "gallery", "title": "Jackets under ¥150,000", "items": [{"image": "https://img.example/a.jpg", "label": "Needles track", "value": "¥34,100", "state": "new", "link": "https://shop.example/a"}]},
     {"kind": "steps", "title": "Order", "items": [{"label": "Ordered"}, {"label": "Shipped"}, {"label": "In Tokyo"}, {"label": "Home"}], "current": 1},
     {"kind": "schedule", "title": "Saturday", "items": [{"time": "10am", "text": "Farmers market"}, {"time": "2:30", "text": "Open studio"}]},
+    {"kind": "table", "title": "Applications", "columns": ["Where", "Sent"], "rows": [
+        {"cells": ["A", "Mon"], "state": "waiting"}, {"cells": ["B", "Tue"], "state": "blocked"}]},
+    {"kind": "places", "title": "Apartments", "items": [
+        {"name": "A", "query": "A street", "value": "$2,100", "state": "good", "link": "https://listing.example/a"},
+        {"name": "B", "query": "B street"}]},
 ]}
 
 
-def test_kit_v2_gallery_steps_schedule_trends_and_provenance_are_kept(vault, capsys, monkeypatch):
-    assert view(vault, capsys, monkeypatch, V2) == "T-001 view saved: 4 pieces"
+def test_kit_v2_gallery_steps_schedule_trends_provenance_and_waiting_rows_and_places_are_kept(vault, capsys, monkeypatch):
+    assert view(vault, capsys, monkeypatch, V2) == "T-001 view saved: 6 pieces"
     kept = views.read(Config.load(vault), "T-001")["pieces"]
     assert kept[0]["from"] == "from Mercury, checking" and kept[0]["items"][0]["trend"] == [210, 225, 219, 236]
     # A trend says when it starts; a since with no trend to label is dropped.
     assert kept[0]["items"][0]["since"] == "since Oct 1" and "since" not in kept[0]["items"][1]
     assert kept[2]["current"] == 1 and kept[3]["items"][1] == {"time": "2:30", "text": "Open studio"}
+    assert [r["state"] for r in kept[4]["rows"]] == ["waiting", "blocked"]
+    assert kept[5]["items"][0] == {"name": "A", "query": "A street", "value": "$2,100", "state": "good", "link": "https://listing.example/a"}
+    assert kept[5]["items"][1] == {"name": "B", "query": "B street"}
 
 
 @pytest.mark.parametrize("bad, says", [
@@ -103,6 +111,7 @@ def test_kit_v2_gallery_steps_schedule_trends_and_provenance_are_kept(vault, cap
     ('{"pieces": [{"kind": "numbers", "items": [{"label": "a", "value": "1", "trend": [1, Infinity]}, {"label": "b", "value": "2"}]}]}', "2 to 30 numbers"),
     ({"pieces": [{"kind": "checklist", "title": "C", "items": [{"text": "x", "state": "open", "color": "red"}]}]}, "items are"),
     ({"pieces": [{"kind": "links", "items": [{"label": "x", "href": "https://x", "icon": "y"}]}]}, "items are"),
+    ({"pieces": [{"kind": "places", "title": "P", "items": [{"name": "A", "query": "q", "state": "maybe"}]}]}, "state must be one of"),
 ])
 def test_kit_v2_refuses_shapes_it_cannot_draw(vault, capsys, monkeypatch, bad, says):
     with pytest.raises(SystemExit):
@@ -116,24 +125,3 @@ def test_the_owners_own_words_are_exported_when_the_source_quotes_them(vault, ca
     tid = capsys.readouterr().out.split()[0]
     exported = next(t for t in state._tasks(Vault(config.vault_path)) if t["id"] == tid)
     assert exported["said"] == "Rohan in Home, Nov 5: Yes add ledger to my library"
-
-
-def test_rows_and_places_can_wait_and_places_carry_value_state_and_link(vault, capsys, monkeypatch):
-    located = {"pieces": [
-        {"kind": "table", "title": "Applications", "columns": ["Where", "Sent"], "rows": [
-            {"cells": ["A", "Mon"], "state": "waiting"}, {"cells": ["B", "Tue"], "state": "blocked"}]},
-        {"kind": "places", "title": "Apartments", "items": [
-            {"name": "A", "query": "A street", "value": "$2,100", "state": "good", "link": "https://listing.example/a"},
-            {"name": "B", "query": "B street"}]},
-    ]}
-    assert view(vault, capsys, monkeypatch, located) == "T-001 view saved: 2 pieces"
-    kept = views.read(Config.load(vault), "T-001")["pieces"]
-    assert [r["state"] for r in kept[0]["rows"]] == ["waiting", "blocked"]
-    assert kept[1]["items"][0] == {"name": "A", "query": "A street", "value": "$2,100", "state": "good", "link": "https://listing.example/a"}
-    assert kept[1]["items"][1] == {"name": "B", "query": "B street"}
-
-
-def test_places_refuse_what_they_cannot_draw(vault, capsys, monkeypatch):
-    with pytest.raises(SystemExit):
-        view(vault, capsys, monkeypatch, {"pieces": [{"kind": "places", "title": "P", "items": [{"name": "A", "query": "q", "state": "maybe"}]}]})
-    assert "state must be one of" in capsys.readouterr().err

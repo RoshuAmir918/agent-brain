@@ -1,5 +1,5 @@
 """The record answers first and keeps decisions in the speaker's words."""
-from datetime import date, datetime
+from datetime import datetime
 import json
 import re
 
@@ -143,14 +143,24 @@ def test_ask_without_two_shared_words_still_creates_once(enterprise):
     assert entry.not_covered == ""
     asked, = routing.responses(enterprise)
     assert asked["outcome"] == "asked" and asked["id"] == entry.id and asked["hours"] is None
-    assert consults.RECORD_SHARED_WORDS == 2
 
 
-@pytest.mark.parametrize("reason", ["", " ", "first\nsecond", "word " * 41])
-def test_bad_not_covered_is_read_only(enterprise, reason):
+@pytest.mark.parametrize("call,value,match", [
+    ("ask", " ", "single-line|at most 40"),
+    ("ask", "word " * 41, "at most 40"),
+    ("cite", "one\ntwo", "single-line"),
+    ("cite-task", "T-999", "not an open task"),
+])
+def test_ask_and_cite_refuse_bad_fields_without_writing(enterprise, call, value, match):
+    ident = decide(enterprise) if call != "ask" else None
     before = snapshot(enterprise.repo)
-    with pytest.raises(ValueError, match="single-line|at most 40"):
-        ask(enterprise, not_covered=reason)
+    with pytest.raises(ValueError, match=match):
+        if call == "ask":
+            ask(enterprise, not_covered=value)
+        elif call == "cite":
+            consults.cite(enterprise, ident, value)
+        else:
+            consults.cite(enterprise, ident, "Run isolated tests.", task=value)
     assert snapshot(enterprise.repo) == before
 
 
@@ -201,23 +211,6 @@ def test_cite_refuses_invalid_decisions_without_writing(enterprise, status):
     assert snapshot(enterprise.repo) == before
 
 
-@pytest.mark.parametrize("for_", ["", "one\ntwo", "word " * 41])
-def test_cite_requires_short_single_line(enterprise, for_):
-    ident = decide(enterprise)
-    before = snapshot(enterprise.repo)
-    with pytest.raises(ValueError, match="single-line|at most 40"):
-        consults.cite(enterprise, ident, for_)
-    assert snapshot(enterprise.repo) == before
-
-
-def test_cite_refuses_unknown_task(enterprise):
-    ident = decide(enterprise)
-    before = snapshot(enterprise.repo)
-    with pytest.raises(ValueError, match="not an open task"):
-        consults.cite(enterprise, ident, "Run isolated tests.", task="T-999")
-    assert snapshot(enterprise.repo) == before
-
-
 def test_decide_exact_words_source_id_and_supersession(enterprise, capsys):
     words = "Keep  staging alone · until release checks pass."
     run(enterprise, "decide", "--area", "Infrastructure", "--by", KIM, "--words", words,
@@ -242,11 +235,14 @@ def test_decide_exact_words_source_id_and_supersession(enterprise, capsys):
     assert snapshot(enterprise.repo) == before
 
 
-@pytest.mark.parametrize("values", [dict(words=""), dict(words="one\ntwo"), dict(source=""),
-                                    dict(source="one\ntwo"), dict(source="channel · meeting"), dict(by="Kim")])
-def test_decide_refuses_invalid_fields_without_writing(enterprise, values):
+@pytest.mark.parametrize("values,match", [
+    (dict(words=""), "own words"), (dict(words="one\ntwo"), "single-line"),
+    (dict(source=""), "--source must name"), (dict(source="one\ntwo"), "single-line"),
+    (dict(source="channel · meeting"), "--source must name"), (dict(by="Kim"), "<platform>:<id>"),
+])
+def test_decide_refuses_invalid_fields_without_writing(enterprise, values, match):
     before = snapshot(enterprise.repo)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=match):
         decide(enterprise, **values)
     assert snapshot(enterprise.repo) == before
 
@@ -325,15 +321,3 @@ def test_stats_record_only_weeks_and_iso_year(enterprise, monkeypatch):
     clock(monkeypatch, "2027-01-04 10:00")
     ask(enterprise, text="Rotate deployment credentials before the weekend?")
     assert consults.stats(enterprise)["record_weekly"][1] == dict(week="2027-W01", cited=0, asked=1, record_share=0.0)
-
-
-@pytest.mark.parametrize("arguments", [
-    ["decisions", "--about", QUESTION],
-    ["cite", "000000000000", "--for", "Run isolated tests."],
-    ["decide", "--area", "infrastructure", "--by", KIM, "--words", "Keep staging unchanged.", "--source", "team meeting"],
-])
-def test_personal_refuses_new_commands(vault, arguments):
-    before = snapshot(vault)
-    with pytest.raises(SystemExit, match="consults need the enterprise edition"):
-        cli.main(["consult", *arguments, "--vault", str(vault)])
-    assert snapshot(vault) == before

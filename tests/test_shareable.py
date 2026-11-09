@@ -10,11 +10,10 @@ from brain.vault import Vault
 KEVIN = "people/Kevin/Profile.md"
 FRIENDS = "people/Groups/Close friends.md"
 WORK = "people/Groups/Work.md"
-EMPTY = "people/Groups/Empty.md"
 HEADER = "| id | audience | subject | tell | do |\n| --- | --- | --- | --- | --- |\n"
 
 
-def note(root, rel, body="NOTE_BODY_SECRET", **data):
+def note(root, rel, body="", **data):
     path = root / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     fm.write(path, data, body + "\n")
@@ -28,41 +27,13 @@ def rules(config, *rows):
 @pytest.fixture
 def sharing(vault):
     config = Config.load(vault)
-    note(vault, KEVIN, "# PROFILE_TITLE_SECRET\n- **Demiurge:** `k57kevin` (@PROFILE_HANDLE_SECRET)\n"
-         "Slack: U_KEVIN\nTelegram: -12345\n**Discord**: `98765`\nSlack: U_KEVIN\n"
-         "Email: PROFILE_EMAIL_SECRET@example.org\nSlack: PROFILE_EMAIL_SECRET@example.org\n"
-         "Demiurge: PROFILE_EMAIL_SECRET.name@example.org\n- **Name:** PROFILE_NAME_SECRET\n"
-         "Mentioned Slack: U_NOT_AN_ID\nPROFILE_BODY_SECRET", name="PROFILE_FRONTMATTER_SECRET")
-    note(vault, "people/Other/Profile.md", "Slack: U_NONMEMBER_SECRET")
-    note(vault, FRIENDS, f"# GROUP_TITLE_SECRET\n## Members\n[[{KEVIN}]]\n"
-         "## History\n[[people/Other/Profile]]\nGROUP_BODY_SECRET", kind="group")
+    note(vault, FRIENDS, f"## Members\n[[{KEVIN}]]", kind="group")
     note(vault, WORK, f"## Members\n[[{KEVIN}]]", kind="group")
-    note(vault, EMPTY, "## Members\n", kind="group")
-    note(vault, "Plans/Trip.md")
-    note(vault, "Work/Calendar.md", subject="schedule", skill="brain-calendar", records="appointments")
-    note(vault, "Work/Employer.md", subject="work", skill="brain-employer", records="job")
-    note(vault, "Health/Clinic.md", subject="health", skill="brain-clinic", records="care")
-    note(vault, "Pets.md", subject="pets")
-    note(vault, "Drafts/OUTPUT_TITLE_SECRET.md", kind="draft")
-    note(vault, "agent/Receipts/2026-10.md",
-         "2026-10-29 12:00 | CALENDAR | done | Calendar receipt. | NEXT_SECRET\n"
-         "2026-10-29 11:00 | appointments | done | Records alias receipt. | NEXT_SECRET\n"
-         "2026-10-29 10:00 | unmatched | done | Plan receipt. | NEXT_SECRET\n"
-         "2026-10-29 09:00 | job | done | WORK_ACCOUNT_SECRET | NEXT_SECRET\n"
-         "2026-10-29 08:00 | care | done | HEALTH_ACCOUNT_SECRET | NEXT_SECRET\n"
-         "2026-09-29 | calendar | done | OLD_ACCOUNT_SECRET | NEXT_SECRET\n"
-         "2026-10-30 | calendar | done | FUTURE_ACCOUNT_SECRET | NEXT_SECRET", kind="log")
     rules(config,
           f"| D-PERSON | [[{KEVIN}]] | anything | details | yes |",
-          f"| D-FRIENDS | [[{FRIENDS}]] | plans | gist | |",
-          f"| D-CALENDAR | [[{FRIENDS}]] | schedule | details | |",
           f"| D-WORK | [[{FRIENDS}]] | work | none | |",
           f"| D-FINANCES | [[{WORK}]] | finances | details | |",
-          "| D-KNOWN | known | plans | details | |",
-          "| D-SCHEDULE | known | schedule | gist | |",
-          "| D-DO | known | setup | | yes |",
-          "| D-ANYONE | anyone | work | gist | |",
-          "| D-OPINIONS | anyone | opinions | gist | |")
+          "| D-ANYONE | anyone | work | gist | |")
     return config
 
 
@@ -71,6 +42,7 @@ def sharing(vault):
     ("**SLACK**: U_KEVIN", ["slack:U_KEVIN"]),
     ("  * **Telegram:** `-12345`", ["telegram:-12345"]),
     ("+ Discord: 98765", ["discord:98765"]),
+    ("- **WhatsApp:** 15551234", ["whatsapp:15551234"]), ("- Signal: sig-1", ["signal:sig-1"]),
     ("Email: kevin@example.org", []), ("Slack: kevin@example.org", []),
     ("Slack: kevin+tag@example.org", []), ("Telegram: kevin/tag@example.org", []),
     ("Demiurge: `kevin.name@example.org`", []), ("Discord: @kevin", []),

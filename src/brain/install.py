@@ -28,10 +28,6 @@ def sessions_records_path() -> Path:
     return records_path() / "sessions"
 
 
-# Day routines that were the vault's own until 0.18: the first render keeps the vault's copy beside the new one, as
-# previous.md, so its own steps can be moved under `## Local` and nothing the owner asked for is lost.
-ADOPTED = frozenset({"morning", "evening"})
-
 LOCAL_HEADING = re.compile(r"^## Local[ \t]*$", re.M)
 EDITIONS_LINE = re.compile(r"^\s+editions:\s*\[([^\]]*)\]\s*$", re.M)
 # A part of a skill for one edition only: `<!-- personal -->` … `<!-- /personal -->` on lines of their own.
@@ -93,9 +89,6 @@ def skills(config: Config) -> Path:
             text = render_skill(config, routine.name)
             if target.exists():
                 current = target.read_text(encoding="utf-8")
-                previous = target.with_name("previous.md")
-                if routine.name in ADOPTED and not previous.exists() and not local_section(current) and current != text:
-                    previous.write_text(current, encoding="utf-8")
                 local = local_section(current)
                 if local:
                     text = render(text.rstrip("\n") + "\n\n" + local, config.template_values())
@@ -144,6 +137,8 @@ def responsibility(config: Config, name: str, skill: str, records: str) -> list[
 def scripts() -> list[Path]:
     directory = scripts_path()
     directory.mkdir(parents=True, exist_ok=True)
+    for retired in ("continue-signal.sh", "continue-daily-signal.sh"):
+        (directory / retired).unlink(missing_ok=True)
     installed = []
     for script in sorted(files("brain").joinpath("scripts").iterdir(), key=lambda path: path.name):
         if not script.name.endswith(".sh"):

@@ -1,12 +1,11 @@
 """Review regressions, including the six reproduction scripts and seeded template."""
-from dataclasses import replace
 from datetime import date
 from pathlib import Path
 import re
 
 import pytest
 
-from brain import cli, fm, goals, state, tasks, validate
+from brain import cli, fm, goals, state, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -93,20 +92,6 @@ def test_t1_comment_delimiters_refuse_with_teaching_message(vault, field, marker
     assert snapshot(vault) == before
 
 
-def test_t6_contract_argv_special_titles_words_and_edit(vault, capsys):
-    titles = ["G-1", "list", 'Run 5k: sub-20 "fast" (2026-01-01)', "Lire plus — été ☀️ 日本語", "x" * 80, "edit", 'He said "go" (unknown)']
-    for title in titles:
-        run(vault, capsys, "goals", "new", title, "--words", 'words "q" (2026-01-01)', "--from-app")
-    run(vault, capsys, "goals", "G-2", "edit", "--title", "G-9", "--words", 'new "w"', "--from-app")
-    run(vault, capsys, "goals", "G-3", "reached", "--why", "G-1: done; ok", "--from-app")
-    cfg = Config.load(vault)
-    entries = {goal.gid: goal for goal in goals.load(cfg)}
-    assert entries["G-2"].title == "G-9" and entries["G-2"].words == 'new "w"'
-    assert entries["G-3"].state["state"] == "reached"
-    assert entries["G-1"].words == 'words "q" (2026-01-01)'
-    assert not goals.problems(cfg)
-
-
 @pytest.mark.parametrize("platform,user_id,visible", [("cli", "", True), ("cron", "", True), ("demiurge", "visitor", False)])
 def test_session_context_preview_has_no_writes_or_lock_and_ack_is_explicit(vault, capsys, monkeypatch, platform, user_id, visible):
     cfg = Config.load(vault)
@@ -122,27 +107,6 @@ def test_session_context_preview_has_no_writes_or_lock_and_ack_is_explicit(vault
     assert snapshot(vault) == before and goals.capture(cfg)["app"]
     assert ("added this in the app" in run(vault, capsys, *args, "--ack-notices")) == visible
     assert bool(goals.capture(cfg)["app"]) == (not visible)
-
-
-@pytest.mark.parametrize("mode", ["routine", "worker"])
-def test_run_marker_guards_without_agent_home(vault, monkeypatch, mode):
-    monkeypatch.setenv("BRAIN_RUN", mode)
-    with pytest.raises(ValueError, match="No goal, no unasked work"):
-        tasks.new_task(Config.load(vault), "Unasked", "Some note")
-
-
-@pytest.mark.parametrize("goal_state", ["active", "reached", "set-aside", "missing"])
-def test_worker_follow_up_inherits_only_active_goal(vault, monkeypatch, goal_state):
-    cfg = Config.load(vault)
-    goals.new(cfg, "Reading", "Read more")
-    parent = tasks.new_task(cfg, "Reading list", '"Make a list"', goal="G-1")
-    if goal_state == "missing":
-        (vault / cfg.human_goals).unlink()
-    elif goal_state != "active":
-        goals.change(cfg, "G-1", goal_state, why="Done for now")
-    monkeypatch.setenv("DEMIURGE_TASK", parent.tid)
-    follow_up = tasks.new_task(cfg, "Order the books", "Reading list")
-    assert follow_up.goal == ("G-1" if goal_state == "active" else None)
 
 
 @pytest.mark.parametrize("hub_goal", [None, "G-1", "G-999"])

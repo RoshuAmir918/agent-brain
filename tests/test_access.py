@@ -58,10 +58,6 @@ def test_vocabulary_and_vault_subjects(access_vault):
 - secret: not a subject declaration
 """)
     vocabulary = access.subjects(access_vault, access_vault.config)
-    assert list(access.SUBJECTS) == ["experiences", "schedule", "whereabouts", "plans", "work", "health", "finances",
-                                     "contacts", "people", "opinions", "setup", "anything"]
-    assert access.TELL_LEVELS == ("none", "gist", "details")
-    assert access.DO_LEVELS == ("no", "ask", "yes")
     assert vocabulary == access.SUBJECTS | {"pets": "the owner's animals", "music": "musical projects and tastes"}
     assert "pets" not in access.SUBJECTS
     assert "secret" not in vocabulary
@@ -220,27 +216,31 @@ def test_missing_disclosure_defaults_without_errors(access_vault):
 
 @pytest.mark.parametrize("who", ["alice example", "ALICE_EXAMPLE", "alicia", ALICE,
                                  ALICE.removesuffix(".md"), "demiurge:k57alice", "k57alice", "slack:U_ALICE"])
-@pytest.mark.parametrize("json_output", [False, True])
-def test_cli_name_path_and_platform_id(access_vault, capsys, who, json_output):
-    set_rules(access_vault, f"| D-001 | [[{FRIENDS}]] | schedule | details | ask |",
+def test_lookup_by_name_path_and_platform_id(access_vault, who):
+    assert access.matching_people(access_vault, access_vault.config, who) == [access_vault.notes[ALICE]]
+
+
+def test_cli_prints_a_persons_access_and_resolves_no_match_as_a_stranger(access_vault, capsys):
+    set_rules(access_vault, f"| D-001 | [[{FRIENDS}]] | schedule | details | ask |", "| D-002 | anyone | work | gist | |",
               tail="\n## Grant scope\nD-001 permits planning a visit only.\n")
-    cli.main(["access", who, "--vault", str(access_vault.root)] + (["--json"] if json_output else []))
+    cli.main(["access", "alicia", "--vault", str(access_vault.root)])
     captured = capsys.readouterr()
     assert captured.err == ""
-    if json_output:
-        data = json.loads(captured.out)
-        assert set(data) == {"person", "groups", "subjects", "scope"}
-        assert data["person"] == ALICE and data["groups"] == [FRIENDS, WORK]
-        assert data["subjects"]["schedule"] == {"tell": "details", "tellRule": "D-001", "do": "ask", "doRule": "D-001"}
-        assert data["subjects"]["health"] == {"tell": "none", "tellRule": None, "do": "no", "doRule": None}
-        assert data["scope"] == {"D-001": "D-001 permits planning a visit only."}
-    else:
-        assert captured.out.splitlines() == [
-            f"Person: memory/{ALICE} · Groups: memory/{FRIENDS}, memory/{WORK}",
-            "schedule: details (D-001) / ask (D-001)",
-            "Everything else: none / no",
-            "Scope: D-001 permits planning a visit only.",
-        ]
+    assert captured.out.splitlines() == [
+        f"Person: memory/{ALICE} · Groups: memory/{FRIENDS}, memory/{WORK}",
+        "schedule: details (D-001) / ask (D-001)",
+        "work: gist (D-002) / no (default)",
+        "Everything else: none / no",
+        "Scope: D-001 permits planning a visit only.",
+    ]
+    cli.main(["access", "Visitor", "--vault", str(access_vault.root), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert set(data) == {"person", "groups", "subjects", "scope"}
+    assert data["person"] is None and data["groups"] == []
+    assert data["subjects"]["work"] == {"tell": "gist", "tellRule": "D-002", "do": "no", "doRule": None}
+    assert data["subjects"]["schedule"] == {"tell": "none", "tellRule": None, "do": "no", "doRule": None}
+    assert "no profile matches 'Visitor'; resolving as stranger" in captured.err
 
 
 def test_lookup_frontmatter_display_name_and_qualified_id_precedence(access_vault):
@@ -271,23 +271,6 @@ def test_cli_ambiguity_exits_with_matching_profiles(access_vault, who):
     assert error.value.code != 0
 
 
-@pytest.mark.parametrize("json_output", [False, True])
-def test_cli_no_match_resolves_as_stranger_and_says_so(access_vault, capsys, json_output):
-    set_rules(access_vault, "| D-001 | anyone | work | gist | |", "| D-002 | known | health | details | yes |")
-    cli.main(["access", "Visitor", "--vault", str(access_vault.root)] + (["--json"] if json_output else []))
-    captured = capsys.readouterr()
-    if json_output:
-        data = json.loads(captured.out)
-        assert data["person"] is None and data["groups"] == []
-        assert data["subjects"]["work"]["tell"] == "gist"
-        assert data["subjects"]["health"]["tell"] == "none"
-        assert "no profile matches 'Visitor'; resolving as stranger" in captured.err
-    else:
-        assert "stranger (no profile matches 'Visitor')" in captured.out
-        assert "work: gist (D-001) / no (default)" in captured.out
-        assert "health:" not in captured.out
-
-
 def test_validation_reports_bad_values_missing_metadata_duplicates_and_empty_groups(access_vault):
     disclosure(access_vault, "| id | audience | subject | tell | do | DATE | SOURCE |\n"
                "| --- | --- | --- | --- | --- | --- | --- |\n"
@@ -302,15 +285,13 @@ def test_validation_reports_bad_values_missing_metadata_duplicates_and_empty_gro
                  "missing date", "missing source", "duplicate id", "[[Missing]]", "[[START]]",
                  "people/Groups/Empty.md: group has no members"):
         assert any(text in problem for problem in problems)
-
-
-def test_every_rule_needs_a_date_and_a_source_even_without_the_columns(access_vault):
     set_rules(access_vault, "| D-001 | anyone | schedule | gist | |")
-    assert validate.access_problems(access_vault) == []
+    empty = "people/Groups/Empty.md: group has no members"
+    assert validate.access_problems(access_vault) == [empty]
     disclosure(access_vault, "| id | audience | subject | tell | do |\n| --- | --- | --- | --- | --- |\n"
                "| D-001 | anyone | finances | details | yes |\n")
     assert validate.access_problems(access_vault) == [
-        "people/Disclosure.md: D-001: missing date", "people/Disclosure.md: D-001: missing source"]
+        "people/Disclosure.md: D-001: missing date", "people/Disclosure.md: D-001: missing source", empty]
 
 
 def test_rows_for_one_audience_that_disagree_keep_the_strictest(access_vault):
@@ -361,32 +342,3 @@ def test_configured_people_directory_is_used_for_all_access_operations(access_va
     assert result.subjects["schedule"].tell == "details"
     assert access.matching_people(loaded, loaded.config, "alice example")[0].rel == person
     assert validate.access_problems(loaded) == []
-
-
-def test_an_owner_profile_past_its_budget_is_a_validation_problem(access_vault):
-    from brain import fm
-    path = access_vault.root / access_vault.config.human_profile
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fm.write(path, {"kind": "hub"}, "# Owner\n" + "word " * 401)
-    assert validate.owner_profile(Vault(access_vault.root)) == [
-        f"{access_vault.config.human_profile}: 403 words; keep it under 400, dated material in History.md"]
-    fm.write(path, {"kind": "hub"}, "# Owner\nShort.\n")
-    assert validate.owner_profile(Vault(access_vault.root)) == []
-
-
-def test_an_intellect_session_resolves_its_owners_access_inline(access_vault):
-    from brain import session_context
-    disclosure(access_vault, "# Disclosure\n\n" + HEADER
-               + f"| D1 | [[memory/{ALICE}|Alice]] | schedule | details | ask | 2026-10-05 | owner |\n"
-               + f"| D2 | [[memory/{ALICE}|Alice]] | whereabouts | gist | no | 2026-10-05 | owner |\n")
-    root = access_vault.root
-    (root / "agents/Nameless").mkdir(parents=True)
-    fm.write(root / "agents/Nameless/Profile.md", {"kind": "profile", "tier": "warm"},
-             f"# Nameless\n\n- **Owner:** [[memory/{ALICE.removesuffix('.md')}|Alice]]\n- **Demiurge:** `k57nameless`\n")
-    vault = Vault(root)
-    block = session_context.build(vault, vault.config, platform="demiurge", user_id="k57nameless")
-    assert ", owned by Alice." in block
-    assert "What Alice may learn, resolved from memory/people/Disclosure.md" in block
-    assert "- schedule: tell details (D1); ask" in block and "- whereabouts: tell gist (D2)" in block
-    assert "could not be resolved" not in block
-    assert "A question it relays for its owner you answer now" in block

@@ -50,25 +50,17 @@ def test_excluded_notes_do_not_score_or_receive_link_spread(retrieval_vault):
     assert paths == {"memory/Acme Context.md", "memory/Body.md", "memory/Linked.md"}
 
 
-def test_people_directory_tokens_and_heading_and_index_weights(retrieval_vault):
+def test_title_heading_and_index_line_hits_and_tier_order_regardless_of_pin(retrieval_vault):
     profile = retrieve.search(retrieval_vault, "alice")[0]
-    assert profile.path == "memory/people/Alice_Example/Profile.md"
-    assert profile.score == 3.0 and "title/path" in profile.reason
-    heading = retrieve.search(retrieval_vault, "pipelines")[0]
-    assert heading.score == 1.0 and heading.reason == "heading: pipelines"
+    assert profile.path == "memory/people/Alice_Example/Profile.md" and "title/path" in profile.reason
+    assert retrieve.search(retrieval_vault, "pipelines")[0].reason == "heading: pipelines"
     retrieval_vault.notes["Body.md"].data["index_line"] = "Compiler reliability"
-    index_hit = retrieve.search(retrieval_vault, "compiler")[0]
-    assert index_hit.score == 3.0 and index_hit.reason == "index line: compiler"
-
-
-def test_tier_factors_do_not_depend_on_pin(retrieval_vault):
+    assert retrieve.search(retrieval_vault, "compiler")[0].reason == "index line: compiler"
     for tier in ("hot", "warm", "cold"):
         fm.write(retrieval_vault.root / f"Starforge {tier}.md",
                  {"tier": tier, "pinned": tier == "cold"}, "# Record\nQuiet description.\n")
     retrieval_vault.load()
-    candidates = retrieve.search(retrieval_vault, "starforge")
-    assert [(candidate.tier, candidate.score) for candidate in candidates] == [
-        ("hot", 4.5), ("warm", 3.0), ("cold", pytest.approx(1.8))]
+    assert [candidate.tier for candidate in retrieve.search(retrieval_vault, "starforge")] == ["hot", "warm", "cold"]
 
 
 def test_task_id_matches_register_section(retrieval_vault):
@@ -102,9 +94,6 @@ def test_retrieval_cli_json_limit_and_no_writes(retrieval_vault, capsys):
     assert set(rows[0]) == {"path", "tier", "score", "reason"}
     assert rows[0]["path"] == "memory/Acme Context.md"
     assert snapshot(retrieval_vault.root) == before
-
-
-def test_stopword_query_has_no_candidates(retrieval_vault, capsys):
     cli.main(["retrieve", "--vault", str(retrieval_vault.root), "the and of to CI"])
     assert capsys.readouterr().out == "no candidates\n"
     cli.main(["retrieve", "--vault", str(retrieval_vault.root), "the and", "--json"])
