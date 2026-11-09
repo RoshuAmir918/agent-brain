@@ -1,12 +1,11 @@
 """Cheap, stable cron monitor output. Only the heartbeat carries the check time."""
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
 
-from . import channel_files, fm, loops, runtime, session_tools
+from . import channel_files, fm, loops, runtime, session_tools, wake
 from .config import Config
 from .vault import Vault
 
@@ -44,45 +43,42 @@ def watch(config: Config) -> str:
     lines = ["due:"]
     lines.extend(f"{item.id} · {item.kind}{' · ready' if item.ready else ''} · {item.text}"
                  for item in sorted(due, key=lambda item: item.id))
-    if due and (failed := _last_failure(home, config.skill_prefix + "watch")):
-        lines.append(f"last failure: {failed}")
-    lines.append("channels:")
     # Only live registry rows: a pending, revoked or unregistered account's leftover files are never read or reported.
     synced = channel_files.synced_accounts(Vault(config.vault_path), owner_only=False)
-    own = {name for name, _ in synced}
-    rows = []
-    for _, account in synced:
-        for kind in ("mail", "calendar"):
-            directory = account / kind
-            if not directory.is_dir():
-                continue
-            if kind == "mail":
-                # New mail is a new file in a date folder; the sync rewrites old mail (labels, read state), so
-                # mtimes would wake watch for nothing. Every message counts, from a person or a bot (a reminder, an
-                # alert, a receipt): a quiet wake is cheaper than a missed one. Only mail nobody needs (promotions,
-                # social, forums, spam, the account's own sent mail) leaves the signal unchanged.
-                folders = sorted(path for path in directory.iterdir() if path.is_dir())[-2:]
-                worth = []
-                for path in sorted(path for folder in folders for path in folder.rglob("*") if path.is_file()):
-                    try:
-                        data, _ = fm.read(path)
-                    except (OSError, ValueError):
-                        continue
-                    if channel_files.worth_a_look(data, own):
-                        worth.append(path.relative_to(directory).as_posix())
-                # The digest catches a message that left while another, sorting lower, arrived in the same tick.
-                digest = hashlib.sha1("\n".join(worth).encode()).hexdigest()[:12]
-                name = f"{len(worth)} worth a look" + (f", newest {worth[-1]}, {digest}" if worth else "")
-            else:
-                files = [path for path in directory.rglob("*") if path.is_file()]
-                newest = max(files, key=lambda path: (path.stat().st_mtime_ns, path.relative_to(directory).as_posix()),
-                             default=None)
-                # The calendar sync rewrites only changed days, so the newest mtime moves only when something did.
-                name = f"{newest.relative_to(directory).as_posix()} @{newest.stat().st_mtime_ns // 10**9}" if newest else ""
-            rows.append(f"{account.name}/{kind}: {name}")
-    lines.extend(sorted(rows))
+    since = _checked_at(home)
+    woke = [item["line"] for item in wake.screen(config, home, synced, now, since)]
+    if (due or woke) and (failed := _last_failure(home, config.skill_prefix + "watch")):
+        lines.append(f"last failure: {failed}")
+    lines.append("channels:")
+    lines.extend(woke)
     lines.append("unanswered:")
     lines.extend(f"{session_id} · {source}" for session_id, source in unanswered)
     _heartbeat(home, "watch", now, due=len(due), unanswered=len(unanswered))
-    return "\n".join(lines)
+    return _additions_only(home, lines)
+
+
+def _checked_at(home: Path) -> datetime | None:
+    """When the last watch pass began: what woke before it was handled there and is not listed again."""
+    try:
+        at = datetime.fromisoformat(json.loads((home / "records/watch/state.json").read_text())["checked_at"])
+        return at if at.tzinfo else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _additions_only(home: Path, lines: list[str]) -> str:
+    """The harness wakes watch whenever this output changes, so it changes only when a line is new: a loop closing,
+    a handled item dropping off or an answered conversation is no reason to wake, and the last output is repeated.
+    The count makes every wake's output distinct, even when a line that left comes back."""
+    path = home / "records" / "watch" / "signal-last.json"
+    try:
+        last = json.loads(path.read_text())
+    except (OSError, ValueError):
+        last = {"lines": None, "text": "", "wakes": 0}
+    text, wakes = last["text"], last.get("wakes", 0)
+    if last["lines"] is None or set(lines) - set(last["lines"]):
+        wakes += 1
+        text = "\n".join(lines + [f"wake {wakes}"])
+    fm.write_text(path, json.dumps({"lines": lines, "text": text, "wakes": wakes}) + "\n")
+    return text
 

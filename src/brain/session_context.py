@@ -161,6 +161,9 @@ def owner_card(vault: Vault, config: Config) -> str:
     if reach:
         parts.append("What you can reach, from " + config.link(config.agent("Channels.md")) + ": " + "; ".join(reach)[:600]
                      + ". Anything not listed, you cannot reach from here; say so in those words.")
+        parts.append(f"Between scheduled passes, watch wakes only for new items a screen judges actionable before the next "
+                     f"review. When {config.human_name} says what should or should not interrupt them, add it in their words "
+                     f"to {config.link(config.agent('Wake.md'))}, one line each.")
     if not parts:
         return ""
     yours = "your Portrait of them" if portrait else "your Impression"
