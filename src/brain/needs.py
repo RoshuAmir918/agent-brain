@@ -231,6 +231,9 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     out = [item for item in out if duplicates(item, waiting) is None] + [item for _, item in waiting]
     out.extend(_access_items(vault, config, today))
     owners = {task.tid: task.owner for task in tasks + archived if task.owner} if (config.vault_path / register).exists() else {}
+    for tid in {item.task for item in out if item.kind == "confirm" and item.task and item.task not in owners}:
+        if task := task_mod.find(config, tid, archived_closed=True):
+            owners[tid] = task.owner or ""
     for item in out:
         item.owner = owners.get(item.task, "")
     from . import consults
@@ -242,7 +245,7 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
 def duplicates(item: Item, waiting: list[tuple[str, Item]]) -> str | None:
     """The waiting task a CURRENT bullet repeats, by the same words or a source naming the task; the task is the one
     the owner sees, since it carries the state."""
-    if item.origin != "current":
+    if item.origin != "current" or item.kind != "ask":
         return None
     named = set(re.findall(r"\bT-\d{3}\b", item.source))
     return next((tid for tid, task in waiting if tid in named or fm.plain(task.text) == fm.plain(item.text)), None)
@@ -410,7 +413,7 @@ def resolve(config: Config, which: str, because: str, today: date, *, record_ans
         reception.answered(config, "ask", item.text, "used")
     if record_answer:
         from . import continuation
-        continuation.answered(config, item.source, item.text, because, owner_engaged, by)
+        continuation.answered(config, item.source, item.text, because, owner_engaged, by, kind=item.kind)
     return item
 
 
@@ -422,6 +425,8 @@ def settle_tasks(config: Config, today: date, settled: list[tuple[str, str]], be
         return []
     asks = {tid: fm.plain(ask) for tid, entry in settled if (ask := _owner_lines(entry)[0])}
     def stood_for(item: Item) -> bool:
+        if item.kind != "ask":
+            return False
         named = set(re.findall(r"\bT-\d{3}\b", item.source))
         return any(tid in named or asks.get(tid) == fm.plain(item.text) for tid, _ in settled)
     removed = _prune(config, stood_for)

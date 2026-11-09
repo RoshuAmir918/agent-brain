@@ -3,6 +3,7 @@ or the task closing or coming to rest on the owner. Vault drafts, plans and self
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import re
 import subprocess
@@ -196,72 +197,78 @@ def review_status(config: Config, tid: str) -> dict:
             "lastReview": row.get("last_review")}
 
 
-def _finish_ask_open(config: Config, task: tasks.Task) -> bool:
+def _finish_confirms(config: Config, task: tasks.Task) -> list[needs.Item]:
     current = config.vault_path / "CURRENT.md"
-    return any(task.tid in item.source and item.text.startswith("What would done look like for ")
-               for item in (needs.open_asks(current.read_text(encoding="utf-8")) if current.exists() else []))
+    return [item for item in (needs.parse_section(current.read_text(encoding="utf-8")) if current.exists() else [])
+            if item.task == task.tid and item.kind == "confirm" and item.text.startswith("I'll call ")
+            and item.text.endswith("Say if that's not it.")]
 
 
-def _ask_finish_line(config: Config, task: tasks.Task) -> None:
-    journal.add_ask(config, config.today(),
-                    f"What would done look like for {task.title}? Until you say, {config.agent_name} "
-                    f"works toward its own guess: {fm.cut(task.delivers, 20)}",
-                    config.agent(f"Tasks#{task.tid}"))
-    task.state["finish_asked"] = "pending"
+def finish_confirm_open(config: Config, task: tasks.Task) -> bool:
+    return bool(_finish_confirms(config, task))
+
+
+def propose_finish_line(config: Config, task: tasks.Task) -> None:
+    """One confirm per proposal, kept after closure and never raised again after acceptance. Caller holds the lock."""
+    proposed = tasks.proposed_delivers(task)
+    text = (f"I'll call {task.title} done when {fm.cut(task.delivers, 20)}. Say if that's not it."
+            if proposed else "")
+    fingerprint = hashlib.sha256(f"{task.title}\n{task.delivers}".encode("utf-8")).hexdigest() if proposed else None
+    previous = task.state.get("delivers_confirm")
+    if fingerprint == previous:
+        return
+    for item in _finish_confirms(config, task):
+        needs.resolve(config, item.id, "the task's Delivers changed", config.today(), record_answer=False)
+    if proposed:
+        journal.add_ask(config, config.today(), text, config.agent(f"Tasks#{task.tid}"), kind="confirm")
+        task.state["delivers_confirm"] = fingerprint
+    else:
+        task.state.pop("delivers_confirm", None)
     tasks.save_task(config, task, config.today())
 
 
-def hold_finish_line(config: Config, task: tasks.Task) -> bool:
-    """Whether a worker must not close the task: its Delivers is only the agent's proposal and the owner has not answered
-    or dismissed what done looks like. Closing settles the task's asks, which would answer that question for them, so
-    the question is raised here if it was not yet; the caller holds the vault lock."""
-    if not task.handoff or not tasks.proposed_delivers(task) or task.state.get("finish_asked") == "answered":
-        return False
-    if "finish_asked" not in task.state:
-        _ask_finish_line(config, task)
-        return True
-    return _finish_ask_open(config, task)
-
-
-def finish_lines(config: Config) -> list[tasks.Task]:
-    """Raise one task-sourced standing ask, even without a runtime, before scheduling either pace."""
+def finish_lines(config: Config, report: list[str] | None = None) -> list[tasks.Task]:
+    """Migrate old finish questions and record proposals as confirms before scheduling either pace."""
+    report = report if report is not None else []
     with vault_lock(config):
-        registered, archived = tasks.load_tasks(config)
-        for task in registered + archived:
-            if not task.handoff or not tasks.is_open(task) or task.task_state in ("yours", "set_aside"):
+        entries = tasks.all_tasks(config)
+        by_id = {task.tid: task for task in entries}
+        current = config.vault_path / "CURRENT.md"
+        for item in needs.open_asks(current.read_text(encoding="utf-8")) if current.exists() else []:
+            if not item.text.startswith("What would done look like for "):
                 continue
-            waiting = task.task_state == "waiting_for_owner"
-            if tasks.proposed_delivers(task):
-                # The worker's own Delivers is a working proposal: the owner's answer still decides done. Once their
-                # ask is gone (answered or dismissed) nothing is raised again; until it is asked, it is asked once.
-                asked = _finish_ask_open(config, task)
-                if task.state.get("finish_asked") == "pending" and not asked:
-                    task.state["finish_asked"] = "answered"
-                    tasks.save_task(config, task, config.today())
-                elif "finish_asked" not in task.state and not waiting:
-                    _ask_finish_line(config, task)
-            elif (task.delivers or waiting) and task.state.get("finish_asked") == "pending":
-                # A task waiting on its owner already asks them one thing; the finish line waits until it moves again.
-                because = "the task now has a Delivers line" if task.delivers else "the task already waits on its owner"
-                current = config.vault_path / "CURRENT.md"
-                for item in needs.open_asks(current.read_text(encoding="utf-8")) if current.exists() else []:
-                    if task.tid in item.source and item.text.startswith("What would done look like for "):
-                        needs.resolve(config, item.id, because, config.today(), record_answer=False)
-                if task.delivers:
-                    task.state["finish_asked"] = "answered"
-                else:
-                    task.state.pop("finish_asked")
+            task = by_id.get(item.task)
+            quote = None
+            if task and task.delivers:
+                source = fm.field(task.body, "Source") or ""
+                quote = next((words for words in re.findall(r'["“]([^"”\n]+)["”]', source)
+                              if sum(bool(re.search(r"\w", word)) for word in words.split()) >= 4
+                              and tasks._said_text(task.delivers) in tasks._said_text(words)), None)
+            if quote:
+                tasks._delivers_by(task, False, quote, config.today())
                 tasks.save_task(config, task, config.today())
-            elif waiting:
-                continue
-            elif not task.delivers and task.state.get("finish_asked") != "pending":   # Delivers cleared after an answer
-                journal.add_ask(config, config.today(),
-                                f"What would done look like for {task.title}? Until then {config.agent_name} "
-                                "won't keep working on it in the background.",
-                                config.agent(f"Tasks#{task.tid}"))
-                task.state["finish_asked"] = "pending"
+                because = "answered by their earlier words: " + quote
+            elif task and task.delivers:
+                tasks._delivers_by(task, True)
                 tasks.save_task(config, task, config.today())
-        return registered + archived
+                because = "replaced by a proposal confirm; work and closing may continue"
+            else:
+                because = "the worker will write Delivers before working"
+            if task:
+                propose_finish_line(config, task)
+            needs.resolve(config, item.id, because, config.today(), record_answer=False)
+            report.append(f"finish line: {item.task or item.id}: {because}")
+        for task in entries:
+            if "finish_asked" in task.state:
+                task.state.pop("finish_asked")
+                tasks.save_task(config, task, config.today())
+            if tasks.is_open(task):
+                propose_finish_line(config, task)
+        marker = config.vault_path / config.runtime_dir / "finish-lines-0.123.0"
+        if not marker.exists():
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            fm.write_text(marker, config.today().isoformat() + "\n")
+        return sum(tasks.load_tasks(config), [])
 
 
 def _task(config: Config, tid: str, *, open_only: bool = False) -> tasks.Task:
@@ -342,15 +349,25 @@ def clear_close_out(config: Config, tid: str) -> None:
 
 
 def answered(config: Config, source: str, question: str, because: str, owner_engaged: bool = False,
-             by: str | None = None) -> None:
+             by: str | None = None, kind: str = "ask") -> None:
     """Remember a task-sourced answer without treating a worker's discovery as owner engagement. Caller holds the lock."""
     match = re.search(r"\bT-\d{3}\b", source)
-    if match and runtime.configured() is not None:
-        if (task := tasks.find(config, match[0])) and task.handoff:
-            text = f"{question} Answer: {because}"
-            if not (owner_engaged and mark_engaged(config, match[0], text, by)):
-                with _progress_records(config) as rows:
-                    rows.setdefault(match[0], {})["instruction"] = {"at": config.local().isoformat(), "text": text}
+    task = tasks.find(config, match[0], archived_closed=True) if match else None
+    if task is None:
+        return
+    # The owner resolving a proposal confirm accepts it. A correction is a conversation's own `task set --delivers`
+    # (after `task reopen` if closed), since --because is free text and must not become the finish line.
+    if (owner_engaged and kind == "confirm" and (not task.owner or not by or task.owner == by)
+            and question.startswith("I'll call ") and question.endswith("Say if that's not it.")
+            and tasks.proposed_delivers(task)):
+        tasks._delivers_by(task, False)
+        task.state.pop("delivers_confirm", None)
+        tasks.save_task(config, task, config.today())
+    if task.handoff and runtime.configured() is not None:
+        text = f"{question} Answer: {because}"
+        if not (owner_engaged and mark_engaged(config, task.tid, text, by)):
+            with _progress_records(config) as rows:
+                rows.setdefault(task.tid, {})["instruction"] = {"at": config.local().isoformat(), "text": text}
 
 
 def _owner_instruction(config: Config, task: tasks.Task, row: dict) -> str | None:

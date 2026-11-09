@@ -190,6 +190,13 @@ def pending_migrations(config: Config) -> list[tuple[str, str]]:
 
 def migrate_check(config: Config) -> Path | None:
     """Record the installed version, or write the pending migration prompt and leave the version alone."""
+    marker = config.vault_path / config.runtime_dir / "finish-lines-0.123.0"
+    if not marker.exists() and (config.vault_path / config.agent("Tasks.md")).exists():
+        from . import continuation
+        report = []
+        continuation.finish_lines(config, report)
+        for line in report:
+            print(line, file=sys.stderr)
     current = installed_version("agent-brain")
     pending = pending_migrations(config)
     target = config.vault_path / config.runtime_dir / "pending-migration.md"
