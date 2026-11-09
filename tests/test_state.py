@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import cli, fm, health, needs, nightly, state, triggers, validate
+from brain import cli, fm, health, needs, nightly, reception, state, triggers, validate
 from brain.config import Config
 from brain.tasks import Task, write_archive
 from brain.vault import Vault
@@ -13,7 +13,7 @@ from conftest import git, snapshot
 
 
 TODAY = date(2026, 10, 28)
-KEYS = ["schema", "engine", "version", "tasks", "hubs", "goals", "routines", "ledger", "needsYou", "outputs", "loops", "loopsClosed"]
+KEYS = ["schema", "engine", "version", "tasks", "hubs", "goals", "routines", "ledger", "needsYou", "outputs", "prepared", "loops", "loopsClosed"]
 
 
 def note(root, source, body="", **data):
@@ -335,3 +335,28 @@ def test_the_stamp_changes_with_what_the_state_reads_and_nothing_else(vault, cap
     assert second != first
     (vault / "Plans/Garden.md").rename(vault / "Plans/Gardens.md")
     assert stamp() not in (first, second)
+
+
+def test_prepared_lists_held_unasked_drafts_with_their_offer(vault):
+    config = Config.load(vault)
+    note(vault, "agent/Prepared/2026-10-27 Renal deck.md", "Cards for renal.\n", kind="draft", goal="G-1")
+    note(vault, "agent/Prepared/Lease summary.md", "Lease.\n", kind="draft", created=TODAY, **{"for": "the move"})
+    note(vault, "agent/Prepared/Used.md", kind="draft")
+    note(vault, "agent/Prepared/For a task.md", kind="draft", task="T-004")
+    note(vault, "agent/Prepared/Never offered.md", kind="draft")
+    note(vault, "Drafts/Elsewhere.md", kind="draft")
+    note(vault, "agent/Reception/2026-10.md", reception.HEADER +
+         "- 2026-10-27 09:00 · aaaaaa · draft · Renal deck · pending · [[agent/Prepared/2026-10-27 Renal deck]]\n"
+         "- 2026-10-27 10:00 · bbbbbb · draft · Renal deck again · opened · [[agent/Prepared/2026-10-27 Renal deck.md]]\n"
+         "- 2026-10-28 09:00 · cccccc · draft · Lease · delivered · [[agent/Prepared/Lease summary]]\n"
+         "- 2026-10-28 09:00 · dddddd · draft · Used · used · [[agent/Prepared/Used]]\n"
+         "- 2026-10-28 09:00 · eeeeee · draft · Task · pending · [[agent/Prepared/For a task]]\n"
+         "- 2026-10-28 09:00 · ffffff · draft · Elsewhere · pending · [[Drafts/Elsewhere]]\n")
+    assert state.build(config, TODAY)["prepared"] == [
+        {"id": "cccccc", "title": "Lease summary", "source": "agent/Prepared/Lease summary.md", "created": "2026-10-28",
+         "goal": None, "for": "the move", "outcome": "delivered"},
+        {"id": "bbbbbb", "title": "Renal deck", "source": "agent/Prepared/2026-10-27 Renal deck.md",
+         "created": "2026-10-27", "goal": "G-1", "for": None, "outcome": "opened"},
+    ]
+    reception.set_outcome(config, "agent/Prepared/2026-10-27 Renal deck", "used")
+    assert [draft["id"] for draft in state.build(config, TODAY)["prepared"]] == ["cccccc"]

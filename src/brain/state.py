@@ -8,7 +8,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import fm, goals, health, ideas, ledger, loops, image, needs, portrait, responsibilities, runtime, schedule, seed, tasks, views, works
+from . import fm, goals, health, ideas, reception, ledger, loops, image, needs, portrait, responsibilities, runtime, schedule, seed, tasks, views, works
 from .config import Config
 from .vault import Vault
 
@@ -198,6 +198,32 @@ def _outputs(vault: Vault) -> list[dict]:
     return out
 
 
+def _prepared(vault: Vault) -> list[dict]:
+    """What explore made unasked and holds in Prepared, not yet used or set aside, with how its offer stands. A draft
+    made for a task is that task's output, so it shows there instead."""
+    folder = vault.config.agent("Prepared/")
+    latest = {}
+    for _, row in reception.rows(vault.config):
+        key = (_source(vault, row.source) or "").split("#", 1)[0].removesuffix(".md").casefold()
+        if row.kind == "draft" and key and (key not in latest or (row.at, row.id) >= (latest[key].at, latest[key].id)):
+            latest[key] = row
+    out = []
+    for source, note in sorted(vault.notes.items()):
+        if not source.startswith(folder) or note.data.get("task") or not _public(vault, source):
+            continue
+        row = latest.get(source.removesuffix(".md").casefold())
+        if row is None or row.outcome not in ("pending", "delivered", "opened"):
+            continue
+        leading = re.match(r"\d{4}-\d{2}-\d{2}", note.stem)
+        created = note.data.get("created") or (leading[0] if leading else row.at[:10])
+        out.append({"id": row.id, "title": str(note.data.get("index_line") or re.sub(r"^\d{4}-\d{2}-\d{2} ", "", note.stem)),
+                    "source": source, "created": created.isoformat() if isinstance(created, date) else str(created),
+                    "goal": note.data.get("goal") or fm.field(note.body, "Goal"), "for": str(note.data["for"]) if note.data.get("for") else None,
+                    "outcome": row.outcome})
+    out.sort(key=lambda draft: draft["created"], reverse=True)
+    return out
+
+
 def _goals(vault: Vault, task_entries: list[dict]) -> list[dict]:
     if vault.config.edition != "personal":
         return []
@@ -286,6 +312,7 @@ def build(config: Config, today: date) -> dict:
             "goals": _goals(vault, task_entries),
             "routines": routine_entries, "ledger": recent,
             "needsYou": owner_items, "outputs": _outputs(vault),
+            "prepared": _prepared(vault),
             "loops": _loops(vault, loops.open_loops(config)),
             "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
             "idea": owner_idea,

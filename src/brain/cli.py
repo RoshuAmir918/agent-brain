@@ -1158,7 +1158,7 @@ def cmd_state(args):
         print(json.dumps(data, ensure_ascii=False, indent=2))
     else:
         print(" · ".join(f"{len(data[key])} {key}" for key in
-                         ("tasks", "hubs", "goals", "routines", "ledger", "needsYou", "outputs", "loops", "loopsClosed")))
+                         ("tasks", "hubs", "goals", "routines", "ledger", "needsYou", "outputs", "prepared", "loops", "loopsClosed")))
 
 
 def cmd_reception(args):
