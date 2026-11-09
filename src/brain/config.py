@@ -256,7 +256,7 @@ class Config:
     def orientation(self) -> set[str]:
         return {"START.md", "CURRENT.md", self.human_goals, self.human_portrait, self.human_tellable,
                 f"{self.runtime_dir}/README.md", *(self.agent(name) for name in
-                ("SOUL.md", "Triggers.md", "Tasks.md", "Channels.md", "Ideas.md", "Owners.md", "Consults.md",
+                ("SOUL.md", "Triggers.md", "Tasks.md", "Channels.md", "Wake.md", "Ideas.md", "Owners.md", "Consults.md",
                  "Memory Spec.md", "Retrieval Checks.md"))}
 
     @property

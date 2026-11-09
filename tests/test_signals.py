@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from brain import channels, cli, fm, install, loops, session_tools, signals, tasks, validate
+from brain import channels, cli, fm, install, loops, session_tools, signals, tasks, validate, wake
 from brain.config import Config
 from brain.vault import Vault
 
@@ -24,6 +24,17 @@ def monitor(vault, tmp_path, monkeypatch):
     config = Config.load(vault)
     tasks.set_fields(config, "T-001", config.today(), values={"delivers": "notes in Home"})
     return config, home, clock
+
+
+@pytest.fixture
+def scored(monkeypatch):
+    """Jev stand-in: a score per subject (calendar items by date), 0.0 for anything unlisted; records what was asked."""
+    table, asked = {}, []
+    def score(config, accounts, items):
+        asked.extend(i["item"] for i in items)
+        return [table.get(i["item"].get("subject") if i["item"]["channel"] == "mail" else i["item"]["date"], 0.0) for i in items]
+    monkeypatch.setattr(wake, "score", score)
+    return table, asked
 
 
 def register(config, *accounts, status="live"):
@@ -49,69 +60,13 @@ def run(capsys, config, command):
 def test_watch_idle_is_stable_without_sessions_and_heartbeat_advances(monitor, capsys):
     config, home, clock = monitor
     first = run(capsys, config, "watch-signal")
-    assert first == "due:\nchannels:\nunanswered:\n"
+    assert first == "due:\nchannels:\nunanswered:\nwake 1\n"
     heartbeat = home / "records/watch/signal.json"
     assert json.loads(heartbeat.read_text()) == {"checked": AT.isoformat(), "due": 0, "unanswered": 0}
     clock[0] += timedelta(minutes=2, seconds=13)
     assert run(capsys, config, "watch-signal") == first
     assert json.loads(heartbeat.read_text())["checked"] == clock[0].isoformat()
     assert not (home / "harness").exists()  # reading never creates the optional source
-
-
-def test_watch_changes_when_loop_becomes_due_and_closes(monitor):
-    config, home, clock = monitor
-    loops.add(config, AT, "promised", "Check fares", "Trip")
-    first = signals.watch(config)
-    clock[0] += timedelta(hours=4)
-    second = signals.watch(config)
-    item = loops.open_loops(config)[0]
-    assert second != first and f"{item.id} · promised · Check fares" in second
-    assert signals.watch(config) == second
-    assert json.loads((home / "records/watch/signal.json").read_text())["due"] == 1
-    loops.close(config, item.id, clock[0], "done", "Checked")
-    assert signals.watch(config) == first
-
-
-def test_watch_changes_for_new_channel_files_and_sorts_rows(monitor):
-    config, home, clock = monitor
-    register(config, "a-account", "z-account")
-    initial = signals.watch(config)
-    mail = home / "channels/z-account/mail/2026-10-28"
-    calendar = home / "channels/a-account/calendar"
-    mail.mkdir(parents=True)
-    calendar.mkdir(parents=True)
-    (calendar / "2026-10-28.md").write_text("Events")
-    os.utime(calendar / "2026-10-28.md", (500, 500))
-    (mail / "first.md").write_text("Mail")
-    os.utime(mail / "first.md", (1000, 1000))
-    result = signals.watch(config)
-    assert result != initial
-    assert result == ("due:\nchannels:\na-account/calendar: 2026-10-28.md @500\n"
-                      "z-account/mail: 1 worth a look, newest 2026-10-28/first.md, d21806a4b064\nunanswered:")
-    (mail / "second.md").write_text("New mail")
-    os.utime(mail / "second.md", (2000, 2000))
-    changed = signals.watch(config)
-    assert changed != result and "second.md" in changed
-    assert signals.watch(config) == changed
-    # Rewriting old mail (a label or read-state change) is not new mail; empty directories still have a row.
-    os.utime(mail / "first.md", (3000, 3000))
-    (mail / "first.md").write_text("Mail, now read")
-    assert signals.watch(config) == changed
-    (home / "channels/a-account/mail").mkdir()
-    assert "a-account/mail: 0 worth a look\n" in signals.watch(config)
-
-
-def test_watch_changes_for_unanswered_session_and_reply(monitor):
-    config, home, clock = monitor
-    initial = signals.watch(config)
-    session(home, "z-session", "telegram")
-    session(home, "a-session")
-    changed = signals.watch(config)
-    assert changed != initial and changed.endswith("unanswered:\na-session · demiurge\nz-session · telegram")
-    assert signals.watch(config) == changed
-    assert json.loads((home / "records/watch/signal.json").read_text())["unanswered"] == 2
-    session(home, "a-session", role="assistant", age=timedelta(0))
-    assert "a-session ·" not in signals.watch(config)
 
 
 @pytest.mark.parametrize("age,expected", [
@@ -142,7 +97,7 @@ def test_watch_optional_session_errors_are_empty_and_still_heartbeat(monitor, br
     folder = home / "harness/sessions/2026-10-28"
     folder.mkdir(parents=True)
     (folder / "broken.json").write_text(broken)
-    assert signals.watch(config) == "due:\nchannels:\nunanswered:"
+    assert signals.watch(config) == "due:\nchannels:\nunanswered:\nwake 1"
     assert (home / "records/watch/signal.json").is_file()
 
 
@@ -213,7 +168,7 @@ def test_installed_watch_wrapper_uses_job_cwd_or_vault_override(monitor, monkeyp
         monkeypatch.setenv("VAULT_REPO", str(config.repo))
     result = subprocess.run(["bash", str(script)], cwd=home if override else config.repo, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert result.stdout == "due:\nchannels:\nunanswered:\n"
+    assert result.stdout == "due:\nchannels:\nunanswered:\nwake 1\n"
     assert (home / "records/watch/signal.json").is_file()
 
 
@@ -250,48 +205,147 @@ def test_a_new_run_failure_changes_the_signal_only_while_something_is_due(monito
     assert signal(config) != first
 
 
-def test_a_rewritten_calendar_day_changes_the_signal(monitor):
-    config, home, clock = monitor
-    register(config, "a")
-    calendar = home / "channels/a/calendar"
-    calendar.mkdir(parents=True)
-    (calendar / "2026-12-04.md").write_text("One event")
-    os.utime(calendar / "2026-12-04.md", (1000, 1000))
-    first = signals.watch(config)
-    os.utime(calendar / "2026-12-04.md", (2000, 2000))
-    assert signals.watch(config) != first
+def mail_file(home, account, name, subject, sender="Alex <alex@example.com>", labels=("INBOX",), day="2026-10-28"):
+    folder = home / f"channels/{account}/mail/{day}"
+    folder.mkdir(parents=True, exist_ok=True)
+    fm.write(folder / name, {"from": sender, "subject": subject, "labels": list(labels)}, "body")
 
 
-def test_watch_wakes_for_people_and_bots_but_not_promotions_or_sent_mail(monitor):
+def test_watch_wakes_only_when_something_is_added(monitor, scored):
     config, home, clock = monitor
-    register(config, "owner@example.com")
-    mail = home / "channels/owner@example.com/mail/2026-10-28"
-    mail.mkdir(parents=True)
-    fm.write(mail / "a.md", {"from": "Alex <alex@example.com>", "labels": ["INBOX"]}, "body")
+    loops.add(config, AT, "promised", "Check fares", "Trip")
     first = signals.watch(config)
-    assert "1 worth a look, newest 2026-10-28/a.md" in first
-    fm.write(mail / "b.md", {"from": "Robinhood <noreply@robinhood.com>", "labels": ["CATEGORY_UPDATES", "INBOX"]}, "body")
+    clock[0] += timedelta(hours=4)
     second = signals.watch(config)
-    assert second != first and "2 worth a look, newest 2026-10-28/b.md" in second
-    fm.write(mail / "c.md", {"from": "Robinhood <noreply@robinhood.com>", "labels": ["CATEGORY_UPDATES", "INBOX"]}, "body")
-    assert signals.watch(config) != second   # a second message from the same bot still wakes watch
+    item = loops.open_loops(config)[0]
+    assert second != first and f"{item.id} · promised · Check fares" in second
+    loops.close(config, item.id, clock[0], "done", "Checked")
+    assert signals.watch(config) == second   # a loop closing is no reason to wake
+    session(home, "z-session", "telegram", at=clock[0])
+    session(home, "a-session", at=clock[0])
     third = signals.watch(config)
-    fm.write(mail / "promo.md", {"from": "Shop <deals@shop.com>", "labels": ["CATEGORY_PROMOTIONS"]}, "body")
-    fm.write(mail / "sent.md", {"from": "Owner <owner@example.com>", "labels": ["SENT"]}, "body")
-    assert signals.watch(config) == third
-    (mail / "c.md").unlink()
-    fm.write(mail / "a2.md", {"from": "Alex <alex@example.com>", "labels": ["INBOX"]}, "body")
-    assert signals.watch(config) != third   # same count and newest name, a different message
+    assert third.endswith("unanswered:\na-session · demiurge\nz-session · telegram\nwake 3") and f"{item.id}" not in third
+    session(home, "a-session", role="assistant", age=timedelta(0), at=clock[0])
+    assert signals.watch(config) == third   # nor is a conversation being answered
+    clock[0] += timedelta(minutes=30)
+    session(home, "a-session", at=clock[0])
+    assert signals.watch(config) == third.replace("wake 3", "wake 4")   # but the same conversation unanswered again is
 
 
-def test_watch_reads_only_live_registry_rows(monitor):
+def test_only_actionable_items_wake_and_every_decision_is_logged(monitor, scored):
     config, home, clock = monitor
+    table, asked = scored
+    register(config, "owner@example.com")
+    mail_file(home, "owner@example.com", "old.md", "Already here")
+    baseline = signals.watch(config)
+    assert asked == [] and "Already here" not in baseline   # the first screen only learns what is there
+    table.update({"Rent is due today": 0.9, "Weekly digest": 0.1})
+    mail_file(home, "owner@example.com", "digest.md", "Weekly digest", sender="News <news@example.com>")
+    assert signals.watch(config) == baseline   # sleeping on an item changes nothing
+    mail_file(home, "owner@example.com", "rent.md", "Rent is due today", sender="Landlord <l@example.com>")
+    mail_file(home, "owner@example.com", "promo.md", "Sale", sender="Shop <deals@shop.com>", labels=("CATEGORY_PROMOTIONS",))
+    woke = signals.watch(config)
+    assert woke == ("due:\nchannels:\nowner@example.com/mail/2026-10-28/rent.md · Landlord <l@example.com> · "
+                    "Rent is due today\nunanswered:\nwake 2")
+    assert [i["subject"] for i in asked] == ["Weekly digest", "Rent is due today"]   # promotions never reach Jev
+    assert signals.watch(config) == woke and len(asked) == 2   # each item is screened once
+    log = [json.loads(line) for line in (home / "records/watch/screen.jsonl").read_text().splitlines()]
+    assert [(row["subject"], row["p"], row["woke"]) for row in log] == [("Weekly digest", 0.1, False), ("Rent is due today", 0.9, True)]
+
+
+def test_what_watch_already_handled_is_not_listed_again(monitor, scored):
+    config, home, clock = monitor
+    table, _ = scored
+    register(config, "o")
+    signals.watch(config)
+    table.update({"First": 0.9, "Second": 0.9})
+    mail_file(home, "o", "1.md", "First")
+    first = signals.watch(config)
+    clock[0] += timedelta(minutes=15)
+    fm.write_text(home / "records/watch/state.json", json.dumps({"checked_at": clock[0].isoformat()}))
+    assert signals.watch(config) == first   # handled, so dropped, but dropping is no change
+    clock[0] += timedelta(minutes=15)
+    mail_file(home, "o", "2.md", "Second")
+    second = signals.watch(config)
+    assert "Second" in second and "First" not in second
+
+
+def test_a_changed_calendar_day_is_screened_with_what_changed(monitor, scored):
+    config, home, clock = monitor
+    table, asked = scored
+    register(config, "o")
+    calendar = home / "channels/o/calendar"
+    calendar.mkdir(parents=True)
+    (calendar / "2026-10-29.md").write_text("- 09:00 Dentist\n")
+    (calendar / "2026-10-01.md").write_text("- past\n")
+    first = signals.watch(config)
+    os.utime(calendar / "2026-10-29.md", (2000, 2000))
+    assert signals.watch(config) == first and asked == []   # a rewrite without a change is nothing new
+    table["2026-10-29"] = 0.8
+    (calendar / "2026-10-29.md").write_text("- 11:00 Dentist (moved)\n")
+    (calendar / "2026-10-01.md").write_text("- past, edited\n")
+    changed = signals.watch(config)
+    assert "o/calendar/2026-10-29.md@" in changed and "· changed · calendar for 2026-10-29 changed" in changed
+    assert [i["changes"] for i in asked] == ["-- 09:00 Dentist\n+- 11:00 Dentist (moved)"]   # past days are not screened
+
+
+def test_an_unanswered_screen_wakes_and_the_gate_can_be_turned_off(monitor, monkeypatch):
+    config, home, clock = monitor
+    register(config, "o")
+    signals.watch(config)
+    monkeypatch.setenv("PATH", str(home / "nowhere"))   # no demiurge CLI: Jev cannot answer
+    mail_file(home, "o", "1.md", "Anything")
+    assert "Anything" in signals.watch(config)
+    monkeypatch.setenv("BRAIN_WAKE_GATE", "off")
+    assert wake.score(config, [], [{"item": {}}] * 2) == [1.0, 1.0]
+
+
+def test_watch_reads_only_live_registry_rows(monitor, scored):
+    config, home, clock = monitor
+    table, asked = scored
+    signals.watch(config)
     for account in ("live", "revoked", "stray"):
-        (home / f"channels/{account}/calendar").mkdir(parents=True)
-        (home / f"channels/{account}/calendar/2026-10-28.md").write_text("Events")
+        mail_file(home, account, "a.md", "Hello")
     register(config, "live")
     with (config.vault_path / config.agent("Channels.md")).open("a") as stream:
         stream.write(channels.Channel("revoked", "owner", "revoked", "`$AGENT_HOME/channels/revoked/`",
                                       "", "", "", "revoked").render() + "\n")
-    rows = signals.watch(config).split("channels:\n")[1].split("unanswered:")[0]
-    assert rows.startswith("live/calendar: ") and "revoked" not in rows and "stray" not in rows
+    signals.watch(config)
+    assert [i["account"] for i in asked] == ["live"]
+
+
+def test_the_owner_s_wake_file_refines_the_question(monitor):
+    config, home, clock = monitor
+    assert "only informative" in wake.instructions(config) and "own wishes" not in wake.instructions(config)
+    fm.write(config.vault_path / config.agent("Wake.md"), {"kind": "orientation"}, "- Wake me for any Sentry error.\n")
+    assert wake.instructions(config).endswith("- Wake me for any Sentry error.\nShould the assistant wake for this item?")
+
+
+def test_an_unhandled_wake_survives_the_day_changing_again_and_a_later_revision_wakes_again(monitor, scored):
+    config, home, clock = monitor
+    table, _ = scored
+    register(config, "o")
+    calendar = home / "channels/o/calendar"
+    calendar.mkdir(parents=True)
+    (calendar / "2026-10-29.md").write_text("- 09:00 Dentist\n")
+    signals.watch(config)
+    table["2026-10-29"] = 0.9
+    (calendar / "2026-10-29.md").write_text("- 11:00 Dentist\n")
+    moved = signals.watch(config)
+    table["2026-10-29"] = 0.0
+    (calendar / "2026-10-29.md").write_text("- 11:00 Dentist, room 4\n")
+    assert signals.watch(config) == moved   # the watch pass for the move failed: it is still listed
+    clock[0] += timedelta(minutes=15)
+    fm.write_text(home / "records/watch/state.json", json.dumps({"checked_at": clock[0].isoformat()}))
+    signals.watch(config)
+    clock[0] += timedelta(minutes=15)
+    table["2026-10-29"] = 0.9
+    (calendar / "2026-10-29.md").write_text("cancelled\n")
+    cancelled = signals.watch(config)
+    assert cancelled != moved and "calendar/2026-10-29.md@" in cancelled
+
+
+def test_screening_past_its_deadline_wakes_instead_of_hanging(monitor, monkeypatch):
+    config, home, clock = monitor
+    monkeypatch.setattr(wake, "DEADLINE", 0)
+    assert wake.score(config, [], [{"item": {}}] * 3) == [None, None, None]
