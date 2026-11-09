@@ -48,6 +48,10 @@ def _tasks(vault: Vault) -> list[dict]:
     entries.extend(sorted(archived, key=lambda entry: entry[0].tid))
     from . import continuation
     worked, chunks = continuation.last_worked(config), continuation.chunks_today(config)
+    limits = continuation.budgets(config, [task for task, *_ in entries if task.handoff and tasks.is_open(task)])
+    # A regular task that spent today's budget rests until the owner's midnight, like one resting to a set time.
+    midnight = f"{config.local().date() + timedelta(days=1)} 00:00"
+    spent = {tid for tid, limit in limits.items() if chunks.get(tid, 0) >= limit}
     return [{"id": task.tid, "title": task.title, "state": task.task_state, "open": tasks.is_open(task),
              "detail": fm.field(task.body, "Status"), "next": fm.field(task.body, "Next", "Next action"),
              "blockers": fm.field(task.body, "Blocker", "Blockers"), "hub": _public_link(vault, task.hub), "work": task.work,
@@ -55,7 +59,9 @@ def _tasks(vault: Vault) -> list[dict]:
              "after": task.after,
              "delivers": task.delivers, "ask": fm.field(task.body, "Ask"), "why": fm.field(task.body, "Why"),
              "evidence": fm.field(task.body, "Latest evidence"),
-             "resume": task.resume, "handoff": task.handoff[0] if task.handoff else None,
+             "resume": midnight if task.tid in spent and tasks.pace(task) == "regular" and (task.resume or "") < midnight
+                       else task.resume,
+             "handoff": task.handoff[0] if task.handoff else None,
              "report": (task.handoff[1] or None) if task.handoff else None, "pace": tasks.pace(task),
              "lastChunk": worked.get(task.tid), "chunksToday": chunks.get(task.tid, 0) if task.handoff else None,
              "closed": tasks.closing(task)[0], "outcome": tasks.closing(task)[1],

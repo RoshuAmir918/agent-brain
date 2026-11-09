@@ -1022,10 +1022,10 @@ def cmd_continue(args):
     try:
         if (args.text is not None) != bool(args.checkpoint):
             raise ValueError("--checkpoint TASK requires --text; --text goes with --checkpoint")
-        if args.tid and (args.due or args.chunk or args.pace or args.checkpoint or args.engaged
+        if args.tid and (args.due or args.chunk or args.pace or args.checkpoint or args.engaged or args.extend
                          or args.review or args.review_context or args.wake is not None):
             raise ValueError("TASK cannot be combined with another continue mode")
-        if (args.chunk or args.pace or args.checkpoint or args.engaged or args.review) and args.json:
+        if (args.chunk or args.pace or args.checkpoint or args.engaged or args.extend or args.review) and args.json:
             raise ValueError("--json goes with --due, TASK, --review-context or --wake")
         if not args.review and any(value is not None for value in (args.verdict, args.reason, args.ask, args.resume)):
             raise ValueError("--verdict, --reason, --ask and --resume go with --review")
@@ -1050,6 +1050,13 @@ def cmd_continue(args):
         if args.review_context:
             result = continuation.review_context(args.config, args.review_context)
             print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
+        if args.extend:
+            by = args.by or speaker()
+            with vault_lock(args.config):
+                limit = continuation.extend(args.config, args.extend, by)
+            print(f"{args.extend} not extended: {by} is not its owner" if limit is None else
+                  f"{args.extend} extended: today's budget is {limit} chunks")
             return
         if args.engaged:
             by = args.by or speaker()
@@ -1812,7 +1819,8 @@ def main(argv=None):
     mode.add_argument("--pace", nargs=2, metavar=("TASK", "regular|daily"))
     mode.add_argument("--checkpoint", metavar="TASK", help="save a per-task continue checkpoint")
     mode.add_argument("--engaged", metavar="TASK", help="record that the owner engaged with the task now (its daily budget is whole again)")
-    s.add_argument("--by", metavar="PERSON", help="with --engaged: who engaged, as <platform>:<id> (default: the speaker); only the task's owner counts")
+    mode.add_argument("--extend", metavar="TASK", help="the owner asked the task to keep going today: another whole day's chunks until midnight")
+    s.add_argument("--by", metavar="PERSON", help="with --engaged or --extend: who engaged, as <platform>:<id> (default: the speaker); only the task's owner counts")
     mode.add_argument("--review-context", metavar="TASK", help="reviewer context as JSON")
     mode.add_argument("--review", metavar="TASK", help="apply a direction review")
     mode.add_argument("--wake", metavar="REASON", help="end open tasks' rests on computer")

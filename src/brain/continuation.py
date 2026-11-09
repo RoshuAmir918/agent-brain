@@ -164,7 +164,8 @@ def mark_engaged(config: Config, tid: str, instruction: str | None = None, by: s
     return True
 
 
-def budget_for(config: Config, task, engaged: dict[str, str] | None = None, caps: dict[str, int] | None = None) -> int:
+def budget_for(config: Config, task, engaged: dict[str, str] | None = None, caps: dict[str, int] | None = None,
+               extensions: dict[str, int] | None = None) -> int:
     """Today's chunk budget: whole on a day the owner engaged with the task (or handed it off), then halved for each
     day without engagement, down to one. A task nobody is following slows down by itself instead of circling."""
     engaged = engaged_at(config) if engaged is None else engaged
@@ -176,18 +177,41 @@ def budget_for(config: Config, task, engaged: dict[str, str] | None = None, caps
     except ValueError:
         days = 0
     limit = config.daily_chunks if days <= 0 else max(1, config.daily_chunks >> days)
+    limit += (budget_extensions(config) if extensions is None else extensions).get(task.tid, 0)
     return min(limit, (budget_caps(config) if caps is None else caps).get(task.tid, limit))
 
 
 def budgets(config: Config, task_list, caps: dict[str, int] | None = None) -> dict[str, int]:
-    engaged, caps = engaged_at(config), budget_caps(config) if caps is None else caps
-    return {task.tid: budget_for(config, task, engaged, caps) for task in task_list}
+    engaged, caps, extensions = engaged_at(config), budget_caps(config) if caps is None else caps, budget_extensions(config)
+    return {task.tid: budget_for(config, task, engaged, caps, extensions) for task in task_list}
 
 
 def budget_caps(config: Config) -> dict[str, int]:
     day = config.local().date().isoformat()
     return {tid: row["budget_cap"]["limit"] for tid, row in _progress(config).items()
             if row.get("budget_cap", {}).get("date") == day}
+
+
+def budget_extensions(config: Config) -> dict[str, int]:
+    day = config.local().date().isoformat()
+    return {tid: row["extended"]["chunks"] for tid, row in _progress(config).items()
+            if row.get("extended", {}).get("date") == day}
+
+
+def extend(config: Config, tid: str, by: str | None = None) -> int | None:
+    """The owner asked a task to keep going today: it is engaged and gets another whole day's chunks on top of
+    today's budget, until the owner's local midnight. None when `by` is not its owner. The caller holds the vault lock."""
+    task = tasks.find(config, tid)
+    if task is None or not task.handoff or not tasks.is_open(task):
+        raise ValueError(f"{tid} needs an open handed-off task")
+    if not mark_engaged(config, tid, by=by):
+        return None
+    day = config.local().date().isoformat()
+    with _progress_records(config) as rows:
+        row = rows.setdefault(tid, {})
+        before = row.get("extended", {}).get("chunks", 0) if row.get("extended", {}).get("date") == day else 0
+        row["extended"] = {"date": day, "chunks": before + config.daily_chunks}
+    return budget_for(config, tasks.find(config, tid))
 
 
 def review_status(config: Config, tid: str) -> dict:
@@ -559,5 +583,5 @@ def chunk(config: Config, tid: str) -> str:
             limit = budget_for(config, task)
             if tasks.pace(task) == "regular" and count == limit:
                 message = (f"{tid} reached today's budget of {limit} chunks; it waits until tomorrow"
-                           + ("" if limit == config.daily_chunks else " (the budget is smaller while its owner has not engaged)"))
+                           + ("" if limit >= config.daily_chunks else " (the budget is smaller while its owner has not engaged)"))
             return message

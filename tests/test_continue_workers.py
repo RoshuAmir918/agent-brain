@@ -231,6 +231,25 @@ def test_daily_task_unaffected_and_budget_message_only_on_crossing(worker, capsy
     assert "budget" not in cli(config, capsys, "--chunk", "T-001")
 
 
+def test_spent_budget_rests_until_midnight_and_the_owner_can_extend_today(worker, capsys, monkeypatch):
+    from brain import state
+    from brain.vault import Vault
+    config, home, clock = worker
+    monkeypatch.setenv("BRAIN_DAILY_CHUNKS", "1")
+    config = Config.load(config.vault_path)
+    resume = lambda: next(t for t in state._tasks(Vault(config.vault_path)) if t["id"] == "T-001")["resume"]
+    assert resume() is None
+    cli(config, capsys, "--chunk", "T-001")
+    assert json.loads(cli(config, capsys, "--due", "--json")) == []
+    assert resume() == "2026-11-06 00:00"
+    assert cli(config, capsys, "--extend", "T-001") == "T-001 extended: today's budget is 2 chunks"
+    assert json.loads(cli(config, capsys, "--due", "--json"))[0]["budgetLeft"] == 1 and resume() is None
+    assert cli(config, capsys, "--chunk", "T-001") == "T-001 reached today's budget of 2 chunks; it waits until tomorrow"
+    assert cli(config, capsys, "--extend", "T-001") == "T-001 extended: today's budget is 3 chunks"
+    clock[0] += timedelta(days=1)
+    assert json.loads(cli(config, capsys, "--due", "--json"))[0]["budget"] == 1
+
+
 def test_toml_budget_drives_chunk_and_due(worker, capsys):
     config, home, _ = worker
     with (config.repo / "brain.toml").open("a") as stream:
