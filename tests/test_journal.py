@@ -7,6 +7,7 @@ import pytest
 
 from brain import cli, fm, journal, ledger, loops, needs, nightly
 from brain.config import Config
+from conftest import snapshot
 
 TODAY = date(2026, 10, 28)
 AT = datetime(2026, 10, 28, 14, 5)
@@ -53,9 +54,10 @@ def test_ask_lands_inside_an_existing_section_before_the_next_heading(config):
 
 @pytest.mark.parametrize("bad", [record(outcome="maybe"), record(headline="  ")])
 def test_append_rejects_bad_records_without_writing(config, bad):
+    before = snapshot(config.vault_path)
     with pytest.raises(ValueError):
         journal.append_entry(config, bad, "demiurge", AT)
-    assert not (config.vault_path / "agent/Journal").exists()
+    assert snapshot(config.vault_path) == before
 
 
 def test_cli_journal_append_json(config, monkeypatch, capsys):
@@ -157,14 +159,6 @@ def test_noted_facts_go_to_the_days_conversation_note_and_others_are_quoted_as_c
     assert "- 14:05 · Flying to Madison at 5 am on October 29 to visit Faisal" in body
     assert "- 14:05 · Kevin said: Maya's birthday is March 3" in body
     assert not (config.vault_path / config.agent("Journal/2026-10.md")).exists()
-
-
-def test_a_noted_file_without_a_tier_gains_one_on_its_next_line(config):
-    note = config.vault_path / "Conversations/2026-10-28 Noted.md"
-    note.parent.mkdir(parents=True, exist_ok=True)
-    fm.write(note, {"kind": "conversation", "created": "2026-10-28"}, "# Noted 2026-10-28\n")
-    journal.append_entry(config, record(outcome="nothing", noted=["Back on Friday"]), "cli", AT)
-    assert fm.read(note)[0]["tier"] == "warm"
 
 
 def test_a_correction_that_reverses_an_earlier_line_is_kept(config):

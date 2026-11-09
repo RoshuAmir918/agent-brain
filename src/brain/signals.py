@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from . import channel_files, fm, loops, runtime, session_tools, tasks
+from . import channel_files, fm, loops, runtime, session_tools
 from .config import Config
 from .vault import Vault
 
@@ -17,17 +17,11 @@ def _heartbeat(home: Path, routine: str, now: datetime, **counts: int) -> None:
     fm.write_text(path, json.dumps({"checked": now.isoformat(), **counts}) + "\n")
 
 
-def _daily_job(job: dict) -> bool:
-    return job.get("name") == "continue-daily" or str(job.get("prompt") or "").strip() == "Run continue daily."
-
-
 def _last_failure(home: Path, skill: str) -> str:
     """When this routine's last run died (a gateway restart, a provider error): a new failure is a change, so the
     next tick retries instead of waiting for the work itself to move."""
     try:
         for job in runtime.jobs(home):
-            if _daily_job(job):
-                continue  # continue shares its skill with the daily job, which has a separate gate
             skills = job.get("skills") or []
             if skill in ([skills] if isinstance(skills, str) else skills):
                 failure = job.get("last_failure") or {}
@@ -92,23 +86,3 @@ def watch(config: Config) -> str:
     _heartbeat(home, "watch", now, due=len(due), unanswered=len(unanswered))
     return "\n".join(lines)
 
-
-def continue_(config: Config, daily: bool = False) -> str:
-    from . import continuation
-    now, home = _check(config), runtime.home()
-    task_list = continuation.finish_lines(config)
-    due = tasks.due(task_list, pace="daily" if daily else None,
-                    chunks=continuation.chunks_today(config), daily_chunks=config.daily_chunks,
-                    now=tasks.local_now(config), budgets=continuation.budgets(config, task_list),
-                    caps=continuation.budget_caps(config))
-    lines = [f"date: {now.date().isoformat()}" if due else "date: none"]
-    for task in sorted(due, key=lambda task: task.tid):
-        if daily:
-            lines.append(task.tid)
-            continue
-        nxt = fm.field(task.body, "Next", "Next action") or ""
-        lines.append(f"{task.tid} · {task.task_state or 'open'} · {nxt}")
-    if due and not daily and (failed := _last_failure(home, config.skill_prefix + "continue")):
-        lines.append(f"last failure: {failed}")
-    _heartbeat(home, "continue-daily" if daily else "continue", now, due=len(due))
-    return "\n".join(lines)

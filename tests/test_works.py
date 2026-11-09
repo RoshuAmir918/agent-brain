@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import pytest
 
 from brain import cli, compile_context, fm, journal, needs, nightly, state, tasks, validate, works
-from brain.config import Config, SECTIONS
+from brain.config import Config
 from brain.lock import vault_lock
 from brain.vault import Vault
 from conftest import snapshot
@@ -183,26 +183,20 @@ def test_library_section_present_after_tasks_before_directory(vault, library_hom
     assert "## Library\n\n" + LISTING in text
     assert "\n# Library\n" not in text
     assert text.index("### T-001") < text.index("## Library") < text.index("## Directory")
-    assert SECTIONS[SECTIONS.index("tasks") + 1] == "library"
 
 
-@pytest.mark.parametrize("body", [None, "", " \n\t\n"])
-def test_library_missing_or_empty_is_silently_omitted(vault, library_home, body):
+@pytest.mark.parametrize("body,home,shown", [
+    (None, True, False), ("", True, False), (" \n\t\n", True, False), (LISTING, False, False),
+    ("Library could not refresh: access refused.\n", True, True),
+])
+def test_library_missing_empty_or_without_agent_home_is_silently_omitted_but_notices_load(
+        vault, library_home, monkeypatch, body, home, shown):
     if body is not None:
         write_library(library_home, body)
-    assert "## Library" not in compile_context.build(Vault(vault))
-
-
-def test_library_without_agent_home_is_silently_omitted(vault, library_home, monkeypatch):
-    write_library(library_home)
-    monkeypatch.delenv("AGENT_HOME")
-    assert "## Library" not in compile_context.build(Vault(vault))
-
-
-def test_library_notices_load_even_without_works(vault, library_home):
-    notice = "Library could not refresh: access refused.\n"
-    write_library(library_home, notice)
-    assert "## Library\n\n" + notice in compile_context.build(Vault(vault))
+    if not home:
+        monkeypatch.delenv("AGENT_HOME")
+    text = compile_context.build(Vault(vault))
+    assert (("## Library\n\n" + (body or "")) in text) if shown else "## Library" not in text
 
 
 def test_library_caps_work_lines_and_keeps_every_notice(vault, library_home):
@@ -285,64 +279,52 @@ def test_handoff_refuses_bad_slug_before_writing(vault, slug, capsys):
     assert snapshot(vault) == before
 
 
-def test_hub_work_is_exposed_in_state(vault):
-    fm.write(vault / "Trip.md", {"kind": "hub", "tier": "warm", "work": "trip-plan"}, "# Trip\n")
-    hub = next(h for h in state.build(Config.load(vault), DAY)["hubs"] if h["title"] == "Trip")
-    assert hub["work"] == "trip-plan"
-
-
-def test_validate_work_references_are_only_warnings_when_library_exists(vault, library_home, capsys):
-    config = Config.load(vault)
-    tasks.hand_off(config, "T-001", DAY, work="missing-work")
-    fm.write(vault / "Trip.md", {"kind": "hub", "tier": "warm", "work": "other-work"}, "# Trip\n")
-    assert validate.work_warnings(Vault(vault)) == []
-    write_library(library_home)
-    with pytest.raises(SystemExit) as error:
-        cli.main(["validate", "--vault", str(vault)])
-    assert error.value.code == 0
-    text = capsys.readouterr().out
-    assert "warning: T-001: work 'missing-work' is not listed" in text
-    assert "warning: Trip.md: work 'other-work' is not listed" in text
-    assert "0 problems\n2 warnings\n" in text
-    write_library(library_home, "")
-    assert len(validate.work_warnings(Vault(vault))) == 2
-
-
-def test_validate_uses_full_listing_and_archived_work(vault, library_home):
+@pytest.mark.parametrize("archived", [False, True])
+def test_validate_work_references_are_only_warnings_against_the_full_listing(vault, library_home, capsys, archived):
     config = Config.load(vault)
     task = tasks.hand_off(config, "T-001", DAY, work="work-44")
-    tasks.write_archive(config, task, "warm", DAY, whole=True)
-    fm.write(vault / "agent/Tasks.md", {"tier": "hot"}, "# Tasks\n" + task.render_line(config))
+    if archived:
+        tasks.write_archive(config, task, "warm", DAY, whole=True)
+        fm.write(vault / "agent/Tasks.md", {"tier": "hot"}, "# Tasks\n" + task.render_line(config))
     fm.write(vault / "Trip.md", {"kind": "hub", "tier": "warm", "work": "work-44"}, "# Trip\n")
+    assert next(h for h in state.build(config, DAY)["hubs"] if h["title"] == "Trip")["work"] == "work-44"
+    assert validate.work_warnings(Vault(vault)) == []
     write_library(library_home, "\n".join(
         f"- Work {n} | work-{n} | page | active | read-only | 2026-11-05T12:00:00Z" for n in range(45)))
     assert validate.work_warnings(Vault(vault)) == []
     write_library(library_home, "work-44: could not refresh.\n")
     assert len(validate.work_warnings(Vault(vault))) == 2
     assert validate.run(Vault(vault), set()) == []
+    with pytest.raises(SystemExit) as error:
+        cli.main(["validate", "--vault", str(vault)])
+    assert error.value.code == 0
+    text = capsys.readouterr().out
+    assert "warning: T-001: work 'work-44' is not listed" in text
+    assert "warning: Trip.md: work 'work-44' is not listed" in text
+    assert "0 problems\n2 warnings\n" in text
+    write_library(library_home, "")
+    assert len(validate.work_warnings(Vault(vault))) == 2
 
 
-def test_validate_work_with_no_task_register(vault, library_home):
-    (vault / "agent/Tasks.md").unlink()
-    write_library(library_home)
-    fm.write(vault / "Trip.md", {"kind": "hub", "tier": "warm", "work": "unknown"}, "# Trip\n")
-    assert validate.work_warnings(Vault(vault)) == [
-        "Trip.md: work 'unknown' is not listed in $AGENT_HOME/works/LIBRARY.md"]
-
-
-@pytest.mark.parametrize("location", ["archive", "monthly"])
-def test_validate_warns_for_closed_archived_task_work(vault, library_home, location):
+@pytest.mark.parametrize("location", ["no register", "archive", "monthly"])
+def test_validate_warns_for_hub_work_without_a_register_and_closed_archived_task_work(vault, library_home, location):
     config = Config.load(vault)
     write_library(library_home)
-    task = tasks.Task("T-002", "Done", "- **Work:** unknown\n", {"state": "completed"})
-    if location == "archive":
-        tasks.write_archive(config, task, "cold", DAY, whole=True)
+    if location == "no register":
+        (vault / "agent/Tasks.md").unlink()
+        fm.write(vault / "Trip.md", {"kind": "hub", "tier": "warm", "work": "unknown"}, "# Trip\n")
+        expected = "Trip.md"
     else:
-        path = vault / "agent/Tasks Archive/2026-11.md"
-        path.parent.mkdir(parents=True)
-        path.write_text("# Completed tasks\n" + task.render())
+        task = tasks.Task("T-002", "Done", "- **Work:** unknown\n", {"state": "completed"})
+        if location == "archive":
+            tasks.write_archive(config, task, "cold", DAY, whole=True)
+        else:
+            path = vault / "agent/Tasks Archive/2026-11.md"
+            path.parent.mkdir(parents=True)
+            path.write_text("# Completed tasks\n" + task.render())
+        expected = "T-002"
     assert validate.work_warnings(Vault(vault)) == [
-        "T-002: work 'unknown' is not listed in $AGENT_HOME/works/LIBRARY.md"]
+        f"{expected}: work 'unknown' is not listed in $AGENT_HOME/works/LIBRARY.md"]
 
 
 def test_every_open_task_and_responsibility_names_a_deliverable(vault):

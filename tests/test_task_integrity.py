@@ -118,12 +118,6 @@ def test_closing_a_task_also_settles_an_ask_sourced_to_it(vault, capsys):
     assert "Which venue?" not in fm.read(current)[1]
 
 
-def test_waiting_for_owner_needs_the_question(vault, capsys):
-    with pytest.raises(SystemExit):
-        cli(vault, capsys, "T-001", "set", "--state", "waiting_for_owner")
-    assert "needs the question" in capsys.readouterr().err
-
-
 def test_a_closed_task_can_be_reopened_from_its_archive(vault, capsys):
     config = Config.load(vault)
     cli(vault, capsys, "T-001", "done", "--why", "looked finished")
@@ -184,15 +178,6 @@ def test_a_handoff_worked_today_is_not_quiet(vault):
     task = find(config, "T-001")
     assert tasks.quiet([task], TODAY)
     assert not tasks.quiet([task], TODAY, {"T-001": "2026-11-05T09:30:00-08:00"})
-
-
-def test_state_exports_what_a_task_view_needs(vault, capsys):
-    config = Config.load(vault)
-    cli(vault, capsys, "T-001", "set", "--blocker", "venue closed", "--evidence", "2026-11-04 [[Receipt]]")
-    exported = next(t for t in state._tasks(Vault(config.vault_path)) if t["id"] == "T-001")
-    assert exported["blockers"] == "venue closed"
-    assert exported["evidence"] == "2026-11-04 [[Receipt]]"
-    assert {"ask", "why", "resume", "report", "lastChunk", "chunksToday", "closed", "outcome"} <= set(exported)
 
 
 def test_a_handoff_too_long_to_bound_is_still_listed_as_a_warm_line(vault):

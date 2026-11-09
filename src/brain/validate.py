@@ -323,13 +323,8 @@ def trigger_dates(vault: Vault) -> list[str]:
 
 
 def schedule_hygiene(vault: Vault) -> list[str]:
-    from . import runtime, schedule
-    config = vault.config
-    out = schedule.problems(config, known_needs=False)
-    home = runtime.configured()
-    if not schedule.path(config).exists() and home and runtime.jobs(home):
-        out.append(f"{schedule.path(config)}: runtime jobs have no declared schedule; run `brain schedule import`")
-    return out
+    from . import schedule
+    return schedule.problems(vault.config, known_needs=False)
 
 
 def schedule_warnings(vault: Vault) -> list[str]:

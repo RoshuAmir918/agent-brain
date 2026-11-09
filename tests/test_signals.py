@@ -1,7 +1,6 @@
 """Cron gates change only with actionable state; every clean check leaves a heartbeat."""
 import json
 import os
-from contextlib import contextmanager
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -32,11 +31,6 @@ def register(config, *accounts, status="live"):
             for account in accounts]
     fm.write(config.vault_path / config.agent("Channels.md"), {"kind": "orientation"},
              channels.HEADER + "\n" + "\n".join(rows) + "\n")
-
-
-@contextmanager
-def session_store(home):
-    yield home
 
 
 def session(home, sid="s1", source="demiurge", age=timedelta(minutes=11), role="user", at=AT):
@@ -110,15 +104,14 @@ def test_watch_changes_for_new_channel_files_and_sorts_rows(monitor):
 def test_watch_changes_for_unanswered_session_and_reply(monitor):
     config, home, clock = monitor
     initial = signals.watch(config)
-    with session_store(home) as store:
-        session(store, "z-session", "telegram")
-        session(store, "a-session")
-        changed = signals.watch(config)
-        assert changed != initial and changed.endswith("unanswered:\na-session · demiurge\nz-session · telegram")
-        assert signals.watch(config) == changed
-        assert json.loads((home / "records/watch/signal.json").read_text())["unanswered"] == 2
-        session(store, "a-session", role="assistant", age=timedelta(0))
-        assert "a-session ·" not in signals.watch(config)
+    session(home, "z-session", "telegram")
+    session(home, "a-session")
+    changed = signals.watch(config)
+    assert changed != initial and changed.endswith("unanswered:\na-session · demiurge\nz-session · telegram")
+    assert signals.watch(config) == changed
+    assert json.loads((home / "records/watch/signal.json").read_text())["unanswered"] == 2
+    session(home, "a-session", role="assistant", age=timedelta(0))
+    assert "a-session ·" not in signals.watch(config)
 
 
 @pytest.mark.parametrize("age,expected", [
@@ -129,30 +122,17 @@ def test_watch_changes_for_unanswered_session_and_reply(monitor):
 ])
 def test_unanswered_age_cutoffs(monitor, age, expected):
     config, home, clock = monitor
-    with session_store(home) as store:
-        session(store, age=age)
+    session(home, age=age)
     assert bool(session_tools.unanswered(home, AT)) is expected
     # Seconds within the check minute cannot cause membership to flap.
     assert session_tools.unanswered(home, AT + timedelta(seconds=59)) == session_tools.unanswered(home, AT)
-
-
-def test_unanswered_enters_and_leaves_only_at_age_boundaries(monitor):
-    config, home, clock = monitor
-    with session_store(home) as store:
-        session(store, age=timedelta(minutes=9, seconds=30))
-    first = signals.watch(config)
-    clock[0] += timedelta(minutes=1)
-    assert signals.watch(config) != first
-    clock[0] += timedelta(hours=24)
-    assert signals.watch(config) == first
 
 
 @pytest.mark.parametrize("source,role", [("cron", "user"), ("subagent", "user"), ("cli", "user"),
                                          ("demiurge", "assistant"), ("telegram", "tool")])
 def test_unanswered_excludes_nonconversations_and_nonuser_tails(monitor, source, role):
     config, home, clock = monitor
-    with session_store(home) as store:
-        session(store, source=source, role=role)
+    session(home, source=source, role=role)
     assert session_tools.unanswered(home, AT) == []
 
 
@@ -166,61 +146,15 @@ def test_watch_optional_session_errors_are_empty_and_still_heartbeat(monitor, br
     assert (home / "records/watch/signal.json").is_file()
 
 
-def test_continue_idle_is_stable_across_days_and_writes_heartbeat(monitor, capsys):
+def test_engine_error_is_nonzero_and_does_not_heartbeat(monitor):
     config, home, clock = monitor
-    assert run(capsys, config, "continue-signal") == "date: none\n"
-    clock[0] += timedelta(days=1)
-    assert run(capsys, config, "continue-signal") == "date: none\n"
-    assert json.loads((home / "records/continue/signal.json").read_text()) == {
-        "checked": clock[0].isoformat(), "due": 0}
-
-
-def test_continue_reuses_due_tasks_and_changes_with_next_state_or_date(monitor, capsys):
-    config, home, clock = monitor
-    tasks.hand_off(config, "T-001", AT.date(), "Home")
-    first = run(capsys, config, "continue-signal")
-    assert first == "date: 2026-10-28\nT-001 · in_progress · ORIGINAL_FULL_BODY\n"
-    clock[0] += timedelta(minutes=30)
-    assert run(capsys, config, "continue-signal") == first
-    task = tasks.load_tasks(config)[0][0]
-    task.body = task.body.replace("ORIGINAL_FULL_BODY", "Verify the draft")
-    tasks.save_task(config, task, AT.date())
-    second = run(capsys, config, "continue-signal")
-    assert second != first and "Verify the draft" in second
-    task.state["state"] = "ready"
-    tasks.save_task(config, task, AT.date())
-    third = run(capsys, config, "continue-signal")
-    assert third != second and "T-001 · ready ·" in third
-    clock[0] += timedelta(days=1)
-    assert run(capsys, config, "continue-signal") == third.replace("2026-10-28", "2026-10-29")
-    task.state["state"] = "waiting_for_owner"
-    tasks.save_task(config, task, AT.date())
-    assert run(capsys, config, "continue-signal") == "date: none\n"
-
-
-def test_continue_lists_archived_tasks_sorted_by_id_and_full_next_line(monitor):
-    config, home, clock = monitor
-    for tid, state, date in [("T-009", "in_progress", "2026-10-20"), ("T-002", "ready", "2026-10-21"),
-                              ("T-003", "completed", "2026-10-20")]:
-        tasks.write_archive(config, tasks.Task(tid, "Work", "- **Handed off:** " + date + " · report in Home\n"
-                                              "- **Delivers:** notes in Home\n- **Next:** " + "full next line " * 20 + "\n", {"state": state}),
-                            "warm", AT.date(), whole=True)
-    result = signals.continue_(config).splitlines()
-    assert len(result) == 3 and result[1].startswith("T-002 · ready ·") and result[2].startswith("T-009 · in_progress ·")
-    assert result[1].endswith(("full next line " * 20).strip())
-
-
-@pytest.mark.parametrize("command", ["watch-signal", "continue-signal"])
-def test_engine_error_is_nonzero_and_does_not_heartbeat(monitor, command):
-    config, home, clock = monitor
-    result = subprocess.run([sys.executable, "-m", "brain", command, "--vault", str(home / "missing-vault")],
+    result = subprocess.run([sys.executable, "-m", "brain", "watch-signal", "--vault", str(home / "missing-vault")],
                              capture_output=True, text=True)
     assert result.returncode != 0 and result.stdout == "" and "vault not found" in result.stderr
     assert not (home / "records").exists()
 
 
-@pytest.mark.parametrize("wrapped", [True, False])
-@pytest.mark.parametrize("age", [None, 25, 23, 24])
+@pytest.mark.parametrize("wrapped,age", [(True, None), (False, 25), (True, 23), (False, 24)])
 def test_monitor_hygiene_missing_stale_and_clean(monitor, wrapped, age):
     config, home, clock = monitor
     routine = "watch"
@@ -255,35 +189,32 @@ def test_monitor_hygiene_skips_absent_or_unrelated_jobs_and_no_home(monitor, mon
     assert validate.watch_signal_hygiene(vault) == []
 
 
-def test_hygiene_handles_invalid_watch_heartbeat_and_ignores_retired_continue_monitor(monitor):
+def test_hygiene_handles_invalid_watch_heartbeat(monitor):
     config, home, clock = monitor
     (home / "harness").mkdir()
     config_path = config.repo / "brain.toml"
     config_path.write_text(config_path.read_text() + 'skill_prefix = "custom-"\n')
     (home / "harness/jobs.json").write_text(json.dumps({"jobs": [
-        {"skills": ["custom-watch"], "monitorScript": "watch-signal.sh"},
-        {"skills": ["custom-continue"], "monitorScript": "continue-signal.sh"}]}))
-    for routine in ("watch", "continue"):
-        path = home / "records" / routine / "signal.json"
-        path.parent.mkdir(parents=True)
-        path.write_text('{"checked": "invalid"}')
+        {"skills": ["custom-watch"], "monitorScript": "watch-signal.sh"}]}))
+    path = home / "records/watch/signal.json"
+    path.parent.mkdir(parents=True)
+    path.write_text('{"checked": "invalid"}')
     assert len(validate.watch_signal_hygiene(Vault(config.vault_path))) == 1
 
 
-@pytest.mark.parametrize("routine", ["watch", "continue", "continue-daily"])
 @pytest.mark.parametrize("override", [False, True])
-def test_installed_signal_wrappers_use_job_cwd_or_vault_override(monitor, monkeypatch, routine, override):
+def test_installed_watch_wrapper_uses_job_cwd_or_vault_override(monitor, monkeypatch, override):
     config, home, clock = monitor
     installed = install.scripts()
-    script = home / "scripts" / f"{routine}-signal.sh"
+    script = home / "scripts/watch-signal.sh"
     assert script in installed and script.stat().st_mode & 0o111 == 0o111
     monkeypatch.delenv("VAULT_REPO", raising=False)
     if override:
         monkeypatch.setenv("VAULT_REPO", str(config.repo))
     result = subprocess.run(["bash", str(script)], cwd=home if override else config.repo, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert result.stdout == ("due:\nchannels:\nunanswered:\n" if routine == "watch" else "date: none\n")
-    assert (home / "records" / routine / "signal.json").is_file()
+    assert result.stdout == "due:\nchannels:\nunanswered:\n"
+    assert (home / "records/watch/signal.json").is_file()
 
 
 def test_ready_loop_already_due_changes_the_watch_signal(monitor):
@@ -297,13 +228,12 @@ def test_ready_loop_already_due_changes_the_watch_signal(monitor):
     assert ready != due and f"{item.id} · owed · ready · Tell Kevin" in ready
 
 
-@pytest.mark.parametrize("routine", ["watch", "continue"])
-def test_a_new_run_failure_changes_the_signal_only_while_something_is_due(monitor, routine):
+def test_a_new_run_failure_changes_the_signal_only_while_something_is_due(monitor):
     config, home, clock = monitor
     (home / "harness").mkdir()
     jobs = home / "harness/jobs.json"
-    skill = config.skill_prefix + routine
-    signal = signals.watch if routine == "watch" else signals.continue_
+    skill = config.skill_prefix + "watch"
+    signal = signals.watch
 
     def fail(at):
         jobs.write_text(json.dumps({"jobs": [{"skills": [skill], "lastStatus": "failed", "lastRunAt": at}]}))
@@ -311,11 +241,8 @@ def test_a_new_run_failure_changes_the_signal_only_while_something_is_due(monito
     fail("2026-10-28T08:00:00+00:00")
     idle = signal(config)
     assert "last failure" not in idle
-    if routine == "watch":
-        loops.add(config, AT, "promised", "Check fares", "Trip")
-        clock[0] += timedelta(hours=5)
-    else:
-        tasks.hand_off(config, "T-001", AT.date(), "Home")
+    loops.add(config, AT, "promised", "Check fares", "Trip")
+    clock[0] += timedelta(hours=5)
     first = signal(config)
     assert "last failure: 2026-10-28T08:00:00+00:00" in first
     assert signal(config) == first
@@ -333,14 +260,6 @@ def test_a_rewritten_calendar_day_changes_the_signal(monitor):
     first = signals.watch(config)
     os.utime(calendar / "2026-12-04.md", (2000, 2000))
     assert signals.watch(config) != first
-
-
-def test_only_conversation_user_turns_are_unanswered(monitor):
-    config, home, clock = monitor
-    session(home, "routine", source="cron")
-    assert session_tools.unanswered(home, AT) == []
-    session(home, "room")
-    assert session_tools.unanswered(home, AT) == [("room", "demiurge")]
 
 
 def test_watch_wakes_for_people_and_bots_but_not_promotions_or_sent_mail(monitor):

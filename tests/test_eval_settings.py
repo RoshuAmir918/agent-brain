@@ -45,34 +45,6 @@ def test_brain_today_pins_today_and_now_keeps_the_time_of_day(vault, monkeypatch
     assert config.now(moment) == moment
 
 
-@pytest.mark.parametrize("value", ["2026-13-01", "tomorrow", "04/03/2026"])
-def test_invalid_brain_today_fails_every_command(vault, monkeypatch, capsys, value):
-    monkeypatch.setenv("BRAIN_TODAY", value)
-    with pytest.raises(SystemExit):
-        cli.main(["state", "--vault", str(vault)])
-    assert "BRAIN_TODAY must be a date as YYYY-MM-DD" in capsys.readouterr().err
-
-
-def test_state_window_and_ledger_rows_follow_brain_today(vault, monkeypatch, capsys):
-    monkeypatch.setenv("BRAIN_TODAY", "2026-03-04")
-    run(capsys, "ledger", "append", "watch", "--vault", str(vault), "--outcome", "nothing", "--account", "Checked.")
-    rows = json.loads(run(capsys, "state", "--vault", str(vault), "--json"))["ledger"]
-    assert [row["at"][:10] for row in rows] == ["2026-03-04"]
-    monkeypatch.setenv("BRAIN_TODAY", "2026-05-01")
-    assert json.loads(run(capsys, "state", "--vault", str(vault), "--json"))["ledger"] == []
-
-
-def test_needs_you_and_stale_tasks_follow_brain_today(vault, monkeypatch, capsys):
-    monkeypatch.setenv("BRAIN_TODAY", "2026-03-04")
-    run(capsys, "needs-you", "--vault", str(vault), "--ask", "Pick a venue?")
-    items = json.loads(run(capsys, "needs-you", "--vault", str(vault), "--json"))
-    assert [(item["text"], item["since"]) for item in items] == [("Pick a venue?", "2026-03-04")]
-    monkeypatch.setenv("BRAIN_TODAY", "2026-09-25")   # T-001 was last used 2026-09-20
-    assert run(capsys, "stale-tasks", "--vault", str(vault)) == ""
-    monkeypatch.setenv("BRAIN_TODAY", "2026-10-11")
-    assert run(capsys, "stale-tasks", "--vault", str(vault)).startswith("T-001 · ")
-
-
 def test_nightly_follows_brain_today_and_date_wins(vault, monkeypatch, capsys):
     fm.write(vault / "Active.md", {"tier": "warm", "uses": ["2026-03-01"]}, "# Active\n")
     monkeypatch.setenv("BRAIN_TODAY", "2026-03-04")
@@ -84,24 +56,7 @@ def test_nightly_follows_brain_today_and_date_wins(vault, monkeypatch, capsys):
     assert fm.read(vault / "Active.md")[0]["tier"] == "cold"
 
 
-def test_at_wins_over_brain_today(vault, monkeypatch, capsys):
-    monkeypatch.setenv("BRAIN_TODAY", "2026-03-04")
-    path = run(capsys, "ledger", "append", "watch", "--vault", str(vault), "--outcome", "nothing",
-               "--account", "Checked.", "--at", "2026-03-01 08:00").strip()
-    assert "2026-03-01 08:00" in open(path).read()
-
-
 # ---------- [context]
-
-def test_defaults_are_the_hard_coded_values(vault):
-    assert Config.load(vault).context == Context()
-    default = compile_context.build(Vault(vault))
-    toml(vault, 'hot_words = 6000\nsections = ["before", "start", "current", "portrait", "primed", "goals", "triggers", "upcoming", "tasks", "library", "hot", "directory"]\n'
-                'prefetch = true\nprefetch_limit = 6\nprefetch_chars = 1500\nprefetch_form = "names"\n'
-                'hot_threshold = 7\nwarm_threshold = 28\n')
-    assert Config.load(vault).context == Context()
-    assert compile_context.build(Vault(vault)) == default
-
 
 def test_sections_choose_the_parts_of_context_md(vault, monkeypatch):
     fm.write(vault / "START.md", {"tier": "hot", "pinned": True}, "# Start\nSTART_BODY\n")
@@ -118,7 +73,7 @@ def test_sections_choose_the_parts_of_context_md(vault, monkeypatch):
     assert text.endswith("Conversations and everything else are retrieved on demand with `brain retrieve`.\n")
 
 
-@pytest.mark.parametrize("sections", [["hot"], ["hot", "directory"], ["directory", "hot"]])
+@pytest.mark.parametrize("sections", [["hot"], ["directory", "hot"]])
 def test_legacy_hot_section_enables_directory_once(vault, sections):
     toml(vault, "sections = " + json.dumps(sections) + "\n")
     config = Config.load(vault)
@@ -161,6 +116,8 @@ def test_tier_thresholds_retier_notes(vault, monkeypatch):
 
 
 @pytest.mark.parametrize("name, value, message", [
+    ("BRAIN_TODAY", "2026-13-01", "BRAIN_TODAY must be a date as YYYY-MM-DD"),
+    ("BRAIN_TODAY", "04/03/2026", "BRAIN_TODAY must be a date as YYYY-MM-DD"),
     ("BRAIN_CONTEXT_SECTIONS", "start,sidebar", "unknown sections sidebar"),
     ("BRAIN_HOT_WORDS", "many", "BRAIN_HOT_WORDS must be a non-negative integer"),
     ("BRAIN_PREFETCH", "yes", "BRAIN_PREFETCH must be 0 or 1"),

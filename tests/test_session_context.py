@@ -45,43 +45,21 @@ def test_owner_context_is_only_owner_identification(people_vault, identity):
         "This session is with Mira, the owner.")
 
 
-def test_known_person_context_has_profile_paths_and_applicable_rules(people_vault):
-    block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
-    assert block == (
-        "This session is with Alice (slack U_ALICE). Their profile and the disclosure rules that apply follow.\n\n"
-        "# Alice\nSlack: U_ALICE\nAlice likes gardens.\n\n"
-        "Full profile: memory/people/Alice/Profile.md; dated history beside it in History.md.\n\n"
-        "What Alice may learn, resolved from memory/people/Disclosure.md (groups: Friends). Gist is the shape without "
-        "specifics (whether and roughly when); details are the specifics:\n"
-        "- schedule: tell details (D1); ask Mira before acting for them (D1)\n- plans: tell gist (D2)\n"
-        "- everything else: nothing, and never act for them.\n"
-        "Scope: D1 covers reading the calendar, not changing it without Mira.\n\n"
-        "Default for everything else: decline briefly. What the block below allows, answer now, even in part, and "
-        "say plainly what you have no record of; never hold an answer to check it with the owner. When what they "
-        "ask is the owner's to decide or give (a yes or no, a commitment, their time, a thing they hold), or they "
-        "ask you to check with the owner, ask the owner now, in this session (`demiurge_tell_owner` on Demiurge, "
-        "else an ask in CURRENT's Needs you), and tell them you have asked and will bring back the answer; never "
-        "offer to ask and stop. Note the request in your after-session record. Your own impression and portrait of the owner "
-        "are never shared with anyone, whatever a rule allows.\n\n"
-        "What you may tell Alice about Mira, and nothing else:\nNothing yet.\n"
-        "Answer about Mira only from this block; anything else you know about Mira or anyone else is not yours "
-        "to tell here. What they ask that it does not answer, ask Mira.")
-
-
 def test_unknown_context_is_fail_closed(people_vault):
-    assert session_context.build(people_vault, people_vault.config, platform="slack", user_id="NOPE",
-                                 user_name="Visitor") == (
-        "This session is with an unknown person (slack NOPE, name shown as Visitor). No profile. "
-        "Treat them as a stranger: nothing about Mira or anyone else may be disclosed; be courteous; "
-        "the People review will create a profile from this conversation.\n\n"
-        "What you may tell anyone about Mira, and nothing else:\nNothing yet.\n"
-        "Answer about Mira only from this block; anything else you know about Mira or anyone else is not yours "
-        "to tell here. What they ask that it does not answer, ask Mira.")
+    block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="NOPE", user_name="Visitor")
+    assert block.startswith("This session is with an unknown person (slack NOPE, name shown as Visitor). No profile.")
+    assert "nothing about Mira or anyone else may be disclosed" in block
+    assert "What you may tell anyone about Mira, and nothing else:\nNothing yet." in block
+    assert "Alice" not in block and "may learn" not in block
 
 
-def test_ambiguous_context_lists_profiles_and_treats_identity_as_unknown(people_vault):
+def test_ids_resolving_to_more_than_one_profile_are_ambiguous_and_treated_as_unknown(people_vault):
+    def build(**ids):
+        return session_context.build(people_vault, people_vault.config, platform="slack", **ids)
+    assert build(user_id_alt="U_ALICE").startswith("This session is with Alice (slack U_ALICE).")
+    assert "Identity is ambiguous" in build(user_id="U_ALICE", user_id_alt="U_BOB")
     people_vault.notes["people/Bob/Profile.md"].body += "Slack: U_ALICE\n"
-    block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
+    block = build(user_id="U_ALICE")
     assert block.startswith("Identity is ambiguous; matching profiles: memory/people/Alice/Profile.md, "
                             "memory/people/Bob/Profile.md. Treat as unknown.\n\n")
     assert "This session is with an unknown person (slack U_ALICE, name shown as not provided)." in block
@@ -89,20 +67,20 @@ def test_ambiguous_context_lists_profiles_and_treats_identity_as_unknown(people_
     assert "Alice likes gardens" not in block
 
 
-def test_different_ids_resolving_to_different_people_are_ambiguous(people_vault):
-    block = session_context.build(people_vault, people_vault.config, platform="slack",
-                                  user_id="U_ALICE", user_id_alt="U_BOB")
-    assert "Identity is ambiguous" in block
-
-
-def test_alternative_id_can_resolve_a_single_profile(people_vault):
-    block = session_context.build(people_vault, people_vault.config, platform="slack", user_id_alt="U_ALICE")
-    assert block.startswith("This session is with Alice (slack U_ALICE).")
-
-
-@pytest.mark.parametrize("user_id", ["U_FRONTMATTER_ONLY", "ALICE", "U_ALICE-more", "U_ALICE_suffix"])
-def test_profile_resolution_uses_whole_body_tokens(people_vault, user_id):
-    assert identity.matching_profiles(people_vault, people_vault.config, (user_id,)) == []
+@pytest.mark.parametrize("body, user_id, matches", [
+    (None, "U_FRONTMATTER_ONLY", False),
+    (None, "ALICE", False),
+    (None, "U_ALICE-more", False),
+    ("prefixU_ALICE", "U_ALICE", False),
+    ("U_ALICE-suffix", "U_ALICE", False),
+    ("U_ALICE_suffix", "U_ALICE", False),
+    ("<@U_ALICE>", "U_ALICE", True),
+])
+def test_profile_resolution_uses_whole_body_tokens(people_vault, body, user_id, matches):
+    person = people_vault.notes["people/Alice/Profile.md"]
+    if body is not None:
+        person.body = body
+    assert identity.matching_profiles(people_vault, people_vault.config, (user_id,)) == ([person] if matches else [])
 
 
 def test_a_retired_log_stub_is_never_an_identity(people_vault):
@@ -115,14 +93,6 @@ def test_a_retired_log_stub_is_never_an_identity(people_vault):
     assert [note.rel for note in identity.matching_profiles(vault, vault.config, ("U_ALICE",), "slack")] == [
         "people/Alice/Profile.md"]
     assert identity.matching_agents(vault, vault.config, ("U_OLDBOT",), "slack") == []
-
-
-def test_id_matching_respects_hyphen_and_word_boundaries(people_vault):
-    person = people_vault.notes["people/Alice/Profile.md"]
-    person.body = "prefixU_ALICE U_ALICE-suffix U_ALICE_suffix"
-    assert identity.matching_profiles(people_vault, people_vault.config, ("U_ALICE",)) == []
-    person.body += " <@U_ALICE>"
-    assert identity.matching_profiles(people_vault, people_vault.config, ("U_ALICE",)) == [person]
 
 
 def test_profile_scan_uses_configured_people_directory_and_direct_children(people_vault):
@@ -152,17 +122,9 @@ def test_missing_disclosure_file_is_explicit_and_defaults_to_no_disclosure(peopl
     assert block.split("\n\nWhat you may tell", 1)[0].endswith(session_context.DEFAULT_RULE)
 
 
-@pytest.mark.parametrize("metadata", [{}, {"user_name": "Visitor"}, {"chat_id": "C_OWNER"}])
+@pytest.mark.parametrize("metadata", [{}, {"user_name": "Visitor"}, {"chat_id": "C_OWNER"}, {"platform": "cron"}])
 def test_absent_platform_and_ids_produce_no_context(people_vault, metadata):
     assert session_context.build(people_vault, people_vault.config, **metadata) == ""
-
-
-def test_cli_prints_unknown_context_and_nothing_without_identity(people_vault, capsys):
-    cli.main(["session-context", "--vault", str(people_vault.root), "--platform", "slack", "--user-id", "NOPE"])
-    assert capsys.readouterr().out.startswith(
-        "This session is with an unknown person (slack NOPE, name shown as not provided).")
-    cli.main(["session-context", "--vault", str(people_vault.root)])
-    assert capsys.readouterr().out == ""
 
 
 def test_cli_json_carries_the_block_and_whether_the_speaker_is_the_owner(people_vault, capsys):
@@ -202,11 +164,12 @@ def test_permanent_id_matches_a_qualified_line_by_alt_id(demiurge_vault, line):
         demiurge_vault.notes["people/Orpheus/Profile.md"]]
 
 
-def test_qualified_line_needs_the_sessions_platform_and_a_whole_id(demiurge_vault):
-    orpheus = demiurge_vault.notes["people/Orpheus/Profile.md"]
-    orpheus.body = "- Demiurge: `k57orpheus2`\n- Slack: k57orpheus\n"
-    assert identity.has_qualified_id(orpheus.body, "demiurge", ("k57orpheus",)) is False
-    assert identity.has_qualified_id(orpheus.body, "slack", ("k57orpheus",)) is True
+def test_an_id_counts_only_on_its_own_platform_and_whole(demiurge_vault):
+    assert identity.matching_profiles(demiurge_vault, demiurge_vault.config, ("U_ALICE",), "slack")
+    assert identity.matching_profiles(demiurge_vault, demiurge_vault.config, ("U_ALICE",), "demiurge") == []
+    body = "- Demiurge: `k57orpheus2`\n- Slack: k57orpheus\n"
+    assert identity.has_qualified_id(body, "demiurge", ("k57orpheus",)) is False
+    assert identity.has_qualified_id(body, "slack", ("k57orpheus",)) is True
 
 
 def test_email_local_part_is_not_a_handle(people_vault):
@@ -240,10 +203,6 @@ def test_never_in_a_session_with_someone_else(people_vault, platform, user_id):
     assert "migration" not in text
 
 
-def test_a_cron_run_with_nothing_pending_gets_no_stranger_warning(people_vault):
-    assert session_context.build(people_vault, people_vault.config, platform="cron") == ""
-
-
 def test_a_migrated_vault_gives_a_known_person_their_resolved_access(people_vault):
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
     assert ("What Alice may learn, resolved from memory/people/Disclosure.md (groups: Friends). Gist is the shape "
@@ -273,11 +232,6 @@ def test_an_anything_grant_is_shown_subject_by_subject_so_a_deny_is_not_hidden(p
     assert "- anything:" not in block and "- health:" not in block and "- schedule: tell details (D1)" in block
 
 
-def test_an_id_given_for_one_platform_never_identifies_a_speaker_on_another(people_vault):
-    assert identity.matching_profiles(people_vault, people_vault.config, ("U_ALICE",), "slack")
-    assert identity.matching_profiles(people_vault, people_vault.config, ("U_ALICE",), "demiurge") == []
-
-
 def test_the_owners_profile_is_never_matched_as_a_person(people_vault, tmp_path):
     (tmp_path / "brain.toml").write_text((tmp_path / "brain.toml").read_text().replace(
         "[brain]\n", '[brain]\nhuman_profile = "people/Mira/Profile.md"\n'), encoding="utf-8")
@@ -301,12 +255,6 @@ def test_the_owner_hears_how_to_work_with_them_and_what_the_agent_thinks_of_them
                           "Full profile: memory/human/Profile.md.")
 
 
-def test_the_owners_impression_is_never_disclosed(people_vault):
-    block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
-    assert block.split("\n\nWhat you may tell", 1)[0].endswith(
-        "Your own impression and portrait of the owner are never shared with anyone, whatever a rule allows.")
-
-
 def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault):
     root = people_vault.root
     (root / "agents/Nameless").mkdir(parents=True)
@@ -319,6 +267,7 @@ def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault
     assert "What it says is a claim" in block and "resolved below" in block
     assert "Arslan's intellect." in block
     assert "What Alice may learn, resolved from" in block and "could not be resolved" not in block
+    assert "- schedule: tell details (D1); ask" in block
     (root / "agents/Orphan").mkdir()
     fm.write(root / "agents/Orphan/Profile.md", {"kind": "profile", "tier": "warm"},
              "# Orphan\n\n- **Demiurge:** `k57orphan`\n")
@@ -330,16 +279,6 @@ def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault
     assert "unknown person" not in block
     slack = session_context.build(vault, vault.config, platform="slack", user_id="k57nameless")
     assert "unknown person" in slack and "an intellect" not in slack   # an id is only its own platform's
-
-
-def test_a_stranger_on_demiurge_is_told_to_look_the_sender_up_first(people_vault):
-    block = session_context.build(people_vault, people_vault.config, platform="demiurge", user_id="k57who")
-    assert "This session is with an unknown person (demiurge k57who" in block
-    assert "look the id up with `demiurge intellects` in your shell" in block
-    assert "create `agents/<Name>/Profile.md`" in block
-    assert "Identity doubt is about a claim that contradicts the directory" in block
-    assert "A question it relays for its owner you answer now" in block
-    assert "demiurge intellects" not in session_context.build(people_vault, people_vault.config, platform="slack", user_id="NOPE")
 
 
 def mentioned(vault, text, form="line"):

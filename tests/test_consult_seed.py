@@ -247,23 +247,6 @@ def test_cli_records_json_and_reruns_idempotently(enterprise, reviews, capsys):
     assert snapshot(enterprise.repo) == before
 
 
-def test_cli_refuses_missing_folder_and_negative_window(enterprise, tmp_path):
-    args = ["consult", "seed", "--vault", str(enterprise.vault_path), "--reviews"]
-    with pytest.raises(SystemExit, match="no folder"):
-        cli.main(args + [str(tmp_path / "absent")])
-    with pytest.raises(SystemExit, match="non-negative"):
-        cli.main(args + [str(tmp_path), "--days", "-1"])
-
-
-def test_personal_seed_and_batch_refuse_without_writing(vault, reviews):
-    before = snapshot(vault)
-    with pytest.raises(SystemExit, match="enterprise edition"):
-        cli.main(["consult", "seed", "--vault", str(vault), "--reviews", str(reviews), "--dry-run"])
-    with pytest.raises(ValueError, match="enterprise edition"):
-        consults.record_evidence(Config.load(vault), [])
-    assert snapshot(vault) == before
-
-
 def profile(config, folder="Kim", body="- **GitHub:** kim\n- **Demiurge:** kim-id\n- **Slack:** U01KIM\n", **data):
     path = config.vault_path / config.people_dir / folder / "Profile.md"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -344,8 +327,3 @@ def test_agent_posted_comments_are_not_a_persons_review(enterprise, tmp_path):
     rows, _ = review_source.routing_evidence(folder, TODAY)
     reviewed = {row.person for row in rows if row.kind == "reviewed"}
     assert reviewed == {"github:noah"}
-
-
-def test_profile_ids_read_every_platform_identity_matches():
-    assert identity.profile_ids("- **WhatsApp:** 15551234\n- Signal: sig-1\n- Telegram: tg\n") == [
-        "whatsapp:15551234", "signal:sig-1", "telegram:tg"]

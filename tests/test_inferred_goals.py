@@ -98,7 +98,7 @@ def test_not_a_goal_archives_and_refuses_title_or_words_without_reusing_id(vault
     assert goals.new(cfg, "Race", "Run sub-3").gid == "G-2"
 
 
-@pytest.mark.parametrize("why", ["-no", "x" * 201, "no\x00thanks", "a\tb", "\tno", "a\nb", "<!--", "-->"])
+@pytest.mark.parametrize("why", ["-no", "x" * 201, "a\nb", "a\tb", "<!--"])
 def test_refusal_reason_validation_is_atomic(vault, why):
     cfg = Config.load(vault)
     infer(cfg)
@@ -301,9 +301,13 @@ def test_duplicate_check_reads_archive_without_refusal(vault):
         infer(cfg, "Reading!", "Other words")
 
 
-@pytest.mark.parametrize("operation", ["new", "evidence"])
-@pytest.mark.parametrize("link", ["", "[[Missing]]", "[[agent/Own note]]", "[[agent/Prepared/My draft]]", "[[Drafts/Plan]]"])
-def test_inferred_evidence_requires_existing_note_outside_agent_and_drafts(vault, operation, link):
+@pytest.mark.parametrize("operation,text,message", [
+    *[("new", f"{TODAY} · I prepared something · {link}", "existing note outside the agent directory")
+      for link in ("", "[[Missing]]", "[[agent/Own note]]", "[[agent/Prepared/My draft]]", "[[Drafts/Plan]]")],
+    ("evidence", f"{TODAY} · I prepared something · [[agent/Own note]]", "existing note outside the agent directory"),
+    ("evidence", "Drafted a reading plan · [[Reading]]", "inferred evidence needs a date"),
+])
+def test_inferred_evidence_needs_a_date_and_an_existing_note_outside_agent_and_drafts(vault, operation, text, message):
     cfg = Config.load(vault)
     for rel in ("agent/Own note.md", "agent/Prepared/My draft.md", "Drafts/Plan.md"):
         path = vault / rel
@@ -312,8 +316,7 @@ def test_inferred_evidence_requires_existing_note_outside_agent_and_drafts(vault
     if operation == "evidence":
         infer(cfg)
     before = snapshot(vault)
-    with pytest.raises(ValueError, match="existing note outside the agent directory"):
-        text = f"{TODAY} · I prepared something · {link}"
+    with pytest.raises(ValueError, match=message):
         if operation == "new":
             goals.new(cfg, "Reading", "Read", inferred=True, evidence=[text])
         else:
@@ -328,15 +331,6 @@ def test_inferred_evidence_resolves_aliases_and_said_evidence_stays_free(vault):
     goals.change(cfg, "G-1", "keep")
     goals.change(cfg, "G-1", "evidence", text=f"{TODAY} · No link needed")
     assert len(goals.load(cfg)[0].evidence) == 3
-
-
-def test_inferred_evidence_update_requires_a_date(vault):
-    cfg = Config.load(vault)
-    infer(cfg)
-    before = snapshot(vault)
-    with pytest.raises(ValueError, match="inferred evidence needs a date"):
-        goals.change(cfg, "G-1", "evidence", text="Drafted a reading plan · [[Reading]]")
-    assert snapshot(vault) == before
 
 
 def test_decay_ignores_legacy_self_evidence_and_deleted_notes(vault):

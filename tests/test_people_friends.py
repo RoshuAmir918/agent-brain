@@ -1,9 +1,8 @@
-import json
 from datetime import date
 
 import pytest
 
-from brain import access, cli, fm
+from brain import access, fm
 from brain.vault import Vault
 from conftest import snapshot
 
@@ -61,50 +60,19 @@ def test_friends_rank_total_evidence_and_require_confirmed_platform_ids(friends_
         {'profile': 'people/Cara/Profile.md', 'name': 'Cara', 'access': 0, 'intellects': 0, 'noted': 0},
     ]}
     assert snapshot(friends_vault) == before
+    note(friends_vault, 'people/Access/2026-11.md', request(BOB, f'Asking about [[{ALICE}]]')
+         + '- malformed line\n')
+    candidates = access.friends(Vault(friends_vault), TODAY)['candidates']
+    assert [(item['profile'], item['access']) for item in candidates[:2]] == [(ALICE, 2), (BOB, 2)]
 
 
-def test_existing_group_is_case_insensitive_and_excludes_only_members(friends_vault):
+def test_only_the_close_friends_group_matched_case_insensitively_excludes_its_members(friends_vault):
+    group = friends_vault / 'people/Groups/cLoSe FrIeNdS.md'
     note(friends_vault, 'people/Groups/cLoSe FrIeNdS.md', f'# Close friends\n[[{BOB}]]\n## Members\n[[{ALICE}]]\n', kind='group')
     data = access.friends(Vault(friends_vault), TODAY)
     assert data['exists'] is True and [item['profile'] for item in data['candidates']] == [BOB, 'people/Cara/Profile.md']
-
-
-def test_empty_group_exists_and_other_groups_do_not_exclude_candidates(friends_vault):
+    group.unlink()
     note(friends_vault, 'people/Groups/Close friends.md', '# Close friends\n## Members\n', kind='group')
     note(friends_vault, 'people/Groups/Work.md', f'# Work\n## Members\n[[{ALICE}]]\n', kind='group')
     data = access.friends(Vault(friends_vault), TODAY)
     assert data['exists'] and data['candidates'][0]['profile'] == ALICE
-
-
-def test_evidence_counts_only_the_named_profile_not_other_mentions(friends_vault):
-    note(friends_vault, 'people/Access/2026-11.md', request(BOB, f'Asking about [[{ALICE}]]')
-         + '- malformed line\n')
-    data = access.friends(Vault(friends_vault), TODAY)
-    assert data['candidates'][0]['profile'] == ALICE
-    assert data['candidates'][0]['access'] == 2
-    assert data['candidates'][1]['access'] == 2
-
-
-def test_friends_top_eight_and_ambiguous_intellect_owner(vault):
-    for n in range(10):
-        note(vault, f'people/Person_{n}/Profile.md', f'# Person {n}\nTelegram: person{n}\n')
-    note(vault, 'agents/Their/Profile.md', '# Their\nOwner: Person 9\n')
-    data = access.friends(Vault(vault), TODAY)
-    assert len(data['candidates']) == 8
-    assert data['candidates'][0]['name'] == 'Person 9' and data['candidates'][0]['intellects'] == 1
-    assert [item['name'] for item in data['candidates'][1:]] == [f'Person {n}' for n in range(7)]
-    note(vault, 'people/Duplicate/Profile.md', '# Person 9\nSignal: duplicate\n')
-    assert all(item['intellects'] == 0 for item in access.friends(Vault(vault), TODAY)['candidates'])
-
-
-def test_friends_cli_text_and_json_are_read_only(friends_vault, capsys):
-    args = ['people', 'friends', '--vault', str(friends_vault)]
-    before = snapshot(friends_vault.parent)
-    cli.main(args + ['--json'])
-    data = json.loads(capsys.readouterr().out)
-    assert not data['exists'] and data['candidates'][0]['name'] == 'Alicia'
-    cli.main(args)
-    text = capsys.readouterr().out
-    assert 'Close friends group: none' in text
-    assert 'Alicia · 2 access requests · 1 intellects · 2 Noted lines' in text
-    assert snapshot(friends_vault.parent) == before

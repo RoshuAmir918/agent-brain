@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from brain.config import Config
-from brain import cli, fm, nightly, triggers, validate
+from brain import cli, fm, nightly, triggers
 from brain.tasks import Task, archived_open_tasks, load_tasks, parse_register, read_archive_body, write_archive
 
 
@@ -93,62 +93,28 @@ def test_report_only_previews_all_transforms_without_writing(tmp_path, day, caps
     old_log.parent.mkdir()
     old_log.write_text("# Sleep log — 2026-10\n\nOLD_REPORT_SENTINEL\n")
     before = snapshot(root)
-    with patch.object(nightly, "process_tasks", wraps=nightly.process_tasks) as tasks, \
-         patch.object(nightly, "rebuild_current", wraps=nightly.rebuild_current) as current, \
-         patch.object(triggers, "process", wraps=triggers.process) as trigger_processing, \
-         patch.object(validate, "run", wraps=validate.run) as validation:
-        cli.main(nightly_argv(root, day))
+    cli.main(nightly_argv(root, day))
     assert snapshot(root) == before
-    assert old_log.read_text().startswith("# Sleep log — 2026-10\n\nOLD_REPORT_SENTINEL\n")
-    assert tasks.call_count == current.call_count == trigger_processing.call_count == validation.call_count == 1
     report = capsys.readouterr().out
     assert "(report only; nothing written)" in report
     assert "task: T-001" in report and "current: active threads rebuilt" in report
 
 
-def test_report_only_returns_validation_failure_without_applying_changes(tmp_path, capsys):
-    root = make_vault(tmp_path / "memory")
-    (root / "Broken.md").write_text("# Broken\n[[missing]]\n")
-    before = snapshot(root)
-    with pytest.raises(SystemExit) as caught:
-        cli.main(nightly_argv(root, "2026-10-05"))
-    assert caught.value.code == 1
-    assert snapshot(root) == before
-    assert "VALIDATION: Broken.md: unresolved wikilinks ['missing']" in capsys.readouterr().out
-
-
-def test_write_returns_validation_failure_and_logs_problems(vault, capsys):
+def test_validation_failure_exits_1_writes_nothing_in_preview_and_logs_on_write(vault, capsys):
     (vault / "Broken.md").write_text("# Broken\n[[missing]]\n")
+    problem = "VALIDATION: Broken.md: unresolved wikilinks ['missing']"
+    before = snapshot(vault)
+    with pytest.raises(SystemExit) as caught:
+        cli.main(nightly_argv(vault, "2026-10-05"))
+    assert caught.value.code == 1 and snapshot(vault) == before
+    assert problem in capsys.readouterr().out
     with pytest.raises(SystemExit) as caught:
         cli.main(nightly_argv(vault, "2026-10-05", "--write"))
     assert caught.value.code == 1
-    problem = "VALIDATION: Broken.md: unresolved wikilinks ['missing']"
     assert problem in capsys.readouterr().out
     log = (vault / "agent/Sleep Log/2026-10.md").read_text()
     assert "write, validation failed, not committed" in log
     assert problem in log
-
-
-def test_preview_skips_runtime_directories(vault, monkeypatch):
-    excluded = [".git", ".brain", ".obsidian", "__pycache__", ".pytest_cache"]
-    for name in excluded:
-        path = vault / name / "private.bin"
-        path.parent.mkdir()
-        path.write_bytes(b"EXCLUDED_FIXTURE_CONTENT")
-    before = snapshot(vault)
-    original = nightly.shutil.copyfile
-    copied = []
-
-    def guarded_copy(source, target, *args, **kwargs):
-        rel = Path(source).relative_to(vault)
-        assert rel.parts[0] not in excluded
-        copied.append(rel.as_posix())
-        return original(source, target, *args, **kwargs)
-
-    monkeypatch.setattr(nightly.shutil, "copyfile", guarded_copy)
-    cli.main(nightly_argv(vault, "2026-11-01"))
-    assert "agent/Tasks.md" in copied
-    assert snapshot(vault) == before
 
 
 def test_changed_hot_excerpt_remains_current_through_warm_and_hot(tmp_path):

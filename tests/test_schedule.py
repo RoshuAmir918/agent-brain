@@ -1,13 +1,14 @@
-"""Declared routines, CLI edits and imports from the harness."""
+"""Declared routines and CLI edits."""
 import json
 from dataclasses import replace
 
 import pytest
 
-from brain import cli as brain_cli, fm, runtime, schedule, validate
+from brain import cli as brain_cli, fm, install, schedule, validate
 from brain.config import Config
 from brain.schedule import Routine
 from brain.vault import Vault
+from conftest import snapshot
 
 
 @pytest.fixture
@@ -26,20 +27,6 @@ def write(config, text):
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text, encoding="utf-8")
     return target
-
-
-def jobs(config, values):
-    folder = runtime.home() / "harness"
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "jobs.json").write_text(json.dumps({"jobs": values}), encoding="utf-8")
-
-
-def test_path_sits_beside_engine_version_in_the_runtime_directory(config, capsys):
-    config = replace(config, runtime_dir="custom/Runtime")
-    assert schedule.path(config) == config.vault_path / "custom/Runtime/schedule.toml"
-    (config.repo / "brain.toml").write_text('[brain]\nruntime_dir = "custom/Runtime"\n')
-    brain_cli.main(["paths", "schedule", "--vault", str(config.vault_path)])
-    assert capsys.readouterr().out == str(schedule.path(config)) + "\n"
 
 
 def test_parse_render_round_trip_and_defaults_are_stable(config):
@@ -141,12 +128,29 @@ def test_validation_problems(config, source, expected):
         schedule.load(config)
 
 
-def test_unknown_need_is_strict_only_in_check_and_set(config):
-    write(config, '[routines.x]\nevery="1h"\nneeds=["phone"]\n[routines.y]\nevery="1h"\n')
+def test_unknown_need_and_responsibility_are_strict_only_in_check_and_set(config, capsys, monkeypatch):
+    # An unknown id may be declared before its hub is created.
+    cli(config, "set", "alerts", "--every", "1h", "--responsibility", "unknown")
+    assert schedule.load(config)["alerts"].responsibility == "unknown"
+    write(config, '[routines.alerts]\nevery="1h"\nresponsibility="unknown"\nneeds=["phone"]\n[routines.y]\nevery="1h"\n')
     assert "unknown need" in "\n".join(schedule.problems(config))
-    assert schedule.load(config)["x"].needs == ["phone"]
+    assert schedule.load(config)["alerts"].needs == ["phone"]
     cli(config, "pause", "y")
     assert not schedule.load(config)["y"].enabled
+    vault = Vault(config.vault_path)
+    assert validate.schedule_hygiene(vault) == []
+    warnings = validate.schedule_warnings(vault)
+    assert len(warnings) == 2
+    assert "unknown responsibility 'unknown'" in warnings[0]
+    assert "unknown need 'phone'" in warnings[1]
+    monkeypatch.setattr(validate, "checks", lambda vault: validate.schedule_hygiene(vault))
+    monkeypatch.setattr(validate, "work_warnings", lambda vault: [])
+    monkeypatch.setattr(validate, "deliverable_warnings", lambda vault: [])
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as error:
+        brain_cli.main(["validate", "--vault", str(config.vault_path)])
+    assert error.value.code == 0
+    assert capsys.readouterr().out.count("warning:") == 2
 
 
 def test_all_problems_are_reported(config):
@@ -194,6 +198,9 @@ def test_cli_create_merge_change_timing_pause_resume_remove(config, capsys):
                                   ("set", "watch", "--responsibility", "Bad_ID"),
                                   ("pause", "missing"), ("resume", "missing")])
 def test_invalid_mutation_never_writes(config, args):
+    with pytest.raises(SystemExit):
+        cli(config, *args)
+    assert not schedule.path(config).exists()
     schedule.save(config, {"watch": Routine(every="15m")})
     before = schedule.path(config).read_bytes()
     with pytest.raises(SystemExit) as error:
@@ -229,38 +236,6 @@ def test_cli_set_clears_monitor_script_workdir_and_owner(config, capsys):
     assert (routine.monitor, routine.script, routine.workdir, routine.owner) == (None, None, None, False)
 
 
-def test_unknown_responsibility_and_need_are_validate_warnings_not_errors(config, capsys, monkeypatch):
-    # An unknown id may be declared before its hub is created.
-    cli(config, "set", "alerts", "--every", "1h", "--responsibility", "unknown")
-    assert schedule.load(config)["alerts"].responsibility == "unknown"
-    assert validate.schedule_hygiene(Vault(config.vault_path)) == []
-    write(config, '[routines.alerts]\nevery="1h"\nresponsibility="unknown"\nneeds=["phone"]\n')
-    vault = Vault(config.vault_path)
-    assert validate.schedule_hygiene(vault) == []
-    warnings = validate.schedule_warnings(vault)
-    assert len(warnings) == 2
-    assert "unknown responsibility 'unknown'" in warnings[0]
-    assert "unknown need 'phone'" in warnings[1]
-    monkeypatch.setattr(validate, "checks", lambda vault: validate.schedule_hygiene(vault))
-    monkeypatch.setattr(validate, "work_warnings", lambda vault: [])
-    monkeypatch.setattr(validate, "deliverable_warnings", lambda vault: [])
-    capsys.readouterr()
-    with pytest.raises(SystemExit) as error:
-        brain_cli.main(["validate", "--vault", str(config.vault_path)])
-    assert error.value.code == 0
-    output = capsys.readouterr().out
-    assert output.count("warning:") == 2 and "0 problems\n2 warnings\n" in output
-
-
-def test_invalid_create_never_creates_file(config):
-    with pytest.raises(SystemExit):
-        cli(config, "set", "new")
-    assert not schedule.path(config).exists()
-    with pytest.raises(ValueError):
-        schedule.save(config, {"new": Routine()})
-    assert not schedule.path(config).exists()
-
-
 def test_check_exit_codes_and_invalid_file_not_rewritten(config, capsys):
     with pytest.raises(SystemExit) as error:
         cli(config, "check")
@@ -275,106 +250,10 @@ def test_check_exit_codes_and_invalid_file_not_rewritten(config, capsys):
     assert target.read_bytes() == before
 
 
-def test_import_harness_and_force(config, capsys):
-    values = [
-        {"name": "watch", "schedule": {"kind": "cron", "expr": "*/15 6-22 * * *"}, "skills": ["brain-watch"],
-         "prompt": "Run watch.", "deliver": "demiurge", "monitor_script": "watch-signal.sh", "workdir": str(config.repo)},
-        {"name": "continue", "schedule": {"kind": "interval", "minutes": 30}, "prompt": "Run continue."},
-        {"name": "continue-daily", "schedule": {"kind": "cron", "expr": "0 12 * * *"}, "prompt": "Run continue daily.",
-         "skills": ["brain-continue"], "monitor_script": "continue-daily-signal.sh", "enabled": False},
-        {"name": "prime", "schedule": {"kind": "cron", "expr": "30 6 * * *"}, "skills": ["brain-prime"]},
-        {"name": "demiurge-sync", "schedule": {"kind": "interval", "minutes": 120}, "script": "demiurge-sync.sh", "no_agent": True},
-        {"name": "once", "schedule": {"kind": "once", "at": "2026-11-05T06:30:00-05:00"}, "prompt": "Ask the questions", "workdir": "/elsewhere"},
-        {"name": "finished", "schedule": {"kind": "once", "at": "2026-11-04T12:00:00Z"}, "enabled": False, "last_run_at": "2026-11-04T12:00:00Z"},
-        {"name": "brain-migration", "schedule": {"kind": "once", "at": "2026-11-05T12:00:00Z"}},
-    ]
-    for job in values:
-        for snake, camel in (("monitor_script", "monitorScript"), ("no_agent", "noAgent"), ("last_run_at", "lastRunAt")):
-            if snake in job:
-                job[camel] = job.pop(snake)
-    jobs(config, values)
-    cli(config, "import")
-    assert "imported 6 routine(s)" in capsys.readouterr().out
-    found = schedule.load(config)
-    assert set(found) == {"watch", "continue", "continue-daily", "prime", "demiurge-sync", "once"}
-    assert found["watch"] == Routine(cron="*/15 6-22 * * *", skills=["brain-watch"], deliver="demiurge", monitor="watch-signal.sh")
-    assert found["continue"].every == "30m" and found["continue"].prompt is None
-    assert found["continue-daily"].prompt == "Run continue daily." and not found["continue-daily"].enabled
-    assert found["prime"].skills == ["brain-prime"]
-    assert found["demiurge-sync"] == Routine(every="2h", script="demiurge-sync.sh", agent=False)
-    assert found["once"].at == "2026-11-05T06:30:00-05:00" and found["once"].workdir == "/elsewhere"
-    text = schedule.path(config).read_bytes()
-    with pytest.raises(SystemExit, match="--force"):
-        cli(config, "import")
-    assert schedule.path(config).read_bytes() == text
-    cli(config, "import", "--force")
-    assert schedule.path(config).read_bytes() == text
-
-
-def test_import_keeps_paused_unrun_once_and_repeating_migration(config):
-    jobs(config, [{"name": "waiting", "schedule": {"kind": "once", "at": "2026-11-05T12:00:00Z"}, "enabled": False},
-                  {"name": "brain-migration", "schedule": {"kind": "interval", "minutes": 15}}])
-    cli(config, "import")
-    assert set(schedule.load(config)) == {"waiting"}   # every brain-migration job is the engine's, never a routine
-    assert not schedule.load(config)["waiting"].enabled
-
-
-@pytest.mark.parametrize("values", [
-    [{"name": "unknown", "schedule": {"kind": "bad"}}],
-    [{"name": "invalid", "schedule": {"kind": "cron", "expr": "bad"}}],
-    [{"name": "invalid", "schedule": {"kind": "interval", "minutes": 0}}],
-    [{"name": "invalid", "schedule": {"kind": "once"}}],
-    [{"name": "invalid", "schedule": {"kind": "interval", "minutes": 5}, "noAgent": True}],
-])
-def test_invalid_import_does_not_replace_existing_file(config, values):
-    schedule.save(config, {"original": Routine(every="1h")})
-    before = schedule.path(config).read_bytes()
-    jobs(config, values)
-    with pytest.raises(SystemExit):
-        cli(config, "import", "--force")
-    assert schedule.path(config).read_bytes() == before
-
-
-def test_schedule_hygiene_and_integration(config):
-    vault = Vault(config.vault_path)
-    assert validate.schedule_hygiene(vault) == []
-    jobs(config, [{"name": "watch"}])
-    missing = validate.schedule_hygiene(vault)
-    assert len(missing) == 1 and "brain schedule import" in missing[0]
-    assert missing[0] in validate.hygiene(vault)
-    write(config, '[routines.x]\nevery="0m"')
-    assert validate.schedule_hygiene(vault) == schedule.problems(config)
-    assert "brain schedule import" not in "\n".join(validate.schedule_hygiene(vault))
-    schedule.save(config, {"x": Routine(every="1m")})
-    assert validate.schedule_hygiene(vault) == []
-
-
-def test_continue_sunset_preserves_other_routines_and_needs_no_heartbeat(config):
-    from brain import health
-    other = Routine(every="2h", prompt="Keep the owner's custom work", enabled=False)
-    schedule.save(config, {"custom": other,
-                           "continue": Routine(every="30m", skills=["brain-continue"], monitor="continue-signal.sh"),
-                           "continue-daily": Routine(cron="0 12 * * *", skills=["brain-continue"], monitor="continue-daily-signal.sh")})
-    # The runtime can still show the retired jobs while it reconciles the removal.
-    jobs(config, [{"name": name, "skills": ["brain-continue"], "monitorScript": name + "-signal.sh"}
-                  for name in ("continue", "continue-daily")])
-    cli(config, "remove", "continue")
-    cli(config, "remove", "continue-daily")
-    assert schedule.load(config) == {"custom": other}
-    for reconciled in (False, True):
-        if reconciled:
-            jobs(config, [])
-        vault = Vault(config.vault_path)
-        assert validate.watch_signal_hygiene(vault) == []
-        assert not any("continue" in problem for problem in validate.checks(vault))
-        # Health counts the same checks; no separate continue-monitor expectation.
-        assert health.report(config)["vault"]["validation_problems"] == len(validate.checks(vault))
-    cli(config, "init")
-    assert not {"continue", "continue-daily"} & set(schedule.load(config))
-    assert schedule.load(config)["custom"] == other
-
-
 def test_save_omits_default_workdir_and_preserves_unicode_and_controls(config):
+    with pytest.raises(ValueError):
+        schedule.save(config, {"new": Routine()})
+    assert not schedule.path(config).exists()
     routine = Routine(every="1h", workdir=str(config.repo), prompt="Café 🌙\x7f\nA new line")
     schedule.save(config, {"watch": routine})
     assert "workdir" not in schedule.path(config).read_text()
@@ -436,17 +315,7 @@ def test_cli_holds_vault_lock_across_read_edit_and_write(config, monkeypatch, ar
         assert original_load(config)["night-after"].after == "image"
 
 
-def test_import_omits_vault_workdir_through_symlink(config, tmp_path):
-    alias = tmp_path / "vault-alias"
-    alias.symlink_to(config.repo, target_is_directory=True)
-    jobs(config, [{"name": "watch", "schedule": {"kind": "interval", "minutes": 15}, "workdir": str(alias)}])
-    cli(config, "import")
-    assert schedule.load(config)["watch"].workdir is None
-    assert "workdir" not in schedule.path(config).read_text()
-
-
 def test_a_migration_with_a_schedule_is_a_one_shot_named_for_its_version_and_done_removes_it(config, monkeypatch):
-    from brain import install
     schedule.save(config, {"watch": schedule.Routine(cron="*/15 * * * *", skills=["brain-watch"])})
     monkeypatch.setattr(install, "installed_version", lambda name: "0.30.0")
     from conftest import START_MIGRATION   # the real one; a shared fixture stubs it so no test makes cron jobs
@@ -459,7 +328,6 @@ def test_a_migration_with_a_schedule_is_a_one_shot_named_for_its_version_and_don
 
 
 def test_a_newer_release_leaves_a_queued_migration_to_do_the_whole_pending_file(config, monkeypatch):
-    from brain import install
     from conftest import START_MIGRATION
     schedule.save(config, {"watch": schedule.Routine(cron="*/15 * * * *", skills=["brain-watch"])})
     monkeypatch.setattr(install, "installed_version", lambda name: "0.66.0")
@@ -473,25 +341,8 @@ def test_a_newer_release_leaves_a_queued_migration_to_do_the_whole_pending_file(
     assert START_MIGRATION(config) and "brain-migration-0-68-0" in schedule.load(config)
 
 
-def test_import_skips_every_migration_run_and_keeps_the_live_one_of_two_jobs_with_a_name(config):
-    from brain import runtime
-    home = runtime.home()
-    (home / "harness").mkdir(parents=True, exist_ok=True)
-    jobs = [{"id": f"m{n}", "name": "brain-migration", "schedule": {"kind": "interval", "minutes": 2}, "enabled": False,
-             "lastRunAt": f"2026-11-0{n}T00:00:00Z", "prompt": "An engine migration is pending."} for n in range(1, 4)]
-    jobs += [{"id": "w1", "name": "watch", "schedule": {"kind": "cron", "expr": "0 * * * *"}, "skills": ["brain-watch"],
-              "enabled": False, "lastRunAt": "2026-11-01T00:00:00Z"},
-             {"id": "w2", "name": "watch", "schedule": {"kind": "cron", "expr": "*/15 * * * *"}, "skills": ["brain-watch"],
-              "enabled": True, "lastRunAt": "2026-11-04T00:00:00Z"}]
-    (home / "harness/jobs.json").write_text(json.dumps(jobs), encoding="utf-8")
-    cli(config, "import")
-    routines = schedule.load(config)
-    assert set(routines) == {"watch"} and routines["watch"].cron == "*/15 * * * *"
-
-
 @pytest.mark.parametrize("edition", ["personal", "enterprise"])
 def test_every_default_script_and_monitor_is_installed(config, edition):
-    from brain import install
     installed = {path.name for path in install.scripts()}
     for name, routine in schedule.defaults(replace(config, edition=edition)).items():
         for script in (routine.script, routine.monitor):
@@ -517,7 +368,70 @@ def test_after_chains_from_a_timed_routine_and_round_trips(config, capsys):
     assert "close" in schedule.load(config)
 
 
-def test_import_reads_an_after_job(config):
-    found = schedule.from_jobs(config, [{"name": "close", "schedule": {"kind": "cron", "expr": "30 0 * * *"}},
-                                        {"name": "remember", "schedule": {"kind": "after", "routine": "close"}}])
-    assert found["remember"].after == "close"
+@pytest.mark.parametrize("edition", ["personal", "enterprise"])
+def test_default_chains_have_installed_skills_and_valid_predecessors(vault, edition):
+    config = replace(Config.load(vault), edition=edition, skill_prefix="own-")
+    routines = schedule.defaults(config)
+    chain = ["session-export", "attribution", "night-before", "sleep1"]
+    if edition == "personal":
+        chain.append("people")
+    chain += ["image", "night-after"]
+    assert routines[chain[0]].cron
+    for predecessor, name in zip(chain, chain[1:]):
+        assert routines[name].after == predecessor
+        assert routines[name].cron is None
+    assert routines["sleep1"].skills == ["own-sleep1"]
+    assert routines["image"].skills == ["own-image", "own-portrait"]
+    for name in ("session-export", "attribution", "night-before", "night-after", "upgrade"):
+        assert not routines[name].agent and routines[name].script == name.replace("session-export", "export-sessions") + ".sh"
+    assert not {"sleep2", "rem", "continue", "continue-daily"} & routines.keys()
+    if edition == "personal":
+        assert routines["people"].skills == ["own-people"]
+        assert routines["prime"].after == "improve"
+    else:
+        assert not {"people", "prime", "morning"} & routines.keys()
+    schedule.save(config, routines)
+    assert schedule.problems(config) == []
+    assert schedule.load(config) == routines
+    install.skills(config)
+    for routine in routines.values():
+        for skill in routine.skills:
+            assert (config.skills_path / skill / "SKILL.md").is_file()
+
+
+@pytest.mark.parametrize("edition", ["personal", "enterprise"])
+def test_reset_night_keeps_own_routines_and_three_clocks_and_is_idempotent(vault, edition, capsys):
+    (vault.parent / "brain.toml").write_text(f'[brain]\nedition="{edition}"\nskill_prefix="own-"\n')
+    config = Config.load(vault)
+    own = {
+        "study-decks": schedule.Routine(cron="40 3 * * *", skills=["own-decks"], owner=True, enabled=False),
+        "fantasy-football": schedule.Routine(every="2h", prompt="Check the lineup", deliver="demiurge:football"),
+        "watch": schedule.Routine(cron="0 9-21 * * *", skills=["own-watch"], monitor="custom.sh"),
+        "explore": schedule.Routine(cron="0 10,15 * * *", prompt="Custom work"),
+        "context-refresh": schedule.Routine(cron="25 * * * *", script="refresh.sh", agent=False),
+    }
+    clocks = {"session-export": "30 3 * * *", "improve": "20 7 * * *"}
+    if edition == "personal":
+        clocks["morning"] = "0 11 * * *"
+    old = own | {name: schedule.Routine(cron=cron, prompt="Old prompt", enabled=False) for name, cron in clocks.items()}
+    retired = ("sleep2", "rem", "brain-attribute", "continue", "continue-daily")
+    old |= {name: schedule.Routine(every="1h") for name in retired}
+    old["sleep1"] = schedule.Routine(cron="30 5 * * *", skills=["old-sleep1"])
+    schedule.save(config, old)
+    before_notes = {path: path.read_bytes() for path in vault.rglob("*.md")}
+    brain_cli.main(["schedule", "init", "--reset-night", "--vault", str(vault)])
+    output = capsys.readouterr().out
+    assert "reset sleep1" in output and "added image" in output and "removed sleep2" in output
+    actual = schedule.load(config)
+    assert {name: actual[name] for name in own} == own
+    assert not set(retired) & actual.keys()
+    defaults = schedule.defaults(config)
+    for name in set(defaults) - own.keys() - {"evening"}:
+        expected = replace(defaults[name], cron=clocks[name]) if name in clocks else defaults[name]
+        assert actual[name] == expected
+    assert all(path.read_bytes() == content for path, content in before_notes.items())
+    assert schedule.problems(config) == []
+    before = snapshot(vault)
+    brain_cli.main(["schedule", "init", "--reset-night", "--vault", str(vault)])
+    assert snapshot(vault) == before
+    assert capsys.readouterr().out == "night routines already match defaults\n"

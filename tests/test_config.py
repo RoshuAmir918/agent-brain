@@ -1,20 +1,12 @@
+import sys
 from dataclasses import MISSING, fields
 from pathlib import Path
 
 import pytest
 
 from brain.config import Config
-from brain import cli
-
-
-def test_defaults_without_config(tmp_path, monkeypatch):
-    monkeypatch.delenv("BRAIN_HUMAN_NAME", raising=False)
-    monkeypatch.delenv("BRAIN_AGENT_NAME", raising=False)
-    config = Config.load(cwd=tmp_path)
-    assert config == Config(tmp_path)
-    assert config.vault_path == tmp_path / "memory"
-    assert config.soul_path == tmp_path / "memory/agent/SOUL.md"
-    assert config.skills_path == tmp_path / "memory/Runtime/skills"
+from brain import cli, install
+from conftest import snapshot
 
 
 def test_discovery_from_cwd_and_vault_merges_defaults(tmp_path, monkeypatch):
@@ -25,9 +17,13 @@ def test_discovery_from_cwd_and_vault_merges_defaults(tmp_path, monkeypatch):
     config = Config.load()
     assert config.repo == tmp_path
     assert config.agent_name == "Helper" and config.human_name == "Human"
-    assert config.agent_dir == "agent" and config.skill_prefix == "brain-"
+    assert config.agent_dir == "agent" and config.skill_prefix == "brain-" and config.edition == "personal"
     assert Config.load(tmp_path / "memory").repo == tmp_path
     assert Config.load(tmp_path / "other").vault_path == tmp_path / "other"
+    (tmp_path / "brain.toml").write_text('[brain]\nvault = "./notes/wiki/"\nagent_dir = "internal//agent/"\n')
+    config = Config.load(cwd=tmp_path)
+    assert (config.vault, config.agent_dir) == ("notes/wiki", "internal/agent")
+    assert config.link(config.agent("Tasks")) == "notes/wiki/internal/agent/Tasks"
 
 
 def test_environment_names_override_toml_at_each_load(tmp_path, monkeypatch):
@@ -40,37 +36,73 @@ def test_environment_names_override_toml_at_each_load(tmp_path, monkeypatch):
     assert Config.load(cwd=tmp_path).agent_name == "Helper"
 
 
-@pytest.mark.parametrize("setting", [
-    'vault = "../outside"', 'agent_dir = "/absolute"', 'people_dir = ""',
-    'human_profile = "../source.md"', 'human_profile = "Profile.md"', 'skill_prefix = "../"',
-    'agent_name = 1', 'unknown = "value"',
+POSITIVE = "must be a positive integer"
+
+
+@pytest.mark.parametrize("toml, env, match", [
+    *[("[brain]\n" + setting, None, None) for setting in (
+        'vault = "../outside"', 'agent_dir = "/absolute"', 'people_dir = ""',
+        'human_profile = "../source.md"', 'human_profile = "Profile.md"', 'skill_prefix = "../"',
+        'agent_name = 1', 'unknown = "value"')],
+    ('[brain]\nowner_user_ids = "U_OWNER"', None, "brain.owner_user_ids must be a list of strings"),
+    ('[brain]\nowner_user_ids = ["U_OWNER", 12345]', None, "brain.owner_user_ids must be a list of strings"),
+    ('[brain]\nlog_dirs = [""]', None, "brain.log_dirs must be a list of strings"),
+    ('[brain]\nlog_dirs = ["../x"]', None, "brain.log_dirs must be relative"),
+    ('[brain]\nedition = "team"', None, "brain.edition must be one of personal, enterprise"),
+    ('[brain]\ntimezone = "Mars/Olympus"', None, "timezone"),
+    *[(f"[continue]\ndaily_chunks = {value}", None, "continue.daily_chunks " + POSITIVE) for value in ("0", "true", '"4"')],
+    ("[continue]\nreview_every = 0", None, "continue.review_every " + POSITIVE),
+    ("[continue]\nunknown = 1", None, "only daily_chunks"),
+    *[("", value, "BRAIN_DAILY_CHUNKS " + POSITIVE) for value in ("0", "", "1.5")],
 ])
-def test_invalid_config_fails_before_writing(tmp_path, setting):
-    (tmp_path / "brain.toml").write_text("[brain]\n" + setting + "\n")
-    with pytest.raises(ValueError):
+def test_invalid_config_fails_before_writing(tmp_path, monkeypatch, toml, env, match):
+    if env is None:
+        monkeypatch.delenv("BRAIN_DAILY_CHUNKS", raising=False)
+    else:
+        monkeypatch.setenv("BRAIN_DAILY_CHUNKS", env)
+    (tmp_path / "brain.toml").write_text(toml + "\n")
+    with pytest.raises(ValueError, match=match):
         Config.load(cwd=tmp_path)
 
 
-def test_template_values_have_only_current_keys(tmp_path):
-    assert set(Config(tmp_path).template_values()) == {
-        "vault", "agent_dir", "people_dir", "agents_dir", "human_profile",
-        "sources_dir", "runtime_dir", "human_name", "agent_name", "prefix", "human_goals", "human_portrait", "human_tellable",
-    }
-
-
-@pytest.mark.parametrize("name", ["soul", "skills", "scripts", "vault", "repo"])
-def test_paths_from_cwd_and_explicit_vault(vault, monkeypatch, capsys, name, tmp_path):
-    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+@pytest.mark.parametrize("name", ["soul", "skills", "scripts", "records", "vault", "repo", "python", "schedule"])
+def test_paths_from_cwd_and_explicit_vault_need_agent_home_only_for_runtime(vault, monkeypatch, capsys, name, tmp_path):
+    monkeypatch.delenv("AGENT_HOME", raising=False)
     monkeypatch.chdir(vault / "agent")
     config = Config.load()
-    expected = {"soul": config.soul_path, "skills": config.skills_path,
-                "scripts": tmp_path / "agent-home/scripts",
-                "vault": vault, "repo": vault.parent}[name]
+    before = snapshot(vault.parent)
+    if name in ("scripts", "records"):
+        with pytest.raises(SystemExit, match="AGENT_HOME is not set"):
+            cli.main(["paths", name])
+        monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    expected = {"soul": lambda: config.soul_path, "skills": lambda: config.skills_path,
+                "scripts": lambda: tmp_path / "agent-home/scripts", "records": install.records_path,
+                "vault": lambda: vault, "repo": lambda: vault.parent, "python": lambda: Path(sys.executable),
+                "schedule": lambda: vault / "Runtime/schedule.toml"}[name]().resolve()
     cli.main(["paths", name])
     assert capsys.readouterr().out == str(expected) + "\n"
     monkeypatch.chdir(tmp_path)
     cli.main(["paths", name, "--vault", str(vault)])
     assert capsys.readouterr().out == str(expected) + "\n"
+    assert snapshot(vault.parent) == before
+
+
+def test_validate_without_agent_home_writes_nothing_and_reports_a_bad_schedule(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("AGENT_HOME", raising=False)
+    (tmp_path / "brain.toml").write_text('[brain]\nvault = "memory"\n')
+    (tmp_path / "memory/Runtime").mkdir(parents=True)
+    (tmp_path / "memory/Runtime/schedule.toml").write_text('[routines]\n')
+    monkeypatch.chdir(tmp_path)
+    before = snapshot(tmp_path)
+    with pytest.raises(SystemExit) as validated:
+        cli.main(["validate"])
+    assert validated.value.code == 0 and capsys.readouterr().out == "0 problems\n"
+    assert snapshot(tmp_path) == before
+    (tmp_path / "memory/Runtime/schedule.toml").write_text('[routines.bad]\nevery = "invalid"\n')
+    with pytest.raises(SystemExit) as validated:
+        cli.main(["validate"])
+    out = capsys.readouterr().out
+    assert validated.value.code == 1 and "every" in out and out.endswith("1 problems\n")
 
 
 def test_repository_template_lists_all_public_config_keys():
@@ -92,45 +124,6 @@ def test_owner_user_ids_are_strings_and_do_not_change_template_values(tmp_path):
     assert Config(tmp_path).owner_user_ids is not defaults.owner_user_ids
 
 
-@pytest.mark.parametrize("value", ['"U_OWNER"', '["U_OWNER", 12345]', '[true]', '{}', 'false'])
-def test_owner_user_ids_reject_non_string_lists(tmp_path, value):
-    (tmp_path / "brain.toml").write_text("[brain]\nowner_user_ids = " + value + "\n")
-    with pytest.raises(ValueError, match="brain.owner_user_ids must be a list of strings"):
-        Config.load(cwd=tmp_path)
-
-
-def test_config_normalizes_relative_paths(tmp_path):
-    (tmp_path / "brain.toml").write_text('[brain]\nvault = "./notes/wiki/"\nagent_dir = "internal//agent/"\n')
-    config = Config.load(cwd=tmp_path)
-    assert config.vault == "notes/wiki"
-    assert config.agent_dir == "internal/agent"
-    assert config.link(config.agent("Tasks")) == "notes/wiki/internal/agent/Tasks"
-
-
-def test_nested_configured_paths_preview_and_write(vault, monkeypatch):
-    from conftest import snapshot
-
-    repo = vault.parent
-    root = repo / "notes/wiki"
-    root.parent.mkdir()
-    vault.rename(root)
-    (root / "internal").mkdir()
-    (root / "agent").rename(root / "internal/agent")
-    (repo / "brain.toml").write_text('[brain]\nvault = "notes/wiki"\nagent_dir = "internal/agent"\n')
-    sources = repo / "sources"
-    sources.mkdir()
-    (sources / "Evidence.md").write_text("Read-only evidence")
-    (root / "Source Hub.md").write_text("# Hub\n[[sources/Evidence]]\n")
-    monkeypatch.chdir(root / "internal/agent")
-    before = snapshot(repo)
-    cli.main(["nightly", "--date", "2026-10-05"])
-    assert snapshot(repo) == before
-    cli.main(["nightly", "--date", "2026-10-05", "--write"])
-    assert (repo / ".context.md").exists()
-    assert "[[notes/wiki/internal/agent/Tasks Archive/T-001|" in (root / "internal/agent/Tasks.md").read_text()
-    assert "## notes/wiki/internal/agent/Triggers.md" in (repo / ".context.md").read_text()
-
-
 def test_log_dirs_route_agent_folders_to_log(tmp_path):
     (tmp_path / "brain.toml").write_text('[brain]\nlog_dirs = ["Receipts", "Results/Daily"]\n')
     config = Config.load(tmp_path)
@@ -140,34 +133,16 @@ def test_log_dirs_route_agent_folders_to_log(tmp_path):
     assert config.agent("Sleep Log/") in config.log_paths
 
 
-@pytest.mark.parametrize("value", ['"Receipts"', '["../x"]', '["/abs"]', '[""]'])
-def test_log_dirs_reject_bad_values(tmp_path, value):
-    (tmp_path / "brain.toml").write_text("[brain]\nlog_dirs = " + value + "\n")
-    with pytest.raises(ValueError, match="brain.log_dirs"):
-        Config.load(tmp_path)
-
-
 def test_a_retired_maintainers_key_still_loads(tmp_path):
     (tmp_path / "brain.toml").write_text('[brain]\nmaintainers = ["U_MAINT"]\n')
     assert not hasattr(Config.load(tmp_path), "maintainers")
 
 
-def test_improvements_is_a_ledger_folder_by_default(tmp_path):
-    from brain.config import Config
-    config = Config(tmp_path)
-    assert "agent/Improvements/" in config.log_paths and "agent/Improvements/" in config.observed_excluded
-
-
-def test_timezone_defaults_to_pacific_and_rejects_unknown_zones(tmp_path):
-    import pytest
-    from brain.config import Config
+def test_timezone_defaults_to_pacific(tmp_path):
     (tmp_path / "memory").mkdir()
     (tmp_path / "brain.toml").write_text('[brain]\ntimezone = "America/New_York"\n', encoding="utf-8")
     assert Config.load(tmp_path / "memory").timezone == "America/New_York"
     assert Config(tmp_path).timezone == "America/Los_Angeles"
-    (tmp_path / "brain.toml").write_text('[brain]\ntimezone = "Mars/Olympus"\n', encoding="utf-8")
-    with pytest.raises(ValueError, match="timezone"):
-        Config.load(tmp_path / "memory")
 
 
 def test_vault_at_the_repo_root_means_the_configured_vault(tmp_path):
@@ -177,44 +152,12 @@ def test_vault_at_the_repo_root_means_the_configured_vault(tmp_path):
     assert Config.load(tmp_path / "memory").vault_path == (tmp_path / "memory").resolve()
 
 
-def test_continue_budget_default_toml_and_env(tmp_path, monkeypatch):
+def test_continue_settings_default_toml_and_env(tmp_path, monkeypatch):
     monkeypatch.delenv("BRAIN_DAILY_CHUNKS", raising=False)
-    assert Config.load(cwd=tmp_path).daily_chunks == 16
-    (tmp_path / "brain.toml").write_text("[continue]\ndaily_chunks = 7\n")
-    assert Config.load(cwd=tmp_path).daily_chunks == 7
+    config = Config.load(cwd=tmp_path)
+    assert (config.daily_chunks, config.review_every) == (16, 4)
+    (tmp_path / "brain.toml").write_text("[continue]\ndaily_chunks = 7\nreview_every = 6\n")
+    config = Config.load(cwd=tmp_path)
+    assert (config.daily_chunks, config.review_every) == (7, 6)
     monkeypatch.setenv("BRAIN_DAILY_CHUNKS", "4")
     assert Config.load(cwd=tmp_path).daily_chunks == 4
-
-
-@pytest.mark.parametrize("setting", ["0", "-1", "true", '"4"', "1.5", '[]'])
-def test_invalid_continue_budget_toml(tmp_path, monkeypatch, setting):
-    monkeypatch.delenv("BRAIN_DAILY_CHUNKS", raising=False)
-    (tmp_path / "brain.toml").write_text("[continue]\ndaily_chunks = " + setting + "\n")
-    with pytest.raises(ValueError, match="continue.daily_chunks must be a positive integer"):
-        Config.load(cwd=tmp_path)
-
-
-@pytest.mark.parametrize("value", ["0", "-1", "true", "", "1.5", "many"])
-def test_invalid_continue_budget_env(tmp_path, monkeypatch, value):
-    monkeypatch.setenv("BRAIN_DAILY_CHUNKS", value)
-    with pytest.raises(ValueError, match="BRAIN_DAILY_CHUNKS must be a positive integer"):
-        Config.load(cwd=tmp_path)
-
-
-def test_continue_rejects_unknown_settings(tmp_path):
-    (tmp_path / "brain.toml").write_text("[continue]\nunknown = 1\n")
-    with pytest.raises(ValueError, match="only daily_chunks"):
-        Config.load(cwd=tmp_path)
-
-
-def test_continue_review_cadence_default_and_toml(tmp_path):
-    assert Config.load(cwd=tmp_path).review_every == 4
-    (tmp_path / "brain.toml").write_text("[continue]\nreview_every = 6\n")
-    assert Config.load(cwd=tmp_path).review_every == 6
-
-
-@pytest.mark.parametrize("setting", ["0", "-1", "true", '"4"', "1.5", '[]'])
-def test_invalid_continue_review_cadence(tmp_path, setting):
-    (tmp_path / "brain.toml").write_text("[continue]\nreview_every = " + setting + "\n")
-    with pytest.raises(ValueError, match="continue.review_every must be a positive integer"):
-        Config.load(cwd=tmp_path)

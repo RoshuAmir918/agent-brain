@@ -1,13 +1,11 @@
 import hashlib
 import json
-import subprocess
-import sys
 from dataclasses import asdict
 from datetime import date, datetime
 
 import pytest
 
-from brain import cli, fm, health, needs, nightly, schedule, state, triggers, validate
+from brain import cli, fm, health, needs, nightly, state, triggers, validate
 from brain.config import Config
 from brain.tasks import Task, write_archive
 from brain.vault import Vault
@@ -157,13 +155,6 @@ def test_ledger_window_order_collapsed_rows_and_raw_ids(work):
     assert all(row["account"] != "Legacy boundary." for row in tomorrow)
 
 
-def test_needs_you_passthrough(work):
-    expected = [asdict(item) for item in needs.items(work, TODAY)]
-    assert state.build(work, TODAY)["needsYou"] == expected
-    assert sorted(item["origin"] for item in expected) == ["current", "current", "task", "task"]
-    assert expected[-1]["kind"] == "confirm"
-
-
 def test_outputs_dates_kinds_and_ties(work):
     expected = [
         {"title": "2026-01-01 Override", "kind": "reflection", "created": "2026-10-28T14:30:00",
@@ -219,13 +210,6 @@ def test_deterministic_and_read_only(work):
     assert {path: path.stat().st_mtime_ns for path in work.vault_path.rglob("*")} == metadata
 
 
-def test_version_outside_git_and_installed_engine(work):
-    result = state.build(work, TODAY)
-    assert result["schema"] == 3
-    assert result["version"] is None
-    assert result["engine"] == health.installed_version("agent-brain")
-
-
 def test_git_version_clean_dirty_and_no_index_writes(repo):
     root, _ = repo
     config = Config.load(root)
@@ -233,14 +217,11 @@ def test_git_version_clean_dirty_and_no_index_writes(repo):
     before = snapshot(root.parent)
     assert state.build(config, TODAY)["version"] == head
     assert snapshot(root.parent) == before
+    (root / "untracked.txt").write_text("Untracked.\n")
+    assert state.build(config, TODAY)["version"] == head + "+dirty"
+    (root / "untracked.txt").unlink()
     (root / "CURRENT.md").write_text("Dirty worktree.\n")
     assert state.build(config, TODAY)["version"] == head + "+dirty"
-
-
-def test_untracked_files_mark_git_dirty(repo):
-    root, _ = repo
-    (root / "untracked.txt").write_text("Untracked.\n")
-    assert state.build(Config.load(root), TODAY)["version"].endswith("+dirty")
 
 
 def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
@@ -254,10 +235,6 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     summary = capsys.readouterr().out
     assert summary.count("\n") == 1
     assert summary == " · ".join(f"{len(parsed[key])} {key}" for key in KEYS[3:]) + "\n"
-    process = subprocess.run([sys.executable, "-m", "brain", "state", "--json", "--vault", str(work.vault_path)],
-                             text=True, capture_output=True, check=True)
-    assert list(json.loads(process.stdout)) == KEYS + ["idea", "responsibilities", "portrait", "ownerPortrait", "seeds"]
-    assert process.stderr == ""
 
 
 def test_empty_vault_and_missing_installed_metadata(tmp_path, monkeypatch):
@@ -270,7 +247,7 @@ def test_empty_vault_and_missing_installed_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(health, "installed_version", missing)
     result = state.build(Config.load(root), TODAY)
     assert list(result) == KEYS + ["idea", "responsibilities", "portrait", "ownerPortrait", "seeds"]
-    assert result["engine"] == "unknown"
+    assert result["engine"] == "unknown" and result["version"] is None
     assert result["idea"] is None
     assert result["responsibilities"] == []
     assert all(result[key] == [] for key in KEYS[3:])

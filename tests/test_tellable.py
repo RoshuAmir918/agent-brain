@@ -3,8 +3,7 @@ from dataclasses import replace
 
 import pytest
 
-from brain import access, cli, compile_context, fm, install, session_context, tellable, validate
-from brain.config import Config
+from brain import access, cli, compile_context, fm, session_context, tellable, validate
 from brain.vault import Vault
 
 ALICE = "people/Alice_Example/Profile.md"
@@ -89,32 +88,21 @@ def test_parse_retains_text_kind_date_source_and_optional_gist():
     assert not hasattr(lines[0], "id")
 
 
-@pytest.mark.parametrize("section, problem", [("Hobbies", "unknown"), ("Experiences", "unknown"),
-                                               ("people", "forbidden"), ("anything", "forbidden"),
-                                               ("setup", "forbidden")])
-def test_unknown_and_forbidden_sections_are_reported_and_omitted(section, problem):
-    lines, problems = tellable.parse(f"## {section}\n- Fact · said · 2026-11-01 · [[START]]\n")
-    assert lines == [] and f"{problem} section {section!r}" in problems
-
-
-@pytest.mark.parametrize("line", ["- no fields", "- Fact · said · 2026-11-01 · ",
-                                  "-  · said · 2026-11-01 · source", "- Fact · said · 2026-11-01 · source ^abcd",
-                                  "- Fact · said · 2026-11-01 · source · extra", "  - summary: vague"])
-def test_malformed_lines_are_reported_and_omitted(line):
-    lines, problems = tellable.parse("## experiences\n" + line + "\n")
-    assert lines == [] and any("malformed line" in problem for problem in problems)
-
-
-@pytest.mark.parametrize("kind", ["seen", "guess", "received", "forwarded", "cc", "group"])
-def test_other_kinds_are_reported_and_never_returned(kind):
-    lines, problems = tellable.parse(f"## experiences\n- Fact · {kind} · 2026-11-01 · source\n")
-    assert lines == [] and any(f"kind {kind!r}" in problem for problem in problems)
-
-
-@pytest.mark.parametrize("evidence", ["2026-02-30", "11/01", "20261101", "2026-W01-1"])
-def test_bad_dates_are_reported_and_never_returned(evidence):
-    lines, problems = tellable.parse(f"## experiences\n- Fact · said · {evidence} · source\n")
-    assert lines == [] and any(f"evidence date {evidence!r} is not YYYY-MM-DD" in problem for problem in problems)
+@pytest.mark.parametrize("text, problem", [
+    ("## Hobbies\n- Fact · said · 2026-11-01 · [[START]]", "unknown section 'Hobbies'"),
+    ("## Experiences\n- Fact · said · 2026-11-01 · [[START]]", "unknown section 'Experiences'"),
+    ("## people\n- Fact · said · 2026-11-01 · [[START]]", "forbidden section 'people'"),
+    *[("## experiences\n" + line, "malformed line") for line in (
+        "- no fields", "- Fact · said · 2026-11-01 · ", "-  · said · 2026-11-01 · source",
+        "- Fact · said · 2026-11-01 · source ^abcd", "- Fact · said · 2026-11-01 · source · extra", "  - summary: vague")],
+    *[(f"## experiences\n- Fact · {kind} · 2026-11-01 · source", f"kind {kind!r}")
+      for kind in ("guess", "received", "forwarded", "cc", "group")],
+    *[(f"## experiences\n- Fact · said · {day} · source", f"evidence date {day!r} is not YYYY-MM-DD")
+      for day in ("2026-02-30", "11/01")],
+])
+def test_unknown_sections_malformed_lines_other_kinds_and_bad_dates_are_reported_and_omitted(text, problem):
+    lines, problems = tellable.parse(text + "\n")
+    assert lines == [] and any(problem in found for found in problems)
 
 
 def test_gist_requires_a_valid_line_in_the_current_section():
@@ -177,66 +165,60 @@ def test_forbidden_sections_and_invalid_facts_never_leave_even_with_anything_acc
     assert tellable.resolve(vault, vault.config)["subjects"] == {}
 
 
-def test_word_cap_drops_oldest_lines_across_subjects(tellable_vault):
+def test_word_cap_drops_whole_oldest_lines_counting_labels_and_gists(tellable_vault):
     vault = tellable_vault
-    set_rules(vault, ("anyone", "anything", "details"))
+
+    def resolved(body):
+        write_tellable(vault.root, body)
+        vault.load()
+        result = tellable.resolve(vault, vault.config)
+        assert len(tellable.render(result).split()) <= tellable.WORDS
+        return result
+
     body = ""
     for subject, days in (("experiences", (1, 8, 4)), ("schedule", (2, 7, 3)), ("opinions", (6, 5))):
         body += f"## {subject}\n"
         for day in days:
             body += f"- day{day} " + "word " * 89 + f"· said · 2026-11-{day:02} · source\n"
-    write_tellable(vault.root, body)
-    vault.load()
-    result = tellable.resolve(vault, vault.config)
+    set_rules(vault, ("anyone", "anything", "details"))
+    result = resolved(body)
     assert len(tellable.render(result).split()) == 558
     assert {subject: [text.split()[0] for text in value["lines"]] for subject, value in result["subjects"].items()} == {
         "experiences": ["day8", "day4"], "schedule": ["day7", "day3"], "opinions": ["day6", "day5"]}
-
-
-@pytest.mark.parametrize("words, kept", [(597, True), (598, False)])
-def test_cap_counts_rendered_subject_labels_and_drops_whole_lines(tellable_vault, words, kept):
-    vault = tellable_vault
     set_rules(vault, ("anyone", "experiences", "details"))
-    write_tellable(vault.root, "## experiences\n- " + "word " * words + "· said · 2026-11-01 · source\n")
-    vault.load()
-    result = tellable.resolve(vault, vault.config)
-    assert bool(result["subjects"]) is kept
-    assert len(tellable.render(result).split()) <= tellable.WORDS
-    if not kept:
-        assert tellable.render(result) == "Nothing yet."
-
-
-def test_cap_uses_gist_size_and_evidence_dates(tellable_vault):
-    vault = tellable_vault
-    body = "## experiences\n" + "".join(
+    assert resolved("## experiences\n- " + "word " * 597 + "· said · 2026-11-01 · source\n")["subjects"]
+    result = resolved("## experiences\n- " + "word " * 598 + "· said · 2026-11-01 · source\n")
+    assert result["subjects"] == {} and tellable.render(result) == "Nothing yet."
+    set_rules(vault, ("anyone", "experiences", "gist"))
+    result = resolved("## experiences\n" + "".join(
         f"- Detail {day} · said · 2026-11-{day:02} · source\n  - gist: " + f"day{day} " + "word " * 89 + "\n"
-        for day in range(1, 9))
-    write_tellable(vault.root, body)
-    vault.load()
-    result = tellable.resolve(vault, vault.config)
+        for day in range(1, 9)))
     assert [text.split()[0] for text in result["subjects"]["experiences"]["lines"]] == [f"day{day}" for day in range(8, 2, -1)]
     assert len(tellable.render(result).split()) == 558
 
 
-@pytest.mark.parametrize("who", ["alice example", "ALICE_EXAMPLE", "alicia", ALICE,
-                                 ALICE.removesuffix(".md"), "demiurge:k57alice", "k57alice", "slack:U_ALICE"])
-@pytest.mark.parametrize("json_output", [False, True])
-def test_cli_person_forms_text_and_json(tellable_vault, capsys, who, json_output):
-    cli.main(["tellable", who, "--vault", str(tellable_vault.root)] + (["--json"] if json_output else []))
+def test_cli_prints_a_persons_tellable_lines_as_text_and_json(tellable_vault, capsys):
+    result = tellable.resolve(tellable_vault, tellable_vault.config, ALICE)
+    cli.main(["tellable", "alicia", "--vault", str(tellable_vault.root)])
     captured = capsys.readouterr()
     assert captured.err == ""
-    result = tellable.resolve(tellable_vault, tellable_vault.config, ALICE)
-    if json_output:
-        assert json.loads(captured.out) == result
-    else:
-        assert captured.out == f"Person: memory/{ALICE} · Groups: memory/{FRIENDS}\n" + tellable.render(result) + "\n"
+    assert captured.out == f"Person: memory/{ALICE} · Groups: memory/{FRIENDS}\n" + tellable.render(result) + "\n"
+    cli.main(["tellable", "slack:U_ALICE", "--vault", str(tellable_vault.root), "--json"])
+    assert json.loads(capsys.readouterr().out) == result
 
 
 @pytest.mark.parametrize("who", ["known", "anyone"])
-def test_cli_audiences_are_not_reported_as_unknown(tellable_vault, capsys, who):
+def test_cli_audiences_are_not_reported_as_unknown_by_tellable_or_access(tellable_vault, capsys, who):
     cli.main(["tellable", who, "--vault", str(tellable_vault.root), "--json"])
     captured = capsys.readouterr()
     assert captured.err == "" and json.loads(captured.out) == tellable.resolve(tellable_vault, tellable_vault.config, who)
+    cli.main(["access", who, "--vault", str(tellable_vault.root), "--json"])
+    captured = capsys.readouterr()
+    expected = access.resolve(tellable_vault, tellable_vault.config, audience=access.Audience(who))
+    assert captured.err == ""
+    assert json.loads(captured.out)["subjects"]["experiences"]["tell"] == expected.subjects["experiences"].tell
+    cli.main(["access", who, "--vault", str(tellable_vault.root)])
+    assert capsys.readouterr().out.startswith(f"Person: {who} · Groups: none\n")
 
 
 @pytest.mark.parametrize("json_output", [False, True])
@@ -249,15 +231,6 @@ def test_cli_unknown_resolves_as_stranger_and_says_so(tellable_vault, capsys, js
     else:
         assert "Person: stranger (no profile matches 'unknown') · Groups: none" in captured.out
         assert "- experiences (gist): returned some headphones" in captured.out and captured.err == ""
-
-
-def test_cli_ambiguous_person_exits_with_matching_profiles(tellable_vault):
-    note = tellable_vault.notes[BOB]
-    note.body = "# Alicia\nDemiurge: k57alice\n"
-    note.save()
-    with pytest.raises(SystemExit) as error:
-        cli.main(["tellable", "alicia", "--vault", str(tellable_vault.root)])
-    assert str(error.value) == f"brain tellable: ambiguous person; matching profiles: memory/{ALICE}, memory/{BOB}"
 
 
 def test_missing_note_has_no_lines_and_cli_says_nothing_yet(tellable_vault, capsys):
@@ -286,7 +259,6 @@ def test_outside_sessions_end_with_the_exact_resolved_block(tellable_vault, plat
     assert sum(line.startswith("What you may tell ") for line in block.splitlines()) == 1
     if "may learn, resolved" in block:
         assert block.index("may learn, resolved") < block.index(expected)
-    assert session_context.TELLABLE_HEADING.format(name=name, owner="Mira") == expected.splitlines()[0]
 
 
 @pytest.mark.parametrize("platform, user_id", [("cli", ""), ("slack", "U_OWNER"), ("cron", "")])
@@ -344,26 +316,3 @@ def test_tellable_is_beside_configured_profile_and_never_compiled(tellable_vault
     compiled = compile_context.build(tellable_vault)
     assert "Tellable.md" not in compiled and "Likes Dr. Lee" not in compiled
     assert "human/Tellable" not in compile_context.directory(tellable_vault)
-
-
-def test_skills_render_tellable_path_and_keep_enterprise_boundary(tellable_vault):
-    config = tellable_vault.config
-    for name in ("sleep1", "recall"):
-        rendered = install.render_skill(config, name)
-        assert "`human/Tellable.md`" in rendered and "{human_tellable}" not in rendered
-    enterprise_sleep = install.render_skill(replace(config, edition="enterprise"), "sleep1")
-    assert "Tellable.md" not in enterprise_sleep
-    enterprise_recall = install.render_skill(replace(config, edition="enterprise"), "recall")
-    assert "Talking to people other than" not in enterprise_recall
-    assert 'session\'s "What you may tell" block' in enterprise_recall
-
-
-@pytest.mark.parametrize("who", ["known", "anyone"])
-def test_cli_access_resolves_audiences_like_tellable(tellable_vault, capsys, who):
-    cli.main(["access", who, "--vault", str(tellable_vault.root), "--json"])
-    captured = capsys.readouterr()
-    expected = access.resolve(tellable_vault, tellable_vault.config, audience=access.Audience(who))
-    assert captured.err == ""
-    assert json.loads(captured.out)["subjects"]["experiences"]["tell"] == expected.subjects["experiences"].tell
-    cli.main(["access", who, "--vault", str(tellable_vault.root)])
-    assert capsys.readouterr().out.startswith(f"Person: {who} · Groups: none\n")

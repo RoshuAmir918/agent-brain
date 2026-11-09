@@ -1,4 +1,6 @@
-"""A completed task says what was left and what could come next."""
+"""A completed task says what was left and what could come next, and the export carries what a task view needs."""
+import json
+
 import pytest
 
 from brain import cli as brain_cli, state, tasks
@@ -28,6 +30,17 @@ def test_done_records_left_and_then_and_reopen_clears_them(vault, capsys):
     cli(vault, capsys, tid, "done", "--why", "finished again")
     got = row(vault, tid)
     assert (got["outcome"], got["left"], got["then"]) == ("finished again", None, [])
+
+
+def test_state_exports_what_a_task_view_needs(vault, capsys):
+    cli(vault, capsys, "T-001", "set", "--blocker", "venue closed", "--evidence", "2026-11-04 [[Receipt]]")
+    got = row(vault, "T-001")
+    assert (got["blockers"], got["evidence"]) == ("venue closed", "2026-11-04 [[Receipt]]")
+    assert {"ask", "why", "resume", "report", "lastChunk", "chunksToday", "closed", "outcome"} <= set(got)
+    out = cli(vault, capsys, "new", "Renew the passport", "--source", "I need to renew my passport before March",
+              "--state", "yours", "--due", "2027-02-28", "--json").out
+    got = row(vault, json.loads(out)["id"])
+    assert (got["state"], got["due"]) == ("yours", "2027-02-28")
 
 
 @pytest.mark.parametrize("args, message", [

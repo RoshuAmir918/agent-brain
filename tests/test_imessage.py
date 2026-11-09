@@ -130,31 +130,7 @@ def test_rows_are_evidence_that_names_no_handle_and_quotes_no_message(messages):
     assert all(evidence.parse(line) for line in rendered.splitlines())
 
 
-def test_the_registry_finds_imessage_and_the_cli_extracts_it_into_the_workspace(messages, tmp_path, capsys, monkeypatch):
-    from brain import sources
-    db, book = messages
-    assert sources.registry()["imessage"].source.runs == "owner-mac"
-    monkeypatch.setattr(imessage, "default_books", lambda: [book])
-    monkeypatch.chdir(tmp_path)
-    home = tmp_path / "agent"
-    cli.main(["source", "imessage", "extract", "--input", str(db), "--home", str(home), "--vault", str(tmp_path / "none")])
-    first = capsys.readouterr().out
-    assert first.startswith("imessage: ") and "new" in first
-    cli.main(["source", "imessage", "extract", "--input", str(db), "--home", str(home), "--vault", str(tmp_path / "none")])
-    assert ", 0 new" in capsys.readouterr().out   # a second run the same day adds nothing
-    monkeypatch.setenv("AGENT_HOME", str(home))
-    assert any("Kim Lee" in row.fact for row in evidence.read("imessage", "people"))
-    cli.main(["source", "list", "--vault", str(tmp_path / "none")])
-    listed = capsys.readouterr().out
-    assert "imessage · " in listed and "rows, newest 2026-11-0" in listed and "owner-mac, sensitive" in listed
-    with pytest.raises(SystemExit, match="no Messages database"):
-        cli.main(["source", "imessage", "extract", "--input", str(tmp_path / "missing.db"), "--home", str(home),
-                  "--vault", str(tmp_path / "none")])
-    with pytest.raises(SystemExit, match="no source 'fax'"):
-        cli.main(["source", "fax", "extract", "--vault", str(tmp_path / "none")])
-
-
-def test_rows_cross_machines_as_json_lines_and_import_is_idempotent(messages, tmp_path, capsys, monkeypatch):
+def test_extract_to_home_or_json_lines_and_import_is_idempotent(messages, tmp_path, capsys, monkeypatch):
     import io
     db, book = messages
     monkeypatch.setattr(imessage, "default_books", lambda: [book])
@@ -178,6 +154,25 @@ def test_rows_cross_machines_as_json_lines_and_import_is_idempotent(messages, tm
                        ({**json.loads(lines[0]), "hints": []}, "non-empty list")):
         with pytest.raises(ValueError, match=error):
             evidence.from_json(row)
+    from brain import sources
+    assert sources.registry()["imessage"].source.runs == "owner-mac"
+    home = tmp_path / "extracted"
+    monkeypatch.delenv("AGENT_HOME")
+    cli.main(["source", "imessage", "extract", "--input", str(db), "--home", str(home), "--vault", str(tmp_path / "none")])
+    first = capsys.readouterr().out
+    assert first.startswith("imessage: ") and "new" in first
+    cli.main(["source", "imessage", "extract", "--input", str(db), "--home", str(home), "--vault", str(tmp_path / "none")])
+    assert ", 0 new" in capsys.readouterr().out   # a second run the same day adds nothing
+    monkeypatch.setenv("AGENT_HOME", str(home))
+    assert any("Kim Lee" in row.fact for row in evidence.read("imessage", "people"))
+    cli.main(["source", "list", "--vault", str(tmp_path / "none")])
+    listed = capsys.readouterr().out
+    assert "imessage · " in listed and "rows, newest 2026-11-0" in listed and "owner-mac, sensitive" in listed
+    with pytest.raises(SystemExit, match="no Messages database"):
+        cli.main(["source", "imessage", "extract", "--input", str(tmp_path / "missing.db"), "--home", str(home),
+                  "--vault", str(tmp_path / "none")])
+    with pytest.raises(SystemExit, match="no source 'fax'"):
+        cli.main(["source", "fax", "extract", "--vault", str(tmp_path / "none")])
 
 
 def test_the_script_runs_on_its_own_on_the_owners_mac_and_its_rows_import(messages, tmp_path, capsys, monkeypatch):

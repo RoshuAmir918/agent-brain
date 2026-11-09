@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from brain import channel_files, cli, coverage, fm, install, seed, state, tasks
+from brain import channel_files, cli, coverage, fm, seed, state, tasks
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
-from test_channel_files import calendar_file, event, message, synced
+from test_channel_files import calendar_file, event, message, synced  # noqa: F401
 
 TODAY = date(2026, 11, 4)
 
@@ -355,33 +355,6 @@ def test_clear_backfill_does_not_follow_symlinks(synced, link):
     assert path.is_symlink() and (backfill / '.done').exists()
 
 
-def test_clear_backfill_requires_account_and_seed_action(synced):
-    vault, _ = synced
-    with pytest.raises(SystemExit, match='requires --account'):
-        cli.main(['portrait', 'seed', '--clear-backfill', '--vault', str(vault)])
-    for action in ([], ['coverage']):
-        with pytest.raises(SystemExit, match='go with seed'):
-            cli.main(['portrait', *action, '--clear-backfill', '--vault', str(vault)])
-
-
-@pytest.mark.parametrize('edition', ['personal', 'enterprise'])
-def test_backfill_skill_steps_render_only_for_personal_edition(vault, edition):
-    (vault.parent / 'brain.toml').write_text(f'[brain]\nvault = "memory"\nedition = "{edition}"\n')
-    config = Config.load(vault)
-    text = install.render_skill(config, 'seed')
-    assert ('--clear-backfill' in text) == (edition == 'personal')
-    assert ('one-time twelve-month backfill' in text) == (edition == 'personal')
-    if edition == 'personal':
-        assert text.index('One Seeds note per account read') < text.index('--clear-backfill') < text.index('The reveal')
-    people = install.render_skill(config, 'people')
-    assert ('brain portrait coverage --json' in people) == (edition == 'personal')
-    assert ('unreadBackfill' in people) == (edition == 'personal')
-    if edition == 'personal':
-        assert f'load `{config.skill_prefix}seed` and run it scoped to that account' in people
-        assert people.index('unreadBackfill') < people.index("Read the People profiles and histories Sleep 1 wrote")
-        assert 'no open seed task' in people and 'brain state --json' in people
-
-
 def test_hand_off_opens_one_seed_task_per_account_and_state_reports_it(vault, capsys, monkeypatch):
     monkeypatch.setenv('BRAIN_TODAY', '2026-11-04')
     argv = ['portrait', 'seed', '--account', 'New@Example.com', '--hand-off', '--json', '--vault', str(vault)]
@@ -411,12 +384,15 @@ def test_hand_off_skips_an_account_a_seeds_note_has_read(vault, capsys):
 
 
 @pytest.mark.parametrize('argv, message', [
-    (['--account', 'all', '--hand-off'], 'one account address'),
-    (['--account', 'a@example.com', '--hand-off', '--clear-backfill'], 'separate runs'),
+    (['seed', '--clear-backfill'], 'requires --account'),
+    (['--clear-backfill'], 'go with seed'),
+    (['coverage', '--clear-backfill'], 'go with seed'),
+    (['seed', '--account', 'all', '--hand-off'], 'one account address'),
+    (['seed', '--account', 'a@example.com', '--hand-off', '--clear-backfill'], 'separate runs'),
 ])
-def test_hand_off_refuses_all_and_clear_backfill(vault, argv, message):
+def test_seed_argument_refusals(vault, argv, message):
     with pytest.raises(SystemExit, match=message):
-        cli.main(['portrait', 'seed', *argv, '--vault', str(vault)])
+        cli.main(['portrait', *argv, '--vault', str(vault)])
 
 
 def test_hand_off_and_seeds_are_personal_only(vault):
@@ -424,3 +400,18 @@ def test_hand_off_and_seeds_are_personal_only(vault):
     with pytest.raises(SystemExit, match='brain consult seed'):
         cli.main(['portrait', 'seed', '--account', 'ops@example.com', '--hand-off', '--vault', str(vault)])
     assert state.build(Config.load(vault), TODAY)['seeds'] is None
+
+
+def test_open_seed_tasks_are_identified_including_archived_tasks(vault, monkeypatch, capsys):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-08")
+    config = Config.load(vault)
+    task = tasks.new_task(config, "Learn the account", "seed:owner@example.com")
+    rows = seed.seeds(Vault(vault))
+    assert rows == [{"account": "owner@example.com", "read": None, "task": task.tid}]
+    tasks.write_archive(config, task, "cold", config.today())
+    fm.write(vault / config.agent("Tasks.md"), {}, "# Tasks\n## Active work\n")
+    cli.main(["state", "--json", "--vault", str(vault)])
+    assert json.loads(capsys.readouterr().out)["seeds"] == rows
+    assert seed.seeds(Vault(vault)) == rows
+    tasks.close(config, task.tid, config.today(), True, "Seed recorded")
+    assert seed.seeds(Vault(vault)) == []

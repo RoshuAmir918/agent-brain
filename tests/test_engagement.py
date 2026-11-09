@@ -1,5 +1,5 @@
 """A task's budget follows its owner's engagement, and an ask must stand alone."""
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -62,23 +62,12 @@ def test_continue_engaged_and_due_json_carry_the_budget(setup, capsys):
     assert json.loads(capsys.readouterr().out)[0]["budget"] == config.daily_chunks
 
 
-@pytest.mark.parametrize("text", ["Do you approve the proposed action?", "Approve the plan?", "Should I proceed?",
-                                  "Want me to go ahead with it?", "OK?"])
-def test_generic_asks_are_refused(text):
-    assert needs.vague_ask(text)
-
-
-@pytest.mark.parametrize("text", ["Want me to publish the 86 verified offers to In The Block now?",
-                                  "For the apartment search, want more listings, or tighter commute times?",
-                                  "Which of your two Gmails should I read first?"])
-def test_asks_that_name_their_subject_pass(text):
-    assert needs.vague_ask(text) is None
-
-
-def test_the_cli_refuses_a_vague_ask(setup, capsys):
-    config, _, _ = setup
-    with pytest.raises(SystemExit):
-        cli.main(["needs-you", "--ask", "Do you approve the proposed action?", "--vault", str(config.vault_path)])
-    assert "ask refused" in capsys.readouterr().err
-    with pytest.raises(SystemExit):
-        cli.main(["task", "T-001", "set", "--ask", "Approve the plan?", "--vault", str(config.vault_path)])
+@pytest.mark.parametrize("text, vague", [
+    *[(text, True) for text in ("Do you approve the proposed action?", "Approve the plan?", "Should I proceed?",
+                                "Want me to go ahead with it?", "OK?")],
+    *[(text, False) for text in ("Want me to publish the 86 verified offers to In The Block now?",
+                                 "For the apartment search, want more listings, or tighter commute times?",
+                                 "Which of your two Gmails should I read first?")],
+])
+def test_an_ask_must_name_its_subject(text, vague):
+    assert bool(needs.vague_ask(text)) == vague

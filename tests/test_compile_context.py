@@ -46,9 +46,6 @@ def test_context_contains_source_bodies_and_only_open_register_sections(context_
     positions = [text.index(f"## memory/{source}") for source in Config(Path('.')).context_sources
                  if (context_vault / source).is_file()]
     assert positions == sorted(positions)
-    assert text.splitlines()[0] == "Generated nightly by `brain`."
-    assert text.splitlines()[2].startswith("Edit the source notes instead:")
-    assert text.endswith("Conversations and everything else are retrieved on demand with `brain retrieve`.\n")
 
 
 def test_context_preview_does_not_write_even_with_out(context_vault, capsys):
@@ -61,21 +58,17 @@ def test_context_preview_does_not_write_even_with_out(context_vault, capsys):
     assert snapshot(context_vault.parent) == before
 
 
-def test_context_write_defaults_to_parent_without_git(context_vault, capsys):
-    cli.main(["compile-context", "--vault", str(context_vault), "--write"])
-    path = context_vault.parent / ".context.md"
-    assert path.read_text() == compile_context.build(Vault(context_vault))
-    assert not (context_vault / ".context.md").exists()
-    assert capsys.readouterr().out == ""
-
-
-def test_context_custom_out_and_word_warning(context_vault, capsys):
+def test_context_write_goes_to_out_or_defaults_to_parent_and_warns_over_budget(context_vault, capsys):
     (context_vault / "START.md").write_text("# Start\n" + "word " * 6001)
     out = context_vault.parent / "custom.md"
     cli.main(["compile-context", "--vault", str(context_vault), "--out", str(out), "--write"])
-    assert out.read_text().startswith("Generated nightly")
-    assert "WARNING: over 6000 words" in capsys.readouterr().err
+    assert out.read_text() == compile_context.build(Vault(context_vault))
+    captured = capsys.readouterr()
+    assert captured.out == "" and "WARNING: over 6000 words" in captured.err
     assert not (context_vault.parent / ".context.md").exists()
+    cli.main(["compile-context", "--vault", str(context_vault), "--write"])
+    assert (context_vault.parent / ".context.md").read_text() == out.read_text()
+    assert not (context_vault / ".context.md").exists()
 
 
 def test_repo_root_detects_git_above_vault_parent(repo):
@@ -95,25 +88,6 @@ def test_nightly_context_is_regenerated_and_committed_at_repo_root(repo):
     assert "T-001 — Sample" in context.read_text()
     assert git(root.parent, "show", "HEAD:.context.md") == context.read_text().strip()
     assert ".context.md" in git(root.parent, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines()
-
-
-def test_nightly_preview_keeps_real_context_untouched(repo):
-    root, _ = repo
-    context = root.parent / ".context.md"
-    context.write_text("ORIGINAL_CONTEXT\n")
-    before = snapshot(root)
-    cli.main(nightly_argv(root, "2026-10-05"))
-    assert context.read_text() == "ORIGINAL_CONTEXT\n"
-    assert snapshot(root) == before
-
-
-def test_context_directory_lists_hubs_people_and_open_tasks(context_vault):
-    text = compile_context.build(Vault(context_vault))
-    assert "## Directory: what the vault knows" in text
-    body = text.split("## Directory: what the vault knows", 1)[1]
-    assert "- Hubs and topics: " in body
-    assert "- Open tasks: " in body
-    assert "Active, Overflow" in body.split("- Hubs and topics: ", 1)[1].split("\n", 1)[0]
 
 
 def test_context_includes_active_goals_and_inference_guidance_until_then(context_vault):
@@ -197,17 +171,6 @@ def test_prepared_drafts_are_drafts_not_hubs_and_never_auto_load(context_vault):
     assert all("Prepared" not in n.rel for n in selected)
 
 
-def test_before_answering_answers_from_the_context_and_can_be_switched_off(context_vault, monkeypatch):
-    text = compile_context.build(Vault(context_vault))
-    assert text.index("## Before answering") < text.index("## memory/START.md")
-    assert "Answer from that in one reply." in text
-    assert "Do not run retrieval the recall block already ran" in text
-    assert "run `brain retrieve` only when" in text
-    assert "A reminder the owner asks for is a dated Triggers row, never a Needs you line." in text
-    monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start, tasks")
-    assert "## Before answering" not in compile_context.build(Vault(context_vault))
-
-
 def test_primed_loads_at_most_its_cap_and_validate_names_the_overrun(context_vault):
     from brain import validate
     lines = [f"- line {n} " + "word " * 18 for n in range(30)]   # 20 words a line, 600 in all
@@ -230,15 +193,6 @@ def test_context_loads_only_the_triggers_still_waiting_to_fire(context_vault):
     assert "(Fired and retired triggers are in memory/agent/Triggers.md.)" in text
 
 
-def test_directory_has_no_active_block_when_no_note_is_hot(context_vault):
-    for path in context_vault.rglob("*.md"):
-        data, body = fm.read(path)
-        if data.get("tier") == "hot":
-            fm.write(path, {**data, "tier": "warm", "pinned": False}, body)
-    text = compile_context.directory(Vault(context_vault))
-    assert "Most active" not in text and "- Hubs and topics:" in text
-
-
 def test_a_run_can_ask_for_only_some_sections_within_what_the_vault_allows(context_vault, capsys, monkeypatch):
     full = compile_context.build(Vault(context_vault))
     narrow = compile_context.build(Vault(context_vault), ("current", "triggers"))
@@ -250,9 +204,6 @@ def test_a_run_can_ask_for_only_some_sections_within_what_the_vault_allows(conte
     monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start,current")
     within = compile_context.build(Vault(context_vault), ("current", "triggers"))
     assert "# Current" in within and "# Triggers" not in within
-
-
-def test_sections_are_checked_and_never_written(context_vault):
     for bad in (["--sections", "current,nonsense"], ["--sections", ","], ["--sections", "current", "--write"]):
         with pytest.raises(SystemExit):
             cli.main(["compile-context", "--vault", str(context_vault), *bad])

@@ -83,10 +83,10 @@ def test_observed_deduplicates_across_sessions_but_not_dates(vault, observed_ses
     assert attribute.sessions(Vault(vault), observed_sessions) == []
 
 
-@pytest.mark.parametrize("source", ["explicit", "inferred", "live"])
-def test_observed_deduplication_is_source_specific(vault, observed_sessions, source):
+def test_observed_deduplication_is_source_specific(vault, observed_sessions):
     attribute.append_log(vault / "agent/Use Log/2026-10.md", [attribute.Use(
-        "2026-10-20T00:00:00-07:00", "Acme Context.md", "opened on demand in session cli-session", source)])
+        "2026-10-20T00:00:00-07:00", "Acme Context.md", "opened on demand in session cli-session", source)
+        for source in ("explicit", "inferred", "live")])
     rows = attribute.sessions(Vault(vault), observed_sessions)
     assert len([row for row in rows if row.target == "Acme Context.md" and row.source == "observed"]) == 1
 
@@ -106,20 +106,18 @@ def test_observed_never_attributes_excluded_paths(vault, observed_sessions, rela
     assert attribute.sessions(Vault(vault), observed_sessions) == []
 
 
-def test_directory_active_overflow_is_still_on_demand(vault, observed_sessions):
-    record = harness_session("overflow", [tool("search_files", {"nested": {"path": "memory/On Demand Note.md"}})])
-    replace_shards(observed_sessions, record)
+@pytest.mark.parametrize("sections, call, expected", [
+    (None, tool("search_files", {"nested": {"path": "memory/On Demand Note.md"}}), [("On Demand Note.md", "observed")]),
+    ("directory", tool("read_file", {"path": "memory/Automatic Note.md"}), []),
+    ("hot", tool("read_file", {"path": "memory/Automatic Note.md"}), []),
+    ("", tool("read_file", {"path": "memory/Automatic Note.md"}), [("Automatic Note.md", "observed")]),
+])
+def test_observed_reads_follow_enabled_directory_selection(vault, observed_sessions, monkeypatch, sections, call, expected):
+    if sections is not None:
+        monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", sections)
+    replace_shards(observed_sessions, harness_session("active", [call]))
     rows = attribute.sessions(Vault(vault), observed_sessions)
-    assert [(row.target, row.source) for row in rows] == [("On Demand Note.md", "observed")]
-
-
-@pytest.mark.parametrize("sections", ["directory", "hot", ""])
-def test_observed_reads_follow_enabled_directory_selection(vault, observed_sessions, monkeypatch, sections):
-    monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", sections)
-    record = harness_session("active", [tool("read_file", {"path": "memory/Automatic Note.md"})])
-    replace_shards(observed_sessions, record)
-    rows = attribute.sessions(Vault(vault), observed_sessions)
-    assert [(row.target, row.source) for row in rows] == ([] if sections else [("Automatic Note.md", "observed")])
+    assert [(row.target, row.source) for row in rows] == expected
 
 
 @pytest.mark.parametrize("name,arguments,reads,retrievals", [
@@ -220,28 +218,19 @@ def test_explicit_row_removes_previously_folded_observed_credit(vault):
     assert nightly.fold_uses(loaded, [], DAY, []) == set()
 
 
-@pytest.mark.parametrize("sources", [
-    ["explicit", "inferred", "observed"], ["observed", "explicit", "inferred"],
-    ["inferred", "observed", "explicit"],
+@pytest.mark.parametrize("uses, sources", [
+    ([], ["observed", "explicit", "inferred"]),
+    (["2026-10-04"], ["observed"]),
+    (["2026-10-04"], ["inferred"]),
 ])
-def test_independent_inferred_credit_keeps_existing_semantics(vault, sources):
-    fm.write(vault / "Hub.md", {"uses": [], "uses_inferred": []}, "# Hub\n")
+def test_half_weight_credit_stands_beside_an_explicit_date(vault, uses, sources):
+    fm.write(vault / "Hub.md", {"uses": uses, "uses_inferred": []}, "# Hub\n")
     attribute.append_log(vault / "agent/Use Log/2026-10.md", [
         attribute.Use("2026-10-04", "Hub.md", source, source) for source in sources])
     loaded = Vault(vault)
     nightly.fold_uses(loaded, [], DAY, [])
     assert loaded.notes["Hub.md"].data == {"uses": ["2026-10-04"], "uses_inferred": ["2026-10-04"]}
     assert nightly.fold_uses(loaded, [], DAY, []) == set()
-
-
-@pytest.mark.parametrize("source", ["observed", "inferred"])
-def test_half_weight_dates_keep_existing_semantics_without_explicit_rows(vault, source):
-    fm.write(vault / "Hub.md", {"uses": ["2026-10-04"], "uses_inferred": []}, "# Hub\n")
-    attribute.append_log(vault / "agent/Use Log/2026-10.md", [
-        attribute.Use("2026-10-04", "Hub.md", "fixture", source)])
-    loaded = Vault(vault)
-    nightly.fold_uses(loaded, [], DAY, [])
-    assert loaded.notes["Hub.md"].data == {"uses": ["2026-10-04"], "uses_inferred": ["2026-10-04"]}
 
 
 def test_harness_nightly_attributes_before_fold_and_is_idempotent(vault, observed_sessions):
@@ -254,3 +243,35 @@ def test_harness_nightly_attributes_before_fold_and_is_idempotent(vault, observe
     after = snapshot(vault.parent)
     assert {path for path in before.keys() | after.keys() if before.get(path) != after.get(path)} == {
         "memory/agent/Sleep Log/2026-10.md"}
+
+
+def test_attribution_ignores_evaluation_sessions_and_routine_opens(tmp_path):
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    vault = tmp_path / "memory"
+    (vault / "agent").mkdir(parents=True)
+    fm.write(vault / "Acme.md", {"kind": "hub", "tier": "warm"}, "# Acme\nbody\n")
+    sessions = tmp_path / "sessions"
+    stamp = "2026-10-21T10:00:00-07:00"
+    call = tool("read_file", {"path": "memory/Acme.md"}, stamp)
+    cite = message("assistant", "Sources: [[memory/Acme]]", stamp)
+    write_shards(sessions,
+        harness_session("conv", [call]),
+        harness_session("cron_sleep1", [call, cite], platform="cron"),
+        harness_session("eval", [message("user", "Evaluation fixture: Q01", stamp), call, cite]))
+    rows = attribute.sessions(Vault(vault), sessions)
+    assert sorted((u.source, u.reason) for u in rows) == [
+        ("explicit", "cited in session cron_sleep1"), ("observed", "opened on demand in session conv")]
+
+
+def test_attribute_defaults_to_the_profile_records_folder(tmp_path, monkeypatch, capsys):
+    (tmp_path / "brain.toml").write_text("[brain]\n", encoding="utf-8")
+    vault = tmp_path / "memory"
+    (vault / "agent").mkdir(parents=True)
+    fm.write(vault / "Acme.md", {"kind": "hub", "tier": "warm"}, "# Acme\nbody\n")
+    home = tmp_path / "agent-home"
+    monkeypatch.setenv("AGENT_HOME", str(home))
+    call = tool("read_file", {"path": "memory/Acme.md"}, "2026-10-21T10:00:00-07:00")
+    write_shards(home / "records" / "sessions", harness_session("conv", [call]))
+    cli.main(["attribute", "--vault", str(vault)])
+    assert "Acme" in capsys.readouterr().out
+    assert not (vault / "Conversations").exists()

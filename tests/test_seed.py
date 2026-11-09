@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from brain import cli, coverage, fm, install, seed
+from brain import cli, coverage, fm
 from brain.sources import reviews as review_source
 from brain.sources import plans as plan_source
 from brain.config import Config
@@ -55,13 +55,7 @@ def test_unreadable_files_and_comments_are_named_not_fatal(reviews):
     assert any(p.startswith("104.md: malformed comment") for p in problems)
 
 
-def test_area_is_the_first_two_folders():
-    assert review_source.area("apps/api/src/x.ts") == "apps/api"
-    assert review_source.area("README.md") == "(top level)"
-    assert review_source.area("") == "(whole PR)"
-
-
-def test_cli_prints_the_reading_list_and_its_json(vault, reviews, capsys, monkeypatch):
+def test_cli_prints_reviews_and_plans_and_takes_one_source_at_a_time(vault, reviews, plans, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
     cli.main(["portrait", "seed", "--vault", str(vault), "--reviews", str(reviews)])
     out = capsys.readouterr().out
@@ -69,30 +63,19 @@ def test_cli_prints_the_reading_list_and_its_json(vault, reviews, capsys, monkey
     assert "Reviewers: noah 2, roshan 2, review-bot 1 (bot)" in out
     assert "- #101 A change · 2 by people, 3 in all · " in out and out.index("#101") < out.index("#102")
     cli.main(["portrait", "seed", "--vault", str(vault), "--reviews", str(reviews), "--days", "7", "--json"])
-    assert [item["pr"] for item in json.loads(capsys.readouterr().out)["read"]] == []
-
-
-def test_cli_refuses_seed_without_a_folder_and_folder_without_seed(vault, reviews):
+    assert json.loads(capsys.readouterr().out)["read"] == []
+    cli.main(["portrait", "seed", "--vault", str(vault), "--plans", str(plans)])
+    out = capsys.readouterr().out
+    assert "6 open projects, 3 issues done" in out
+    assert "- Migration tooling (Win larger sponsors) · started · target 2026-12-15 · now · lead noah" in out
+    assert "- Mobile app · backlog · no target" in out and "- (no project) · 2 done · 67%" in out
+    assert "Due this quarter with nothing done in the window: Audit trail v2" in out
     with pytest.raises(SystemExit, match="--reviews DIR"):
         cli.main(["portrait", "seed", "--vault", str(vault)])
+    with pytest.raises(SystemExit, match="one of --reviews DIR"):
+        cli.main(["portrait", "seed", "--vault", str(vault), "--plans", str(plans), "--reviews", str(reviews)])
     with pytest.raises(SystemExit, match="go with seed"):
         cli.main(["portrait", "--vault", str(vault), "--reviews", str(reviews)])
-
-
-@pytest.mark.parametrize("edition", ["personal", "enterprise"])
-def test_seed_skill_renders_only_this_editions_procedure(vault, edition):
-    (vault.parent / "brain.toml").write_text(f'[brain]\nvault = "{vault.name}"\nedition = "{edition}"\n')
-    config = Config.load(vault)
-    install.skills(config)
-    text = (config.skills_path / "brain-seed" / "SKILL.md").read_text()
-    assert "human/Portrait.md" in text and "{" not in text.split("---", 2)[2].replace("```", "")
-    assert "<!-- personal -->" not in text and "<!-- enterprise -->" not in text
-    assert ("# Learn the company" in text) == (edition == "enterprise")
-    assert ("brain portrait seed --account all --json" in text) == (edition == "personal")
-    assert ("brain people friends --json" in text) == (edition == "personal")
-    assert ("human/Tellable.md" in text) == (edition == "personal")
-    recall = (config.skills_path / "brain-recall" / "SKILL.md").read_text()
-    assert ("Then load `brain-seed` and run it scoped to that owner account." in recall) == (edition == "personal")
 
 
 def project(folder, name, state, target="", initiative="", lead="", *issues):
@@ -143,21 +126,6 @@ def test_direction_names_unreadable_projects(plans):
     problems = plan_source.direction(plans, TODAY)["problems"]
     assert "bad.md: malformed issue line '- yesterday · done · X · y'" in problems
     assert "bad.md: needs frontmatter project and state, and target as YYYY-MM-DD when set" in problems
-
-
-def test_cli_seeds_from_plans_and_takes_one_source_at_a_time(vault, plans, reviews, capsys, monkeypatch):
-    monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
-    cli.main(["portrait", "seed", "--vault", str(vault), "--plans", str(plans)])
-    out = capsys.readouterr().out
-    assert "6 open projects, 3 issues done" in out
-    assert "- Migration tooling (Win larger sponsors) · started · target 2026-12-15 · now · lead noah" in out
-    assert "- Mobile app · backlog · no target" in out
-    assert "- (no project) · 2 done · 67%" in out
-    assert "Due this quarter with nothing done in the window: Audit trail v2" in out
-    with pytest.raises(SystemExit, match="one of --reviews DIR"):
-        cli.main(["portrait", "seed", "--vault", str(vault), "--plans", str(plans), "--reviews", str(reviews)])
-    with pytest.raises(SystemExit, match="go with seed"):
-        cli.main(["portrait", "--vault", str(vault), "--plans", str(plans)])
 
 
 def test_coverage_shows_what_the_portrait_knows_and_what_was_never_read(vault, capsys, monkeypatch):

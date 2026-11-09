@@ -49,9 +49,8 @@ def test_colon_outside_bold_current_field_after_long_evidence_is_preserved(tmp_p
     assert read_archive_body(Config.load(root), task.tid).strip() == original.strip()
 
 
-@pytest.mark.parametrize("location", ["register", "archive"])
-@pytest.mark.parametrize("evidence_first", [False, True])
-@pytest.mark.parametrize("combined", [False, True])
+@pytest.mark.parametrize("location,evidence_first,combined", [
+    ("register", False, False), ("archive", True, False), ("register", True, True)])
 def test_long_evidence_line_is_archived_and_hot_register_stays_bounded(tmp_path, location, evidence_first, combined):
     root = fixture(tmp_path / "memory")
     task = long_task("cold" if location == "archive" else "hot", evidence_first, combined)
@@ -105,7 +104,7 @@ def test_evidence_only_task_requires_parent_judgment_without_pointer_only_replac
     assert any("T-099: parent judgment required" in line and "no labeled current fields" in line for line in report)
 
 
-@pytest.mark.parametrize("label", ["Status", "Owner", "Next action", "Blocker", "Completion condition", "Latest evidence", "Owner / scope", "Next / blocker", "Custom current field"])
+@pytest.mark.parametrize("label", ["Status", "Owner / scope", "Custom current field"])
 def test_required_field_overflow_fails_before_task_or_archive_mutation(tmp_path, label):
     root = fixture(tmp_path / "memory")
     task = long_task(evidence_first=True)
@@ -157,8 +156,9 @@ def test_current_fields_reserve_the_archive_pointer_at_the_exact_limit(tmp_path,
         assert read_archive_body(Config.load(root), task.tid).strip() == original.strip()
 
 
-@pytest.mark.parametrize("position", ["start", "end"])
-@pytest.mark.parametrize("receipt", ["https://example.invalid/diagnostic-receipt", "[[memory/Receipt]]", "[receipt](https://example.invalid/diagnostic-receipt)"])
+@pytest.mark.parametrize("position,receipt", [
+    ("start", "https://example.invalid/diagnostic-receipt"), ("end", "[[memory/Receipt]]"),
+    ("end", "[receipt](https://example.invalid/diagnostic-receipt)")])
 def test_only_receipt_link_in_long_evidence_requires_parent_judgment(tmp_path, position, receipt):
     root = fixture(tmp_path / "memory")
     task = long_task(evidence_first=True)

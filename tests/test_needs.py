@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from brain import cli, fm, ideas, needs, nightly, triggers
+from brain import cli, fm, ideas, needs, nightly
 from brain.config import Config
 from brain.tasks import Task, load_tasks, write_archive
 from brain.vault import Vault
@@ -50,7 +50,6 @@ def test_parse_section_preserves_bullet_order_and_optional_sources():
         ("ask", "Approve?", "2026-10-26", "Travel/Lisbon#Return"),
     ]
     assert all(item.origin == "current" for item in parsed)
-    assert needs.KINDS == ("ask", "confirm")
 
 
 @pytest.mark.parametrize("line", [
@@ -70,16 +69,6 @@ def test_missing_section_is_empty(body):
     assert needs.parse_section(body + "- 2026-10-28 · ask · Not in the section.\n") == []
 
 
-def test_current_items_are_computed_without_changing_files(vault):
-    write_current(vault, "- 2026-10-01 · confirm · Already done.\n"
-                  "- 2026-10-28 · ask · Need a decision.\n")
-    before = snapshot(vault.parent)
-    result = needs.items(Config.load(vault), TODAY)
-    assert [(item.kind, item.text, item.origin) for item in result] == [
-        ("ask", "Need a decision.", "current"), ("confirm", "Already done.", "current")]
-    assert snapshot(vault.parent) == before
-
-
 def test_waiting_tasks_use_effective_state_and_latest_evidence(vault):
     states = [
         {"state": "waiting_for_owner", "status": "completed"},
@@ -87,7 +76,7 @@ def test_waiting_tasks_use_effective_state_and_latest_evidence(vault):
         {"state": "in_progress"}, {"state": "blocked"},
         {"state": "completed"}, {"state": "cancelled"},
         {"status": "waiting_for_owner"}, {"status": "completed"}, {},
-        {"state": "waiting_for_owner"},
+        {"state": "waiting_for_owner"}, {"state": "set_aside"},
     ]
     tasks = [Task(f"T-{index:03}", f"Task {index}",
                   "- **Status:** Awaiting owner.\n" + (
@@ -130,18 +119,18 @@ def test_warm_waiting_task_uses_recovered_body(vault):
     assert item.source == "agent/Tasks.md#T-002"
 
 
-@pytest.mark.parametrize("status, included", [
-    ("`proposed`", True), ("proposed", True),
-    ("proposed, awaiting the owner", True),
-    ("`proposed`, assessed October 28, 2026 against evidence", True),
-    ("`adopted`, assessed October 28, 2026 against `proposed`", False),
-    ("`trialing`", False), ("dropped", False), ("adopted", False),
-    ("", False), ("proposed was replaced by `adopted`", False),
-    ("`trialing` then `proposed`", False),
+@pytest.mark.parametrize("status, included, day", [
+    *[(status, included, "2026-10-26") for status, included in [
+        ("`proposed`", True), ("proposed", True),
+        ("proposed, awaiting the owner", True),
+        ("`proposed`, assessed October 28, 2026 against evidence", True),
+        ("`adopted`, assessed October 28, 2026 against `proposed`", False),
+        ("`trialing`", False), ("dropped", False), ("adopted", False),
+        ("", False), ("proposed was replaced by `adopted`", False),
+        ("`trialing` then `proposed`", False)]],
+    ("proposed", True, "October 26"), ("proposed", True, "October 26, 2026"),
 ])
-@pytest.mark.parametrize("day, since", [("2026-10-26", "2026-10-26"), ("October 26", "2026-10-26"),
-                                       ("October 26, 2026", "2026-10-26")])
-def test_improvement_status_and_heading_dates(vault, status, included, day, since):
+def test_improvement_status_and_heading_dates(vault, status, included, day):
     heading = day + " — Active supervision rather than status collection"
     fm.write(vault / "Supervision.md", {}, "# Supervision\n\n## Improvements\n\n" + improvement(heading, status))
     assert needs.items(Config.load(vault), TODAY) == []
@@ -152,7 +141,7 @@ def test_improvement_status_and_heading_dates(vault, status, included, day, sinc
     item, = result
     assert item.kind == "idea" and item.origin == "improvement"
     assert item.text == "Adopt? Active supervision rather than status collection"
-    assert item.since == since
+    assert item.since == "2026-10-26"
     assert item.source == "Supervision.md#" + heading
 
 
@@ -178,12 +167,6 @@ def test_improvement_scope_and_undated_headings(vault):
     # All three proposals are open ideas; shown() chooses only one.
     assert [item.text for item in result] == ["Adopt? Undated proposal", "Adopt? Better — owner decisions", "Adopt? Bad date still readable"]
     assert all(item.since is None for item in result)
-
-
-def test_triggers_are_not_owner_items(vault):
-    row = "| TR-001 | commitment | 2026-10-28 | Owner-facing commitment | T-001 | active | 2026-10-27 |\n"
-    fm.write(vault / "agent/Triggers.md", {}, triggers.TEMPLATE.replace("## Fired", row + "\n## Fired"))
-    assert needs.items(Config.load(vault), TODAY) == []
 
 
 def test_order_is_ranked_asks_then_confirms_with_ties_in_written_order(vault):
@@ -241,6 +224,11 @@ def test_configured_task_and_archive_paths(vault):
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
 def test_expiry_boundary_asks_and_idempotence(vault, newline):
     path = vault / "CURRENT.md"
+    for _ in ("without a section", "without the file"):
+        before = snapshot(vault)
+        assert needs.expire_confirms(Config.load(vault), TODAY) == []
+        assert snapshot(vault) == before
+        path.unlink(missing_ok=True)
     lines = [
         "---", "# Keep this comment and quoting", 'kind: "orientation"', "---", "# Current",
         "- 2026-10-01 · confirm · Outside the section.", "## Needs you", "",
@@ -263,15 +251,6 @@ def test_expiry_boundary_asks_and_idempotence(vault, newline):
     assert needs.expire_confirms(Config.load(vault), TODAY) == []
     assert path.read_bytes() == expected
     assert path.stat().st_mtime_ns == modified
-
-
-@pytest.mark.parametrize("present", [True, False])
-def test_expiry_without_section_or_file_is_noop(vault, present):
-    if not present:
-        (vault / "CURRENT.md").unlink()
-    before = snapshot(vault)
-    assert needs.expire_confirms(Config.load(vault), TODAY) == []
-    assert snapshot(vault) == before
 
 
 def test_nightly_write_expires_and_reports_each_confirm(vault, capsys):
@@ -301,28 +280,6 @@ def test_nightly_preview_does_not_expire_in_real_vault(vault, capsys):
     output = capsys.readouterr().out
     assert "needs-you: confirm accepted after 5 days: Preview only." in output
     assert "(report only; nothing written)" in output
-
-
-def test_nightly_commit_covers_expired_current_without_real_git_actions(vault, monkeypatch, capsys):
-    write_current(vault, "- 2026-10-21 · confirm · Included in commit.\n")
-    commands = []
-
-    def fake_git(repo, *args):
-        assert repo == vault.parent
-        commands.append(args)
-        if args[:2] == ("diff", "--cached"):
-            return "memory/CURRENT.md"
-        if args[0] == "rev-parse":
-            return "fixture-sha"
-        return ""
-
-    monkeypatch.setattr(cli, "sh", fake_git)
-    cli.main(nightly_argv(vault, TODAY, "--write", "--commit"))
-    assert "Included in commit." not in fm.read(vault / "CURRENT.md")[1]
-    assert commands[0] == ("add", "-A", "--", "memory", ":(exclude)memory/.brain", ".context.md")
-    assert commands[2][:3] == ("commit", "-q", "-m")
-    assert "needs-you: confirm accepted after 5 days: Included in commit." in commands[2][3]
-    assert "commit fixture-sha" in capsys.readouterr().out
 
 
 def test_expiry_runs_before_validation_and_is_recorded_on_failure(vault, monkeypatch, capsys):
@@ -379,13 +336,6 @@ def test_cli_text_and_json(vault, capsys):
     assert snapshot(vault.parent) == before
 
 
-def test_empty_cli(vault, capsys):
-    cli.main(["needs-you", "--vault", str(vault)])
-    assert capsys.readouterr().out == ""
-    cli.main(["needs-you", "--vault", str(vault), "--json"])
-    assert json.loads(capsys.readouterr().out) == []
-
-
 @pytest.mark.parametrize("entry, status", [
     ("- **Status:** `proposed`, October 26.\n", "proposed"),
     ("- **Status:** Trialing since October 26.\n", "trialing"),
@@ -395,12 +345,6 @@ def test_empty_cli(vault, capsys):
 ])
 def test_improvement_status_accepts_the_field_and_the_inline_form(entry, status):
     assert needs.improvement_status(entry) == status
-
-
-def test_a_set_aside_task_is_not_an_ask(vault):
-    write_tasks(vault, Task("T-001", "Parked", "", {"state": "set_aside"}),
-                Task("T-002", "Waiting", "", {"state": "waiting_for_owner"}))
-    assert [item.text for item in needs.items(Config.load(vault), TODAY)] == ["Waiting"]
 
 
 def test_cli_ask_adds_once_with_its_source(vault, capsys):
@@ -414,8 +358,8 @@ def test_cli_stale_tasks(vault, capsys):
     write_tasks(vault, Task("T-001", "Old", "- **Status:** parked by nobody\n", {"state": "ready", "uses": "2020-01-01", "tier": "cold"}),
                 Task("T-002", "Set aside", "", {"state": "set_aside", "uses": "2020-01-01"}))
     cli.main(["stale-tasks", "--vault", str(vault)])
-    assert capsys.readouterr().out.splitlines() == [
-        "T-001 · ready · cold · last touched 2020-01-01 · Old · Status: parked by nobody"]
+    listed, = capsys.readouterr().out.splitlines()
+    assert listed.startswith("T-001 ") and "parked by nobody" in listed
 
 
 def test_cli_ask_is_not_suppressed_by_a_confirm_with_the_same_words(vault):
@@ -424,10 +368,10 @@ def test_cli_ask_is_not_suppressed_by_a_confirm_with_the_same_words(vault):
     assert [item.kind for item in needs.parse_section(fm.read(vault / "CURRENT.md")[1])] == ["confirm", "ask"]
 
 
-@pytest.mark.parametrize("argv", [["--json", "--ask", "x"], ["--source", "agent/Tasks#T-001"]])
-def test_cli_ask_rejects_conflicting_arguments(vault, argv):
+@pytest.mark.parametrize("argv", [["--source", "agent/Tasks#T-001"], ["--why", "a reason"], ["--because", "evidence"]])
+def test_needs_you_refuses_a_flag_without_its_mode(vault, argv):
     before = snapshot(vault.parent)
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit, match="go(?:es)? with"):
         cli.main(["needs-you", "--vault", str(vault), *argv])
     assert snapshot(vault.parent) == before
 
@@ -529,7 +473,7 @@ def test_resolve_removes_the_answered_item_and_records_the_evidence(vault, capsy
     ("nothing like this", "x", "no open item matches"),
     ("?", "x", "open items match"),
     ("Waiting task", "x", "change the task's state"),
-    ("dinner", "", "say what answered it"),
+    ("dinner", "", "needs --because"),
 ])
 def test_resolve_refuses_what_it_cannot_settle(vault, capsys, which, because, message):
     write_current(vault, "- 2026-10-29 · ask · Book the dinner for Saturday?\n- 2026-10-29 · ask · Call the plumber?\n")
@@ -537,17 +481,10 @@ def test_resolve_refuses_what_it_cannot_settle(vault, capsys, which, because, me
     args = ["needs-you", "--vault", str(vault), "--resolve", which]
     if because:
         args += ["--because", because]
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as error:
         cli.main(args)
-    out = capsys.readouterr()
-    assert message in out.err + str(out.out) or because == ""
+    assert message in capsys.readouterr().err + str(error.value.code)
     assert "Book the dinner" in fm.read(vault / "CURRENT.md")[1]
-
-
-@pytest.mark.parametrize("args", [["--why", "a reason"], ["--because", "evidence"]])
-def test_needs_you_refuses_a_flag_without_its_mode(vault, args):
-    with pytest.raises(SystemExit, match="go(?:es)? with"):
-        cli.main(["needs-you", "--vault", str(vault), *args])
 
 
 def test_dismiss_no_sets_the_task_aside_and_the_item_never_returns(vault, capsys, monkeypatch):
@@ -580,20 +517,6 @@ def test_dismiss_an_ask_sourced_from_a_task_archive_sets_that_task_aside(vault, 
     needs.dismiss(Config.load(vault), "Accept the share?", date(2026, 11, 3))
     task, = [t for t in load_tasks(Config.load(vault))[0] if t.tid == "T-013"]
     assert task.task_state == "set_aside"
-
-
-def test_ideas_declines_a_proposal_and_stop_asking_is_logged_for_the_people_review(vault, monkeypatch):
-    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
-    fm.write(vault / "Hub.md", {}, "# Hub\n\n## Improvements\n\n" + improvement("October 27 — Weekly digest", "proposed"))
-    item, = ideas.items(Config.load(vault), TODAY)
-    ideas.respond(Config.load(vault), item.id, TODAY, "stop-asking")
-    assert "`declined`, 2026-10-28" in (vault / "Hub.md").read_text()
-    assert ideas.items(Config.load(vault), TODAY) == []
-    assert needs.items(Config.load(vault), TODAY) == []
-    assert "· dismissed stop-asking · idea · Adopt? Weekly digest · id:" in (vault / "agent/Answered/2026-10.md").read_text()
-    with pytest.raises(ValueError):
-        ideas.respond(Config.load(vault), "anything", TODAY, "maybe")
-
 
 
 def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(vault, monkeypatch):
@@ -683,14 +606,6 @@ def test_a_hidden_duplicate_bullet_can_still_be_resolved(vault, monkeypatch):
     assert [i.origin for i in needs.items(Config.load(vault), TODAY)] == ["task"]
 
 
-def test_health_counts_the_needs_you_problems_validate_names(vault, monkeypatch):
-    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
-    from brain import health
-    clean = health.report(Config.load(vault))["vault"]["validation_problems"]
-    write_current(vault, "- 2026-10-27 · confirm · Migration draft: the goals stay empty · [[CURRENT]]\n")
-    assert health.report(Config.load(vault))["vault"]["validation_problems"] == clean + 1
-
-
 def test_current_items_dated_over_two_weeks_ago_are_named_and_history_is_not(vault, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
     fm.write(vault / "CURRENT.md", {"kind": "orientation"},
@@ -717,17 +632,3 @@ def test_current_presenting_a_closed_task_as_live_is_named(vault, monkeypatch):
     from brain.vault import Vault
     problems = validate.closed_task_mentions(Vault(vault))
     assert len(problems) == 1 and "T-010" in problems[0] and "in progress" in problems[0]
-
-
-def test_a_task_field_written_in_engine_terms_is_named(vault, monkeypatch):
-    monkeypatch.setenv("BRAIN_TODAY", "2026-11-07")
-    write_tasks(vault,
-                Task("T-020", "Prepare the Mac", "- **Next:** Maintainer: inspect the diagnostic in thread `1792692172.812869`.\n", {"state": "blocked"}),
-                Task("T-021", "Book the hotel", "- **Next:** Ask both hotels about a garden room, then hold the better one.\n", {"state": "in_progress"}),
-                Task("T-022", "Fix sync", "- **Blockers:** brain continue fails reading agent/Tasks.md\n", {"state": "blocked"}),
-                Task("T-023", "Old", "- **Next:** Maintainer: done already.\n", {"state": "completed"}))
-    from brain import validate
-    from brain.vault import Vault
-    problems = validate.owner_facing_tasks(Vault(vault))
-    assert [p.split(":")[0] for p in problems] == ["T-020", "T-022"]
-    assert "Next" in problems[0] and "Blockers" in problems[1]

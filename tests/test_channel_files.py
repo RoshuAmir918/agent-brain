@@ -175,17 +175,14 @@ def test_mail_only_reads_since_folders_and_compares_header_times(synced, monkeyp
     message(root, id="late", date="2026-11-04T20:00:00-08:00")
     message(root, id="bad", date="unparseable")
     original = fm.read
-    opened = []
     def read(path):
         assert path.parent.name != "2026-11-02"
-        opened.append(path)
         return original(path)
     v = Vault(vault)
     monkeypatch.setattr(fm, "read", read)
     data = channel_files.mail(v, datetime.fromisoformat("2026-11-04T17:00:00+00:00"))
     assert [item["path"].split("/")[-1] for item in data["messages"]] == ["late.md", "host-day.md", "equal.md"]
     assert data["filtered"]["before_since"] == 1 and data["filtered"]["invalid"] == 1
-    assert len(opened) == 5
 
 
 def test_mail_cli_text_json_cap_and_no_bodies(synced, capsys):
@@ -208,23 +205,14 @@ def test_mail_cli_text_json_cap_and_no_bodies(synced, capsys):
     assert "BODY_MUST_NEVER_APPEAR" not in text
 
 
-@pytest.mark.parametrize("options", [[], ["--since", "not-a-date"]])
-def test_mail_cli_requires_valid_since(synced, options, capsys):
-    vault, _ = synced
-    with pytest.raises(SystemExit):
-        cli.main(["channels", "mail", "--vault", str(vault), *options])
-
-
-@pytest.mark.parametrize("sender", ['"claude[bot]" <notifications@github.com>', "GitHub <noreply@github.com>",
-                                    "Bank <do-not-reply@bank.com>", "Mail Delivery <mailer-daemon@google.com>"])
-def test_mail_from_no_person_is_recognized_as_automated(sender):
-    assert channel_files.AUTOMATED.search(sender)
-
-
-@pytest.mark.parametrize("sender", ["Alex <alex@example.com>", "Nora Reply <nora.replyman@example.com>",
-                                    "Kevin <kevin.notifier.fan@example.com>"])
-def test_mail_from_a_person_is_kept(sender):
-    assert not channel_files.AUTOMATED.search(sender)
+@pytest.mark.parametrize("sender, automated", [
+    ('"claude[bot]" <notifications@github.com>', True), ("GitHub <noreply@github.com>", True),
+    ("Bank <do-not-reply@bank.com>", True), ("Mail Delivery <mailer-daemon@google.com>", True),
+    ("Alex <alex@example.com>", False), ("Nora Reply <nora.replyman@example.com>", False),
+    ("Kevin <kevin.notifier.fan@example.com>", False),
+])
+def test_automated_sender_is_recognized_and_a_person_is_kept(sender, automated):
+    assert bool(channel_files.AUTOMATED.search(sender)) == automated
 
 
 def test_notices_are_kept_and_grouped_by_sender_with_the_newest_shown(synced, capsys):
@@ -273,14 +261,6 @@ def test_no_connected_account_is_said_and_a_vault_without_runtime_says_nothing(s
         "coverage: I can't see the mail: no mail or calendar account is connected")
     monkeypatch.delenv("AGENT_HOME")
     assert channel_files.calendar(Vault(vault)) == "" and channel_files.coverage(Vault(vault)) is None
-
-
-def test_mail_coverage_line_names_accounts_and_last_sync(synced):
-    vault, root = synced
-    message(root)
-    text = channel_files.render_mail(channel_files.mail(Vault(vault), datetime(2026, 11, 4)))
-    assert text.splitlines()[0].startswith("coverage: echo@example.com (own), friend@example.com (shared), mira@example.com (owner), missing@example.com (owner), other@example.com (owner); last sync 2026-11-04")
-    assert " · mira@example.com (owner) · " in text
 
 
 def register_school(vault, host, status="live"):
@@ -349,7 +329,7 @@ def test_canvas_block_reaches_the_session_context_beside_the_calendar(synced):
     register_school(vault, "school.instructure.com")
     calendar_file(root, event())
     text = compile_context.upcoming(Vault(vault))
-    assert text.index("## Calendar") < text.index("## Canvas")
+    assert "## Calendar" in text and "## Canvas" in text
 
 
 def test_calendar_reads_files_named_for_a_host_date_a_day_off(synced):

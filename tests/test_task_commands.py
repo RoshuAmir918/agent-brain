@@ -21,7 +21,7 @@ def entry(config):
     return tasks.load_tasks(config)[0] + tasks.load_tasks(config)[1]
 
 
-@pytest.fixture(params=["register", "warm", "archive"])
+@pytest.fixture
 def location(vault, request):
     config = Config.load(vault)
     original = entry(config)[0]
@@ -38,10 +38,11 @@ def location(vault, request):
     return config, request.param
 
 
-@pytest.mark.parametrize("name", tasks.FIELDS)
+@pytest.mark.parametrize("name,location", [(name, "register") for name in tasks.FIELDS]
+                         + [("status", "warm"), ("hub", "archive")], indirect=["location"])
 def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
     config, where = location
-    value = ("Project" if name == "hub" else "2026-11-06 08:05" if name == "resume" else "new-value" if name == "work"
+    value = ("Project" if name == "hub" else "computer" if name == "resume" else "new-value" if name == "work"
              else "T-000" if name == "after"
              else "G-1" if name == "goal"
              else "2026-12-01" if name == "due"
@@ -63,12 +64,16 @@ def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
         assert "continued proof" not in task.body
     if name == "blocker":
         assert "old blocker" not in task.body
+    if name == "resume":
+        assert task.resume == "computer"
     if where != "register":
         assert expected in tasks.archive_path(config, "T-001").read_text()
     if where == "warm" and name == "status":
         assert "Status: new value" in fm.read(vault / config.agent("Tasks.md"))[1]
     assert cli(vault, capsys, "T-001", "set", "--clear", name) == f"T-001 updated: cleared {name}"
     assert f"**{name.title()}:**" not in entry(config)[0].body
+    if name == "resume":
+        assert entry(config)[0].resume is None
 
 
 def test_multiline_duplicates_and_multiple_clear_preserve_other_fields(vault, capsys):
@@ -85,9 +90,11 @@ def test_multiline_duplicates_and_multiple_clear_preserve_other_fields(vault, ca
     assert entry(config)[0].body.endswith("- **Status:** appended\n")
 
 
-@pytest.mark.parametrize("state,normal", [("Ready", "ready"), ("In progress", "in_progress"),
-                                           ("blocked", "blocked"), ("waiting-for-owner", "waiting_for_owner"),
-                                           ("owner", "yours"), ("parked", "set_aside")])
+@pytest.mark.parametrize("state,normal,location", [
+    ("Ready", "ready", "register"), ("In progress", "in_progress", "register"), ("blocked", "blocked", "register"),
+    ("waiting-for-owner", "waiting_for_owner", "register"), ("owner", "yours", "register"),
+    ("parked", "set_aside", "register"), ("In progress", "in_progress", "warm"), ("parked", "set_aside", "archive"),
+], indirect=["location"])
 def test_set_open_state(location, vault, capsys, state, normal):
     config, where = location
     cli(vault, capsys, "T-001", "set", "--state", state)
@@ -105,8 +112,9 @@ def test_set_open_state(location, vault, capsys, state, normal):
     (["--hub", "Missing"], "note does not exist"), (["--hub", "[[START]]"], "without wikilink brackets"),
     (["--clear", "status", "--status", "value"], "set and cleared"),
     ([], "needs a field"),
-] + [(["--" + name, "first\nsecond"], "single-line") for name in (*tasks.FIELDS, "state")]
-  + [(["--status", "first\rsecond"], "single-line")])
+    (["--next", "first\nsecond"], "single-line"), (["--state", "first\nsecond"], "single-line"),
+    (["--status", "first\rsecond"], "single-line"),
+])
 def test_invalid_set_does_not_write(vault, capsys, args, message):
     before = snapshot(vault)
     with pytest.raises(SystemExit) as error:
@@ -131,7 +139,8 @@ def test_word_limit_boundaries(vault, capsys):
     assert "- **Ask:** " in task.body and "- **Why:** " in task.body
 
 
-@pytest.mark.parametrize("closed", [None, "completed", "cancelled"])
+@pytest.mark.parametrize("closed,location", [(None, "register"), ("completed", "warm"), ("cancelled", "archive")],
+                         indirect=["location"])
 def test_unknown_and_closed_task_refused(location, vault, capsys, closed):
     config, _ = location
     if closed:
@@ -175,6 +184,8 @@ def test_new_parses_appends_sources_json_and_shared_id_allocation(vault, capsys)
     (["--source", "words\nmore"], "single-line"),
     (["--source", "words", "--next", "line\nbreak"], "single-line"),
     (["--source", "words", "--verified", "no"], "unsupported new task field"),
+    (["--source", "words", "--next", "word " * 170], "Say it shorter"),
+    (["--source", "words", "--state", "yours", "--due", "March"], "due must be YYYY-MM-DD"),
 ])
 def test_new_invalid_does_not_write(vault, capsys, args, message):
     before = snapshot(vault)
@@ -249,7 +260,6 @@ def test_set_reviewed_appends_a_dated_line_each_time(vault, capsys):
 
 
 def test_resume_rests_a_task_until_its_time_and_report_changes_only_the_report(vault, capsys, monkeypatch):
-    from datetime import datetime
     config = Config.load(vault)
     tasks.hand_off(config, "T-001", TODAY, "Home")
     tasks.set_fields(config, "T-001", TODAY, values={"delivers": "notes in Home"})
@@ -264,15 +274,6 @@ def test_resume_rests_a_task_until_its_time_and_report_changes_only_the_report(v
     cli(vault, capsys, "T-001", "set", "--report", "demiurge:jn7thread")
     task, = entry(config)
     assert task.handoff == (TODAY.isoformat(), "demiurge:jn7thread") and task.task_state == "in_progress"
-
-
-def test_resume_computer_round_trips_through_task_cli(location, vault, capsys):
-    config, _ = location
-    assert cli(vault, capsys, "T-001", "set", "--resume", "computer") == "T-001 updated: resume"
-    assert entry(config)[0].resume == "computer"
-    assert "- **Resume:** computer" in entry(config)[0].body
-    cli(vault, capsys, "T-001", "set", "--clear", "resume")
-    assert entry(config)[0].resume is None
 
 
 @pytest.mark.parametrize("resume", ["tomorrow", "Computer", "network", "computer online", "", "2026-99-99 29:90",
@@ -305,12 +306,11 @@ def test_new_task_goes_before_standing_state(vault, capsys):
     assert text.index("Fresh work") < text.index("## Standing coordination state")
 
 
-def test_writes_are_atomic_and_validate_reports_nul_bytes(vault):
+def test_validate_reports_nul_bytes(vault):
     from brain import validate
     from brain.vault import Vault
     path = vault / "Atomic.md"
     fm.write(path, {"kind": "hub", "tier": "warm"}, "# Atomic\n")
-    assert not list(vault.glob(".Atomic.md.*.tmp"))
     path.write_bytes(path.read_bytes() + b"\x00\x00")
     assert any("Atomic.md: contains 2 NUL bytes" in p for p in validate.checks(Vault(vault)))
 
@@ -319,9 +319,12 @@ def test_brain_commit_stages_scoped_paths_under_the_repo_lock(vault, capsys, mon
     import subprocess
     repo = Config.load(vault).repo
     git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout
-    if not (repo / ".git").exists():
-        git("init", "-q"); git("config", "user.email", "t@e.x"); git("config", "user.name", "t")
-        git("add", "-A"); git("commit", "-qm", "base")
+    git("init", "-q"); git("config", "user.email", "t@e.x"); git("config", "user.name", "t")
+    assert not (repo / ".context.md").exists()
+    (vault / "Seed.md").write_text("seed\n")
+    brain_cli.main(["commit", "-m", "seed(first)", "--vault", str(vault)])
+    assert capsys.readouterr().out.startswith("committed ")
+    assert "Seed.md" in git("show", "--name-only", "--format=%s", "HEAD")
     held = []
     real = brain_cli.repo_lock
     def watching(config):
@@ -338,12 +341,6 @@ def test_brain_commit_stages_scoped_paths_under_the_repo_lock(vault, capsys, mon
     assert "Staged.md" in git("diff", "--cached", "--name-only")
     brain_cli.main(["commit", "-m", "nothing", str(vault / "One.md"), "--vault", str(vault)])
     assert capsys.readouterr().out.strip() == "nothing to commit"
-
-
-def test_a_note_mentioning_t999_does_not_use_up_task_ids(vault, capsys):
-    (vault / "Eval notes.md").write_text("# Eval notes\n\nThe case seeds T-999 and T-998 as fixtures.\n")
-    out = cli(vault, capsys, "new", "Help Hope explore job opportunities", "--source", "asked today")
-    assert out.startswith("T-") and "T-1000" not in out and "T-999" not in out
 
 
 def test_completed_lists_the_weeks_finished_tasks_newest_first(vault, capsys):
@@ -364,13 +361,25 @@ def test_completed_lists_the_weeks_finished_tasks_newest_first(vault, capsys):
     assert completed("--days", "60").count("· completed") == 2
 
 
-def test_brain_commit_works_before_the_vault_has_a_compiled_context(vault, capsys):
-    import subprocess
-    repo = Config.load(vault).repo
-    git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout
-    git("init", "-q"); git("config", "user.email", "t@e.x"); git("config", "user.name", "t")
-    assert not (repo / ".context.md").exists()
-    (vault / "One.md").write_text("one\n")
-    brain_cli.main(["commit", "-m", "seed(first)", "--vault", str(vault)])
-    assert capsys.readouterr().out.startswith("committed ")
-    assert "One.md" in git("show", "--name-only", "--format=%s", "HEAD")
+
+def words(n):
+    return " ".join(f"w{i}" for i in range(n))
+
+
+def test_a_write_that_grows_the_entry_past_the_limit_is_refused_with_how_to_fix_it(vault, capsys):
+    cli(vault, capsys, "T-001", "set", "--next", words(40))
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "T-001", "set", "--status", words(90), "--verified", words(60))
+    assert "Say it shorter" in capsys.readouterr().err
+    assert "w89" not in entry(Config.load(vault))[0].body
+
+
+def test_an_entry_already_too_long_takes_writes_that_shrink_it_and_its_dated_reviews(vault, capsys):
+    config = Config.load(vault)
+    task = entry(config)[0]
+    task.body += f"- **Status:** {words(200)}\n"
+    tasks.save_task(config, task, TODAY)
+    cli(vault, capsys, "T-001", "set", "--status", "Two chapters left.")
+    cli(vault, capsys, "T-001", "set", "--next", words(30))
+    tasks.set_fields(config, "T-001", TODAY, reviewed="kept: still due Friday")
+    assert "Two chapters left." in entry(config)[0].body

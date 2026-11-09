@@ -2,11 +2,10 @@
 import json
 from dataclasses import replace
 from datetime import date, timedelta
-from pathlib import Path
 
 import pytest
 
-from brain import cli, compile_context, fm, goals, ideas, state, tasks, validate, works
+from brain import cli, compile_context, fm, goals, ideas, state, tasks, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -80,6 +79,16 @@ def test_every_owner_command_uses_the_contract_argv(vault, capsys):
     assert "G-2" in run(vault, capsys, "goals", "new", "Read widely", "--words", "Read widely")
     run(vault, capsys, "goals", "G-2", "edit", "--by", "2027-06-01", "--from-app")
     assert next(goal for goal in goals.load(cfg) if goal.gid == "G-2").state["kind"] == "reach"
+    titles = ["G-1", "list", 'Run 5k: sub-20 "fast" (2026-01-01)', "Lire plus — été ☀️ 日本語", "x" * 80, "edit", 'He said "go" (unknown)']
+    for title in titles:
+        run(vault, capsys, "goals", "new", title, "--words", 'words "q" (2026-01-01)', "--from-app")
+    run(vault, capsys, "goals", "G-3", "edit", "--title", "G-9", "--words", 'new "w"', "--from-app")
+    run(vault, capsys, "goals", "G-4", "reached", "--why", "G-1: done; ok", "--from-app")
+    entries = {goal.gid: goal for goal in goals.load(cfg)}
+    assert entries["G-3"].title == "G-9" and entries["G-3"].words == 'new "w"'
+    assert entries["G-4"].state["state"] == "reached"
+    assert [entries[f"G-{n}"].title for n in range(5, 10)] == titles[2:]
+    assert entries["G-5"].words == 'words "q" (2026-01-01)'
     assert not goals.problems(cfg)
 
 
@@ -88,7 +97,7 @@ def test_every_owner_command_uses_the_contract_argv(vault, capsys):
     ("new", "Race", "--words", "Race", "--reach", "--by", "2027-02-30"),
     ("new", "A\nB", "--words", "Race"), ("new", "x"*81, "--words", "Race"),
     ("new", "Race", "--words", "x"*501), ("new", "Race"),
-    ("show", "G-99"), ("G-99", "edit", "--title", "Nothing"), ("migrate",),
+    ("show", "G-99"), ("G-99", "edit", "--title", "Nothing"),
 ])
 def test_bad_commands_refuse_without_writing(vault, capsys, args):
     before = snapshot(vault)
@@ -139,15 +148,16 @@ def test_links_refuse_unknown_reached_and_set_aside(vault, capsys, tmp_path, mon
         assert "unknown or not active" in str(error.value) or "unknown or not active" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("mode", ["routine", "worker", "task", "cron", "subagent"])
-@pytest.mark.parametrize("kind", ["task", "idea"])
+@pytest.mark.parametrize("mode,kind", [("routine", "task"), ("worker", "task"), ("task", "task"), ("cron", "task"),
+                                       ("subagent", "task"), ("routine", "idea")])
 def test_routines_need_a_goal_or_the_owner_quoted(vault, capsys, tmp_path, monkeypatch, mode, kind):
     cfg = Config.load(vault)
     goals.new(cfg, "Reading", "Read widely")
     note(vault, "Reading.md", "# Reading", kind="hub")
     if mode in ("routine", "worker"):
         monkeypatch.setenv("BRAIN_RUN", mode)
-        monkeypatch.setenv("AGENT_HOME", str(tmp_path))
+        if mode == "worker":   # the run marker alone guards, with or without AGENT_HOME
+            monkeypatch.setenv("AGENT_HOME", str(tmp_path))
         monkeypatch.setenv("DEMIURGE_CONVERSATION", "thread")  # explicit markers take precedence
     elif mode == "task":
         monkeypatch.setenv("DEMIURGE_TASK", "T-999")  # not a task: a worker's follow-ups pass only through the task it runs
@@ -181,13 +191,8 @@ def test_no_active_goals_and_conversation_unaffected(vault, capsys, tmp_path, mo
     assert "added idea" in run(vault, capsys, "ideas", "--add", "Requested idea", "--source", "Conversation")
 
 
-def test_no_source_refusal_teaches_and_organisation_duties_need_no_personal_goal(vault, capsys, tmp_path, monkeypatch):
-    monkeypatch.setenv("AGENT_HOME", str(tmp_path))
+def test_organisation_duties_need_no_personal_goal(vault, monkeypatch):
     monkeypatch.setenv("BRAIN_RUN", "routine")
-    for args in (("task", "new", "Unasked"), ("ideas", "--add", "Unasked")):
-        with pytest.raises(SystemExit) as error:
-            run(vault, capsys, *args)
-        assert "has no active goals" in str(error.value) + capsys.readouterr().err
     cfg = replace(Config.load(vault), edition="enterprise")
     assert tasks.new_task(cfg, "Assigned work", "Organisation duty").goal is None
 
@@ -260,7 +265,6 @@ def test_app_changes_reach_context_once_not_consumed_by_nightly_or_export(vault,
 def test_said_goal_nudge_operations(vault, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_SPEAKER", "cli:owner")
     cfg = Config.load(vault)
-    assert "never ask whether" in goals.context(cfg)
     monkeypatch.setenv("BRAIN_TODAY", "2026-08-01")
     goals.new(cfg, "Reading", "Read widely")
     monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
@@ -270,54 +274,6 @@ def test_said_goal_nudge_operations(vault, capsys, monkeypatch):
         run(vault, capsys, "goals", "G-1", "nudge")
     goals.change(cfg, "G-1", "evidence", text="Still a goal")
     assert "nudged" not in goals.load(cfg)[0].state
-
-
-@pytest.mark.parametrize("fixture", ["seeded-template.md", "none.md"])
-def test_migrate_empty_active_goals_writes_nothing(vault, capsys, monkeypatch, fixture):
-    cfg = Config.load(vault)
-    path = vault / cfg.human_goals
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes((Path(__file__).parent / "fixtures/goals" / fixture).read_bytes())
-    before = snapshot(vault)
-    def refuse_lock(*args):
-        pytest.fail("a dry run must not acquire a write lock")
-    with monkeypatch.context() as preview:
-        preview.setattr(cli, "vault_lock", refuse_lock)
-        assert run(vault, capsys, "goals", "migrate", "--dry-run") == "no legacy content in Active goals; nothing to migrate\n"
-    assert run(vault, capsys, "goals", "migrate", "--apply") == "no legacy content in Active goals; nothing to migrate\n"
-    assert not goals.load(cfg) and snapshot(vault) == before
-
-
-@pytest.mark.parametrize("fixture", ["roshan.md", "rohan.md"])
-@pytest.mark.parametrize("newline", ["\n", "\r\n"])
-def test_migrate_archives_original_clears_only_active_goals_and_is_idempotent(vault, capsys, fixture, newline):
-    cfg = Config.load(vault)
-    path = vault / cfg.human_goals
-    path.parent.mkdir(parents=True, exist_ok=True)
-    original = (Path(__file__).parent / "fixtures/goals" / fixture).read_text()
-    original = "---\nkind: orientation\ntier: hot\npinned: true\n---\n" + original
-    original = original.replace("\n", newline).encode()
-    path.write_bytes(original)
-    before = snapshot(vault)
-    archive_rel = cfg.agent("Goals Archive/Migration.md")
-    report = f"legacy content in Active goals; would archive to {archive_rel}\n"
-    assert run(vault, capsys, "goals", "migrate", "--dry-run") == report
-    assert run(vault, capsys, "goals", "migrate", "--dry-run") == report
-    assert snapshot(vault) == before
-    assert run(vault, capsys, "goals", "migrate", "--apply") == f"archived original to {archive_rel}; Active goals cleared\n"
-    archive = vault / archive_rel
-    prefix = fm.join({"kind": "log", "tier": "cold"}, "").encode()
-    assert archive.read_bytes() == prefix + original
-    assert Vault(vault).kind_for(archive_rel) == "log"
-    head, rest = original.split(b"## Active goals" + newline.encode(), 1)
-    _, tail = rest.split(b"## Adopted practices", 1)
-    assert path.read_bytes() == head + b"## Active goals" + newline.encode() + goals.ACTIVE_DESCRIPTION.encode() + newline.encode() * 2 + b"## Adopted practices" + tail
-    assert not goals.load(cfg) and not goals.problems(cfg)
-    assert snapshot(vault).keys() == before.keys() | {archive_rel}
-    assert all(snapshot(vault)[rel] == digest for rel, digest in before.items() if rel != cfg.human_goals)
-    after = snapshot(vault)
-    assert run(vault, capsys, "goals", "migrate", "--apply") == "no legacy content in Active goals; nothing to migrate\n"
-    assert snapshot(vault) == after
 
 
 def test_hub_link_keeps_each_proposals_own_goal(vault):
@@ -346,6 +302,11 @@ def test_a_workers_follow_up_inherits_the_task_it_works_on(vault, capsys, monkey
     monkeypatch.setenv("DEMIURGE_TASK", "T-999")
     with pytest.raises(SystemExit):
         run(vault, capsys, "task", "new", "Unrelated", "--source", "Some note")
+    monkeypatch.setenv("DEMIURGE_TASK", created("Reading list").tid)
+    goals.change(cfg, "G-1", "reached", why="Done for now")
+    assert tasks.new_task(cfg, "Order more books", "Reading list").goal is None
+    (vault / cfg.human_goals).unlink()
+    assert tasks.new_task(cfg, "Shelve the books", "Reading list").goal is None
 
 
 def test_words_keep_the_day_they_were_said(vault, capsys):

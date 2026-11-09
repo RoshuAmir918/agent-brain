@@ -2,7 +2,6 @@
 routines and skill sections its edition is for. A personal vault renders exactly as before."""
 from datetime import date
 
-import pytest
 
 from brain import cli, health, install, schedule, validate
 from brain.config import Config, SECTIONS
@@ -18,13 +17,6 @@ def enterprise(vault, extra=""):
 def skill(config, name):
     path = config.skills_path / (config.skill_prefix + name) / "SKILL.md"
     return path.read_text() if path.exists() else None
-
-
-def test_an_unknown_edition_is_refused_and_personal_is_the_default(vault):
-    assert Config.load(vault).edition == "personal"
-    (vault.parent / "brain.toml").write_text(f'[brain]\nvault = "{vault.name}"\nedition = "team"\n')
-    with pytest.raises(ValueError, match="brain.edition must be one of personal, enterprise"):
-        Config.load(vault)
 
 
 def test_enterprise_installs_the_work_without_the_owners_day_and_removes_what_it_had(vault):

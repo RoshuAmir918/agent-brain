@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from brain import cli, consults, evidence, routing, seed
+from brain import cli, consults, evidence, routing
 from brain.evidence import Evidence
 from test_consults import KIM, NOAH, TODAY, ask, enterprise  # noqa: F401
 
@@ -48,11 +48,8 @@ def test_append_dedupes_by_month_and_read_filters_newest_first(home):
     assert [entry.verb for entry in evidence.read()] == ["said", "shared", "went"]
     assert [entry.source for entry in evidence.read(hint="play")] == ["imessage"]
     assert [entry.verb for entry in evidence.read(source="mail", since=date(2026, 10, 15))] == ["said"]
-
-
-def test_same_day_rows_read_newest_first(home):
     evidence.append("consults", [row(fact="first"), row(fact="second")])
-    assert [entry.fact for entry in evidence.read()] == ["second", "first"]
+    assert [entry.fact for entry in evidence.read(source="consults")] == ["second", "first"]   # same day: newest first
 
 
 def test_without_a_workspace_nothing_is_written(tmp_path):
@@ -65,12 +62,17 @@ def test_source_names_are_checked(home):
         evidence.append("../mail", [row()])
 
 
-def test_cli_reads_json(home, vault, capsys):
+def test_cli_reads_and_recalls_json(home, vault, capsys):
     evidence.append("mail", [row(id="1")])
     cli.main(["evidence", "--vault", str(vault), "--hint", "food", "--json"])
     assert json.loads(capsys.readouterr().out) == [dict(date="2026-10-14", verb="went", fact="Dinner at a bistro", whose="own",
                                                         hints=["places", "food"], pointer="mail:3f9a", extra={"id": "1"},
                                                         source="mail")]
+    evidence.append("consults", [Evidence(date(2026, 10, 30), "changed", "#410 writes to analytics_events",
+                                          f"other:{KIM}", ("data",), "github:pr/410", {"id": "x1"})])
+    cli.main(["evidence", "--vault", str(vault), "--about", "analytics_events", "--json"])
+    [found] = json.loads(capsys.readouterr().out)
+    assert found["pointer"] == "github:pr/410" and "analytics_events" in found["shared"] and found["outcomes"] == ["changed"]
 
 
 def test_consult_events_become_evidence(home, enterprise):
@@ -116,14 +118,6 @@ def test_recall_shows_a_consult_once_with_how_it_ended(home, enterprise):
     consults.answer(enterprise, entry.id, "confirmed", "Backfill it.", KIM)
     [found] = evidence.recall("backfill analytics_events", evidence.read(), TODAY)
     assert found.outcomes == ("asked", "redirected", "confirmed") and found.row.extra["id"] == entry.id
-
-
-def test_cli_recall_json(home, vault, capsys):
-    evidence.append("consults", [Evidence(date(2026, 10, 30), "changed", "#410 writes to analytics_events",
-                                          f"other:{KIM}", ("data",), "github:pr/410", {"id": "x1"})])
-    cli.main(["evidence", "--vault", str(vault), "--about", "analytics_events", "--json"])
-    [found] = json.loads(capsys.readouterr().out)
-    assert found["pointer"] == "github:pr/410" and "analytics_events" in found["shared"] and found["outcomes"] == ["changed"]
 
 
 def test_an_answer_keeps_its_words_and_a_colleague_outside_owners_keeps_their_name(home, enterprise):
