@@ -81,7 +81,7 @@ def test_nightly_library_ask_eligibility_and_exact_text(vault, library_home, row
         assert not any("Library ask:" in line for line in report)
 
 
-@pytest.mark.parametrize("ending", ["lapse", "resolve", "dismiss"])
+@pytest.mark.parametrize("ending", ["evening", "resolve", "dismiss"])
 def test_library_ask_never_repeats_after_leaving_current(vault, library_home, ending):
     write_library(library_home, draft_row())
     config = Config.load(vault)
@@ -100,6 +100,8 @@ def test_library_ask_never_repeats_after_leaving_current(vault, library_home, en
         nightly.run(vault, DAY + timedelta(days=4))
         assert len(needs.items(config, DAY)) == 1
         nightly.run(vault, DAY + timedelta(days=5))
+        assert len(needs.items(config, DAY)) == 1
+        needs.resolve(config, needs.items(config, DAY)[0].id, "Evening decided to put it away", DAY + timedelta(days=5))
     assert needs.items(config, DAY) == []
     # A title change still names the same work; the durable record is keyed on slug.
     write_library(library_home, draft_row(title="Renamed trip plan"))

@@ -378,7 +378,8 @@ def test_backfill_skill_steps_render_only_for_personal_edition(vault, edition):
     assert ('unreadBackfill' in people) == (edition == 'personal')
     if edition == 'personal':
         assert f'load `{config.skill_prefix}seed` and run it scoped to that account' in people
-        assert people.index('unreadBackfill') < people.index("Read yesterday's digest")
+        assert people.index('unreadBackfill') < people.index("Read the People profiles and histories Sleep 1 wrote")
+        assert 'no open seed task' in people and 'brain state --json' in people
 
 
 def test_hand_off_opens_one_seed_task_per_account_and_state_reports_it(vault, capsys, monkeypatch):

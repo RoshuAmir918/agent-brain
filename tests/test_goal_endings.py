@@ -273,7 +273,7 @@ def test_intellect_endings_stop_after_three_goals_today_but_person_can_end(
     assert goals.change(cfg, "G-4", operation, text="G-5", why="Finished", from_app=from_app).state["state"] != "active"
 
 
-def test_decay_bypasses_ending_limit_but_its_set_asides_count(vault, monkeypatch):
+def test_stale_flags_do_not_spend_the_peoples_ending_allowance(vault, monkeypatch):
     cfg = Config.load(vault)
     for n in range(4):
         old = str(TODAY - timedelta(days=40 + n))
@@ -284,10 +284,11 @@ def test_decay_bypasses_ending_limit_but_its_set_asides_count(vault, monkeypatch
     goals.new(cfg, "Swim", "Learn to swim")
     monkeypatch.setenv("BRAIN_SPEAKER", "cron:night")
     assert goals.decay(cfg, TODAY) == ["G-1", "G-2", "G-3", "G-4"]
+    assert all(goal.state["state"] == "active" for goal in goals.load(cfg))
+    for gid in ("G-1", "G-2", "G-5"):
+        assert goals.change(cfg, gid, "set-aside", why="Judged stale").state["state"] == "set_aside"
     with pytest.raises(ValueError, match="three goals.*today"):
-        goals.change(cfg, "G-5", "set-aside", why="Stale")
-    monkeypatch.setenv("BRAIN_TODAY", str(TODAY + timedelta(days=1)))
-    assert goals.change(cfg, "G-5", "set-aside", why="Stale").state["state"] == "set_aside"
+        goals.change(cfg, "G-3", "set-aside", why="Stale")
 
 
 @pytest.mark.parametrize("linked_by", ["task", "hub"])

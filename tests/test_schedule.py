@@ -399,7 +399,8 @@ def test_failed_atomic_replace_preserves_file_and_removes_temporary(config, monk
     assert set(schedule.path(config).parent.iterdir()) == files_before
 
 
-def test_cli_holds_vault_lock_across_read_edit_and_write(config, monkeypatch):
+@pytest.mark.parametrize("args", [("set", "watch", "--every", "2h"), ("init", "--reset-night")])
+def test_cli_holds_vault_lock_across_read_edit_and_write(config, monkeypatch, args):
     from contextlib import contextmanager
 
     held = False
@@ -427,8 +428,12 @@ def test_cli_holds_vault_lock_across_read_edit_and_write(config, monkeypatch):
     monkeypatch.setattr(brain_cli, "vault_lock", lock)
     monkeypatch.setattr(schedule, "load", load)
     monkeypatch.setattr(schedule, "save", save)
-    cli(config, "set", "watch", "--every", "2h")
-    assert not held and original_load(config)["watch"].every == "2h"
+    cli(config, *args)
+    assert not held
+    if args[0] == "set":
+        assert original_load(config)["watch"].every == "2h"
+    else:
+        assert original_load(config)["night-after"].after == "image"
 
 
 def test_import_omits_vault_workdir_through_symlink(config, tmp_path):

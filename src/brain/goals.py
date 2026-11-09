@@ -179,7 +179,7 @@ def problems(config: Config) -> list[str]:
                 day(goal.said_at)
             if goal.state.get("by"):
                 day(goal.state["by"])
-            for key in ("missed_asked", "updated", "owner_updated"):
+            for key in ("missed_asked", "updated", "owner_updated", "stale"):
                 if goal.state.get(key):
                     day(goal.state[key])
             if goal.state.get("inferred"):
@@ -201,11 +201,19 @@ def active(config: Config) -> list[Goal]:
 
 
 def due(config: Config) -> list[Goal]:
+    return [goal for goal in active(config) if due_reasons(config, goal)]
+
+
+def due_reasons(config: Config, goal: Goal) -> list[str]:
     today = config.today()
-    return [goal for goal in active(config)
-            if goal.state.get("kind") == "reach" and goal.state.get("by", today.isoformat()) < today.isoformat()
+    reasons = []
+    if goal.state.get("stale"):
+        reasons.append(f"No grounded evidence for 30 days; flagged stale {goal.state['stale']}")
+    if (goal.state.get("kind") == "reach" and goal.state.get("by", today.isoformat()) < today.isoformat()
             and (not goal.state.get("missed_asked")
-                 or (today - date.fromisoformat(goal.state["missed_asked"])).days >= 14)]
+                 or (today - date.fromisoformat(goal.state["missed_asked"])).days >= 14)):
+        reasons.append(f"Past finish date {goal.state['by']}")
+    return reasons
 
 
 def require_active(config: Config, gid: str) -> str:
@@ -313,7 +321,7 @@ def context(config: Config, *, app_changes: bool = True) -> str:
         for correction in corrections.get(goal.gid, {}).values():
             lines.append(f"  Not this ({correction['kind']}): {correction['text']} — {correction['why'] or 'Do not repeat this kind of work'}")
     if not lines:
-        lines.append("No active goals. Infer from repeated, dated evidence before preparing unasked work; never ask whether something is a goal.")
+        lines.append("No active goals. The next people pass may infer from repeated, dated evidence; make nothing unasked until then, and never ask whether something is a goal.")
     for entry in capture(config)["refused"]:
         lines.append(f"Refused goal; never re-propose: {entry['title']} — {entry['words']}")
     if app_changes and (notice := notices(config)):
@@ -577,12 +585,16 @@ def _add_evidence(config: Config, goal: Goal, text: str) -> None:
     goal.body = "\n".join(value for value in goal.body.splitlines() if value.strip() and not EVIDENCE.fullmatch(value))
     goal.body += "\n" + "\n".join(lines[:10]) + "\n"
     goal.state.pop("nudged", None)
+    match = EVIDENCE.fullmatch(text)
+    if (goal.state.get("stale") and (config.today() - date.fromisoformat(match[1])).days < 30
+            and _grounded(config, match[1], match[2])):
+        goal.state.pop("stale", None)
 
 
 def change(config: Config, gid: str, operation: str, *, text: str | None = None, title: str | None = None,
            words: str | None = None, by: str | None = None, clear_by: bool = False, kind: str | None = None,
            why: str | None = None, said: str | None = None, evidence: list[str] | None = None,
-           from_app: bool = False, from_decay: bool = False) -> Goal | Task:
+           from_app: bool = False) -> Goal | Task:
     if operation in ("keep", "not-a-goal", "to-task"):
         _require_owner(config, from_app)
     if errors := problems(config):
@@ -594,7 +606,7 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
     today = config.today().isoformat()
     if operation == "superseded-by" and goal.state["state"] != "active":
         raise ValueError("only an active goal can be superseded; reopen it first")
-    if operation in ("reached", "superseded-by", "set-aside") and not _owner(config, from_app) and not from_decay:
+    if operation in ("reached", "superseded-by", "set-aside") and not _owner(config, from_app):
         updated = goal.state.get("owner_updated")
         if updated and (config.today() - date.fromisoformat(updated)).days < 14:
             raise ValueError("the person reopened or edited this goal within 14 days; leave it active")
@@ -603,6 +615,7 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
             raise ValueError("three goals already have an ending dated today; leave further endings for another night")
     if operation in ("edit", "reopen") and _owner(config, from_app):
         goal.state["origin"] = "said"
+        goal.state.pop("stale", None)
         goal.state["owner_updated"] = today
     if operation == "edit":
         if title is not None:
@@ -630,6 +643,7 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
         _add_evidence(config, goal, _evidence(config, text or "", inferred=goal.origin == "inferred"))
     elif operation == "keep":
         goal.state["origin"] = "said"
+        goal.state.pop("stale", None)
         goal.state["updated"] = today
         goal.state["owner_updated"] = today
         goal.state.pop("nudged", None)
@@ -671,6 +685,7 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
             _add_evidence(config, target, match[0])
         _relink(config, gid, target.gid)
         goal.state["state"] = "superseded"
+        goal.state.pop("stale", None)
         goal.state["superseded_by"] = target.gid
         goal.state.pop("nudged", None)
         goal.body += f"- **Became:** [[{config.link(config.human_goals)}#{target.gid} — {target.title}]] {target.gid} — {target.title}\n"
@@ -689,6 +704,8 @@ def change(config: Config, gid: str, operation: str, *, text: str | None = None,
             goal.state["updated"] = today
         goal.state.pop("superseded_by", None)
         goal.state["state"] = {"reached": "reached", "set-aside": "set_aside", "reopen": "active"}[operation]
+        if operation != "reopen":
+            goal.state.pop("stale", None)
         goal.state.pop("nudged", None)
         goal.body += f"- **{operation.title()}:** {today} — {why}\n"
     else:
@@ -798,12 +815,12 @@ def _detach_tasks(config: Config, goal: Goal) -> None:
 
 
 def decay(config: Config, today: date, report: list[str] | None = None, *, vault: Vault | None = None) -> list[str]:
-    """Nightly expiry depends on evidence, never on edits or a nudge."""
-    expired = []
+    """Flag inferred goals for people to judge; only grounded evidence renews them."""
+    changed = []
     report = report if report is not None else []
     if errors := problems(config):
         report.append("goal: decay skipped: " + "; ".join(errors))
-        return expired
+        return changed
     vault = vault or Vault(config.vault_path)
     for goal in active(config):
         if goal.origin != "inferred":
@@ -812,12 +829,21 @@ def decay(config: Config, today: date, report: list[str] | None = None, *, vault
             latest = max((ev["at"] for ev in goal.evidence if _grounded(
                 config, ev["at"], ev["text"] + (f" [[{ev['link']}]]" if ev["link"] else ""), vault)),
                 default=goal.said_at or today.isoformat())
-            if (today - date.fromisoformat(latest)).days >= 30:
-                change(config, goal.gid, "set-aside", why="No new evidence for 30 days", from_decay=True)
-                expired.append(goal.gid)
+            stale = (today - date.fromisoformat(latest)).days >= 30
+            if stale != bool(goal.state.get("stale")):
+                if stale:
+                    goal.state["stale"] = today.isoformat()
+                else:
+                    goal.state.pop("stale", None)
+                _write(config, *read(config), goal)
+                changed.append(goal.gid)
+                if not stale:
+                    report.append(f"goal: {goal.gid} stale mark cleared by grounded evidence")
+            if stale:
+                report.append(f"goal: {goal.gid} stale: no grounded evidence for 30 days; people to judge")
         except Exception as error:
             report.append(f"goal: {goal.gid} decay skipped: {error}")
-    return expired
+    return changed
 
 
 def link_note(config: Config, gid: str, note: str) -> None:

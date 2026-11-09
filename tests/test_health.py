@@ -36,7 +36,8 @@ def test_report_reads_stages_engine_export_and_counts(tmp_path):
     assert data["stages"]["sleep1"] == {"last": "2026-10-05", "state": "ok"}
     assert data["stages"]["prime"] == {"last": "2026-10-06", "state": "ok"}
     assert data["stages"]["attribution"]["state"] == "ok"
-    assert data["stages"]["sleep2"] == {"last": None, "state": "never"}
+    assert "sleep2" not in data["stages"]
+    assert data["stages"]["image"] == {"last": None, "state": "never"}
     assert data["engine"]["recorded"] == "0.1.0" and data["engine"]["pending_migration_since"] == "uncommitted"
     assert data["export"]["digest"] == "2026-10-05" and data["export"]["coverage"].startswith("2 sessions included")
     assert data["vault"]["open_tasks"] == 1 and data["vault"]["notes"]["warm"] == 1

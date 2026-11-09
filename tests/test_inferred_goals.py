@@ -200,8 +200,9 @@ def test_inferred_decay_at_thirty_days_uses_evidence_not_edits_or_said_date(vaul
     goals.new(cfg, "Said goal", "Still a goal", said="2026-01-01", from_app=True)
     assert goals.decay(cfg, TODAY) == ["G-2"]
     assert goals.decay(cfg, TODAY) == []
-    assert [goal.gid for goal in goals.active(cfg)] == ["G-1", "G-3", "G-4"]
-    assert "No new evidence for 30 days" in goals.load(cfg)[-1].body
+    assert [goal.gid for goal in goals.active(cfg)] == ["G-1", "G-2", "G-3", "G-4"]
+    assert goals.load(cfg)[1].state["stale"] == str(TODAY)
+    assert "Set-Aside" not in goals.load(cfg)[1].body
     assert not goals.problems(cfg)
 
 
@@ -210,11 +211,12 @@ def test_nightly_runs_decay_and_preview_stays_read_only(vault, tmp_path):
     fm.write(vault / "Reading.md", {"kind": "hub", "tier": "warm"}, "# Reading\n")
     infer(cfg, at=TODAY - timedelta(days=30))
     before = snapshot(vault)
-    assert any("G-1 set aside" in line for line in nightly.preview(vault, TODAY))
+    assert any("G-1 stale" in line for line in nightly.preview(vault, TODAY))
     assert snapshot(vault) == before
     report = nightly.run(vault, TODAY, library_records=tmp_path / "library.json")
-    assert "goal: G-1 set aside after 30 days without evidence" in report
-    assert goals.load(cfg)[0].state["state"] == "set_aside"
+    assert "goal: G-1 stale: no grounded evidence for 30 days; people to judge" in report
+    assert goals.load(cfg)[0].state["state"] == "active"
+    assert goals.load(cfg)[0].state["stale"] == str(TODAY)
 
 
 @pytest.mark.parametrize("operation", ["new", "keep", "not-a-goal", "to-task"])
@@ -381,15 +383,15 @@ def test_nightly_catches_decay_failure_per_goal_and_continues(vault, tmp_path, m
     cfg = Config.load(vault)
     for n in range(2):
         infer(cfg, f"Aim {n}", f"Words {n}", TODAY - timedelta(days=40))
-    change = goals.change
-    def fail_one(config, gid, operation, **kwargs):
-        if gid == "G-1":
+    write = goals._write
+    def fail_one(config, data, body, goal, **kwargs):
+        if goal.gid == "G-1":
             raise OSError("write failed")
-        return change(config, gid, operation, **kwargs)
-    monkeypatch.setattr(goals, "change", fail_one)
+        return write(config, data, body, goal, **kwargs)
+    monkeypatch.setattr(goals, "_write", fail_one)
     report = nightly.run(vault, TODAY, library_records=tmp_path / "library.json")
     assert "goal: G-1 decay skipped: write failed" in report
-    assert "goal: G-2 set aside after 30 days without evidence" in report
+    assert "goal: G-2 stale: no grounded evidence for 30 days; people to judge" in report
     assert goals.load(cfg)[0].state["state"] == "active"
 
 

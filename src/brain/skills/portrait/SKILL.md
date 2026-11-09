@@ -1,7 +1,7 @@
 ---
 name: {prefix}portrait
 description: The rules of the portrait and its facets, for every pass that writes them
-version: 1.5.0
+version: 1.6.0
 metadata:
   runtime:
     tags: [memory, portrait]
@@ -9,7 +9,7 @@ metadata:
 ---
 # The portrait
 
-The rules every pass that writes the portrait follows: the People review, Sleep 2 and the seed. What each pass reads and when is in its own skill; what a line is, where it lives and how evidence becomes one is here, once.
+The rules every pass that writes the portrait follows: the image pass and the seed. What each pass reads and when is in its own skill; what a line is, where it lives and how evidence becomes one is here, once.
 
 ## The picture
 The portrait is a picture of {human_name}, not a log of what they did. It is built in two layers. The **sketch** is prose: who they are, what drives them, how the parts of their life fit together and pull against each other, what you are unsure of, written the way a close friend would describe them to someone who will meet them. The **lines** are the claims the sketch rests on, each one they can mark right or wrong. Write the sketch first in your head; the lines are what you would have to be right about for it to be true.

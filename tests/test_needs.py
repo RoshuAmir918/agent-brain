@@ -433,16 +433,16 @@ def test_cli_ask_rejects_conflicting_arguments(vault, argv):
 
 
 
-def test_an_ask_unanswered_for_five_days_is_retired_and_reported_but_a_tasks_ask_waits(vault, capsys):
+def test_unanswered_asks_stay_for_evening_and_are_not_retired_by_nightly(vault, capsys):
     write_current(vault, "- 2026-10-23 · ask · Five days old.\n"
                   "- 2026-10-24 · ask · Four days old.\n"
                   "- 2026-09-30 · ask · The task's own question. · [[agent/Tasks#T-004]]\n")
     cli.main(nightly_argv(vault, TODAY, "--write"))
     output = capsys.readouterr().out
     body = fm.read(vault / "CURRENT.md")[1]
-    line = "needs-you: ask unanswered 5 days, retired: Five days old."
-    assert line in output and line in (vault / "agent/Sleep Log/2026-10.md").read_text()
-    assert "Five days old." not in body and "Four days old." in body and "The task's own question." in body
+    assert "ask unanswered" not in output
+    assert "ask unanswered" not in (vault / "agent/Sleep Log/2026-10.md").read_text()
+    assert "Five days old." in body and "Four days old." in body and "The task's own question." in body
 
 
 def test_a_sixth_ask_is_added_and_the_lowest_ranked_overflow_goes_to_the_evening(vault, capsys, monkeypatch):

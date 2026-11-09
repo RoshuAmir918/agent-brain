@@ -169,10 +169,10 @@ Signup says it plainly: the intellect reads your mail, your calendar and whateve
 
 ## 8. Skills
 
-- **People**: step 5 maintains the portrait instead of the profile's last two sections. It reads `brain reception summary` and the day's answered items, promotes, demotes and retires lines, and rewrites rather than appends.
+- **Image**: the nightly image pass maintains the portrait. It reads `brain reception summary` and the day's answered items, promotes, demotes and retires lines, and rewrites rather than appends.
 - **Explore**: candidates start from `brain portrait --top 3` and testable guesses; the account names `portrait:<id>`; the form is chosen with reception rates in view.
-- **Prime**: Today's single nudge may come from a top After line.
-- **Sleep 2**: a weekly portrait pass. It re-ranks After, retires stale guesses, checks the caps, and reports **coverage**: which of the top three After lines got no attention that week.
+- **Prime**: lists held drafts only while their goals are active; People owns goal nudges and endings.
+- **Image, weekly**: the first run after Sunday re-ranks every facet. It re-ranks After, retires stale guesses, checks the caps, and reports **coverage**: which of the top three After lines got no attention that week.
 - **Seed**: new, `editions: [personal]`, for the cold-start pass.
 
 ## 9. Releases
@@ -201,7 +201,7 @@ The 0.69.0 migration (`migrations/0.69.0.md`), unattended, in the owner's existi
 
 ## 10. Measuring it
 
-The point is a better agent, not a longer note. Three numbers, from `brain reception summary` and Sleep 2's report, tracked weekly:
+The point is a better agent, not a longer note. Three numbers, from `brain reception summary` and image's report, tracked weekly:
 
 - **Hit rate:** used and liked over offered, by kind. Rising means the portrait is pointing attention at the right things.
 - **Reveal accuracy:** right over marked, on the first portrait and on each later batch.

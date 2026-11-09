@@ -14,7 +14,7 @@ Memory behaves like working memory backed by long-term memory. The directory's m
 4. **Freshness is ACT-R base-level activation.** One scalar per note from its use history, recomputed nightly. Tiers are thresholds on it.
 5. **Retrieval is a deterministic tool plus judgment.** `brain retrieve` scores index lines, spreads one hop over wikilinks and greps cold bodies; the model chooses what to load.
 6. **Writing is surprise-gated.** A fact already predictable from memory gets a use, not a copy.
-7. **Memory work has owners.** Sleep 1 owns consolidation, activation, tiers and the generated views. Sleep 2 owns index-line and link repairs and reflections; the prime routine owns Primed. People review owns profiles. Day routines edit only task state, dated items and triggers; the explore pass may also file surprise-gated facts in the owning hub or profile, with source and date, and hold what it makes under `{agent_dir}/Prepared/`. Improve owns the Improvements section of each responsibility hub and proposes; the owner adopts.
+7. **Memory work has owners.** Sleep 1 owns consolidation and gated index-line and link repairs. The engine night owns activation, tiers and the generated views. People judges goals and people; image judges the portrait; prime owns Primed. Day routines edit only task state, dated items and triggers; the explore pass may also file surprise-gated facts in the owning hub or profile, with source and date, and hold what it makes under `{agent_dir}/Prepared/`. Improve owns the Improvements section of each responsibility hub and proposes; the owner adopts.
 8. **Reflections and triggers are memory types.** Reflections are cited inferences. Triggers are "when X, do Y."
 9. **Open commitments never close by decay; pinned notes never fade.** A quiet task loads smaller; it never stops being owed.
 10. **Archive only what cannot be re-read.** The runtime keeps every session under `$AGENT_HOME/harness/sessions/`, so the nightly export is a backup and rebuild source, not the retrieval path. the owner's channels are perception: read in place, nothing copied.
@@ -45,7 +45,7 @@ activation: -1.2       # computed nightly
 uses: [2026-10-05]     # dates cited, newest first, last 30 kept
 uses_inferred: []      # half weight
 kind: hub              # hub | profile | episode | reflection | task | trigger | log | dream | orientation | primed | draft | conversation | procedure
-index_line: ""         # optional; Sleep 2 sets it when the first line misleads retrieval
+index_line: ""         # optional; Sleep 1 repairs it when the first line misleads retrieval
 ---
 ```
 
@@ -89,18 +89,23 @@ Exponent 1, not ACT-R's 0.5, after simulation showed 0.5 keeps a daily-used note
 
 ## Keeping CURRENT and Tasks recent
 
-CURRENT holds pointers, not evidence: one line per live thread with state, next action, date and owning link. Sleep 1 rebuilds its active-threads block from the register nightly. Open tasks load by activation like any note; triggers, pins and reactivation keep quiet tasks from being forgotten. Silence never completes or cancels a task. Nudges come from context, not age: Sleep 2 primes a quiet task only when spreading activation from recent work reaches it, once per episode of silence, and never when a recorded decision supersedes it.
+CURRENT holds pointers, not evidence: one line per live thread with state, next action, date and owning link. The engine night rebuilds its active-threads block from the register nightly. Open tasks load by activation like any note; triggers, pins and reactivation keep quiet tasks from being forgotten. Silence never completes or cancels a task. Nudges come from context, not age: Prime nudges a quiet task only when spreading activation from recent work reaches it, once per episode of silence, and never when a recorded decision supersedes it.
 
 ## The night
 
-Four cron jobs on the machine that runs the agent, each one commit on `main`. Git is the ledger: `git log --grep` says whether a stage ran, the first missing commit is where a resume continues, `git revert` undoes a stage.
+The night is a chain in `schedule.toml`, starting at 00:30 in the owner's zone. Every later step runs after its predecessor finishes, even when it failed. Each is recorded in git.
 
-| Stage | Time (the owner's timezone) | Job | Commit |
+| Stage | After | Job | Commit |
 | --- | --- | --- | --- |
-| Session export | 00:30 | `brain export-sessions` to `Conversations/Sessions/`, with routine transcripts and JSON shards in records; `brain digest` writes yesterday's turns to `Conversations/Digests/<date>.md`; no judgment | `archive(<date>)` |
-| Attribution | 01:30 | `brain attribute --write` over the export: observed opens and cited sources; Use Log rows only; no judgment | `attribution(<date>)` |
-| Sleep 1 | 02:30 | Read the digest and channels; surprise-gated consolidation into owning notes, new topic notes, triggers and dated items; tidy hubs that grew; run `brain nightly --write`, which recomputes activation and tiers, places tasks, fires triggers, rebuilds CURRENT's threads, the views and `.context.md` | `sleep1(<date>)` |
-| Sleep 2 | 04:00 | Retrieval repairs, weekly reflections, schedule check | `sleep2(<date>)` |
+| Session export | 00:30 | Export transcripts and build yesterday's digest | `archive(<date>)` |
+| Attribution | session-export | Observed opens and cited sources into the Use Log | `attribution(<date>)` |
+| Night before | attribution | Uses, activation, tiers, triggers, task placement, stale goal flags, confirm expiry and source evidence | `night-before(<date>)` |
+| Sleep 1 | night-before | Consolidate yesterday; repair retrieval only for misses or repeat cold citations | `sleep1(<date>)` |
+| People (personal only) | sleep1 | Judge goals and review people | `people(<date>)` |
+| Image | people, or sleep1 for an organisation | Judge the portrait and its weekly re-rank | `image(<date>)` |
+| Night after | image | Stamp and compile the portrait, CURRENT threads and context | `night-after(<date>)` |
+
+Improve starts at 07:00, prime follows it for a person, and morning stays at 08:00. Engine upgrades and skill installs run at 09:00. Evening decides unanswered asks at three days; the engine still accepts unanswered confirms after five. Sleep 2 and weekly reflections have retired.
 
 The judgment steps are the skills in [[{vault}/{runtime_dir}/README|Runtime]]. A skipped occurrence is reported in the morning, never caught up by a duplicate run.
 
