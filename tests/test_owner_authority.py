@@ -126,3 +126,43 @@ def test_an_ask_raised_in_a_conversation_names_it(worker, capsys, monkeypatch):
     needs.resolve(config, items["Want me to book the 7pm table for Friday?"]["id"], "booked", config.today())
     current = (config.vault_path / "CURRENT.md").read_text()
     assert "conv123" not in current and "  - session: demiurge:conv456" in current
+
+
+def test_a_worker_cannot_close_a_task_on_its_own_finish_line(worker, capsys):
+    config, _ = worker
+    cli(config, capsys, "task", "T-001", "set", "--delivers", "a draft shortlist")
+    with pytest.raises(SystemExit):
+        cli(config, capsys, "task", "T-001", "done", "--why", "the shortlist is in the Library")
+    assert "is not done until Human says so" in capsys.readouterr().err
+    assert task(config).task_state == "in_progress"
+    assert asks(config) == [GUESS] and task(config).state["finish_asked"] == "pending"   # asked at once, not next pass
+    cli(config, capsys, "task", "T-001", "set", "--state", "waiting_for_owner",
+        "--ask", "Twenty names are in your Library; is that done?", "--why", "Say yes and I close it.")
+    with pytest.raises(SystemExit):
+        cli(config, capsys, "task", "T-001", "done", "--why", "the shortlist is in the Library")
+    assert "What would done look like for Sample?" in (config.vault_path / "CURRENT.md").read_text()
+
+
+def test_the_owners_answer_lifts_the_hold(worker, capsys, monkeypatch):
+    config, _ = worker
+    cli(config, capsys, "task", "T-001", "set", "--delivers", "a draft shortlist")
+    due(config, capsys)
+    cli(config, capsys, "task", "T-001", "set", "--state", "waiting_for_owner",
+        "--ask", "Twenty names are in your Library; is that done?", "--why", "Say yes and I close it.")
+    monkeypatch.setenv("DEMIURGE_CONVERSATION", "c1")
+    cli(config, capsys, "task", "T-001", "set", "--state", "in_progress")   # they answered it in conversation
+    monkeypatch.delenv("DEMIURGE_CONVERSATION")
+    assert asks(config) == []
+    cli(config, capsys, "task", "T-001", "done", "--why", "the shortlist is in the Library")
+    assert task(config).task_state == "completed"
+
+
+def test_the_owner_and_their_conversation_still_close_a_proposed_finish_line(worker, capsys, monkeypatch):
+    config, _ = worker
+    cli(config, capsys, "task", "T-001", "set", "--delivers", "a draft shortlist")
+    tasks.new_task(config, "Second", '"another"', values={"delivers": "a list"}, agent_delivers=True)
+    tasks.hand_off(config, "T-002", config.today(), "demiurge:owner")
+    cli(config, capsys, "task", "T-001", "done", "--by-owner")
+    monkeypatch.setenv("DEMIURGE_CONVERSATION", "c1")
+    cli(config, capsys, "task", "T-002", "done", "--why", "they said the list is enough")
+    assert task(config).task_state == task(config, "T-002").task_state == "completed"
