@@ -102,10 +102,10 @@ def test_due_json_shape_and_order(worker, capsys):
                          "handedOff": "2026-11-05", "report": "demiurge:conversation", "work": "result",
                          "after": None, "stages": [],
                          "delivers": "notes in Home", "next": "deliver the notes", "lastChunk": first,
-                         "checkpoint": None, "chunksToday": 1, "budget": 16, "budgetLeft": 15,
+                         "checkpoint": None, "chunksToday": 1, "budget": 24, "budgetLeft": 23,
                          "reviewDue": False, "chunksSinceReview": 1, "lastReview": None}
     assert output[0]["lastChunk"] is None and output[0]["next"] is None and output[0]["work"] is None
-    assert output[0]["chunksToday"] == 0 and output[0]["budgetLeft"] == 16
+    assert output[0]["chunksToday"] == 0 and output[0]["budgetLeft"] == 24
 
 
 def test_due_empty_json_exits_zero_text_still_one(vault, capsys):
@@ -188,17 +188,17 @@ def test_combined_daily_keeps_existing_gates(worker, capsys, monkeypatch, gate):
         assert json.loads(cli(config, capsys, "--due", "--json"))[0]["id"] == "T-001"
 
 
-def test_sixteenth_chunk_budget_waits_until_next_local_day(worker, capsys):
+def test_last_chunk_of_the_budget_waits_until_next_local_day(worker, capsys):
     config, home, clock = worker
-    for n in range(1, 17):
+    for n in range(1, 25):
         save_work(home, clock[0] - timedelta(minutes=1))
         message = cli(config, capsys, "--chunk", "T-001")
         assert row(config, home)["chunks"] == {"date": "2026-11-05", "count": n}
-        if n < 16:
+        if n < 24:
             assert "budget" not in message
-            assert json.loads(cli(config, capsys, "--due", "--json"))[0]["budgetLeft"] == 16 - n
+            assert json.loads(cli(config, capsys, "--due", "--json"))[0]["budgetLeft"] == 24 - n
         clock[0] += timedelta(minutes=30)
-    assert message == "T-001 reached today's budget of 16 chunks; it waits until tomorrow"
+    assert message == "T-001 reached today's budget of 24 chunks; it waits until tomorrow"
     assert tasks.pace(tasks.load_tasks(config)[0][0]) == "regular"
     assert json.loads(cli(config, capsys, "--due", "--json")) == []
     with pytest.raises(SystemExit) as error:
@@ -216,7 +216,7 @@ def test_sixteenth_chunk_budget_waits_until_next_local_day(worker, capsys):
     clock[0] += timedelta(minutes=2)
     result = json.loads(cli(config, capsys, "--due", "--json"))[0]
     # A new local day with no owner engagement since the handoff: the budget halves (whole again on engagement).
-    assert result["chunksToday"] == 0 and result["budget"] == 8 and result["budgetLeft"] == 8
+    assert result["chunksToday"] == 0 and result["budget"] == 12 and result["budgetLeft"] == 12
     cli(config, capsys, "--chunk", "T-001")
     assert row(config, home)["chunks"] == {"date": "2026-11-06", "count": 1}
 

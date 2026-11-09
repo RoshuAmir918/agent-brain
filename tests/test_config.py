@@ -155,7 +155,7 @@ def test_vault_at_the_repo_root_means_the_configured_vault(tmp_path):
 def test_continue_settings_default_toml_and_env(tmp_path, monkeypatch):
     monkeypatch.delenv("BRAIN_DAILY_CHUNKS", raising=False)
     config = Config.load(cwd=tmp_path)
-    assert (config.daily_chunks, config.review_every) == (16, 4)
+    assert (config.daily_chunks, config.review_every) == (24, 4)
     (tmp_path / "brain.toml").write_text("[continue]\ndaily_chunks = 7\nreview_every = 6\n")
     config = Config.load(cwd=tmp_path)
     assert (config.daily_chunks, config.review_every) == (7, 6)

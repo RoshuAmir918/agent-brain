@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 SECTIONS = ("before", "start", "current", "portrait", "primed", "goals", "triggers", "upcoming", "tasks", "library", "directory")   # the parts of .context.md, in order
 PEOPLE_FORMS = ("off", "line", "card")   # the people pointer prefetch adds for a person named in a message
 FORMS = ("names", "snippet", "full")
-DAILY_CHUNKS = 16
+DAILY_CHUNKS = 24
 # An intellect is one person's (personal) or an organisation's, getting its work done (enterprise): the same engine,
 # installing the routines and skill sections its edition is for. See docs/engine.md, Editions.
 EDITIONS = ("personal", "enterprise")

@@ -135,7 +135,7 @@ def test_review_context_six_results_source_budget_and_last_review(worker, capsys
         "status": "open", "next": "ORIGINAL_FULL_BODY",
         "source": '"Publish my apartment shortlist in the Library"',
         "ownerInstruction": '"Publish my apartment shortlist in the Library"',
-        "results": data["results"], "lastReview": None, "chunksToday": 8, "budgetLeft": 8}
+        "results": data["results"], "lastReview": None, "chunksToday": 8, "budgetLeft": 16}
     assert [r["text"] for r in data["results"]] == [f"Verified delivery step {i}" for i in range(2, 8)]
     assert all(datetime.fromisoformat(r["at"]).tzinfo is not None for r in data["results"])
     verdict(config, capsys, "converging")
@@ -190,7 +190,7 @@ def test_circling_nonblocking_ask_halves_remaining_budget_and_second_review_wait
     count(config, capsys, clock, 4)
     verdict(config, capsys, "circling", "adding listings instead of choosing", "--ask", "Should the shortlist stop at three apartments?")
     row = due(config, capsys)[0]
-    assert (row["chunksToday"], row["budget"], row["budgetLeft"]) == (4, 10, 6)
+    assert (row["chunksToday"], row["budget"], row["budgetLeft"]) == (4, 14, 10)
     assert task(config).task_state == "in_progress"
     assert len(needs.items(config, config.today())) == 1
     assert needs.items(config, config.today())[0].text == "Should the shortlist stop at three apartments?"
@@ -207,12 +207,12 @@ def test_owner_engagement_clears_pending_circling_and_restores_budget(worker, ca
     verdict(config, capsys, "circling", "too many listings", "--ask", "Should the shortlist stop at three apartments?")
     count(config, capsys, clock)
     cli(config, capsys, "--engaged", "T-001")
-    assert due(config, capsys)[0]["budget"] == 16
+    assert due(config, capsys)[0]["budget"] == 24
     verdict(config, capsys, "circling", "too many listings", "--ask", "Should the shortlist stop at two apartments?")
     assert task(config).task_state == "in_progress"
-    assert due(config, capsys)[0]["budgetLeft"] == 7   # floor(15 / 2)
+    assert due(config, capsys)[0]["budgetLeft"] == 11   # floor(23 / 2)
     clock[0] += timedelta(days=1)
-    assert due(config, capsys)[0]["budget"] == 8   # penalty only applied on the review's local day
+    assert due(config, capsys)[0]["budget"] == 12   # penalty only applied on the review's local day
 
 
 @pytest.mark.parametrize("ask", [None, "Do you approve the proposed action?"])
@@ -297,7 +297,7 @@ def test_answering_a_steering_ask_is_engagement_but_worker_resolution_is_not(wor
                   "--vault", str(config.vault_path)])
     capsys.readouterr()
     assert due(config, capsys)[0]["chunksSinceReview"] == 0
-    assert due(config, capsys)[0]["budget"] == 16
+    assert due(config, capsys)[0]["budget"] == 24
     verdict(config, capsys, "circling", "too many listings", "--ask", "Should the shortlist stop at two apartments?")
     assert task(config).task_state == "in_progress"
     count(config, capsys, clock)
@@ -306,7 +306,7 @@ def test_answering_a_steering_ask_is_engagement_but_worker_resolution_is_not(wor
                   "--vault", str(config.vault_path)])
     capsys.readouterr()
     assert due(config, capsys)[0]["chunksSinceReview"] == 1
-    assert due(config, capsys)[0]["budget"] == 8
+    assert due(config, capsys)[0]["budget"] == 12
 
 
 def test_owner_record_task_touch_resets_review_count(worker, capsys):
@@ -317,7 +317,7 @@ def test_owner_record_task_touch_resets_review_count(worker, capsys):
     journal.append_entry(config, {"outcome": "progress", "headline": "Discussed the shortlist", "touched": ["agent/Tasks#T-001"]},
                          "cli", clock[0])
     assert due(config, capsys)[0]["chunksSinceReview"] == 0
-    assert due(config, capsys)[0]["budget"] == 16
+    assert due(config, capsys)[0]["budget"] == 24
     verdict(config, capsys, "circling", "too many listings", "--ask", "Should the shortlist stop at two apartments?")
     assert task(config).task_state == "in_progress"
 
