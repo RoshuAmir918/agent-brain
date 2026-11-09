@@ -2,12 +2,12 @@
 
 The memory engine for a personal AI agent: a Python package that maintains a Markdown vault as long-term memory. Decay by use, observed attribution, surprise-gated writes, commitment triggers, a compiled session-start context, a daily digest of conversations, retrieval, and a night of routines, with the routines shipped as runtime skills.
 
-To get a vault, start from the [agent-brain-template](https://github.com/RoshuAmir918/agent-brain-template) repository. This repo is the engine that vault installs and updates itself from.
+To get a vault, start from the [agent-brain-template](https://github.com/demiurge-lab/agent-brain-template) repository. This repo is the engine that vault installs and updates itself from.
 
 ## Install
 
 ```sh
-python3 -m pip install git+https://github.com/RoshuAmir918/agent-brain
+python3 -m pip install git+https://github.com/demiurge-lab/agent-brain
 brain --help
 ```
 
@@ -51,7 +51,7 @@ Every routine, and the Memory Spec, is the engine's: each refresh re-renders it 
 ## Development
 
 ```sh
-git clone https://github.com/RoshuAmir918/agent-brain && cd agent-brain
+git clone https://github.com/demiurge-lab/agent-brain && cd agent-brain
 python3 -m pip install -e '.[test]'
 python3 -m pytest -q
 ```

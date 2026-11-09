@@ -49,7 +49,7 @@ agent_name = "Agent"
 owner_user_ids = []
 log_dirs = []
 skill_prefix = "brain-"
-update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables auto-update
+update_source = "git+https://github.com/demiurge-lab/agent-brain"   # "" disables auto-update
 ```
 
 `vault` and `sources_dir` are relative to the repository root. The agent, people, agents, human profile and runtime paths are relative to the vault. `sources_dir` remains read-only. `Archive/` is a supported read-only sibling link namespace; it is not a new config key. Layout paths must be relative without `..`, and `human_profile` sits in a folder of its own, which holds the owner's notes. Tasks, Triggers, CURRENT and the other note basenames remain fixed. Generated wikilinks use the configured `vault` prefix. `BRAIN_HUMAN_NAME` and `BRAIN_AGENT_NAME`, when set, override the configured display names, including rendered skills.
