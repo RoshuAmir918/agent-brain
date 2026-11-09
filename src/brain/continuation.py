@@ -214,6 +214,31 @@ def extend(config: Config, tid: str, by: str | None = None) -> int | None:
     return budget_for(config, tasks.find(config, tid))
 
 
+def status(config: Config, task, done: int, limit: int | None, due: bool) -> str:
+    """Whether a handed-off task is being worked and, when not, why, in the words a conversation can repeat to its
+    owner. The runtime alone knows whether a worker is running it at this moment."""
+    if not tasks.is_open(task):
+        return "Closed"
+    now = tasks.local_now(config)
+    resume_at = (task.resume if " " in task.resume else task.resume + " 00:00") if task.resume and task.resume != "computer" else None
+    daily = tasks.pace(task) == "daily"
+    if due:
+        return ("Due now: a background worker runs its daily chunk next" if daily else
+                f"Due now: a background worker picks it up next; {max(0, limit - done)} of {limit} chunks left today")
+    if task.resume == "computer":
+        return "Resting until the owner's computer is back"
+    if resume_at and resume_at > now:
+        return f"Resting until {resume_at}" + (f"; blocked: {fm.field(task.body, 'Blocker', 'Blockers')}" if task.task_state == "blocked" else "")
+    if task.task_state == "waiting_for_owner":
+        return f"Waiting on the owner: {fm.field(task.body, 'Ask') or 'their answer'}"
+    if task.task_state in tasks.RESTING:
+        return f"Not worked while {task.task_state.replace('_', ' ')}"
+    if daily:
+        return ("Daily pace: it ran today; next chunk tomorrow from 12:00" if done else "Daily pace: next chunk from 12:00 today")
+    return (f"Resting until midnight: today's {limit} chunks are used. Only on the owner's word, "
+            f"`brain continue --extend {task.tid}` lets it keep going today")
+
+
 def review_status(config: Config, tid: str) -> dict:
     row = _progress(config).get(tid, {})
     count = row.get("chunks_since_review", 0)

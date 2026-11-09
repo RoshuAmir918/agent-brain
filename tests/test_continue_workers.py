@@ -103,6 +103,7 @@ def test_due_json_shape_and_order(worker, capsys):
                          "after": None, "stages": [],
                          "delivers": "notes in Home", "next": "deliver the notes", "lastChunk": first,
                          "checkpoint": None, "chunksToday": 1, "budget": 24, "budgetLeft": 23,
+                         "status": "Due now: a background worker picks it up next; 23 of 24 chunks left today",
                          "reviewDue": False, "chunksSinceReview": 1, "lastReview": None}
     assert output[0]["lastChunk"] is None and output[0]["next"] is None and output[0]["work"] is None
     assert output[0]["chunksToday"] == 0 and output[0]["budgetLeft"] == 24
@@ -248,6 +249,25 @@ def test_spent_budget_rests_until_midnight_and_the_owner_can_extend_today(worker
     assert cli(config, capsys, "--extend", "T-001") == "T-001 extended: today's budget is 3 chunks"
     clock[0] += timedelta(days=1)
     assert json.loads(cli(config, capsys, "--due", "--json"))[0]["budget"] == 1
+
+
+def test_one_task_says_whether_it_is_worked_and_why_not(worker, capsys, monkeypatch):
+    config, home, clock = worker
+    monkeypatch.setenv("BRAIN_DAILY_CHUNKS", "1")
+    config = Config.load(config.vault_path)
+    status = lambda: json.loads(cli(config, capsys, "T-001", "--json"))["status"]
+    assert status() == "Due now: a background worker picks it up next; 1 of 1 chunks left today"
+    cli(config, capsys, "--chunk", "T-001")
+    assert status().startswith("Resting until midnight: today's 1 chunks are used.")
+    assert "--extend T-001" in status() and cli(config, capsys, "T-001").endswith(f"Status: {status()}.")
+    tasks.set_fields(config, "T-001", config.today(), values={"resume": "2026-11-05 14:00"})
+    assert status() == "Resting until 2026-11-05 14:00"
+    tasks.set_fields(config, "T-001", config.today(), state="waiting_for_owner",
+                     values={"ask": "Which notes first?"}, clear=["resume"])
+    assert status() == "Waiting on the owner: Which notes first?"
+    tasks.set_fields(config, "T-001", config.today(), state="in_progress")
+    tasks.set_pace(config, "T-001", "daily", config.today())
+    assert status() == "Daily pace: it ran today; next chunk tomorrow from 12:00"
 
 
 def test_toml_budget_drives_chunk_and_due(worker, capsys):
