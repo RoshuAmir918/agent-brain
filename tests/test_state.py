@@ -229,7 +229,7 @@ def test_cli_json_order_format_and_summary(work, capsys, monkeypatch):
     cli.main(["state", "--json", "--vault", str(work.vault_path)])
     output = capsys.readouterr().out
     parsed = json.loads(output)
-    assert list(parsed) == KEYS + ["idea", "responsibilities", "portrait", "ownerPortrait", "seeds"]
+    assert list(parsed) == KEYS + ["idea", "ideas", "responsibilities", "portrait", "ownerPortrait", "seeds"]
     assert output == json.dumps(parsed, ensure_ascii=False, indent=2) + "\n"
     cli.main(["state", "--vault", str(work.vault_path)])
     summary = capsys.readouterr().out
@@ -246,7 +246,7 @@ def test_empty_vault_and_missing_installed_metadata(tmp_path, monkeypatch):
 
     monkeypatch.setattr(health, "installed_version", missing)
     result = state.build(Config.load(root), TODAY)
-    assert list(result) == KEYS + ["idea", "responsibilities", "portrait", "ownerPortrait", "seeds"]
+    assert list(result) == KEYS + ["idea", "ideas", "responsibilities", "portrait", "ownerPortrait", "seeds"]
     assert result["engine"] == "unknown" and result["version"] is None
     assert result["idea"] is None
     assert result["responsibilities"] == []

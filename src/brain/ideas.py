@@ -15,8 +15,9 @@ NEW_DAYS = 21
 COOLDOWN_NEW = 1
 COOLDOWN_ESTABLISHED = 7
 SNOOZE_DAYS = 14
-ADD_SPACING_NEW = 1
-ADD_SPACING_ESTABLISHED = 7
+# The owner can read every open idea in their app, so ideas may arrive daily; the open list is what is capped.
+ADD_SPACING = 1
+OPEN_MAX = 10
 
 TEMPLATE = """---
 kind: orientation
@@ -156,10 +157,12 @@ def add_refusal(config: Config, today: date, text: str) -> str | None:
            if answer in ("no", "stop-asking")):
         return "the owner already dismissed this idea with no or stop-asking"
     path = config.vault_path / config.agent("Ideas.md")
-    dates = [date.fromisoformat(item.since) for item in parse_section(fm.read(path)[1])] if path.exists() else []
-    spacing = ADD_SPACING_NEW if new_owner(config, today) else ADD_SPACING_ESTABLISHED
-    if dates and today < (until := max(dates) + timedelta(days=spacing)):
-        return f"ideas can be added every {spacing} day(s); next idea can be added {until.isoformat()}"
+    listed = parse_section(fm.read(path)[1]) if path.exists() else []
+    if len(listed) >= OPEN_MAX:
+        return f"{len(listed)} ideas are open, the most there can be; add another once the owner answers one"
+    dates = [date.fromisoformat(item.since) for item in listed]
+    if dates and today < (until := max(dates) + timedelta(days=ADD_SPACING)):
+        return f"ideas can be added every {ADD_SPACING} day(s); next idea can be added {until.isoformat()}"
     return None
 
 
