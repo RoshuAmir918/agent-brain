@@ -1,7 +1,7 @@
 ---
 name: {prefix}prime
 description: Write today for the owner, after the night and the People review
-version: 1.6.0
+version: 1.7.0
 metadata:
   runtime:
     tags: [memory, night]
@@ -11,6 +11,8 @@ metadata:
 # Prime
 
 One job: overwrite `{agent_dir}/Primed.md` with what today is for {human_name}. It loads in every session today, so it is short, true and in order of importance. Runs after the People review, so the people in it are current.
+
+Work for {human_name}, including requests from another intellect or found in a conversation, becomes a yours task: `brain task new "<title>" --state yours --source "<the request and who made it>" --why "<who is waiting and why>" --delivers "<what counts as done>" --next "<their first concrete step>"`. Use `--from T-nnn` for its parent and `--report demiurge:<id>` for the origin conversation when known; the parent blocks until it closes. Asks are only for questions an answer settles. Never close a task while it waits on an open ask, waiting_for_owner, or a yours child. In conversation, an answer that is really work uses `brain needs-you --resolve <id> --yours "<title>" --because "<their answer>" --why "<who is waiting>" --delivers "<what counts as done>"`. When {human_name} says it is done, use `brain task T-nnn done --by-owner --why "<their words>"` and relay the outcome if someone is waiting. When they raise an open task’s topic in another thread, post the outcome in the task’s thread with `demiurge_tell_owner` and `task: "T-nnn"`, then point them there in one line.
 
 ## Procedure
 1. Inferred goals fund preparation immediately, held, just as said goals do. Never ask whether something is a goal or wait for confirmation; the people pass infers from evidence. Read active goals (`brain goals list --json`), CURRENT, the open tasks, Upcoming in the session context, yesterday's digest in `Conversations/Digests/`, and the People histories touched yesterday. If `{runtime_dir}/pending-migration.md` exists, its first line is the first line of Primed: "engine migration pending; see the file."
@@ -27,4 +29,4 @@ One job: overwrite `{agent_dir}/Primed.md` with what today is for {human_name}. 
 5. `brain compile-context --write`, record `last_run` as above, `brain commit -m "prime(<date>)" --push <the files you changed>`.
 
 ## Boundaries
-Writes only Primed, the compiled context, the prime state file, important mail facts in their owning tasks. Never hubs, profiles, Triggers or CURRENT. Never copy message bodies or contact anyone from this pass.
+Writes only Primed, the compiled context, the prime state file, important mail facts in their owning tasks, new yours tasks for owner work. Never hubs, profiles, Triggers or CURRENT. Never copy message bodies or contact anyone from this pass.

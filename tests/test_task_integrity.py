@@ -110,7 +110,7 @@ def test_closing_a_task_also_settles_an_ask_sourced_to_it(vault, capsys):
     current = vault / "CURRENT.md"
     data, body = fm.read(current)
     fm.write(current, data, body + "\n## Needs you\n- 2026-11-05 · ask · Which venue? · [[agent/Tasks#T-001]]\n")
-    cli(vault, capsys, "T-001", "drop", "--why", "the owner went elsewhere")
+    cli(vault, capsys, "T-001", "drop", "--by-owner", "--why", "the owner went elsewhere")
     assert "Which venue?" not in fm.read(current)[1]   # at once, not only at night
     report = []
     nightly.rollover(config, TODAY, report)

@@ -79,6 +79,14 @@ class Task:
         return match[1] if match else None
 
     @property
+    def from_task(self) -> str | None:
+        return fm.field(self.body, "From")
+
+    @property
+    def report(self) -> str | None:
+        return (self.handoff[1] or None) if self.handoff else fm.field(self.body, "Report")
+
+    @property
     def resume(self) -> str | None:
         """A local `YYYY-MM-DD[ HH:MM]`, `computer` (until woken), or None."""
         match = re.search(r"^[ \t]*-[ \t]+\*\*Resume:\*\*[ \t]*(computer|\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)[ \t]*$", self.body, re.M)
@@ -332,10 +340,13 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
     if reviewed:
         task.body = task.body.rstrip("\n") + f"\n- **Reviewed:** {today.isoformat()} — {reviewed}\n"
     if report is not None:
-        if not task.handoff:
+        if task.handoff:
+            line = handoff_line(task.handoff[0], task.owner, report)
+            task.body = HANDOFF_LINE.sub(line + "\n", task.body, count=1)
+        elif task.task_state == "yours":
+            task.body = _replace_field(task.body, "report", report or None)
+        else:
             raise ValueError(f"{tid} was not handed off; there is no report line to change")
-        line = handoff_line(task.handoff[0], task.owner, report)
-        task.body = HANDOFF_LINE.sub(line + "\n", task.body, count=1)
     if (task.task_state == "waiting_for_owner" and not _owner_ask(task.body)
             and (previous.task_state != "waiting_for_owner" or _owner_ask(previous.body))):
         raise ValueError("waiting_for_owner needs the question: --ask \"…\" --why \"…\"")
@@ -455,8 +466,10 @@ def append_task(config: Config, task: Task) -> None:
 
 def new_task(config: Config, title: str, source: str, *, state: str = "ready",
              values: dict[str, str] | None = None, work: str | None = None, goal: str | None = None,
-             inherit_goal: bool = True, agent_delivers: bool = False, said: str | None = None) -> Task:
-    """Create a task without handing it off; the caller holds the vault lock."""
+             inherit_goal: bool = True, agent_delivers: bool = False, said: str | None = None,
+             from_task: str | None = None, report: str | None = None, block_parent: bool = True) -> Task:
+    """Create a task without handing it off; the caller holds the vault lock.
+    An empty explicit From keeps an unlinked ask from inheriting the worker resolving it."""
     title, source = single_line("title", title), single_line("source", source)
     if not title or not source:
         raise ValueError("new needs a nonempty title and --source")
@@ -470,12 +483,21 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
         raise ValueError("--said goes with --delivers")
     if goal is not None:
         values["goal"] = goal
-    parent = _working_on(config)
+    parent = _working_on(config) if from_task is None else None
+    if from_task:
+        from_task = single_line("from", from_task)
+        parent = find(config, from_task, archived_closed=True) if TASK_ID_RE.fullmatch(from_task) else None
+        if parent is None:
+            raise ValueError(f"--from must name an existing task: {from_task}")
+    if report is not None and state != "yours":
+        raise ValueError("--report with new needs --state yours")
+    here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
+    report = single_line("report", report if report is not None else f"demiurge:{here}" if here else "")
     from .goals import active, guard, is_routine
     if inherit_goal and parent is not None and "goal" not in values and any(g.gid == parent.goal for g in active(config)):
         values["goal"] = parent.goal  # a worker's follow-up serves what the task it is working on serves
     guard(config, values.get("goal"), source, parent=parent)
-    if set(values) - {"status", "next", "delivers", "hub", "goal", "after", "due"}:
+    if set(values) - {"status", "next", "why", "delivers", "hub", "goal", "after", "due"}:
         raise ValueError("unsupported new task field")
     body = "".join(f"- **{name.title()}:** {_field_value(config, name, value)}\n" for name, value in values.items())
     unasked = (is_routine() and bool(values.get("goal")) and not re.search(r'["“][^"”\n]+["”]', source)
@@ -486,6 +508,10 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     elif not (source.startswith('"') and source.endswith('"')):
         source = f'"{source}"'
     body += f"- **Source:** {source}\n"
+    if parent is not None:
+        body += f"- **From:** {parent.tid}\n"
+    if state == "yours" and report:
+        body += f"- **Report:** {report}\n"
     if work is not None:
         body += f"- **Work:** {work}\n"
     task = Task(next_id(config), title, body, {"state": state})
@@ -503,7 +529,19 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     append_task(config, task)
     from . import continuation
     continuation.propose_finish_line(config, task)
+    if state == "yours" and parent is not None and block_parent:
+        block_on_owner(config, parent, task, config.today())
     return task
+
+
+def block_on_owner(config: Config, parent: Task, child: Task, today: date) -> None:
+    if not is_open(parent):
+        return
+    before = replace(parent, state=dict(parent.state))
+    parent.set_state("blocked")
+    parent.body = _replace_field(parent.body, "blocker", f"{child.tid} {child.title}")
+    parent.body = _replace_field(parent.body, "resume", None)
+    save_task(config, parent, today, before)
 
 
 def pace(task: Task) -> str:
@@ -594,7 +632,7 @@ MAX_THEN = 3
 
 
 def close(config: Config, tid: str, today: date, done: bool, why: str, left: str | None = None,
-          then: list[str] | tuple[str, ...] = ()) -> Task:
+          then: list[str] | tuple[str, ...] = (), *, by_owner: bool = False) -> Task:
     """Close an open task: `done` completes it, otherwise it is cancelled. Either way a dated line says so, with its
     evidence or reason. Only a completion carries what it left undone (`Left`) and up to three next stages the owner
     could start (`Then`), so the finished task says what is done, what is left and what is next."""
@@ -606,8 +644,22 @@ def close(config: Config, tid: str, today: date, done: bool, why: str, left: str
     task = find(config, tid, open_only=True)
     if task is None:
         raise ValueError(f"{tid} is not an open task")
+    if not by_owner:
+        from . import needs
+        child = next((t for t in sum(load_tasks(config), []) if t.task_state == "yours" and t.from_task == tid), None)
+        if child:
+            block_on_owner(config, task, child, today)
+            raise ValueError(f"{tid} waits on {config.human_name} for {child.tid} '{child.title}'; "
+                             "it is blocked until that closes")
+        ask = next((item for item in needs.items(config, today) if item.kind == "ask" and item.task == tid), None)
+        if ask:
+            path = (f"answer it and change {tid}'s state first" if ask.origin == "task" else
+                    f"answer it or run needs-you --resolve {ask.id} --because \"<the answer>\" first")
+            raise ValueError(f"{tid} waits on {config.human_name}: '{ask.text}'; {path}")
+        if task.task_state == "waiting_for_owner":
+            raise ValueError(f"{tid} is waiting_for_owner; record {config.human_name}'s answer and change its state first")
     from . import continuation
-    if done and proposed_delivers(task):
+    if done and not by_owner and proposed_delivers(task):
         continuation.propose_finish_line(config, task)
         if continuation.finish_confirm_open(config, task):
             why = why.rstrip(".") + ". Closed on the intellect's own definition of done."
@@ -621,10 +673,15 @@ def close(config: Config, tid: str, today: date, done: bool, why: str, left: str
     save_task(config, task, today, before)
     _work_history(task, today, why)
     # A task blocked on this one moves again now; its Blocker stays as the last evidence, as when a rest ends.
-    for other in sum(load_tasks(config), []):
+    entries = sum(load_tasks(config), [])
+    for other in entries:
         if (is_open(other) and other.task_state == "blocked"
                 and re.search(r"\b" + tid + r"\b", fm.field(other.body, "Blocker") or "")):
-            set_fields(config, other.tid, today, state="in_progress")
+            child = next((t for t in entries if t.task_state == "yours" and t.from_task == other.tid), None)
+            if child:
+                block_on_owner(config, other, child, today)
+            else:
+                set_fields(config, other.tid, today, state="in_progress")
     return task
 
 
@@ -931,7 +988,7 @@ def _working_on(config: Config) -> Task | None:
     tid = os.environ.get("DEMIURGE_TASK", "")
     if not re.fullmatch(r"T-\d+", tid):
         return None
-    return next((t for t in load_tasks(config)[0] if t.tid == tid), None)
+    return next((t for t in sum(load_tasks(config), []) if t.tid == tid and is_open(t)), None)
 
 
 def load_tasks(config: Config, report: list[str] | None = None) -> tuple[list[Task], list[Task]]:
