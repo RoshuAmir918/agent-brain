@@ -40,7 +40,7 @@ def test_install_scripts_copies_executable_package_resources(tmp_path, monkeypat
     monkeypatch.setenv("AGENT_HOME", str(home))
     cli.main(["install-scripts"])
     installed = sorted((home / "scripts").glob("*.sh"))
-    assert [path.name for path in installed] == ["attribution.sh", "continue-daily-signal.sh", "continue-signal.sh", "export-sessions.sh", "refresh.sh", "watch-signal.sh"]
+    assert [path.name for path in installed] == ["attribution.sh", "continue-daily-signal.sh", "continue-signal.sh", "export-sessions.sh", "night-after.sh", "night-before.sh", "refresh.sh", "upgrade.sh", "watch-signal.sh"]
     refresh = (home / "scripts/refresh.sh").read_text()
     assert refresh.index("brain people sync --run >/dev/null 2>&1 || true") < refresh.index("brain compile-context --write")
     output = capsys.readouterr().out
@@ -86,6 +86,9 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
     assert (vault / "Conversations/Sessions/s1.md").exists()
     assert (home / "records/sessions/cron_j_1.md").exists() and not (vault / "Conversations/Sessions/cron_j_1.md").exists()
     assert len(list((vault / "Conversations/Digests").glob("*.md"))) == 1
+    assert not list((vault / "Runtime/skills").glob("*/SKILL.md"))
+    subprocess.run(["bash", str(home / "scripts/upgrade.sh")], cwd=tmp_path,
+                   env=dict(os.environ), check=True, capture_output=True, text=True)
     assert len(list((vault / "Runtime/skills").glob("*/SKILL.md"))) == 14
 
 
@@ -182,7 +185,7 @@ def test_update_uses_own_interpreter_and_reinstalls_scripts(tmp_path, monkeypatc
     installed = install.update(Config.load(tmp_path / "memory"))
     assert calls[0][:4] == [sys.executable, "-m", "pip", "install"]
     assert calls[0][-1] == "git+https://github.com/RoshuAmir918/agent-brain"
-    assert {path.name for path in installed} == {"attribution.sh", "refresh.sh", "export-sessions.sh", "watch-signal.sh", "continue-signal.sh", "continue-daily-signal.sh"}
+    assert {path.name for path in installed} == {"attribution.sh", "refresh.sh", "export-sessions.sh", "watch-signal.sh", "continue-signal.sh", "continue-daily-signal.sh", "night-before.sh", "night-after.sh", "upgrade.sh"}
     for path in installed:
         resource_dir = "scripts"
         assert path.read_bytes() == files("brain").joinpath(resource_dir, path.name).read_bytes()

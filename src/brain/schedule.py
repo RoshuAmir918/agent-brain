@@ -220,19 +220,23 @@ def defaults(config: Config) -> dict[str, Routine]:
     p = config.skill_prefix
     routines = {
         "session-export": Routine(cron="30 0 * * *", prompt="", script="export-sessions.sh", agent=False),
-        "attribution": Routine(cron="30 1 * * *", prompt="", script="attribution.sh", agent=False),
-        "sleep1": Routine(cron="30 2 * * *", skills=[f"{p}sleep1"], prompt="Run Sleep 1 for yesterday."),
-        "sleep2": Routine(cron="0 4 * * *", skills=[f"{p}sleep2", f"{p}portrait"], prompt="Run Sleep 2."),
+        "attribution": Routine(after="session-export", prompt="", script="attribution.sh", agent=False),
+        "night-before": Routine(after="attribution", prompt="", script="night-before.sh", agent=False),
+        "sleep1": Routine(after="night-before", skills=[f"{p}sleep1"], prompt="Run Sleep 1 for yesterday."),
+        "image": Routine(after="people" if config.edition == "personal" else "sleep1",
+                         skills=[f"{p}image", f"{p}portrait"], prompt="Run the image pass."),
+        "night-after": Routine(after="image", prompt="", script="night-after.sh", agent=False),
         "context-refresh": Routine(cron="15 * * * *", prompt="", script="refresh.sh", agent=False),
-        "improve": Routine(cron="30 7 * * *", skills=[f"{p}improve"], prompt="Run Improve."),
+        "improve": Routine(cron="0 7 * * *", skills=[f"{p}improve"], prompt="Run Improve."),
+        "upgrade": Routine(cron="0 9 * * *", prompt="", script="upgrade.sh", agent=False),
         "watch": Routine(cron="*/15 6-22 * * *", skills=[f"{p}watch"], deliver="demiurge", monitor="watch-signal.sh"),
-        "explore": Routine(cron="30 8-22/2 * * *", skills=[f"{p}explore"], prompt="Run the explore pass.", deliver="demiurge"),
+        "explore": Routine(cron="30 8-18/2 * * *", skills=[f"{p}explore"], prompt="Run the explore pass.", deliver="demiurge"),
         "evening": Routine(cron="0 20 * * *", skills=[f"{p}evening"], prompt="Run the evening review."),
     }
     if config.edition == "personal":
         routines |= {
-            "people": Routine(cron="0 6 * * *", skills=[f"{p}people", f"{p}portrait"]),
-            "prime": Routine(cron="30 7 * * *", skills=[f"{p}prime"]),
+            "people": Routine(after="sleep1", skills=[f"{p}people"]),
+            "prime": Routine(after="improve", skills=[f"{p}prime"]),
             "morning": Routine(cron="0 8 * * *", skills=[f"{p}morning"], prompt="Run the morning briefing.", deliver="demiurge"),
         }
     return routines

@@ -859,12 +859,15 @@ def cmd_goals(args):
                     raise ValueError(f"{action} is not a goal; use `brain goals list`")
             if args.json:
                 corrections = goals.capture(config)["corrections"]
-                print(json.dumps([{**entry.public(), "corrections": [{"id": ident, **value}
+                print(json.dumps([{**entry.public(), **({"stale": entry.state.get("stale"),
+                                                       "reasons": goals.due_reasons(config, entry)} if which == "due" else {}),
+                                   "corrections": [{"id": ident, **value}
                                    for ident, value in corrections.get(entry.gid, {}).items()]}
                                   for entry in entries], ensure_ascii=False, indent=2))
             else:
                 for entry in entries:
-                    print(entry.render().rstrip() if which == "show" else f"{entry.gid} · {entry.state.get('state')} · {entry.title}")
+                    print(entry.render().rstrip() if which == "show" else f"{entry.gid} · {entry.state.get('state')} · {entry.title}"
+                          + (" · " + "; ".join(goals.due_reasons(config, entry)) if which == "due" else ""))
                 if not entries:
                     print("no goals")
             return
@@ -1469,13 +1472,30 @@ def cmd_schedule(args):
             return
         with vault_lock(config):
             if action == "init":
-                # Adds what this edition starts with; a routine the vault already has is never touched.
                 routines = schedule.load(config)
                 defaults = schedule.defaults(config)
-                added = [name for name in defaults if name not in routines]
-                routines |= {name: defaults[name] for name in added}
-                changed = (f"added {len(added)} {config.edition} routine(s): {', '.join(added)}" if added
-                           else f"every {config.edition} routine is already scheduled")
+                if args.reset_night:
+                    changes = []
+                    for name in ("session-export", "attribution", "night-before", "sleep1", "people", "image",
+                                 "night-after", "improve", "prime", "morning", "upgrade"):
+                        if name not in defaults:
+                            continue
+                        routine = defaults[name]
+                        if name in ("session-export", "morning", "improve") and name in routines and routines[name].cron:
+                            routine = replace(routine, cron=routines[name].cron)
+                        if routines.get(name) != routine:
+                            changes.append(f"{'reset' if name in routines else 'added'} {name}")
+                            routines[name] = routine
+                    for name in ("sleep2", "rem", "brain-attribute", "continue", "continue-daily"):
+                        if name in routines:
+                            del routines[name]
+                            changes.append(f"removed {name}")
+                    changed = "; ".join(changes) or "night routines already match defaults"
+                else:
+                    added = [name for name in defaults if name not in routines]
+                    routines |= {name: defaults[name] for name in added}
+                    changed = (f"added {len(added)} {config.edition} routine(s): {', '.join(added)}" if added
+                               else f"every {config.edition} routine is already scheduled")
             elif action == "import":
                 if schedule.path(config).exists() and not args.force:
                     raise ValueError(f"{schedule.path(config)} exists; use --force to replace it")
@@ -1546,6 +1566,8 @@ def main(argv=None):
             s.add_argument("--json", action="store_true")
         if action == "import":
             s.add_argument("--force", action="store_true")
+        if action == "init":
+            s.add_argument("--reset-night", action="store_true")
         if action == "set":
             timing = s.add_mutually_exclusive_group()
             for key in schedule.TIMING:

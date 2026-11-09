@@ -447,28 +447,25 @@ def _before(vault: Vault, today: date, sessions_dir: Path | None, library_record
     with vault_lock(config):   # the after-session writer adds asks to CURRENT at any hour
         from . import goals
         try:
-            expired_goals = goals.decay(config, today, report, vault=vault)
+            changed_goals = goals.decay(config, today, report, vault=vault)
         except Exception as error:
-            expired_goals = []
+            changed_goals = []
             report.append(f"goal: decay skipped: {error}")
-        if expired_goals:
+        if changed_goals:
             changed.add(config.human_goals)
-            report.extend(f"goal: {gid} set aside after 30 days without evidence" for gid in expired_goals)
         if ask_library(config, today, report, library_records):
             changed.add("CURRENT.md")
         removed = needs.expire_confirms(config, today)
         expired_consults = consults.expire_confirms(config, today)
-        retired = needs.retire_asks(config, today)
         settled = reception.settle(config, today)
     report.extend(f"reception: nothing heard in {reception.SETTLE_DAYS} days, {row.outcome}: {row.kind} {row.what}"
                   for row in settled)
     if expired_consults:
         changed.add(config.agent("Consults.md"))
         report.extend(f"consult: confirm accepted after {needs.CONFIRM_DAYS} days: {text}" for text in expired_consults)
-    if removed or retired:
+    if removed:
         changed.add("CURRENT.md")
         report.extend(f"needs-you: confirm accepted after {needs.CONFIRM_DAYS} days: {text}" for text in removed)
-        report.extend(f"needs-you: ask unanswered {needs.RETIRE_DAYS} days, retired: {text}" for text in retired)
     with vault_lock(config):
         collapsed = ledger.collapse(config, today)
     for path in collapsed:

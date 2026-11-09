@@ -76,6 +76,10 @@ def render_skill(config: Config, name: str) -> str:
 def skills(config: Config) -> Path:
     """Skills and the Memory Spec keep the vault's own `## Local` sections, read and rewritten under the vault lock."""
     with vault_lock(config):
+        for retired in ("rem", "attribute", "sleep2"):
+            target = config.skills_path / (config.skill_prefix + retired)
+            if target.is_dir():
+                shutil.rmtree(target)
         for routine in sorted(files("brain").joinpath("skills").iterdir(), key=lambda path: path.name):
             template = routine.joinpath("SKILL.md")
             if not template.is_file():

@@ -50,6 +50,7 @@ def fixture_lock_home(tmp_path_factory):
 @pytest.fixture(autouse=True)
 def fixture_locks(fixture_lock_home, monkeypatch):
     """Fixture writers share real flock locks, without writing to the user's home."""
+    monkeypatch.setenv("HOME", str(fixture_lock_home))
     class LockPath(type(fixture_lock_home)):
         @classmethod
         def home(cls):

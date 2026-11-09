@@ -341,12 +341,11 @@ def test_taskless_consult_state_and_cli_list(enterprise, capsys):
     assert json.loads(capsys.readouterr().out) == []
 
 
-def test_retire_stale_overflow_and_expiry(enterprise):
+def test_stale_overflow_and_expiry(enterprise):
     entry = ask(enterprise)
-    future = TODAY + timedelta(days=needs.RETIRE_DAYS + 1)
+    future = TODAY + timedelta(days=needs.CONFIRM_DAYS + 1)
     before = snapshot(enterprise.vault_path)
     assert needs.stale(enterprise, future) == needs.overflow(enterprise, future, ceiling=0) == []
-    assert needs.retire_asks(enterprise, future) == []
     assert snapshot(enterprise.vault_path) == before
     needs.dismiss(enterprise, entry.id, TODAY)
     still_open = ask(enterprise, to=ROSHAN, area="analytics", text="Move dashboards to the new warehouse?")

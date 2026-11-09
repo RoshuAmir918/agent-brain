@@ -7,7 +7,6 @@ brain pull >/dev/null
 brain people sync --run >/dev/null 2>&1 || true
 LAPSED="$(brain consult lapse 2>/dev/null || true)"
 brain compile-context --write
-brain install-skills
 brain health --write >/dev/null
 SOUL="$(brain paths soul)"
 mkdir -p "$AGENT_HOME"
@@ -25,4 +24,4 @@ if [ -n "$LAPSED" ]; then
   done
 fi
 # Pushes every run, so a commit an earlier failed push left behind is published now.
-brain commit --push -m "context(${BRAIN_TODAY:-$(TZ="$(brain timezone)" date +%F)}): refresh context and skills" -- "${PATHS[@]}" >/dev/null
+brain commit --push -m "context(${BRAIN_TODAY:-$(TZ="$(brain timezone)" date +%F)}): refresh context" -- "${PATHS[@]}" >/dev/null

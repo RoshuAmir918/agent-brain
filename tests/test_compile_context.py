@@ -119,7 +119,7 @@ def test_context_directory_lists_hubs_people_and_open_tasks(context_vault):
 def test_context_includes_active_goals_and_inference_guidance_until_then(context_vault):
     from brain import goals
     text = compile_context.build(Vault(context_vault))
-    assert "No active goals" in text and "Infer from repeated, dated evidence" in text
+    assert "No active goals" in text and "The next people pass may infer from repeated, dated evidence" in text
     goals.new(Config.load(context_vault), "Read widely", "Read beyond my field", from_app=True)
     vault = Vault(context_vault)
     text = compile_context.build(vault)

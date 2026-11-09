@@ -16,7 +16,6 @@ from .vault import Vault
 KINDS = ("ask", "confirm")
 OPEN_ASKS = 5        # asks shown at once; past it, the evening decides the lowest-ranked down to it
 STALE_DAYS = 3       # an ask unanswered this long is the evening's to decide or retire
-RETIRE_DAYS = 5      # an ask unanswered this long leaves the list; silence is an answer. A task's ask settles with it.
 CONFIRM_DAYS = 5     # a confirm unanswered this long is taken as accepted
 ASK_WORDS = 16       # an owner-facing Ask line: a proposition, read cold on a phone
 WHY_WORDS = 40       # its Why line: what the owner gets, one or two plain sentences
@@ -281,13 +280,6 @@ def stale(config: Config, today: date, days: int = STALE_DAYS) -> list[Item]:
     body = path.read_bytes().decode("utf-8")
     old = [item for item in open_asks(body) if not item.task and (today - date.fromisoformat(item.since)).days >= days]
     return sorted(old, key=lambda item: item.since)
-
-
-def retire_asks(config: Config, today: date, days: int = RETIRE_DAYS) -> list[str]:
-    """Remove asks unanswered for `days` or more: the backstop when no routine decided them. A task's ask stays while
-    the task waits; it settles with the task. Returns their texts."""
-    return [item.text for item in _prune(config, lambda item: item.kind == "ask" and not item.task
-                                         and (today - date.fromisoformat(item.since)).days >= days)]
 
 
 def _prune(config: Config, drop) -> list[Item]:
