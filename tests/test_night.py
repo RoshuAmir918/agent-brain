@@ -329,3 +329,13 @@ def test_after_alone_threads_what_is_open_now(night_vault):
     current = (root / "CURRENT.md").read_text()
     assert "STALE_THREAD" not in current and "T-001" in current
     assert fm.read(root / "Hot Hub.md")[0]["uses"] == ["2026-10-04"]   # uses are folded only before
+
+
+def test_a_link_the_night_did_not_write_never_stops_its_commit(night_vault):
+    root, _ = night_vault
+    fm.write(root / "Loose Hub.md", {"uses": ["2026-10-04"]}, "# Loose hub\nFrom a conversation · [[Conversations]]\n")
+    attribute.append_log(root / "agent/Use Log/2026-10.md", [
+        attribute.Use("2026-10-05T02:00Z", "Loose Hub.md", "fixture reliance", "explicit")])
+    brain_cli.main(nightly_argv(root, DAY, "--write", "--stage", "before"))   # exits 1 if it refuses
+    assert fm.read(root / "Loose Hub.md")[0]["uses"] == [DAY, "2026-10-04"]
+    assert "validation failed" not in (root / "agent/Sleep Log/2026-10.md").read_text()

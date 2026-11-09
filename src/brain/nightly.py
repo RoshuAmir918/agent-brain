@@ -386,12 +386,21 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
     config = vault.config
     report: list[str] = []
     changed: set[str] = set()
+    # Before the model passes, links are checked only in notes whose body the night wrote: a note it only folded uses or
+    # tiers into keeps the links its writer gave it, which sleep1 fixes next, and the night must not refuse to commit
+    # over them before it runs. A whole night, after the passes, still checks every note it touched.
+    bodies: set[str] = set(vault.config.generated_views)
     if stage != "after":
-        changed |= _before(vault, today, sessions_dir, library_records, evidence_home, report)
+        before, written = _before(vault, today, sessions_dir, library_records, evidence_home, report)
+        changed |= before
+        bodies |= written
     if stage != "before":
-        changed |= _after(vault, today, report)
+        after = _after(vault, today, report)
+        changed |= after
+        bodies |= after
     vault.load()
-    problems = validate.run(vault, changed | vault.config.generated_views)
+    touched = changed | vault.config.generated_views
+    problems = validate.run(vault, touched, bodies) if stage == "before" else validate.run(vault, touched)
     if problems:
         report += [f"VALIDATION: {p}" for p in problems]
         sleep_log(config, today, report, "write, validation failed, not committed")
@@ -406,7 +415,7 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
 
 
 def _before(vault: Vault, today: date, sessions_dir: Path | None, library_records: Path | None,
-            evidence_home: Path | None, report: list[str]) -> set[str]:
+            evidence_home: Path | None, report: list[str]) -> tuple[set[str], set[str]]:
     config = vault.config
     rollover(config, today, report)
     vault.load()
@@ -416,6 +425,7 @@ def _before(vault: Vault, today: date, sessions_dir: Path | None, library_record
         report.extend(f"attribute: {use.line()}" for use in attribute.sessions(vault, sessions_dir, write=True))
     changed |= fold_uses(vault, tasks + archived, today, report)
     changed |= retier(vault, today, report)
+    written: set[str] = set()
     with vault_lock(config):
         # Until here the night changes only frontmatter (uses, tiers). Other writers change bodies and other keys at any
         # hour (an ask reaching CURRENT, a worker's task write): keep each note as it is on disk now, set the night's keys.
@@ -443,7 +453,7 @@ def _before(vault: Vault, today: date, sessions_dir: Path | None, library_record
         if fired is not None:   # consumed only after the task uses it supplied are saved
             rel = config.agent("Triggers.md")
             fm.write(vault.root / rel, fm.read(vault.root / rel)[0], fired)
-            changed.add(rel)
+            written.add(rel)
     with vault_lock(config):   # the after-session writer adds asks to CURRENT at any hour
         from . import goals
         try:
@@ -452,29 +462,29 @@ def _before(vault: Vault, today: date, sessions_dir: Path | None, library_record
             changed_goals = []
             report.append(f"goal: decay skipped: {error}")
         if changed_goals:
-            changed.add(config.human_goals)
+            written.add(config.human_goals)
         if ask_library(config, today, report, library_records):
-            changed.add("CURRENT.md")
+            written.add("CURRENT.md")
         removed = needs.expire_confirms(config, today)
         expired_consults = consults.expire_confirms(config, today)
         settled = reception.settle(config, today)
     report.extend(f"reception: nothing heard in {reception.SETTLE_DAYS} days, {row.outcome}: {row.kind} {row.what}"
                   for row in settled)
     if expired_consults:
-        changed.add(config.agent("Consults.md"))
+        written.add(config.agent("Consults.md"))
         report.extend(f"consult: confirm accepted after {needs.CONFIRM_DAYS} days: {text}" for text in expired_consults)
     if removed:
-        changed.add("CURRENT.md")
+        written.add("CURRENT.md")
         report.extend(f"needs-you: confirm accepted after {needs.CONFIRM_DAYS} days: {text}" for text in removed)
     with vault_lock(config):
         collapsed = ledger.collapse(config, today)
     for path in collapsed:
         rel = path.relative_to(config.vault_path).as_posix()
-        changed.add(rel)
+        written.add(rel)
         report.append(f"ledger: collapsed nothing rows in {rel}")
     from . import sources
     report.extend(sources.nightly(vault, today, evidence_home))
-    return changed
+    return changed | written, written
 
 
 def _after(vault: Vault, today: date, report: list[str]) -> set[str]:
