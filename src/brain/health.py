@@ -43,6 +43,19 @@ def stages(repo: Path, today: date, now: datetime, edition: str = "personal") ->
             for stage in STAGES if edition == "personal" or stage not in PERSONAL_STAGES}
 
 
+def setup(config: Config) -> list[str]:
+    """What a vault made from the template still lacks to know whose it is. Unset, its owner is a stranger to it."""
+    defaults = Config.__dataclass_fields__
+    out = []
+    if not config.owner_user_ids:
+        out.append("no owner_user_ids, so its owner is treated as a stranger")
+    if config.human_name == defaults["human_name"].default:
+        out.append(f"human_name is still the template's {config.human_name!r}")
+    if config.agent_name == defaults["agent_name"].default:
+        out.append(f"agent_name is still the template's {config.agent_name!r}")
+    return out
+
+
 def report(config: Config, today: date | None = None) -> dict:
     today = today or config.today()
     vault = Vault(config.vault_path)
@@ -74,6 +87,7 @@ def report(config: Config, today: date | None = None) -> dict:
     return {
         "agent": config.agent_name,
         "date": today.isoformat(),
+        "setup": setup(config),
         "stages": stages(config.repo, today, config.now(), config.edition),
         "engine": {"installed": installed, "recorded": install.recorded_version(config),
                    "pending_migration_since": pending_since},
@@ -95,6 +109,7 @@ def render(data: dict, *, include_git: bool = True) -> str:
     vault = data["vault"]
     notes = vault["notes"]
     lines = [f"# Health: {data['agent']}, {data['date']}", "",
+             *([f"Setup: {'; '.join(data['setup'])}"] if data.get("setup") else []),
              f"Stages: {stage_text}",
              f"Engine: {engine_text}",
              f"Export: {export_text}",

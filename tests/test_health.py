@@ -94,3 +94,15 @@ def test_pending_since_is_when_this_migration_arrived_not_when_the_last_one_left
     assert health.report(Config.load(root), date(2026, 10, 28))["engine"]["pending_migration_since"] == "uncommitted"
     dated("2026-10-28", "add", "-A"); dated("2026-10-28", "commit", "-q", "-m", "newer migration arrives")
     assert health.report(Config.load(root), date(2026, 10, 28))["engine"]["pending_migration_since"] == "2026-10-28"
+
+
+def test_a_vault_that_does_not_know_whose_it_is_says_so(tmp_path, capsys):
+    root = repo_vault(tmp_path)
+    data = health.report(Config.load(root), date(2026, 10, 6))
+    assert data["setup"] == ["no owner_user_ids, so its owner is treated as a stranger",
+                             "human_name is still the template's 'Human'", "agent_name is still the template's 'Agent'"]
+    assert "Setup: no owner_user_ids, so its owner is treated as a stranger; human_name" in health.render(data)
+    (tmp_path / "brain.toml").write_text('[brain]\nvault = "memory"\nhuman_name = "Aamir"\nagent_name = "Iqbal"\n'
+                                         'owner_user_ids = ["demiurge:k57"]\n')
+    data = health.report(Config.load(root), date(2026, 10, 6))
+    assert data["setup"] == [] and "Setup:" not in health.render(data)
