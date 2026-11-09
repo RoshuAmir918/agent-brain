@@ -22,7 +22,7 @@ Each layer has one owner and one contract. A source never writes a facet; a face
 
 ## 3. Sources
 
-A source is a module that turns one kind of raw input into evidence. It has an id (`mail`, `calendar`, `imessage`, `reviews`, `plans`, `research`, `drive`, `music`), an edition (`personal`, `organisation` or both), where it runs (`owner-mac` for what only the owner's machine holds, such as Messages; `runtime` for synced channel files; `agent` for research the agent does with its own tools), and its window.
+A source is a module that turns one kind of raw input into evidence. It has an id (`mail`, `calendar`, `imessage`, `chats`, `reviews`, `plans`, `research`, `drive`, `music`), an edition (`personal`, `organisation` or both), where it runs (`owner-mac` for what only the owner's machine holds, such as Messages; `runtime` for synced channel files; `agent` for research the agent does with its own tools), and its window.
 
 **The contract.** `brain source <id> extract [--since DATE]` reads the raw input and writes evidence (section 4); it is deterministic wherever it can be, and keeps no raw text. A source that needs judgment to extract (public research) is a skill whose only output is evidence in the same format. Either way, the rest of the pipeline sees only evidence.
 
