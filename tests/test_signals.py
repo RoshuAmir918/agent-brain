@@ -349,3 +349,52 @@ def test_screening_past_its_deadline_wakes_instead_of_hanging(monitor, monkeypat
     config, home, clock = monitor
     monkeypatch.setattr(wake, "DEADLINE", 0)
     assert wake.score(config, [], [{"item": {}}] * 3) == [None, None, None]
+
+
+def test_explore_wakes_each_morning_then_only_on_additions_at_most_three_times(monitor, capsys):
+    config, home, clock = monitor
+    first = run(capsys, config, "explore-signal")
+    assert first == f"day: {config.today()}\nfirst pass of the day\n"
+    clock[0] += timedelta(hours=2)
+    assert run(capsys, config, "explore-signal") == first
+    session(home, "s1", at=clock[0])
+    second = run(capsys, config, "explore-signal")
+    assert second.startswith(f"day: {config.today()}\npass 2 of at most 3 today\nnew since the last pass:\n")
+    assert f"conversation: s1 · {config.today()}" in second and "goal:" not in second
+    assert run(capsys, config, "explore-signal") == second
+    loops.add(config, clock[0], "owed", "Tell Kevin about the share", "Trip", with_="Kevin")
+    third = run(capsys, config, "explore-signal")
+    assert "pass 3 of at most 3" in third and "Tell Kevin" in third and "conversation:" not in third
+    session(home, "s2", at=clock[0])
+    assert run(capsys, config, "explore-signal") == third
+    assert json.loads((home / "records/explore/signal.json").read_text())["checked"] == clock[0].isoformat()
+    clock[0] += timedelta(days=1)
+    assert run(capsys, config, "explore-signal") == f"day: {config.today()}\nfirst pass of the day\n"
+
+
+def test_explore_ignores_routine_and_day_old_conversations(monitor):
+    config, home, clock = monitor
+    signals.explore(config)
+    session(home, "cron1", source="cron")
+    assert "pass 2" not in signals.explore(config)
+    session(home, "old", age=timedelta(days=1, minutes=1))
+    assert "pass 2" not in signals.explore(config)
+
+
+def test_explore_finds_a_resumed_thread_retries_a_failure_and_ignores_empty_calendar_lines(monitor, monkeypatch):
+    config, home, clock = monitor
+    signals.explore(config)
+    from conftest import harness_session, message
+    folder = home / "harness/sessions/2026-10-01"
+    folder.mkdir(parents=True)
+    record = harness_session("old-thread", [message("user", "x", (clock[0] - timedelta(minutes=30)).isoformat())])
+    (folder / "old-thread.json").write_text(json.dumps(record))
+    assert "conversation: old-thread" in signals.explore(config)
+    (home / "harness/jobs.json").write_text(json.dumps({"jobs": [
+        {"skills": [config.skill_prefix + "explore"], "lastStatus": "failed", "lastRunAt": AT.isoformat()}]}))
+    third = signals.explore(config)
+    assert "pass 3" in third and "last failure:" in third
+    monkeypatch.setattr(signals, "EXPLORE_RUNS", 9)
+    from brain import compile_context
+    monkeypatch.setattr(compile_context, "upcoming", lambda vault: "## Calendar\n- Nothing on the calendar for the next 7 days.\n- Note: x.")
+    assert signals.explore(config) == third

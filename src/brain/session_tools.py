@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import takewhile
 from pathlib import Path
 
@@ -39,6 +39,28 @@ def unanswered(home: Path, now: datetime) -> list[tuple[str, str]]:
     """Recent conversations whose last stored message is an unattended user turn. The store is optional."""
     harness = home / "harness" / "sessions"
     return _harness_unanswered(harness, now) if harness.is_dir() else []
+
+
+def spoken(home: Path, now: datetime) -> list[tuple[str, str]]:
+    """Conversations with a user turn in the last day, each with the day of that turn: a new one, or one taken up
+    again on a new day, is something said that a routine may answer with work."""
+    folder, found, floor = home / "harness" / "sessions", set(), (now - timedelta(days=1)).timestamp()
+    # A conversation stays in the folder of the day it began, so a thread taken up again is found by when it changed.
+    for path in folder.glob("*/*.json") if folder.is_dir() else []:
+        try:
+            if path.stat().st_mtime < floor:
+                continue
+            session = json.loads(path.read_text(encoding="utf-8"))
+            if str((session.get("speaker") or {}).get("platform") or "") in ROUTINE_PLATFORMS:
+                continue
+            said = [entry for entry in session.get("entries") or []
+                    if (entry.get("item") or {}).get("type") == "message" and entry["item"].get("role") == "user"]
+            at = datetime.fromisoformat(str(said[-1]["at"]).replace("Z", "+00:00")) if said else None
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            continue
+        if at and now - timedelta(days=1) < at <= now:
+            found.add((str(session.get("id") or path.stem), at.astimezone(now.tzinfo).date().isoformat()))
+    return sorted(found)
 
 
 def session_kind(record: dict) -> str:

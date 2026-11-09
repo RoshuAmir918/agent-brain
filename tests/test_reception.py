@@ -134,3 +134,19 @@ def test_a_row_can_be_written_after_the_fact_with_its_real_time(vault, config, c
     ident = capsys.readouterr().out.strip()
     assert [row.at for _, row in reception.rows(config) if row.id == ident] == ["2026-09-14 10:30"]
     assert (vault / "agent/Reception/2026-09.md").exists()
+
+
+def test_a_held_draft_is_settled_by_its_note(config):
+    with vault_lock(config):
+        old = reception.record(config, "draft", "Taper plan", "agent/Prepared/2026-11-01 Taper", at=datetime(2026, 11, 1, 9, 0))
+        new = reception.record(config, "draft", "Taper plan again", "[[agent/Prepared/2026-11-01 Taper]]", at=datetime(2026, 11, 2, 9, 0))
+        assert reception.set_outcome(config, "[[agent/Prepared/2026-11-01 Taper.md]]", "used").id == new
+        assert reception.set_outcome(config, "agent/Prepared/2026-11-01 Taper", "declined:not-now").id == old
+        with pytest.raises(ValueError, match="no unsettled row"):
+            reception.set_outcome(config, "agent/Prepared/2026-11-01 Taper", "used")
+        late = reception.record(config, "draft", "Pace card", "agent/Prepared/Pace", at=datetime(2026, 11, 3, 9, 0))
+        early = reception.record(config, "draft", "Pace card", "agent/Prepared/Pace", at=datetime(2026, 10, 20, 9, 0))
+        assert reception.set_outcome(config, early, "unknown").outcome == "unknown"
+        assert reception.set_outcome(config, "agent/Prepared/Pace", "opened").id == late   # newest by time, not by file
+        assert reception.set_outcome(config, "agent/Prepared/Pace", "used").id == late
+        assert reception.set_outcome(config, "agent/Prepared/Pace", "liked").id == early   # used after the night gave up

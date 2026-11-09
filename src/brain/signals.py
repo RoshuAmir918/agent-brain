@@ -82,3 +82,40 @@ def _additions_only(home: Path, lines: list[str]) -> str:
     fm.write_text(path, json.dumps({"lines": lines, "text": text, "wakes": wakes}) + "\n")
     return text
 
+
+
+EXPLORE_RUNS = 3
+
+
+def explore(config: Config) -> str:
+    """Explore's gate: one pass on the first tick of each day, then another only when something was added since the
+    last (a conversation, a goal or its weight, an open loop, a dated item within the week), at most three a day.
+    What was added becomes the run's context, so the pass starts from what changed."""
+    from . import compile_context, goals
+    now, home = _check(config), runtime.home()
+    lines = [f"conversation: {sid} · {day}" for sid, day in session_tools.spoken(home, now)]
+    lines += [f"goal: {goal.gid} · {goal.state.get('weight', 'normal')} · {goal.title}" for goal in goals.active(config)]
+    lines += [f"loop: {item.id} · {item.text}" for item in loops.open_loops(config)]
+    # An empty calendar or a sync note is not something added.
+    lines += [line for line in compile_context.upcoming(Vault(config.vault_path)).splitlines()
+              if line.startswith("- ") and not line[2:].casefold().startswith(("nothing", "no ", "i can't see", "note:"))]
+    if failed := _last_failure(home, config.skill_prefix + "explore"):
+        lines.append(f"last failure: {failed}")
+    _heartbeat(home, "explore", now, lines=len(lines))
+    path, today = home / "records" / "explore" / "signal-last.json", config.today().isoformat()
+    try:
+        last = json.loads(path.read_text())
+    except (OSError, ValueError):
+        last = {}
+    if last.get("day") != today:
+        state = {"day": today, "lines": lines, "runs": 1, "text": f"day: {today}\nfirst pass of the day"}
+    else:
+        seen = set(last["lines"])
+        added = [line for line in lines if line not in seen]
+        state = {**last, "lines": sorted(seen | set(lines))}
+        if added and last["runs"] < EXPLORE_RUNS:
+            state |= {"runs": last["runs"] + 1,
+                      "text": "\n".join([f"day: {today}", f"pass {last['runs'] + 1} of at most {EXPLORE_RUNS} today",
+                                         "new since the last pass:", *added])}
+    fm.write_text(path, json.dumps(state, ensure_ascii=False) + "\n")
+    return state["text"]

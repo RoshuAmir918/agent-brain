@@ -130,6 +130,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.129.0: explore runs once each morning and again only when a conversation, goal, open loop or dated item was added, at most three passes a day (`brain explore-signal`, the `explore-signal.sh` monitor). Each pass weighs three candidates before choosing nothing, may prepare from the owner's recent words, an open loop or a dated item as well as a goal, and may prepare beside a handed-off task. Held drafts are named once in the morning briefing and settled by note (`brain reception set "<note>" <outcome>`). The night keeps explore's `nothing` rows, and routine ledger headlines name what a quiet run weighed. Migration attaches the monitor.
 - 0.127.0: `brain continue T-nnn` ends with a `Status:` line (also `status` in its JSON and due rows) saying whether the task is due now and, if not, why. The recall skill answers "is it being worked on?" from it. No migration.
 - 0.126.0: a regular task that spent today's chunks shows as resting until the owner's midnight in `brain state`; when its full budget runs out its worker tells the owner once, and `brain continue --extend T-nnn` gives it another day's chunks today when they ask. Continue and recall skills updated. No migration.
 - 0.125.0: a regular task's daily chunk budget defaults to 24 instead of 16, so a task its owner handed off that morning can finish the day's work; halving without engagement now runs 24, 12, 6, 3, 1. Vaults that set `[continue] daily_chunks` keep their value. No migration.

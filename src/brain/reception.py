@@ -91,12 +91,20 @@ def _rewrite(path: Path, old: Row, new: Row) -> None:
 def set_outcome(config: Config, ident: str, outcome: str) -> Row:
     if not valid_outcome(outcome):
         raise ValueError(f"outcome must be one of {', '.join(OUTCOMES)}, or declined:<reason>")
-    for path, row in rows(config):
-        if row.id == ident:
-            new = Row(**{**row.__dict__, "outcome": outcome})
-            _rewrite(path, row, new)
-            return new
-    raise ValueError(f"no reception row {ident}")
+    found = rows(config)
+    note = ident.strip().removeprefix("[[").removesuffix("]]").removesuffix(".md")
+    # A held draft is known by its note: whoever sees it used or set aside settles it without looking up the row.
+    # The night settles silence as unknown or ignored after seven days; a draft used later still overrides that.
+    match = next((pair for pair in found if pair[1].id == ident), None) or max(
+        (pair for pair in found if pair[1].source.removesuffix(".md") == note
+         and pair[1].outcome in ("pending", "delivered", "opened", "unknown", "ignored")),
+        key=lambda pair: pair[1].at, default=None)
+    if match is None:
+        raise ValueError(f"no reception row {ident}, and no unsettled row for that note")
+    path, row = match
+    new = Row(**{**row.__dict__, "outcome": outcome})
+    _rewrite(path, row, new)
+    return new
 
 
 def answered(config: Config, kind: str, what: str, outcome: str) -> Row | None:

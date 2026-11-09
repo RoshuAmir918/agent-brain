@@ -303,3 +303,11 @@ def test_first_ledger_of_a_new_routine_is_found_and_collapsed_before_log_dirs_li
     ledger.append(config, "harvest", "nothing", "Checked again.", "", datetime(2026, 10, 26, 10, 0))
     assert ledger.collapse(config, date(2026, 10, 27)) == [first]
     assert [row.account for row in read_rows(first)] == ["2 runs, nothing new."]
+
+
+def test_collapse_keeps_explore_nothing_rows_since_they_name_what_was_weighed(config):
+    text = ("2026-10-26 08:30 | explore | nothing | weighed taper plan, made 10-24; Lisbon, no date | \n"
+            "2026-10-26 12:30 | explore | nothing | weighed cards, worker owns them | \n")
+    path = write_ledger(config, "Explore", text)
+    assert ledger.collapse(config, date(2026, 10, 28)) == []
+    assert path.read_text() == ledger.HEADER + text

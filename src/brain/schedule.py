@@ -229,7 +229,8 @@ def defaults(config: Config) -> dict[str, Routine]:
         "improve": Routine(cron="0 7 * * *", skills=[f"{p}improve"], prompt="Run Improve."),
         "upgrade": Routine(cron="0 9 * * *", prompt="", script="upgrade.sh", agent=False),
         "watch": Routine(cron="*/15 6-22 * * *", skills=[f"{p}watch"], deliver="demiurge", monitor="watch-signal.sh"),
-        "explore": Routine(cron="30 8-18/2 * * *", skills=[f"{p}explore"], prompt="Run the explore pass.", deliver="demiurge"),
+        "explore": Routine(cron="30 8-18/2 * * *", skills=[f"{p}explore"], prompt="Run the explore pass.", deliver="demiurge",
+                           monitor="explore-signal.sh"),
         "evening": Routine(cron="0 20 * * *", skills=[f"{p}evening"], prompt="Run the evening review."),
     }
     if config.edition == "personal":

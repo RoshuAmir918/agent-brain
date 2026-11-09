@@ -130,7 +130,9 @@ def collapse(config: Config, today: date) -> list[Path]:
         groups: dict[tuple[str, str], list[tuple[int, Row]]] = {}
         for position, line in enumerate(lines):
             row = parse_row(line)
-            if row is not None and row.outcome == "nothing" and row.when[:10] < today.isoformat():
+            # Explore runs a few times a day and its nothing names what it weighed: that account is the audit.
+            if row is not None and row.outcome == "nothing" and row.when[:10] < today.isoformat() \
+                    and row.routine.casefold().removeprefix(config.skill_prefix) != "explore":
                 groups.setdefault((row.when[:10], row.routine.casefold()), []).append((position, row))
         replacements, removed = {}, set()
         for (day, _), entries in groups.items():

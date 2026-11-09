@@ -1137,6 +1137,10 @@ def cmd_watch_signal(args):
     print(signals.watch(args.config))
 
 
+def cmd_explore_signal(args):
+    print(signals.explore(args.config))
+
+
 def cmd_stale_tasks(args):
     tasks, archived = load_tasks(args.config)
     from . import continuation
@@ -1840,12 +1844,15 @@ def main(argv=None):
     s.set_defaults(fn=cmd_continue)
     s = sub.add_parser("watch-signal", help="stable follow-through monitor output, without a model", parents=[vault])
     s.set_defaults(fn=cmd_watch_signal)
+    s = sub.add_parser("explore-signal", help="explore's change gate: the first tick each day, then additions, without a model", parents=[vault])
+    s.set_defaults(fn=cmd_explore_signal)
     s = sub.add_parser("stale-tasks", help="open tasks gone quiet long enough for the evening review", parents=[vault])
     s.set_defaults(fn=cmd_stale_tasks)
     s = sub.add_parser("reception", help="how each thing offered landed, and correction burden on the intellect's work",
                        parents=[vault])
     s.add_argument("action", nargs="?", choices=["summary", "add", "set", "burden"], default="summary")
-    s.add_argument("id", nargs="?"); s.add_argument("outcome", nargs="?")
+    s.add_argument("id", nargs="?", help="set: a row id, or the note a held draft lives in")
+    s.add_argument("outcome", nargs="?")
     s.add_argument("--kind", choices=reception.KINDS); s.add_argument("--what"); s.add_argument("--source")
     s.add_argument("--portrait", metavar="ID", help="the portrait line this offer served")
     s.add_argument("--at", metavar="'YYYY-MM-DD HH:MM'", help="add: when it was offered, for a row written after the fact")
