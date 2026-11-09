@@ -306,6 +306,9 @@ def build(config: Config, today: date) -> dict:
     owner_idea = {**asdict(idea), "source": source} if source is not None else None
     if owner_idea and config.edition == "enterprise":
         owner_idea["goal"] = None
+    # Every open idea, for the owner to read when they choose; Today still offers only the shown one, at its pace.
+    open_ideas = [{**asdict(item), "source": source, **({"goal": None} if config.edition == "enterprise" else {})}
+                  for item in ideas.items(config, today) if (source := _source(vault, item.source)) is not None]
     version = health.git(config.vault_path, "rev-parse", "--short", "HEAD")
     if version and health.git(config.vault_path, "--no-optional-locks", "status", "--porcelain"):
         version += "+dirty"
@@ -317,6 +320,7 @@ def build(config: Config, today: date) -> dict:
             "loops": _loops(vault, loops.open_loops(config)),
             "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
             "idea": owner_idea,
+            "ideas": open_ideas,
             "responsibilities": responsibility_entries,
             # an organisation's stage is the whole team's, so it shows what was stated and seen
             "portrait": [line.public() for line in portrait.shown(portrait.load(config))]

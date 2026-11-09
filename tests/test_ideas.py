@@ -98,7 +98,7 @@ def test_cooldown_uses_latest_idea_response_across_months(vault):
     assert ideas.shown(config, date(2026, 11, 4)).text == "Still open?"
 
 
-@pytest.mark.parametrize("age,days", [(5, 1), (100, 7)])
+@pytest.mark.parametrize("age,days", [(5, 1), (100, 1)])
 def test_add_spacing_and_duplicate_refusal(vault, monkeypatch, age, days):
     config = owner(vault, monkeypatch, age)
     ideas.add(config, TODAY, "Watch the inbox?", "agent/Channels", "Save the owner time.", "Gmail access")
@@ -246,10 +246,12 @@ def test_state_exports_one_idea_with_a_normalized_source_and_withholds_private_i
     config = Config.load(vault)
     result = state.build(config, TODAY)
     assert result["idea"] == asdict(ideas.shown(config, TODAY))
+    assert [idea["text"] for idea in result["ideas"]] == ["First?", "Second?"]
     assert result["needsYou"] == []
     ideas.respond(config, "First?", TODAY, "not-now")
     result = state.build(config, TODAY)
     assert result["idea"] is None
+    assert [idea["text"] for idea in result["ideas"]] == ["Second?"]   # snoozed, gone; the rest stay readable in cooldown
     assert state.build(config, TODAY + timedelta(days=1))["idea"]["text"] == "Second?"
     fm.write(vault / "Topic.md", {}, "# Topic")
     write_ideas(vault, bullet("Public?", source="memory/Topic#Part"))
@@ -259,6 +261,7 @@ def test_state_exports_one_idea_with_a_normalized_source_and_withholds_private_i
     assert result["idea"]["id"] == ideas.shown(config, later).id
     fm.write(vault / "Topic.md", {"tier": "private"}, "# Topic")
     assert state.build(config, later)["idea"] is None
+    assert state.build(config, later)["ideas"] == []
 
 
 def test_ideas_hygiene_checks_uncut_why_and_is_part_of_hygiene(vault):
@@ -309,3 +312,13 @@ def test_cli_shown_all_json_add_refusal_and_response(vault, capsys, monkeypatch)
 def test_cli_reports_invalid_options(vault, options, message):
     with pytest.raises(SystemExit, match=message):
         cli.main(["ideas", "--vault", str(vault), *options])
+
+
+def test_add_refuses_past_the_open_cap(vault, monkeypatch):
+    config = owner(vault, monkeypatch, 100)
+    for n in range(ideas.OPEN_MAX):
+        ideas.add(config, TODAY + timedelta(days=n), f"Idea number {n}?", "Topic")
+    with pytest.raises(ValueError, match="10 ideas are open"):
+        ideas.add(config, TODAY + timedelta(days=30), "One more?", "Topic")
+    ideas.respond(config, "Idea number 0?", TODAY + timedelta(days=30), "no")
+    ideas.add(config, TODAY + timedelta(days=30), "One more?", "Topic")
