@@ -1,7 +1,7 @@
 ---
 name: {prefix}setup
 description: Change routines, standing responsibilities and disclosure grants when the owner asks
-version: 1.3.0
+version: 1.4.0
 metadata:
   runtime:
     tags: [vault, setup]
@@ -9,7 +9,7 @@ metadata:
 ---
 # Setup
 
-Load this when {human_name} asks to add, change, pause or remove a routine; to take on standing work; or to grant or narrow what someone may learn or ask you to do. None of it happens from inside a routine, and none of it on your own initiative.
+Load this when {human_name} asks to add, change, pause or remove a routine; to take on standing work you offered (a first request that sounds ongoing, "keep an eye on X", is offered first, under recall, and nothing is built until they say yes); or to grant or narrow what someone may learn or ask you to do. None of it happens from inside a routine, and none of it on your own initiative.
 
 ## Routines
 The declared schedule is `{runtime_dir}/schedule.toml`, changed only with `brain schedule`. When {human_name} asks to change a routine, do it in this session: record the request in a dated note under `Conversations/`, use `brain schedule set <name> --cron "<five fields>" --skills <skill> --prompt "<instruction>"` (or `--every` or `--at`), `pause`, `resume` or `remove`, and read back `brain schedule list`. The runtime applies changes within a minute. Cron hours are {human_name}'s local hours (`brain timezone`); an hour is never translated into the host's zone. People runs before the morning briefing, and prime half an hour before it, so the briefing reads a fresh Primed; when the briefing hour moves, prime moves with it. Two things stay with {human_name} alone: the hour their briefing arrives, and any routine they asked for by name. The engine's own skills are re-rendered every hour; anything of this vault's own that belongs in one goes under a `## Local` heading at its end, which the render keeps.
