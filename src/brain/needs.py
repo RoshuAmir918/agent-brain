@@ -227,7 +227,8 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
                       archive_path(config, task.tid).relative_to(config.vault_path).as_posix())
             ask, why = _owner_lines(task.body)
             waiting.append((task.tid, Item("ask", ask or task.title, "task", task.last_evidence_date() or None, source,
-                                           detail=why, context=task.title if ask else "", label=task.title)))
+                                           detail=why, context=task.title if ask else "", label=task.title,
+                                           session=task.report or "")))
     out = [item for item in out if duplicates(item, waiting) is None] + [item for _, item in waiting]
     out.extend(_access_items(vault, config, today))
     owners = {task.tid: task.owner for task in tasks + archived if task.owner} if (config.vault_path / register).exists() else {}
@@ -378,7 +379,7 @@ def dismiss(config: Config, which: str, today: date, reason: str = "no", *, by: 
     if tid:
         try:
             if reason == "done":
-                task_mod.close(config, tid, today, True, "the owner said they did it, in their app")
+                task_mod.close(config, tid, today, True, "the owner said they did it, in their app", by_owner=True)
             else:
                 task_mod.set_aside(config, tid, today, "dismissed by the owner in their app")
         except ValueError:
@@ -393,19 +394,31 @@ def dismiss(config: Config, which: str, today: date, reason: str = "no", *, by: 
 
 
 def resolve(config: Config, which: str, because: str, today: date, *, record_answer: bool = True,
-            owner_engaged: bool = False, by: str | None = None) -> Item:
+            owner_engaged: bool = False, by: str | None = None, yours: str | None = None,
+            delivers: str | None = None, why: str | None = None) -> Item | task_mod.Task:
     """Remove one item from CURRENT's Needs you because something answered it, and record what did, in
     `<agent_dir>/Answered/YYYY-MM.md`. `which` is an item id from `brain needs-you --json`, or text that matches exactly
-    one open item. Tasks, proposals and access requests are resolved where they live, not here."""
-    because = " ".join(because.replace("|", "/").split())
+    one open item. A yours conversion also accepts a waiting task's ask; other computed items resolve where they live."""
+    answer = " ".join(because.split())
+    because = " ".join(because.replace("|", "/").split()) or (f"became owner work: {yours}" if yours else "")
     if not because:
         raise ValueError("say what answered it: --because \"<the evidence>\"")
     item = _pick(config, which, today, prefer_current=True)
+    if yours is not None and item.kind != "ask":
+        raise ValueError("--yours is only for an ask, not a confirm")
     if item.origin == "consult":
         raise ValueError("answer it with brain consult answer")
-    if item.origin != "current":
+    if item.origin != "current" and not (yours is not None and item.origin == "task"):
         where = {"task": "change the task's state", "access": "write or decline the grant (setup)"}[item.origin]
         raise ValueError(f"this item lives elsewhere: {where}")
+    child = None
+    if yours is not None:
+        source = f'Ask: "{item.text}"' + (f' Answer: "{answer}"' if answer else "")
+        values = {name: value for name, value in (("why", why if why is not None else item.detail),
+                                                  ("delivers", delivers)) if value}
+        # Keep the ask open until creation validates; blocking its parent would otherwise settle it before the hooks.
+        child = task_mod.new_task(config, yours, source, state="yours", values=values,
+                                  from_task=item.task, report=item.session, block_parent=False)
     _remove_bullet(config, item)
     answered(config, today, _answered_line(today, item, because))
     if item.kind == "ask":
@@ -414,6 +427,11 @@ def resolve(config: Config, which: str, because: str, today: date, *, record_ans
     if record_answer:
         from . import continuation
         continuation.answered(config, item.source, item.text, because, owner_engaged, by, kind=item.kind)
+    if child:
+        if item.task:
+            parent = task_mod.find(config, item.task, archived_closed=True)
+            task_mod.block_on_owner(config, parent, child, today)
+        return child
     return item
 
 

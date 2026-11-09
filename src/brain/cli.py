@@ -269,8 +269,14 @@ def in_conversation() -> bool:
 
 
 def cmd_needs_you(args):
-    if (args.source or args.why) and not (args.ask or args.confirm):
-        raise SystemExit("brain needs-you: --source and --why go with --ask or --confirm")
+    if args.source and not (args.ask or args.confirm):
+        raise SystemExit("brain needs-you: --source goes with --ask or --confirm")
+    if args.why and not (args.ask or args.confirm or args.yours is not None):
+        raise SystemExit("brain needs-you: --why goes with --ask, --confirm or --resolve --yours")
+    if args.yours is not None and not args.resolve:
+        raise SystemExit("brain needs-you: --yours goes with --resolve")
+    if args.delivers is not None and args.yours is None:
+        raise SystemExit("brain needs-you: --delivers goes with --resolve --yours")
     if args.because and not args.resolve:
         raise SystemExit("brain needs-you: --because goes with --resolve")
     if args.confirm:
@@ -296,16 +302,17 @@ def cmd_needs_you(args):
             print(f"{item.since} · {item.text} · {item.source}")
         return
     if args.resolve:
-        if not args.because:
+        if not args.because and args.yours is None:
             raise SystemExit("brain needs-you: --resolve needs --because \"<the evidence>\"")
         with vault_lock(args.config):
             try:
-                item = needs.resolve(args.config, args.resolve, args.because, args.config.today(),
-                                     owner_engaged=in_conversation(), by=speaker())
+                item = needs.resolve(args.config, args.resolve, args.because or "", args.config.today(),
+                                     owner_engaged=in_conversation(), by=speaker(), yours=args.yours,
+                                     delivers=args.delivers, why=args.why)
             except ValueError as error:
                 print(error, file=sys.stderr)
                 sys.exit(1)
-        print(f"resolved {item.kind}: {item.text}")
+        print(f"{item.tid} created: {item.title}" if isinstance(item, tasks_mod.Task) else f"resolved {item.kind}: {item.text}")
         return
     if args.dismiss:
         with vault_lock(args.config):
@@ -900,12 +907,16 @@ def cmd_task(args):
             if not args.source:
                 goals.guard(args.config, args.goal, "")
                 raise ValueError("task new needs --source")
-            if args.clear or args.title is not None or args.reviewed is not None or args.report is not None:
-                raise ValueError("--clear, --title, --reviewed and --report go with task T-nnn set")
+            if args.clear or args.title is not None or args.reviewed is not None:
+                raise ValueError("--clear, --title and --reviewed go with task T-nnn set")
+            if args.from_ is not None and not args.from_.strip():
+                raise ValueError("--from must name an existing task")
         elif args.action not in ("done", "drop", "yours", "set", "reopen", "view"):
             raise ValueError("task ACTION must be done, drop, yours, reopen, set or view")
         elif args.source is not None or args.json:
             raise ValueError("--source and --json go with task new")
+        elif args.from_ is not None:
+            raise ValueError("--from goes with task new")
         elif (args.left is not None or args.then) and args.action != "done":
             raise ValueError("--left and --then go with task T-nnn done")
         elif args.action != "set" and (set(values) - {"why"} or args.state is not None or args.clear
@@ -929,7 +940,8 @@ def cmd_task(args):
         with vault_lock(args.config):
             if args.tid == "new":
                 task = tasks_mod.new_task(args.config, args.action, args.source, state="ready" if args.state is None else args.state,
-                                          values=values, work=args.work, agent_delivers=not in_conversation(), said=args.said)
+                                          values=values, work=args.work, agent_delivers=not in_conversation(), said=args.said,
+                                          from_task=args.from_, report=args.report)
             elif args.action == "reopen":
                 task = tasks_mod.reopen(args.config, args.tid, args.config.today(), args.why)
             elif args.action in ("set", "yours"):
@@ -941,7 +953,8 @@ def cmd_task(args):
                                             agent_delivers=not in_conversation(), said=args.said)
             else:
                 task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
-                                       args.why or "the owner closed it in their app", args.left, args.then or ())
+                                       args.why or "the owner closed it in their app", args.left, args.then or (),
+                                       by_owner=args.by_owner)
             # A conversation's task edit is engagement; worker writes never are.
             if in_conversation():
                 from . import continuation
@@ -1650,11 +1663,13 @@ def main(argv=None):
     mode.add_argument("--resolve", metavar="ID_OR_TEXT", help="remove an answered item from CURRENT's Needs you and record the evidence")
     mode.add_argument("--dismiss", metavar="ID_OR_TEXT", help="the owner said no: drop the item, act on nothing, never raise it again")
     s.add_argument("--because", metavar="EVIDENCE", help="with --resolve: what answered it, in a sentence")
+    s.add_argument("--yours", metavar="TITLE", help="with --resolve: turn an answered ask into a task for the owner")
+    s.add_argument("--delivers", metavar="TEXT", help="with --resolve --yours: what counts as done")
     s.add_argument("--reason", choices=("no", "done", "stop-asking"), default="no",
                    help="with --dismiss: what the owner chose (no, done: they did it, stop-asking: no questions like it)")
     s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
     s.add_argument("--for", dest="for_", metavar="PERSON", help="list only what is for this person (<platform>:<id>): the asks of tasks they own")
-    s.add_argument("--why", metavar="TEXT", help="with --ask: why it needs the owner and what a yes or a no means, in plain words")
+    s.add_argument("--why", metavar="TEXT", help="with --ask or --resolve --yours: why it needs the owner, in plain words")
     s.set_defaults(fn=cmd_needs_you)
     s = sub.add_parser("loops", help="promises, answers owed and waits on others", parents=[vault])
     mode = s.add_mutually_exclusive_group()
@@ -1798,14 +1813,15 @@ def main(argv=None):
     s.add_argument("--left", metavar="TEXT", help="with done: what is not done, or only attempted")
     s.add_argument("--then", metavar="STAGE", action="append",
                    help=f"with done: a next stage the owner could start, as its title; up to {tasks_mod.MAX_THEN}")
-    s.add_argument("--report", metavar="WHERE", help="with set: where a handed-off task reports (demiurge:<conversation id>, or Home)")
+    s.add_argument("--report", metavar="WHERE", help="with new --state yours or set: origin conversation or where to report (demiurge:<id>, or Home)")
+    s.add_argument("--from", dest="from_", metavar="TID", help="with new: the existing task this work came from; defaults to the worker's task")
     s.add_argument("--reviewed", metavar="TEXT", help="with set: append a dated Reviewed line (the evening's decision and why)")
     s.add_argument("--source", help="with new: the owner's words or a note name")
     s.add_argument("--said", help="with --delivers: at least four exact words the owner said, checked against Source or recent conversations")
     s.add_argument("--work", metavar="SLUG", help="with new or set: Library work slug")
     s.add_argument("--json", action="store_true", help="with new: print {id, title}")
     s.add_argument("--by-owner", action="store_true",
-                   help="with done or drop: the owner's own Done or Drop in their app, the only close without --why")
+                   help="with done or drop: the owner's own close, including in conversation; allows closing while waiting on them")
     s.set_defaults(fn=cmd_task)
     s = sub.add_parser("completed", help="tasks completed recently, newest first, for the follow-on check", parents=[vault])
     s.add_argument("--days", type=int, default=7); s.add_argument("--json", action="store_true")

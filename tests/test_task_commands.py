@@ -133,7 +133,7 @@ def test_text_whose_dollar_amount_the_shell_expanded_is_refused(vault, capsys):
     assert "updated: ask" in cli(vault, capsys, "T-001", "set", "--ask", "12 months at $3,450, or 1,200 a month?")
 
 
-@pytest.mark.parametrize("flag", ["--title", "--report", "--reviewed"])
+@pytest.mark.parametrize("flag", ["--title", "--reviewed"])
 def test_task_new_refuses_set_only_flags(vault, capsys, flag):
     before = snapshot(vault)
     with pytest.raises(SystemExit):
