@@ -952,6 +952,15 @@ def cmd_task(args):
                                             reviewed=args.reviewed, report=args.report, title=args.title,
                                             agent_delivers=not in_conversation())
             else:
+                if args.action == "done" and not args.by_owner and not in_conversation():
+                    from . import continuation
+                    open_task = tasks_mod.find(args.config, args.tid, open_only=True)
+                    if open_task is not None and continuation.hold_finish_line(args.config, open_task):
+                        raise ValueError(
+                            f"{args.tid} is not done until {args.config.human_name} says so: its Delivers is your own "
+                            "proposal, and they have been asked what done looks like. Show them the result where the "
+                            f"task reports, then brain task {args.tid} set --state waiting_for_owner --ask \"<what you "
+                            "made, and whether that is done>\" --why \"…\"; it closes when they answer.")
                 task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
                                        args.why or "the owner closed it in their app", args.left, args.then or ())
             # A conversation's task edit is engagement; worker writes never are.

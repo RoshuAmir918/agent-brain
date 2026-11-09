@@ -196,6 +196,33 @@ def review_status(config: Config, tid: str) -> dict:
             "lastReview": row.get("last_review")}
 
 
+def _finish_ask_open(config: Config, task: tasks.Task) -> bool:
+    current = config.vault_path / "CURRENT.md"
+    return any(task.tid in item.source and item.text.startswith("What would done look like for ")
+               for item in (needs.open_asks(current.read_text(encoding="utf-8")) if current.exists() else []))
+
+
+def _ask_finish_line(config: Config, task: tasks.Task) -> None:
+    journal.add_ask(config, config.today(),
+                    f"What would done look like for {task.title}? Until you say, {config.agent_name} "
+                    f"works toward its own guess: {fm.cut(task.delivers, 20)}",
+                    config.agent(f"Tasks#{task.tid}"))
+    task.state["finish_asked"] = "pending"
+    tasks.save_task(config, task, config.today())
+
+
+def hold_finish_line(config: Config, task: tasks.Task) -> bool:
+    """Whether a worker must not close the task: its Delivers is only the agent's proposal and the owner has not answered
+    or dismissed what done looks like. Closing settles the task's asks, which would answer that question for them, so
+    the question is raised here if it was not yet; the caller holds the vault lock."""
+    if not task.handoff or not tasks.proposed_delivers(task) or task.state.get("finish_asked") == "answered":
+        return False
+    if "finish_asked" not in task.state:
+        _ask_finish_line(config, task)
+        return True
+    return _finish_ask_open(config, task)
+
+
 def finish_lines(config: Config) -> list[tasks.Task]:
     """Raise one task-sourced standing ask, even without a runtime, before scheduling either pace."""
     with vault_lock(config):
@@ -207,19 +234,12 @@ def finish_lines(config: Config) -> list[tasks.Task]:
             if tasks.proposed_delivers(task):
                 # The worker's own Delivers is a working proposal: the owner's answer still decides done. Once their
                 # ask is gone (answered or dismissed) nothing is raised again; until it is asked, it is asked once.
-                current = config.vault_path / "CURRENT.md"
-                asked = any(task.tid in item.source and item.text.startswith("What would done look like for ")
-                            for item in (needs.open_asks(current.read_text(encoding="utf-8")) if current.exists() else []))
+                asked = _finish_ask_open(config, task)
                 if task.state.get("finish_asked") == "pending" and not asked:
                     task.state["finish_asked"] = "answered"
                     tasks.save_task(config, task, config.today())
                 elif "finish_asked" not in task.state and not waiting:
-                    journal.add_ask(config, config.today(),
-                                    f"What would done look like for {task.title}? Until you say, {config.agent_name} "
-                                    f"works toward its own guess: {fm.cut(task.delivers, 20)}",
-                                    config.agent(f"Tasks#{task.tid}"))
-                    task.state["finish_asked"] = "pending"
-                    tasks.save_task(config, task, config.today())
+                    _ask_finish_line(config, task)
             elif (task.delivers or waiting) and task.state.get("finish_asked") == "pending":
                 # A task waiting on its owner already asks them one thing; the finish line waits until it moves again.
                 because = "the task now has a Delivers line" if task.delivers else "the task already waits on its owner"
