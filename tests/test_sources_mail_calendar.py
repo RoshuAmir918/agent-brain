@@ -81,17 +81,17 @@ def test_the_registry_declares_every_source_once_and_coverage_lists_an_editions_
     assert {"site", "reviews", "plans", "crm", "mail", "calendar", "imessage"} <= set(found)
     assert found["site"].extract is None and found["mail"].extract is not None and found["crm"].source.needs == "crm"
     personal = [source.id for source in sources.declared("personal")]
-    assert personal == ["mail", "calendar", "imessage"]
+    assert personal == ["mail", "calendar", "imessage", "chats"]
     org = sources.declared("enterprise")
     assert [source.id for source in org][:2] == ["site", "writing"] and next(s for s in org if s.id == "mail").where == "internal"
     data = coverage.coverage(Vault(vault), TODAY)
     assert [(s["source"], s["where"], s["needs"]) for s in data["sources"]] == [
-        ("mail", "own", "google"), ("calendar", "own", "google"), ("imessage", "own", "")]
+        ("mail", "own", "google"), ("calendar", "own", "google"), ("imessage", "own", ""), ("chats", "own", "")]
     with pytest.raises(SystemExit, match="the agent reads this one with its own tools"):
         cli.main(["source", "site", "extract", "--home", str(vault.parent / "home"), "--vault", str(vault)])
     cli.main(["source", "list", "--json", "--vault", str(vault)])
     listed = {entry["id"]: entry for entry in __import__("json").loads(capsys.readouterr().out)}
-    assert set(listed) == {"mail", "calendar", "imessage"}   # a person's brain lists a person's sources
+    assert set(listed) == {"mail", "calendar", "imessage", "chats"}   # a person's brain lists a person's sources
     assert listed["mail"]["needs"] == "google" and listed["mail"]["extracts"] is True
 
 

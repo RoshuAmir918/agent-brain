@@ -24,7 +24,7 @@ from .nightly import STAGES, preview, run
 from . import install
 from . import signals
 from . import coverage, record, routing, runtime, schedule, sessions
-from .sources import mail as mail_source, plans as plan_source, reviews as review_source
+from .sources import chats as chats_source, mail as mail_source, plans as plan_source, reviews as review_source
 
 
 # ---------- git
@@ -1194,9 +1194,10 @@ def cmd_tellable(args):
 
 
 def cmd_portrait(args):
-    if args.action != "seed" and (args.reviews or args.plans or args.account or args.days is not None or args.clear_backfill
-                                  or args.hand_off):
-        raise SystemExit("brain portrait: --reviews, --plans, --account, --days, --clear-backfill and --hand-off go with seed")
+    if args.action != "seed" and (args.reviews or args.plans or args.account or args.chats or args.days is not None
+                                  or args.clear_backfill or args.hand_off or args.clear):
+        raise SystemExit("brain portrait: --reviews, --plans, --account, --chats, --days, --clear-backfill, --hand-off and "
+                         "--clear go with seed")
     if args.action == "stamp":
         print(f"{image.stamp(args.config)} new line id(s)")
         return
@@ -1294,9 +1295,32 @@ def cmd_portrait(args):
             raise SystemExit("brain portrait seed: --hand-off and --clear-backfill are separate runs")
         if args.clear_backfill and not args.account:
             raise SystemExit("brain portrait seed: --clear-backfill requires --account ADDRESS|all")
-        if sum(bool(value) for value in (args.reviews, args.plans, args.account)) != 1:
+        if sum(bool(value) for value in (args.reviews, args.plans, args.account, args.chats)) != 1:
             raise SystemExit("brain portrait seed: one of --reviews DIR (merged PRs' review comments, for Taste) or "
-                             "--plans DIR (projects and the issues done on them, for After and Energy) or --account ADDRESS|all")
+                             "--plans DIR (projects and the issues done on them, for After and Energy) or --account ADDRESS|all "
+                             "or --chats FILE (what the owner asked ChatGPT or Claude)")
+        if args.clear and not args.chats:
+            raise SystemExit("brain portrait seed: --clear goes with --chats")
+        if args.chats:
+            if args.clear_backfill or args.days is not None or (args.hand_off and args.clear):
+                raise SystemExit("brain portrait seed --chats: --hand-off, --clear or neither")
+            path = Path(args.chats).expanduser()
+            try:
+                if args.hand_off:
+                    with vault_lock(args.config):
+                        data = seed.hand_off_chats(Vault(args.config.vault_path), path, args.config.today())
+                    print(json.dumps(data, ensure_ascii=False) if args.json else
+                          f"{data['account']}: {data['status']}" + (f" · {data['task']}" if data["task"] else ""))
+                elif args.clear:
+                    print(f"{path.name}: {'removed' if chats_source.clear(path) else 'already gone'}")
+                elif not path.is_file():
+                    raise SystemExit(f"brain portrait seed: no chat export at {path}")
+                else:
+                    data = chats_source.reading(path)
+                    print(json.dumps(data, ensure_ascii=False, indent=2) if args.json else chats_source.render(data))
+            except ValueError as error:
+                raise SystemExit(f"brain portrait seed: {error}")
+            return
         if args.account:
             if args.hand_off:
                 vault = Vault(args.config.vault_path)
@@ -1831,9 +1855,11 @@ def main(argv=None):
     s.add_argument("--reviews", metavar="DIR", help="seed: one file per merged PR with its review comments, for Taste")
     s.add_argument("--plans", metavar="DIR", help="seed: one file per project with the issues done on it, for After and Energy")
     s.add_argument("--account", metavar="ADDRESS|all", help="seed: the owner's synced mail and calendar")
+    s.add_argument("--chats", metavar="FILE", help="seed: a chat export the owner handed over, channels/chats/<chatgpt|claude>.jsonl")
+    s.add_argument("--clear", action="store_true", help="seed: with --chats, remove the export once its Seeds note is written")
     s.add_argument("--clear-backfill", action="store_true", help="seed: remove the account's backfill mail and calendar files")
     s.add_argument("--hand-off", action="store_true",
-                   help="seed: hand off one task that seeds this newly connected account, unless one has or is")
+                   help="seed: hand off one task that seeds this newly connected account or chat export, unless one is")
     s.add_argument("--days", type=int, help=f"seed: days back through today (default all synced for accounts, {routing.DAYS} for reviews, {plan_source.PLAN_DAYS} for plans)")
     s.add_argument("--top", type=int, metavar="N", help="only the top N After lines, with what each asks attention to watch")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_portrait)

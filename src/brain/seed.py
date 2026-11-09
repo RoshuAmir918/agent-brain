@@ -176,3 +176,23 @@ def hand_off_seed(vault, account: str, today: date) -> dict:
                 f"load the seed skill and run its personal pass for --account {account}"})
     tasks.hand_off(config, task.tid, today)
     return {"account": account, "task": task.tid, "status": "opened"}
+
+def hand_off_chats(vault, path, today: date) -> dict:
+    """A chat export the owner handed over gets one handed-off task that reads it. Unlike an account, a later export is
+    new evidence, so it opens a task again unless one is still reading. The caller holds the vault lock."""
+    from .sources import chats
+    config = vault.config
+    if config.edition != "personal":
+        raise ValueError("a chat export is a person's own; an organisation's brain does not read one")
+    name = chats.provider(path)
+    if not path.is_file():
+        raise ValueError(f"no chat export at {path}")
+    if open_task := _reading(config).get(name):
+        return {"account": name, "task": open_task, "status": "reading"}
+    label = chats.PROVIDERS[name]
+    task = tasks.new_task(config, f"Learn {config.human_name} from what they asked {label}", f"seed:{name}", values={
+        "delivers": f"the portrait and tellable facts from {config.human_name}'s {label} history, a Seeds note for it, "
+                    "and the reveal confirm",
+        "next": f"load the seed skill and run its chats pass for --chats {path}"})
+    tasks.hand_off(config, task.tid, today)
+    return {"account": name, "task": task.tid, "status": "opened"}
