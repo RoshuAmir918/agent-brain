@@ -191,9 +191,12 @@ def add(config: Config, today: date, text: str, source: str, why: str = "", need
         reception.record(config, "idea", text, source)
 
 
-def respond(config: Config, which: str, today: date, answer: str) -> Item:
+def respond(config: Config, which: str, today: date, answer: str, words: str = "") -> Item:
     if answer not in ANSWERS:
         raise ValueError(f"answer must be one of {', '.join(ANSWERS)}")
+    words = " ".join(words.replace('"', "'").split())
+    if words and answer != "yes":
+        raise ValueError("--source goes with --answer yes: the owner's words become the task's Source")
     with vault_lock(config):
         candidates = _open(config, today)
         chosen = [item for item in candidates if item.id == which]
@@ -211,7 +214,8 @@ def respond(config: Config, which: str, today: date, answer: str) -> Item:
             if item.needs:
                 body += f"- **Needs:** {item.needs}\n"
             reference = item.source if item.source.startswith('"') else f"[[{item.source}]]"
-            body += f"- **Source:** {reference}\n"
+            # The offer's terms are the agent's proposal: Source carries what the owner said, then where the idea came from.
+            body += f"- **Source:** " + (f'"{words}" · ' if words else "") + f"yes to an idea from {reference}\n"
             if item.goal:
                 body += f"- **Goal:** {item.goal}\n"
             task = tasks.Task(tid, item.text, tasks.with_handoff(body, today, "Home"), {"state": "ready"})

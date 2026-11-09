@@ -5,6 +5,7 @@ import argparse
 import importlib
 import json
 import os
+import re
 import subprocess
 import sys
 from contextlib import nullcontext
@@ -26,6 +27,8 @@ from . import signals
 from . import coverage, record, routing, runtime, schedule, sessions
 from .sources import chats as chats_source, mail as mail_source, plans as plan_source, reviews as review_source
 
+
+SHELL_EXPANDED = re.compile(r"(?:^|[\s(]),\d{3}\b")   # what "$3,450" leaves once the shell takes "$3"
 
 # ---------- git
 
@@ -652,8 +655,10 @@ def cmd_consult(args):
 
 def cmd_ideas(args):
     config, today = args.config, args.config.today()
-    if (args.source is not None or args.why is not None or args.needs is not None or args.goal is not None) and args.add is None:
-        raise SystemExit("brain ideas: --source, --why, --needs and --goal go with --add")
+    if (args.why is not None or args.needs is not None or args.goal is not None) and args.add is None:
+        raise SystemExit("brain ideas: --why, --needs and --goal go with --add")
+    if args.source is not None and args.add is None and args.respond is None:
+        raise SystemExit("brain ideas: --source goes with --add or --respond")
     if args.answer and args.respond is None:
         raise SystemExit("brain ideas: --answer goes with --respond")
     try:
@@ -667,7 +672,7 @@ def cmd_ideas(args):
         if args.respond is not None:
             if not args.answer:
                 raise ValueError("--respond needs --answer yes|not-now|no|stop-asking")
-            item = ideas.respond(config, args.respond, today, args.answer)
+            item = ideas.respond(config, args.respond, today, args.answer, args.source or "")
             print(f"{args.answer}: {item.text}")
             return
     except ValueError as error:
@@ -1734,7 +1739,8 @@ def main(argv=None):
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true"); mode.add_argument("--add", metavar="TEXT")
     mode.add_argument("--respond", metavar="ID_OR_TEXT")
-    s.add_argument("--source", metavar="NOTE"); s.add_argument("--why", metavar="TEXT")
+    s.add_argument("--source", metavar="NOTE", help="with --add: the note it comes from; with --respond yes: the owner's own words")
+    s.add_argument("--why", metavar="TEXT")
     s.add_argument("--needs", metavar="TEXT"); s.add_argument("--answer", choices=ideas.ANSWERS)
     s.add_argument("--goal", metavar="G-n")
     s.set_defaults(fn=cmd_ideas)
@@ -1896,6 +1902,12 @@ def main(argv=None):
     s = sub.add_parser("paths", parents=[vault])
     s.add_argument("path", choices=("soul", "skills", "scripts", "records", "vault", "repo", "agent", "python", "schedule")); s.set_defaults(fn=cmd_paths)
     a = ap.parse_args(argv)
+    # Inside double quotes the shell expands "$3,450" to ",450" before brain sees it; refuse rather than save a lost amount.
+    for value in vars(a).values():
+        for text in value if isinstance(value, list) else [value]:
+            if isinstance(text, str) and (lost := SHELL_EXPANDED.search(text)):
+                ap.error(f"{lost[0].strip()!r} looks like an amount whose $ the shell expanded away; "
+                         "pass the text in single quotes, or write \\$, so the $ survives")
     if a.cmd == "channels" and a.action == "mail" and not a.since:
         ap.error("channels mail requires --since")
     try:

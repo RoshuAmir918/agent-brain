@@ -149,14 +149,19 @@ def test_yes_creates_ready_handoff_using_ids_from_closed_archives(vault):
     assert task.handoff == ("2026-11-03", "Home")
     assert due(load_tasks(config)[0]) == []   # the accepted offer still needs a Delivers line
     assert "- **Status:** A useful result." in task.body
-    assert "- **Needs:** Gmail access" in task.body and "- **Source:** [[Topic]]" in task.body
+    assert "- **Needs:** Gmail access" in task.body and "- **Source:** yes to an idea from [[Topic]]" in task.body
     assert "Gmail access" not in path.read_text()
     assert "Keep its explanation." in path.read_text()
     assert "· idea · Want me to watch your inbox? · yes · T-042" in (vault / "agent/Answered/2026-11.md").read_text()
     assert task.state["uses"] == "2026-11-03"
     write_ideas(vault, bullet("No reason given?", why=""))
-    ideas.respond(config, "No reason given?", TODAY, "yes")
-    assert "**Status:**" not in [task for task in load_tasks(config)[0] if task.tid == "T-043"][0].body
+    ideas.respond(config, "No reason given?", TODAY, "yes", 'sure, "go ahead"')
+    task, = [task for task in load_tasks(config)[0] if task.tid == "T-043"]
+    assert "**Status:**" not in task.body
+    assert "- **Source:** \"sure, 'go ahead'\" · yes to an idea from [[Topic]]" in task.body
+    write_ideas(vault, bullet("Declined?"))
+    with pytest.raises(ValueError, match="goes with --answer yes"):
+        ideas.respond(config, "Declined?", TODAY, "no", "no thanks")
 
 
 def test_not_now_snoozes_fourteen_days_and_remains_reachable(vault):
@@ -297,7 +302,7 @@ def test_cli_shown_all_json_add_refusal_and_response(vault, capsys, monkeypatch)
     assert "Watch the inbox?" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("options,message", [(["--source", "Topic"], "go with --add"),
+@pytest.mark.parametrize("options,message", [(["--source", "Topic"], "goes with --add or --respond"),
                                             (["--add", "Idea?"], "needs --source"),
                                             (["--respond", "Idea?"], "needs --answer"),
                                             (["--answer", "no"], "goes with --respond")])
