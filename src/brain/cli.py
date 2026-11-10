@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import access, attribute, compile_context, consults, digest, evidence, fm, health, identity, ideas, image, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
 from . import tasks as tasks_mod
-from . import goals
+from . import goals, roles
 from .tasks import load_tasks, quiet
 from .vault import Vault
 from .config import FORMS, SECTIONS, Config
@@ -36,7 +36,7 @@ def sh(repo: Path, *args: str) -> str:
     return subprocess.check_output(["git", "-C", str(repo), *args], text=True).strip()
 
 
-def commit(root: Path, message: str, paths: list[str] | None = None) -> str:
+def commit(root: Path, message: str, paths: list[str] | None = None, *, locked: bool = False) -> str:
     """Stage and commit under the repository lock: the given paths, or else the agent's notes and session context.
     Only those paths are committed; anything else already staged stays staged. Returns the short SHA, or '' when there
     was nothing to commit."""
@@ -48,27 +48,63 @@ def commit(root: Path, message: str, paths: list[str] | None = None) -> str:
         tree = root.relative_to(repo).as_posix()
         context = [".context.md"] if (repo / ".context.md").exists() else []   # a fresh vault has none until compiled
         spec = [tree, f":(exclude){tree}/.brain", *context]
-    with repo_lock(config):
+    with nullcontext() if locked else repo_lock(config):   # locked: the caller holds the repository lock
         sh(repo, "add", "-A", "--", *spec)
         staged = [name for name in sh(repo, "diff", "--cached", "--name-only", "--no-renames", "-z", "--", *spec).split("\0") if name]
         if not staged:
             return ""
         # The staged names, not the spec: a pathspec git does not know (an empty folder) would fail the commit.
-        sh(repo, "commit", "-q", "-m", message, "--", *(f":(literal){name}" for name in staged))
+        author = ("-c", f"user.email={config.agent_email}", "-c", f"user.name={config.agent_name}") if config.agent_email else ()
+        sh(repo, *author, "commit", "-q", "-m", message, "--", *(f":(literal){name}" for name in staged))
         return sh(repo, "rev-parse", "--short", "HEAD")
 
 
+def kept_path(config: Config) -> Path:
+    """Where a pull records each file whose clash it settled for the pushed side; never committed."""
+    return roles.scratch(config) / "kept.jsonl"
+
+
+def _rebasing(repo: Path) -> bool:
+    return any(Path(sh(repo, "rev-parse", "--path-format=absolute", "--git-path", name)).exists()
+               for name in ("rebase-merge", "rebase-apply"))
+
+
 def _pull(repo: Path, suffix: str = "") -> None:
-    """Pull with rebase; caller holds the repository lock. Only a rebase that stopped is a conflict, and it is aborted;
-    anything else (no credentials, no network) is git's own error, already printed, and is said as such."""
+    """Pull with rebase; caller holds the repository lock. On a conflict the pulled side wins: what was pushed is a
+    person's edit (the agent pushes only from here), and a person's edit is never overwritten. The agent's side of each
+    clashing hunk is dropped and recorded, so nothing is lost. Anything else (no credentials, no network) is git's own
+    error, already printed, and is said as such."""
     try:
         sh(repo, "pull", "--rebase", "--autostash", "-q", "origin", "main")
+        return
     except subprocess.CalledProcessError:
-        if any(Path(sh(repo, "rev-parse", "--path-format=absolute", "--git-path", name)).exists()
-               for name in ("rebase-merge", "rebase-apply")):
+        if not _rebasing(repo):
+            sys.exit(f"pull failed (git's error is above: credentials or network, not a conflict){suffix}")
+        subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
+    # Every file both sides changed, each with the agent's last commit to it: where they clashed, that is what is dropped.
+    # Every file any local commit touched (a change and its undo can still clash), each with the agent's last commit
+    # to it; matched after the retry against everything it pulled, which may be more than the first attempt saw.
+    base = sh(repo, "merge-base", "HEAD", "FETCH_HEAD")
+    mine = {name: sh(repo, "log", "-1", "--abbrev=12", "--format=%h", f"{base}..HEAD", "--", name)
+            for name in set(sh(repo, "log", "--format=", "--name-only", f"{base}..HEAD").splitlines()) if name}
+    try:
+        # During a rebase "ours" is the branch being rebased onto: the pulled commits.
+        sh(repo, "pull", "--rebase", "--autostash", "-q", "-X", "ours", "origin", "main")
+    except subprocess.CalledProcessError:
+        if _rebasing(repo):
             subprocess.run(["git", "-C", str(repo), "rebase", "--abort"], capture_output=True)
-            sys.exit(f"pull --rebase conflicted; resolve it by hand{suffix}")
-        sys.exit(f"pull failed (git's error is above: credentials or network, not a conflict){suffix}")
+        sys.exit(f"pull --rebase conflicted even keeping the pulled side; resolve it by hand{suffix}")
+    theirs = set(sh(repo, "log", "--format=", "--name-only", f"{base}..FETCH_HEAD").splitlines())
+    clashed = {name: sha for name, sha in mine.items() if name in theirs}
+    if not clashed:
+        return
+    record = kept_path(Config.load(repo))
+    record.parent.mkdir(parents=True, exist_ok=True)
+    with record.open("a", encoding="utf-8") as stream:
+        for name, sha in sorted(clashed.items()):
+            stream.write(json.dumps({"at": date.today().isoformat(), "file": name, "agent": sha}) + "\n")
+    print(f"pull: kept the pushed edit over the agent's in {', '.join(sorted(clashed))}; the agent's versions: "
+          + ", ".join(f"{name} in {sha}" for name, sha in sorted(clashed.items())), file=sys.stderr)
 
 
 def push(root: Path) -> None:
@@ -819,6 +855,71 @@ def cmd_channels(args):
               + (f" · write: {row.write}" if row.write else ""))
     if not rows:
         print("no channels registered")
+
+
+def cmd_roles(args):
+    """`brain roles`: the organisation's roles, their templates and what each has learned (docs/roles.md)."""
+    config, action = args.config, args.roles_cmd or "list"
+    try:
+        if action == "list":
+            for name in roles.names(config):
+                index = roles.read_index(config, name)
+                print(f"{name} · {roles.load(config, name).template} · {len(index.lessons)} lines · {len(index.struck)} struck")
+            for problem in roles.problems(config):
+                print(f"problem: {problem}", file=sys.stderr)
+        elif action == "add":
+            with vault_lock(config):
+                written = roles.add(config, args.name, args.template)
+            for path in written:
+                print(path.relative_to(config.vault_path).as_posix())
+        elif action == "rebuild":
+            for name in [args.name] if args.name else roles.names(config):
+                # Under both locks, so a pull can't land a person's edit between reading a note and tagging it; and
+                # committed at once, so the ids are history before the rebuild reads blame.
+                with repo_lock(config), vault_lock(config):
+                    tagged = roles.assign_ids(config, name)
+                    if tagged:
+                        commit(config.vault_path, f"{roles.IDS_COMMIT} ({name})",
+                               [str(config.vault_path / rel) for rel in tagged], locked=True)
+                index = roles.rebuild(config, name)
+                print(f"{name}: {len(index.lessons)} lines, {sum(l.human for l in index.lessons)} by people, "
+                      f"{len(index.struck)} struck" + (f", {len(tagged)} note(s) given ids" if tagged else ""))
+                for problem in index.problems:
+                    print(f"problem: {problem}", file=sys.stderr)
+        elif action == "show":
+            index = roles.read_index(config, args.name)
+            if args.json:
+                print(json.dumps(asdict(index), ensure_ascii=False, indent=2))
+            else:
+                for lesson in index.lessons:
+                    print(f"^{lesson.id} · {lesson.status} · {'person' if lesson.human else 'learned'} · {lesson.note} · "
+                          f"{fm.cut(lesson.text, 20)}")
+                for entry in index.struck:
+                    print(f"^{entry.id} · struck ({entry.how}) by {entry.by} on {entry.at} · {fm.cut(entry.text, 20)}")
+        elif action == "may-learn":
+            reason = roles.refusal(roles.read_index(config, args.name), args.claim, args.evidence)
+            if reason:
+                sys.exit(f"refused: {reason}")
+            print("ok")
+        elif action == "template":
+            if args.op == "check":
+                with vault_lock(config):
+                    found = roles.template_check(config)
+                for name, path in found:
+                    print(f"{name}: proposed {path.relative_to(config.vault_path).as_posix()}")
+                if not found:
+                    print("every role's template is current")
+            elif not args.name:
+                sys.exit(f"name the role: brain roles template {args.op} NAME")
+            elif args.op == "accept":
+                with vault_lock(config):
+                    print(f"merged into {roles.template_accept(config, args.name).relative_to(config.vault_path)}")
+            else:
+                with vault_lock(config):
+                    roles.template_decline(config, args.name)
+                print(f"kept {args.name}'s template as it is")
+    except ValueError as error:
+        sys.exit(str(error))
 
 
 def cmd_goals(args):
@@ -1784,6 +1885,23 @@ def main(argv=None):
     s.add_argument("--needs", metavar="TEXT"); s.add_argument("--answer", choices=ideas.ANSWERS)
     s.add_argument("--goal", metavar="G-n")
     s.set_defaults(fn=cmd_ideas)
+    s = sub.add_parser("roles", help="roles: templates and what each has learned (enterprise)", parents=[vault])
+    s.set_defaults(fn=cmd_roles, roles_cmd=None)
+    actions = s.add_subparsers(dest="roles_cmd")
+    for action in ("list", "add", "rebuild", "show", "may-learn", "template"):
+        p = actions.add_parser(action); p.set_defaults(fn=cmd_roles)
+        p.add_argument("--vault", default=argparse.SUPPRESS)
+        if action == "add":
+            p.add_argument("name"); p.add_argument("--template", required=True, choices=roles.shipped())
+        elif action == "rebuild":
+            p.add_argument("name", nargs="?")
+        elif action == "show":
+            p.add_argument("name"); p.add_argument("--json", action="store_true")
+        elif action == "may-learn":
+            p.add_argument("name"); p.add_argument("--claim", required=True)
+            p.add_argument("--evidence", required=True, metavar="YYYY-MM-DD", help="the date of the newest evidence for it")
+        elif action == "template":
+            p.add_argument("op", choices=["check", "accept", "decline"]); p.add_argument("name", nargs="?")
     s = sub.add_parser("goals", help="the person's goals; only this command writes goal blocks", parents=[vault])
     s.add_argument("which", help="new, list, show, activity, due, refused, or G-n")
     s.add_argument("action", nargs="?", help="title with new; id with show; operation with G-n")

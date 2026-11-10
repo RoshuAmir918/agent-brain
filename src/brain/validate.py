@@ -6,7 +6,7 @@ import re
 from datetime import date, datetime, timedelta
 from importlib.resources import files
 
-from . import access, fm, owners, responsibilities as responsibility_ids, works
+from . import access, fm, owners, roles, responsibilities as responsibility_ids, works
 from .identity import profile_ids, profiles
 from .vault import Vault
 from .tasks import TASK_STATES, parse_archive, parse_register
@@ -242,7 +242,7 @@ def responsibilities(vault: Vault) -> list[str]:
     return problems
 
 
-KINDS = ("hub", "profile", "group", "episode", "reflection", "task", "trigger", "log", "dream", "orientation", "primed",
+KINDS = ("hub", "role", "profile", "group", "episode", "reflection", "task", "trigger", "log", "dream", "orientation", "primed",
          "draft", "conversation", "procedure")
 
 
@@ -310,7 +310,24 @@ def hygiene(vault: Vault) -> list[str]:
             + needs_ceiling(vault) + needs_hygiene(vault) + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
             + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault)
-            + trigger_dates(vault) + owners.problems(vault.config) + tellable_hygiene(vault) + owner_facing_tasks(vault))
+            + trigger_dates(vault) + owners.problems(vault.config) + tellable_hygiene(vault) + owner_facing_tasks(vault)
+            + roles.problems(vault.config) + kept_edits(vault))
+
+
+def kept_edits(vault: Vault) -> list[str]:
+    """A week of pulls that kept a person's edit over a clashing change of the agent's, so the dropped change is seen."""
+    path = vault.config.vault_path / ".brain" / "kept.jsonl"
+    floor = (vault.config.today() - timedelta(days=7)).isoformat()
+    out = []
+    for raw in path.read_text(encoding="utf-8").splitlines() if path.is_file() else []:
+        try:
+            entry = json.loads(raw)
+        except ValueError:
+            continue
+        if entry.get("at", "") >= floor:
+            out.append(f"{entry['file']}: a pull on {entry['at']} changed it on both sides and kept the pushed edit where they clashed; "
+                       f"see it with `git show {entry['agent']} -- {entry['file']}` and redo what still applies")
+    return out
 
 
 def trigger_dates(vault: Vault) -> list[str]:

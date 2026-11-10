@@ -108,6 +108,7 @@ class Config:
     timezone: str = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest day boundaries and health dates
     update_source: str = "git+https://github.com/RoshuAmir918/agent-brain"   # empty string disables brain update
     edition: str = "personal"
+    agent_email: str = ""   # the author of the agent's own commits; any other author is a person, whose edit outranks it
     _vault_path: Path | None = None
 
     @classmethod
@@ -146,7 +147,7 @@ class Config:
                 if name == "log_dirs" and any(Path(item).is_absolute() or ".." in Path(item).parts for item in value):
                     raise ValueError("brain.log_dirs must be relative paths without '..'")
                 continue
-            if not isinstance(value, str) or (not value and name not in ("skill_prefix", "update_source")):
+            if not isinstance(value, str) or (not value and name not in ("skill_prefix", "update_source", "agent_email")):
                 raise ValueError(f"brain.{name} must be a nonempty string")
             if name.endswith("_dir") or name in ("vault", "human_profile"):
                 path = Path(value)

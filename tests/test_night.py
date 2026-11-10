@@ -252,9 +252,8 @@ def test_use_log_ignores_junk_ineligible_rows_and_preserves_inferred_uses(repo):
     assert load_tasks(Config.load(root))[0][0].uses == ["2026-10-06", DAY, "2026-10-01"]
 
 
-def test_push_conflict_exits_without_pushing_or_leaving_rebase(night_vault, tmp_path):
+def test_a_push_conflict_keeps_the_pushed_edit_and_still_pushes_the_night(night_vault, tmp_path):
     root, remote = night_vault
-    base = git(remote, "rev-parse", "main")
     other = tmp_path / "other"
     git(tmp_path, "clone", str(remote), str(other))
     git(other, "config", "user.email", "other@example.invalid")
@@ -268,17 +267,13 @@ def test_push_conflict_exits_without_pushing_or_leaving_rebase(night_vault, tmp_
     remote_tip = git(remote, "rev-parse", "main")
 
     result = cli(root, "--write", "--commit", "--push")
-    assert result.returncode != 0
-    assert "pull --rebase conflicted" in result.stderr
-    assert "nothing was pushed" in result.stderr
-    assert git(remote, "rev-parse", "main") == remote_tip
-    assert git(root.parent, "rev-parse", "HEAD^") == base
-    assert git(root.parent, "rev-parse", "HEAD") != remote_tip
-    assert "ship the complete fixture" in (root / "agent/Tasks.md").read_text()
+    assert result.returncode == 0, result.stderr
+    assert "kept the pushed edit over the agent's in memory/agent/Tasks.md" in result.stderr
+    assert git(remote, "rev-parse", "main^") == remote_tip   # the night went on top of the person's commit
+    assert "REMOTE_CONFLICTING_ACTION" in (root / "agent/Tasks.md").read_text()
     git_dir = Path(git(root.parent, "rev-parse", "--absolute-git-dir"))
     assert not (git_dir / "rebase-merge").exists()
     assert not (git_dir / "rebase-apply").exists()
-    assert not (git_dir / "REBASE_HEAD").exists()
     assert git(root.parent, "status", "--porcelain") == ""
 
 
