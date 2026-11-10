@@ -14,6 +14,7 @@ skill_prefix = "brain-"
 timezone = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest days and health dates
 update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables the nightly auto-update
 edition = "personal"                 # "enterprise": an organisation's intellect; no owner profile, goals, people or morning briefing
+agent_email = ""                     # the author of the agent's commits; "" uses the repository's user.email. Any other author is a person
 
 [context]   # each key also has a BRAIN_* environment override; see docs/engine.md
 hot_words = 6000   # BRAIN_HOT_WORDS: budget in note-body words for the directory's most active notes
