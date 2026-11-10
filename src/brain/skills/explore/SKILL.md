@@ -1,7 +1,7 @@
 ---
 name: {prefix}explore
 description: Do one thing for {human_name}, or nothing
-version: 4.2.0
+version: 4.3.0
 metadata:
   runtime:
     tags: [routine, day, research]
@@ -38,5 +38,6 @@ A person, interest or occasion with none of these is not a reason; never invent 
 7. **Gestures are rarer still.** A made thing delivered unasked, rather than held, passes three tests first: a fresh occasion within two days; a form unlike every gesture in the last two months of the explore ledger (not another page because the last one was a page); and nothing else from this routine has gone out today. Never more than one in a week. That cap limits a bad week; it is not a quota, and a month with none is ordinary.
 8. **Record.** Overwrite `$AGENT_HOME/records/explore/state.json` with the thread in progress and `weighed`: the three or more candidates, each `{"what", "reason", "found", "lost_because"}` (`lost_because` empty on the one chosen). Write no ledger row yourself: the engine records one row for this run from the transcript when it ends (`{agent_dir}/Explore/YYYY-MM.md`), so before your final response write the choice as one working sentence, naming the reason and the class (`work`, `people` or `occasion`) and, for nothing, the three candidates and why each lost. That sentence is the record, not a message: the final response stays `[SILENT]` unless step 6 or 7 sends something. Every thing made or found that will reach {human_name} (held and listed in Primed, messaged, or delivered) is also one reception row, `brain reception add --kind draft|message|gesture|work --what "<what it is>" --source <its note> [--portrait <id>]`, the portrait id being the After line that names its goal, so how it lands is recorded and teaches the next choice.
 
+{owner_messages}
 ## Boundaries
 {human_name}'s channels are a source of candidates, never a report: no digest of their inbox, no "here is what came in", nothing copied into the vault beyond a surprise-gated fact with a pointer; what a channel yields is a thing done or held, judged by whether they would be glad of it. Reading is what the registry row allows; writing in their name is outward action and waits for Standing state. No sends to anyone but {human_name} (answering whoever wrote to you is watch's); a thing prepared for a friend's visit is for {human_name}, not for the friend, unless Standing state in `{agent_dir}/Tasks.md` records {human_name}'s permission for that person. No spending, sign-ups, new accounts or credentials. No edits to `{sources_dir}/`, SOUL, skills, Triggers' rules or the Memory Spec. Never invent a finding or manufacture an occasion to have something to report. Do not re-ask a question {human_name} has not answered. A goal is a reason to prepare, never to remind, schedule or raise it uninvited.
