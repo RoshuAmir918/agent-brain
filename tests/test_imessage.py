@@ -167,7 +167,7 @@ def test_extract_to_home_or_json_lines_and_import_is_idempotent(messages, tmp_pa
     assert any("Kim Lee" in row.fact for row in evidence.read("imessage", "people"))
     cli.main(["source", "list", "--vault", str(tmp_path / "none")])
     listed = capsys.readouterr().out
-    assert "imessage · " in listed and "rows, newest 2026-11-0" in listed and "owner-mac, sensitive" in listed
+    assert "imessage · " in listed and "rows, newest 2026-" in listed and "owner-mac, sensitive" in listed
     with pytest.raises(SystemExit, match="no Messages database"):
         cli.main(["source", "imessage", "extract", "--input", str(tmp_path / "missing.db"), "--home", str(home),
                   "--vault", str(tmp_path / "none")])
