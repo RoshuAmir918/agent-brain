@@ -3,6 +3,7 @@
 history a consult seeder imports, and what reception counts as a review (docs/image.md section 3)."""
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -12,7 +13,7 @@ from pathlib import Path
 from .. import fm, routing, tasks
 from ..routing import DAYS, Row
 from ..evidence import Evidence
-from . import Context, Nothing, Source, globbed
+from . import Context, Exchange, Nothing, Said, Source, globbed
 
 SOURCE = Source(id="reviews", editions=("enterprise",), runs="runtime", where="internal", rank=8, needs="github", files=("reviews/*.md",),
                 facets=("engineering",), about="merged pull requests and the corrections reviews keep making")
@@ -203,3 +204,34 @@ def extract(ctx: Context) -> list[Evidence]:
     if not found:
         raise Nothing("no review files")
     return rows(found)
+
+
+def exchanges(ctx: Context) -> list[Exchange]:
+    """Each merged PR in the synced review files since `ctx.since`, with every comment on it in order, its author's
+    replies included: what a role screens. A file that can't be read is skipped; validation names it."""
+    from .. import runtime
+    out = []
+    home = runtime.configured()
+    root = home / "channels" if home else None
+    for path in sorted(root.glob("*/reviews/*.md")) if root and root.is_dir() else []:
+        try:
+            data, body = fm.read(path)
+            number, merged = int(data["pr"]), str(data["merged"])
+            date.fromisoformat(merged)
+        except (KeyError, TypeError, ValueError, fm.Malformed):
+            continue
+        if ctx.since and merged < ctx.since.isoformat() or merged > ctx.today.isoformat():
+            continue
+        said, keys = [], set()
+        for n, match in enumerate(filter(None, map(COMMENT.match, body.splitlines()))):
+            at, by, where, text = match["at"], match["by"].strip(), match["path"].strip(), match["text"]
+            key = hashlib.sha256(f"{at}|{by}|{where}|{text}".encode()).hexdigest()[:10]
+            while key in keys:   # the same words twice, by the same person, the same day
+                key += "x"
+            keys.add(key)
+            said.append(Said(n, at, by, text, where, key))
+        if said:
+            repo = path.parent.parent.name
+            out.append(Exchange(f"reviews:{repo}#{number}", str(data.get("title", "")), str(data.get("author", "")),
+                                "merged", tuple(said), str(data.get("url", "")), merged))
+    return out

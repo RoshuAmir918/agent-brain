@@ -1,5 +1,6 @@
 """The source registry (docs/image.md section 3): one module per kind of raw input, each turning it into evidence.
-A module declares `SOURCE` and `extract(ctx) -> list[Evidence]`; adding a source is adding a module, nothing else."""
+A module declares `SOURCE` and `extract(ctx) -> list[Evidence]`, and, when roles study it, `exchanges(ctx) ->
+list[Exchange]`; adding a source is adding a module, nothing else."""
 from __future__ import annotations
 
 import importlib
@@ -49,9 +50,34 @@ class Context:
 
 
 @dataclass(frozen=True)
+class Said:
+    """One thing someone said within an exchange, in order."""
+    n: int
+    at: str   # YYYY-MM-DD
+    by: str   # the speaker's handle on the source, such as a GitHub login
+    text: str
+    where: str = ""   # a file, a line, a channel: what it was said on
+    key: str = ""   # stable whatever is said before or after it: a label stays on what it labels
+
+
+@dataclass(frozen=True)
+class Exchange:
+    """A whole exchange a role studies (docs/roles.md section 7, Evidence): what was proposed and everything said about
+    it, so a terse ruling is read with what it answered. Captured as read, so a later edit upstream changes nothing."""
+    id: str   # stable across reads: `<source>:<id on the source>`
+    title: str
+    author: str   # who proposed the work
+    outcome: str   # what became of it: merged, closed, open, answered
+    items: tuple[Said, ...]
+    link: str = ""
+    at: str = ""   # YYYY-MM-DD it concluded (merged, closed), which decides whether it is new
+
+
+@dataclass(frozen=True)
 class Registered:
     source: Source
     extract: Callable[[Context], list] | None   # None for a source the agent reads with its own tools and skill
+    exchanges: Callable[[Context], list[Exchange]] | None = None   # what a role screens and studies, when it has any
 
 
 def registry() -> dict[str, Registered]:
@@ -65,7 +91,8 @@ def registry() -> dict[str, Registered]:
         for source in (*declared, *([single] if isinstance(single, Source) else [])):
             if source.id in found:
                 raise ValueError(f"source {source.id!r} is declared twice")
-            found[source.id] = Registered(source, getattr(module, "extract", None) if source is single else None)
+            found[source.id] = Registered(source, getattr(module, "extract", None) if source is single else None,
+                                          getattr(module, "exchanges", None) if source is single else None)
     return dict(sorted(found.items()))
 
 

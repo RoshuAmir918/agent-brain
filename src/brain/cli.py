@@ -901,6 +901,28 @@ def cmd_roles(args):
             if reason:
                 sys.exit(f"refused: {reason}")
             print("ok")
+        elif action == "screen":
+            from . import screen
+            if args.op == "next":
+                since = date.fromisoformat(args.since) if args.since else None
+                print(json.dumps(screen.requests(config, args.name, since, args.limit), ensure_ascii=False))
+            elif args.op == "record":
+                answered = json.loads(sys.stdin.read() or "[]")
+                if not isinstance(answered, list):
+                    sys.exit("record takes a JSON list of answers on stdin")
+                print(f"{screen.record(config, args.name, answered)} item(s) labelled")
+            else:
+                if not args.sample:
+                    sys.exit("calibrate takes --sample FILE (JSON lines: id, kind, kept)")
+                sample = [json.loads(line) for line in Path(args.sample).read_text(encoding="utf-8").splitlines() if line.strip()]
+                print(json.dumps(screen.calibrate(config, args.name, sample)))
+        elif action == "study":
+            from . import screen
+            if args.op == "next":
+                text = screen.next_digest(config, args.name, args.limit)
+                print(text or "nothing new to study")
+            else:
+                print(f"{screen.done(config, args.name)} item(s) marked studied")
         elif action == "template":
             if args.op == "check":
                 with vault_lock(config):
@@ -1888,7 +1910,7 @@ def main(argv=None):
     s = sub.add_parser("roles", help="roles: templates and what each has learned (enterprise)", parents=[vault])
     s.set_defaults(fn=cmd_roles, roles_cmd=None)
     actions = s.add_subparsers(dest="roles_cmd")
-    for action in ("list", "add", "rebuild", "show", "may-learn", "template"):
+    for action in ("list", "add", "rebuild", "show", "may-learn", "template", "screen", "study"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_roles)
         p.add_argument("--vault", default=argparse.SUPPRESS)
         if action == "add":
@@ -1902,6 +1924,14 @@ def main(argv=None):
             p.add_argument("--evidence", required=True, metavar="YYYY-MM-DD", help="the date of the newest evidence for it")
         elif action == "template":
             p.add_argument("op", choices=["check", "accept", "decline"]); p.add_argument("name", nargs="?")
+        elif action == "screen":
+            p.add_argument("name"); p.add_argument("op", choices=["next", "record", "calibrate"])
+            p.add_argument("--since", metavar="YYYY-MM-DD", help="next: how far back to read (default 30 days)")
+            p.add_argument("--limit", type=int, default=20, help="next: exchanges per batch")
+            p.add_argument("--sample", help="calibrate: labelled items as JSON lines")
+        elif action == "study":
+            p.add_argument("name"); p.add_argument("op", choices=["next", "done"])
+            p.add_argument("--limit", type=int, default=40, help="next: exchanges to show")
     s = sub.add_parser("goals", help="the person's goals; only this command writes goal blocks", parents=[vault])
     s.add_argument("which", help="new, list, show, activity, due, refused, or G-n")
     s.add_argument("action", nargs="?", help="title with new; id with show; operation with G-n")

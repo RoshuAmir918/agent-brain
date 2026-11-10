@@ -33,6 +33,9 @@ class Routine:
     owner: bool = False
     responsibility: str | None = None
     needs: list[str] = field(default_factory=list)
+    # A brain command group the runtime runs a classifier over: `<group> next` prints requests, `<group> record` takes
+    # the answers on stdin (screen.py). No model run of its own, so it pairs with agent = false.
+    classify: list[str] = field(default_factory=list)
 
 
 def path(config: Config) -> Path:
@@ -94,7 +97,7 @@ def _problems(raw: dict, *, known_needs: bool = True) -> list[str]:
             if key in ("agent", "enabled", "owner"):
                 if not isinstance(value, bool):
                     out.append(f"{label}: must be a boolean")
-            elif key in ("skills", "needs"):
+            elif key in ("skills", "needs", "classify"):
                 if not isinstance(value, list) or not all(isinstance(s, str) for s in value):
                     out.append(f"{label}: must be a list of strings")
                 elif key == "needs" and known_needs:
@@ -123,8 +126,13 @@ def _problems(raw: dict, *, known_needs: bool = True) -> list[str]:
                     out.append(f"{label}: must match ^{ID_PATTERN}$")
                 elif key in ("monitor", "script", "workdir") and not value.strip():
                     out.append(f"{label}: must be a nonempty string")
-        if values.get("agent") is False and not values.get("script"):
-            out.append(f"{where}: agent=false requires script")
+        if values.get("agent") is False and not values.get("script") and not values.get("classify"):
+            out.append(f"{where}: agent=false requires script or classify")
+        if isinstance(values.get("classify"), list) and values["classify"]:
+            if not all(isinstance(part, str) and part.strip() for part in values["classify"]):
+                out.append(f"{where}.classify: names a brain command group, such as [\"roles\", \"screen\", \"Engineering\"]")
+            elif values.get("agent") is not False:
+                out.append(f"{where}: classify runs no model; set agent = false")
         # A chain must start from a routine with a time of its own, or nothing in it would ever run.
         seen, step = {name}, values
         while isinstance(step, dict) and isinstance(step.get("after"), str):

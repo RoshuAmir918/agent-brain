@@ -58,6 +58,30 @@ decisions:
   covers: risk the team accepts when shipping, such as an unflagged change or a migration under load
 measures:
   burden: review comments per PR
+screen:
+  kinds:
+  - kind: correction
+    covers: asks the author to change how something is done, for a reason that holds beyond this piece of work, or the
+      author's reply accepting or rejecting such a request
+  - kind: taste
+    covers: a preference about naming, abstraction, structure, tests, comments, error handling or the shape of the work
+  - kind: decision
+    covers: a product, architecture, security or rollout ruling, with its reason
+  - kind: local
+    covers: about this piece of work only, such as a typo, a one-off bug or a question, with no lesson that carries over
+  - kind: noise
+    covers: status, thanks, commands, CI or deploy chatter, or a bot's boilerplate
+  worth:
+  - nothing beyond this piece of work
+  - generic advice any reviewer anywhere would give, with nothing specific to this team
+  - a convention specific to this team or codebase, naming its files, helpers, patterns, layers or rules
+  - a rule the team states or enforces, a decision with its reason, or a correction that changed how the work was done
+  keep:
+    kinds:
+    - correction
+    - taste
+    - decision
+    worth: 2
 ---
 # Engineering
 
