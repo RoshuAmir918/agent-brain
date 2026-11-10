@@ -254,7 +254,7 @@ def test_outside_sessions_end_with_the_exact_resolved_block(tellable_vault, plat
     expected = (f"What you may tell {name} about Mira, and nothing else:\n"
                 + tellable.render(tellable.resolve(vault, vault.config, who))
                 + "\nAnswer about Mira only from this block; anything else you know about Mira or anyone else is not yours "
-                "to tell here. What they ask that it does not answer, ask Mira.")
+                "to tell here. What they ask that it does not answer, ask Mira. " + session_context.advocate_rule(vault.config))
     assert block.endswith(expected)
     assert sum(line.startswith("What you may tell ") for line in block.splitlines()) == 1
     if "may learn, resolved" in block:
