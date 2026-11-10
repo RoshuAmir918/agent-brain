@@ -917,9 +917,15 @@ def cmd_task(args):
             raise ValueError("--source and --json go with task new")
         elif args.from_ is not None:
             raise ValueError("--from goes with task new")
+        elif (args.later or args.now) and args.action != "set":
+            raise ValueError("--later and --now go with task new or task T-nnn set")
         elif (args.left is not None or args.then) and args.action != "done":
             raise ValueError("--left and --then go with task T-nnn done")
-        elif args.action != "set" and (set(values) - {"why"} or args.state is not None or args.clear
+        if args.later and args.now:
+            raise ValueError("--later or --now, not both")
+        if args.tid == "new" and args.now:
+            raise ValueError("--now goes with task T-nnn set; new owner work is now unless --later")
+        if args.action != "set" and args.tid != "new" and (set(values) - {"why"} or args.state is not None or args.clear
                                        or args.reviewed is not None or args.report is not None or args.title is not None):
             raise ValueError("field flags, --state, --title, --reviewed, --report and --clear go with task T-nnn set")
         if args.said is not None and (args.tid != "new" and args.action != "set" or args.delivers is None):
@@ -941,7 +947,7 @@ def cmd_task(args):
             if args.tid == "new":
                 task = tasks_mod.new_task(args.config, args.action, args.source, state="ready" if args.state is None else args.state,
                                           values=values, work=args.work, agent_delivers=not in_conversation(), said=args.said,
-                                          from_task=args.from_, report=args.report)
+                                          from_task=args.from_, report=args.report, later=args.later)
             elif args.action == "reopen":
                 task = tasks_mod.reopen(args.config, args.tid, args.config.today(), args.why)
             elif args.action in ("set", "yours"):
@@ -950,7 +956,8 @@ def cmd_task(args):
                                             state="yours" if args.action == "yours" else args.state,
                                             values=fields, clear=args.clear or (),
                                             reviewed=args.reviewed, report=args.report, title=args.title,
-                                            agent_delivers=not in_conversation(), said=args.said)
+                                            agent_delivers=not in_conversation(), said=args.said,
+                                            later=True if args.later else False if args.now else None)
             else:
                 task = tasks_mod.close(args.config, args.tid, args.config.today(), args.action == "done",
                                        args.why or "the owner closed it in their app", args.left, args.then or (),
@@ -968,7 +975,8 @@ def cmd_task(args):
               else f"{task.tid} created: {task.title}")
     elif args.action == "set":
         fields = ((["state"] if args.state is not None else []) + list(values) + [f"cleared {name}" for name in args.clear or ()]
-                  + (["reviewed"] if args.reviewed else []) + (["report"] if args.report is not None else []))
+                  + (["reviewed"] if args.reviewed else []) + (["report"] if args.report is not None else [])
+                  + (["later"] if args.later else ["now"] if args.now else []))
         print(f"{task.tid} updated: {', '.join(fields)}")
     else:
         print(f"{task.tid} {task.task_state}: {task.title}")
@@ -1820,6 +1828,9 @@ def main(argv=None):
     s.add_argument("--said", help="with --delivers: at least four exact words the owner said, checked against Source or recent conversations")
     s.add_argument("--work", metavar="SLUG", help="with new or set: Library work slug")
     s.add_argument("--json", action="store_true", help="with new: print {id, title}")
+    s.add_argument("--later", action="store_true",
+                   help="with new --state yours or set: owner work for some day, kept out of what needs them today")
+    s.add_argument("--now", action="store_true", help="with set: bring later owner work back to what needs them")
     s.add_argument("--by-owner", action="store_true",
                    help="with done or drop: the owner's own close, including in conversation; allows closing while waiting on them")
     s.set_defaults(fn=cmd_task)
