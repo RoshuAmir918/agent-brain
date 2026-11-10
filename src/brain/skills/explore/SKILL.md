@@ -1,7 +1,7 @@
 ---
 name: {prefix}explore
 description: Do one thing for {human_name}, or nothing
-version: 4.3.0
+version: 4.4.0
 metadata:
   runtime:
     tags: [routine, day, research]

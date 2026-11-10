@@ -733,7 +733,7 @@ def cmd_access(args):
         if value.tell != "none" or value.do != "no":
             print(f"{subject}: {value.tell} ({value.tell_rule or 'default'}) / {value.do} ({value.do_rule or 'default'})")
     print("Everything else: none / no")
-    for text in result.scope.values():
+    for text in dict.fromkeys(result.scope.values()):
         print(f"Scope: {text}")
 
 

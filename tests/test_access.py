@@ -195,7 +195,7 @@ D-002 is outside Grant scope.
     scopes = access.grant_scope(access_vault, access_vault.config,
                                 {rule.id for rule in access.rules(access_vault, access_vault.config)})
     assert scopes == {
-        "D-001": "D-001 permits planning a visit,\nnot sharing in a room.\n\nD-001 excludes appointments of other kinds.",
+        "D-001": "D-001 permits planning a visit,\nnot sharing in a room.\n\nD-001 excludes appointments of other kinds.\n\nD-0010 is not D-001.",
         "D-002": "D-002 permits calendar changes only.",
         "D-003": "D-003 is superseded for this person.",
         "D-004": "D-004 refuses health requests.",
@@ -342,3 +342,20 @@ def test_configured_people_directory_is_used_for_all_access_operations(access_va
     assert result.subjects["schedule"].tell == "details"
     assert access.matching_people(loaded, loaded.config, "alice example")[0].rel == person
     assert validate.access_problems(loaded) == []
+
+
+def test_scope_names_rules_anywhere_and_in_ranges_and_keeps_its_heading(access_vault):
+    set_rules(access_vault,
+              f"| D-001 | [[{FRIENDS}]] | schedule | details | no |",
+              f"| D-002 | [[{FRIENDS}]] | plans | details | no |",
+              tail="""
+## Grant scope
+### Ask first — November 8
+
+Mira, November 8: "ask me first." This narrows D-001–D-002 and every other grant.
+
+D-003 is someone else's.
+""")
+    result = access.resolve(access_vault, access_vault.config, ALICE)
+    narrowing = '### Ask first — November 8\n\nMira, November 8: "ask me first." This narrows D-001–D-002 and every other grant.'
+    assert result.scope == {"D-001": narrowing, "D-002": narrowing}

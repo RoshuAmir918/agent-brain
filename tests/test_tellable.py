@@ -188,7 +188,7 @@ def test_word_cap_drops_whole_oldest_lines_counting_labels_and_gists(tellable_va
     set_rules(vault, ("anyone", "experiences", "details"))
     assert resolved("## experiences\n- " + "word " * 597 + "· said · 2026-11-01 · source\n")["subjects"]
     result = resolved("## experiences\n- " + "word " * 598 + "· said · 2026-11-01 · source\n")
-    assert result["subjects"] == {} and tellable.render(result) == "Nothing yet."
+    assert result["subjects"] == {} and tellable.render(result) == "Nothing."
     set_rules(vault, ("anyone", "experiences", "gist"))
     result = resolved("## experiences\n" + "".join(
         f"- Detail {day} · said · 2026-11-{day:02} · source\n  - gist: " + f"day{day} " + "word " * 89 + "\n"
@@ -240,7 +240,7 @@ def test_missing_note_has_no_lines_and_cli_says_nothing_yet(tellable_vault, caps
     assert validate.tellable_hygiene(vault) == []
     assert tellable.resolve(vault, vault.config, ALICE) == {"person": ALICE, "groups": [FRIENDS], "subjects": {}}
     cli.main(["tellable", "alicia", "--vault", str(vault.root)])
-    assert capsys.readouterr().out.endswith("\nNothing yet.\n")
+    assert capsys.readouterr().out.endswith("\nNothing.\n")
 
 
 @pytest.mark.parametrize("platform, user_id, name, who", [
@@ -253,8 +253,8 @@ def test_outside_sessions_end_with_the_exact_resolved_block(tellable_vault, plat
     block = session_context.build(vault, vault.config, platform=platform, user_id=user_id)
     expected = (f"What you may tell {name} about Mira, and nothing else:\n"
                 + tellable.render(tellable.resolve(vault, vault.config, who))
-                + "\nAnswer about Mira only from this block; anything else you know about Mira or anyone else is not yours "
-                "to tell here. What they ask that it does not answer, ask Mira. " + session_context.advocate_rule(vault.config))
+                + "\nAnswer about Mira only from this block, narrowed by any Scope line above; anything else you know about "
+                "Mira or anyone else is not yours to tell here. " + session_context.advocate_rule(vault.config))
     assert block.endswith(expected)
     assert sum(line.startswith("What you may tell ") for line in block.splitlines()) == 1
     if "may learn, resolved" in block:
@@ -304,7 +304,7 @@ def test_missing_disclosure_still_has_an_empty_block(tellable_vault, user_id):
     vault = tellable_vault
     del vault.notes["people/Disclosure.md"]
     block = session_context.build(vault, vault.config, platform="slack", user_id=user_id)
-    assert "and nothing else:\nNothing yet.\nAnswer about Mira only from this block;" in block
+    assert "and nothing else:\nNothing.\nAnswer about Mira only from this block," in block
     assert "Stayed at the Memmo" not in block
 
 

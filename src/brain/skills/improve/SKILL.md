@@ -1,7 +1,7 @@
 ---
 name: {prefix}improve
 description: Get better at one responsibility; notice work that should become one
-version: 1.11.0
+version: 1.12.0
 metadata:
   runtime:
     tags: [routine, day, research]
