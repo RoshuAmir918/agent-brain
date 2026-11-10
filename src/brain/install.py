@@ -66,7 +66,10 @@ def render_skill(config: Config, name: str) -> str:
     if not template.is_file():
         raise ValueError(f"no such routine: {name}; the package has " + ", ".join(
             sorted(p.name for p in files("brain").joinpath("skills").iterdir() if p.joinpath("SKILL.md").is_file())))
-    return render(for_edition(template.read_text(encoding="utf-8"), config.edition), config.template_values())
+    # The policy goes first so the values after it fill its own placeholders.
+    policy = files("brain").joinpath("templates", "owner-messages.md").read_text(encoding="utf-8")
+    values = {"owner_messages": for_edition(policy, config.edition)} | config.template_values()
+    return render(for_edition(template.read_text(encoding="utf-8"), config.edition), values)
 
 
 def skills(config: Config) -> Path:

@@ -36,6 +36,14 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
     assert snapshot(vault) == before
 
 
+def test_every_routine_that_messages_the_owner_carries_one_owner_message_policy(vault):
+    config = Config.load(vault)
+    for routine in ("recall", "continue", "watch", "explore", "improve", "morning"):
+        text = install.render_skill(config, routine)
+        assert text.count("## Messages to " + config.human_name + "\n") == 1, routine
+        assert "{owner_messages}" not in text and "{human_name}" not in text, routine
+
+
 def test_install_scripts_copies_executable_package_resources(tmp_path, monkeypatch, capsys):
     home = tmp_path / "agent-home"
     monkeypatch.setenv("AGENT_HOME", str(home))
