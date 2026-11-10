@@ -923,6 +923,44 @@ def cmd_roles(args):
                 print(text or "nothing new to study")
             else:
                 print(f"{screen.done(config, args.name)} item(s) marked studied")
+        elif action == "work":
+            from . import corrections
+            if args.op == "add":
+                if not args.id:
+                    sys.exit(f"name the work: brain roles work {args.name} add ID")
+                added = corrections.add_work(config, args.name, args.id, args.title or "", args.link or "")
+                print(f"registered {args.id}" if added else f"{args.id} was already registered")
+            else:
+                for work in corrections.works(config, args.name).values():
+                    print(f"{work.id} · {work.opened} · {work.title}" + (f" · {work.link}" if work.link else ""))
+        elif action == "correction":
+            from . import corrections
+            if args.op == "add":
+                missing = [flag for flag in ("work", "event", "by", "at", "text") if not getattr(args, flag)]
+                if missing:
+                    sys.exit("add needs " + ", ".join(f"--{flag}" for flag in missing))
+                row = corrections.add_event(config, args.name, args.work, args.event, args.by, args.at, args.text,
+                                            source_id=args.source_id or "", where=args.where or "", link=args.link or "")
+                print(f"recorded {row.id} ({row.speaker}, weight {row.weight:g})" if row else "already recorded")
+            elif args.op == "next":
+                waiting = corrections.pending(config, args.name)
+                if args.json:
+                    print(json.dumps([asdict(event) for event in waiting], ensure_ascii=False, indent=2))
+                for event in [] if args.json else waiting:
+                    print(f"{event.id} · {event.event} ({event.weight:g}) · {event.work} · {event.at} · {event.by} "
+                          f"({event.speaker})" + (f" on {event.where}" if event.where else "") + f": {fm.cut(event.text, 60)}")
+                if not waiting and not args.json:
+                    print("no corrections waiting")
+            elif args.op == "file":
+                if not args.event_id:
+                    sys.exit("file takes the correction's id")
+                print(corrections.file(config, args.name, args.event_id, note=args.note or "", section=args.section or "",
+                                       claim=args.claim or "", to=(args.to or "").lstrip("^"), rule=args.rule))
+            else:
+                if not args.event_id or not args.why:
+                    sys.exit("dismiss takes the correction's id and --why")
+                corrections.dismiss(config, args.name, args.event_id, args.why)
+                print(f"dismissed {args.event_id}")
         elif action == "template":
             if args.op == "check":
                 with vault_lock(config):
@@ -1910,7 +1948,7 @@ def main(argv=None):
     s = sub.add_parser("roles", help="roles: templates and what each has learned (enterprise)", parents=[vault])
     s.set_defaults(fn=cmd_roles, roles_cmd=None)
     actions = s.add_subparsers(dest="roles_cmd")
-    for action in ("list", "add", "rebuild", "show", "may-learn", "template", "screen", "study"):
+    for action in ("list", "add", "rebuild", "show", "may-learn", "template", "screen", "study", "work", "correction"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_roles)
         p.add_argument("--vault", default=argparse.SUPPRESS)
         if action == "add":
@@ -1929,6 +1967,17 @@ def main(argv=None):
             p.add_argument("--since", metavar="YYYY-MM-DD", help="next: how far back to read (default 30 days)")
             p.add_argument("--limit", type=int, default=20, help="next: exchanges per batch")
             p.add_argument("--sample", help="calibrate: labelled items as JSON lines")
+        elif action == "work":
+            p.add_argument("name"); p.add_argument("op", choices=["add", "list"]); p.add_argument("id", nargs="?")
+            p.add_argument("--title"); p.add_argument("--link")
+        elif action == "correction":
+            p.add_argument("name"); p.add_argument("op", choices=["add", "next", "file", "dismiss"])
+            p.add_argument("event_id", nargs="?", help="file, dismiss: the correction's id from next")
+            for flag in ("work", "event", "by", "at", "text", "where", "link", "note", "section", "claim", "to", "why"):
+                p.add_argument(f"--{flag}")
+            p.add_argument("--source-id", help="add: the item's id on its source, so a repeat is kept once")
+            p.add_argument("--rule", action="store_true", help="file: someone with authority stated it as a rule")
+            p.add_argument("--json", action="store_true")
         elif action == "study":
             p.add_argument("name"); p.add_argument("op", choices=["next", "done"])
             p.add_argument("--limit", type=int, default=40, help="next: exchanges to show")
