@@ -193,7 +193,7 @@ def calendar(vault: Vault, days: int = 7) -> str:
     head = f"## Calendar: today and the next {days} days\n\n"
     if not owner_accounts(vault):
         return head + "- I can't see the calendar: no Google account of the owner's is connected."
-    if seen["problem"].endswith(("not set up", "not run yet")):
+    if seen["problem"].endswith(("not set up", "not run yet")) and not events:   # synced files on disk still count
         return head + f"- I can't see the calendar: {seen['problem']}."
     if missing and len(missing) == len(owner_accounts(vault)):
         return head + f"- I can't see the calendar: nothing has synced for {', '.join(missing)}."
@@ -374,7 +374,7 @@ def render_mail(data: dict) -> str:
     seen = data.get("coverage")
     if seen is None:
         head = "coverage: not a Demiurge setup; no synced mail"
-    elif seen["problem"] and not seen["last_sync"]:
+    elif seen["problem"] and not seen["last_sync"] and not data["messages"] and not notices:
         head = f"coverage: I can't see the mail: {seen['problem']}"
     else:
         head = (f"coverage: {', '.join(seen['accounts'])}; last sync {seen['last_sync']}"
