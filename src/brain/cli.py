@@ -668,7 +668,13 @@ def cmd_ideas(args):
         raise SystemExit("brain ideas: --source goes with --add or --respond")
     if args.answer and args.respond is None:
         raise SystemExit("brain ideas: --answer goes with --respond")
+    if (args.because is not None) != (args.withdraw is not None):
+        raise SystemExit("brain ideas: --withdraw and --because go together")
     try:
+        if args.withdraw is not None:
+            item = ideas.withdraw(config, args.withdraw, today, args.because)
+            print(f"withdrawn: {item.text}")
+            return
         if args.add is not None:
             if not args.source:
                 goals.guard(config, args.goal, "")
@@ -1771,6 +1777,8 @@ def main(argv=None):
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true"); mode.add_argument("--add", metavar="TEXT")
     mode.add_argument("--respond", metavar="ID_OR_TEXT")
+    mode.add_argument("--withdraw", metavar="ID_OR_TEXT", help="take back your own idea; not the owner's answer")
+    s.add_argument("--because", metavar="TEXT", help="with --withdraw: what changed")
     s.add_argument("--source", metavar="NOTE", help="with --add: the note it comes from; with --respond yes: the owner's own words")
     s.add_argument("--why", metavar="TEXT")
     s.add_argument("--needs", metavar="TEXT"); s.add_argument("--answer", choices=ideas.ANSWERS)

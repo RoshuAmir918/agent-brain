@@ -438,13 +438,13 @@ def test_a_newer_ask_for_a_task_replaces_its_older_one_and_items_name_the_task(v
 
 
 
-def test_all_proposals_are_ideas_ranked_newest_first(vault):
+def test_proposals_are_ideas_ranked_newest_first_until_they_lapse(vault):
     fm.write(vault / "Hub.md", {}, "# Hub\n\n## Improvements\n\n"
-             + improvement("September 20 — Too old to show", "proposed")
+             + improvement("September 20 — Lapsed", "proposed")
              + improvement("October 20 — Third newest", "proposed")
              + improvement("October 27 — Newest", "proposed")
              + improvement("October 25 — Second newest", "proposed"))
-    assert [item.text for item in ideas.items(Config.load(vault), TODAY)] == ["Adopt? Newest", "Adopt? Second newest", "Adopt? Third newest", "Adopt? Too old to show"]
+    assert [item.text for item in ideas.items(Config.load(vault), TODAY)] == ["Adopt? Newest", "Adopt? Second newest", "Adopt? Third newest"]
 
 
 

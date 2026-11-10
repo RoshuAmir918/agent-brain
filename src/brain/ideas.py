@@ -18,6 +18,8 @@ SNOOZE_DAYS = 14
 # The owner can read every open idea in their app, so ideas may arrive daily; the open list is what is capped.
 ADD_SPACING = 1
 OPEN_MAX = 10
+# An idea nobody answered lapses: what it was for has usually moved on, and a stale offer crowds out a fresh one.
+LAPSE_DAYS = 14
 
 TEMPLATE = """---
 kind: orientation
@@ -103,8 +105,19 @@ def _open(vault_or_config: Vault | Config, today: date) -> list[Item]:
                 item.kind = "idea"   # the origin/source/label keep existing proposal ids stable
                 out.append(item)
     gone = needs_mod.dismissed_ids(config)
-    rejected = {fm.plain(text) for _, answer, text, _ in _responses(config) if answer in ("no", "stop-asking")}
-    return sorted((item for item in out if item.id not in gone and fm.plain(item.text) not in rejected),
+    responses = _responses(config)
+    rejected = {fm.plain(text) for _, answer, text, _ in responses if answer in ("no", "stop-asking")}
+    # A not-now restarts the clock once its snooze ends, so the owner gets the later look they asked for.
+    revived = {ident: day + timedelta(days=SNOOZE_DAYS) for day, answer, _, ident in sorted(responses)
+               if answer == "not-now" and ident}
+
+    def live(item: Item) -> bool:
+        if not item.since:
+            return True
+        start = max(date.fromisoformat(item.since), revived.get(item.id, date.min))
+        return today <= start + timedelta(days=LAPSE_DAYS)
+
+    return sorted((item for item in out if item.id not in gone and fm.plain(item.text) not in rejected and live(item)),
                   key=lambda item: item.since or "", reverse=True)
 
 
@@ -158,8 +171,9 @@ def add_refusal(config: Config, today: date, text: str) -> str | None:
         return "the owner already dismissed this idea with no or stop-asking"
     path = config.vault_path / config.agent("Ideas.md")
     listed = parse_section(fm.read(path)[1]) if path.exists() else []
-    if len(listed) >= OPEN_MAX:
-        return f"{len(listed)} ideas are open, the most there can be; add another once the owner answers one"
+    live = sum(item.origin == "ideas" for item in _open(config, today))
+    if live >= OPEN_MAX:
+        return f"{live} ideas are open, the most there can be; add another once the owner answers one or it lapses"
     dates = [date.fromisoformat(item.since) for item in listed]
     if dates and today < (until := max(dates) + timedelta(days=ADD_SPACING)):
         return f"ideas can be added every {ADD_SPACING} day(s); next idea can be added {until.isoformat()}"
@@ -201,15 +215,7 @@ def respond(config: Config, which: str, today: date, answer: str, words: str = "
     if words and answer != "yes":
         raise ValueError("--source goes with --answer yes: the owner's words become the task's Source")
     with vault_lock(config):
-        candidates = _open(config, today)
-        chosen = [item for item in candidates if item.id == which]
-        if not chosen:
-            needle = fm.plain(which)
-            chosen = [item for item in candidates if needle and needle in fm.plain(item.text)]
-        if len(chosen) != 1:
-            raise ValueError(("no open idea matches " if not chosen else f"{len(chosen)} open ideas match ")
-                             + repr(which) + "; use an id from `brain ideas --all`")
-        item = chosen[0]
+        item = _pick(config, which, today)
         tid = None
         if answer == "yes":
             tid = tasks.next_id(config)
@@ -225,26 +231,7 @@ def respond(config: Config, which: str, today: date, answer: str, words: str = "
             task.add_use(today.isoformat())
             tasks.append_task(config, task)
         if answer != "not-now":
-            if item.origin == "ideas":
-                path = config.vault_path / config.agent("Ideas.md")
-                data, body = fm.read(path)
-                span = fm.section(body, "Open")
-                body, _ = fm.without(body, span, lambda bullet: bullet.id == item.id,
-                                     bullet=_bullet, detail=DETAIL)
-                fm.write(path, data, body)
-            else:
-                rel, _, anchor = item.source.partition("#")
-                path = config.vault_path / rel
-                body = path.read_text(encoding="utf-8")
-                heading = re.search(r"^### " + re.escape(anchor) + r"[ \t]*\r?$", body, re.M)
-                following = re.compile(r"^#{2,3} ", re.M).search(body, heading.end())
-                end = following.start() if following else len(body)
-                entry = body[heading.end():end]
-                status = f"`{'accepted' if answer == 'yes' else 'declined'}`, {today.isoformat()}"
-                changed = needs_mod.STATUS_FIELD.sub(lambda m: m[0].replace(m[1], status), entry, count=1)
-                if changed == entry:
-                    changed = entry.rstrip("\n") + f"\n- **Status:** {status}\n\n"
-                fm.write_text(path, body[:heading.end()] + changed + body[end:])
+            _close(config, item, "accepted" if answer == "yes" else "declined", today)
         text = item.text.replace("·", "-")
         if answer in ("no", "stop-asking"):
             line = f"- {today.isoformat()} · dismissed {answer} · idea · {text} · id:{item.id}"
@@ -253,4 +240,54 @@ def respond(config: Config, which: str, today: date, answer: str, words: str = "
         needs_mod.answered(config, today, line + (f" · goal:{item.goal}" if item.goal else "") + f" · [[{item.source}]]")
         from . import reception
         reception.answered(config, "idea", item.text, "used" if answer == "yes" else f"declined:{answer}")
+        return item
+
+
+def _close(config: Config, item: Item, status: str, today: date) -> None:
+    """Take an idea off the open list at its source: an Ideas bullet is removed, a hub proposal gets a dated status."""
+    if item.origin == "ideas":
+        path = config.vault_path / config.agent("Ideas.md")
+        data, body = fm.read(path)
+        span = fm.section(body, "Open")
+        body, _ = fm.without(body, span, lambda bullet: bullet.id == item.id, bullet=_bullet, detail=DETAIL)
+        fm.write(path, data, body)
+        return
+    rel, _, anchor = item.source.partition("#")
+    path = config.vault_path / rel
+    body = path.read_text(encoding="utf-8")
+    heading = re.search(r"^### " + re.escape(anchor) + r"[ \t]*\r?$", body, re.M)
+    following = re.compile(r"^#{2,3} ", re.M).search(body, heading.end())
+    end = following.start() if following else len(body)
+    entry = body[heading.end():end]
+    status = f"`{status}`, {today.isoformat()}"
+    changed = needs_mod.STATUS_FIELD.sub(lambda m: m[0].replace(m[1], status), entry, count=1)
+    if changed == entry:
+        changed = entry.rstrip("\n") + f"\n- **Status:** {status}\n\n"
+    fm.write_text(path, body[:heading.end()] + changed + body[end:])
+
+
+def _pick(config: Config, which: str, today: date) -> Item:
+    candidates = _open(config, today)
+    chosen = [item for item in candidates if item.id == which]
+    if not chosen:
+        needle = fm.plain(which)
+        chosen = [item for item in candidates if needle and needle in fm.plain(item.text)]
+    if len(chosen) != 1:
+        raise ValueError(("no open idea matches " if not chosen else f"{len(chosen)} open ideas match ")
+                         + repr(which) + "; use an id from `brain ideas --all`")
+    return chosen[0]
+
+
+def withdraw(config: Config, which: str, today: date, because: str) -> Item:
+    """The agent takes back its own offer (what it was for ended, or it was never the owner's to decide). Not an
+    answer: it starts no cooldown and blocks nothing from coming back with new evidence."""
+    because = " ".join(because.replace("·", "-").split())
+    if not because:
+        raise ValueError("--withdraw needs --because TEXT: what changed")
+    with vault_lock(config):
+        item = _pick(config, which, today)
+        _close(config, item, "withdrawn", today)
+        text = item.text.replace("·", "-")
+        needs_mod.answered(config, today, f"- {today.isoformat()} · withdrawn · idea · {text} · {because} · id:{item.id}"
+                           f" · [[{item.source}]]")
         return item
