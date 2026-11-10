@@ -1,4 +1,6 @@
 """Owner work keeps its origin and leaves the worker waiting until the owner settles it."""
+from datetime import timedelta
+
 import pytest
 
 from brain import cli, continuation, fm, journal, needs, reception, state, tasks
@@ -204,4 +206,48 @@ def test_report_on_new_requires_yours(config, capsys):
     with pytest.raises(SystemExit):
         run(config, capsys, "task", "new", "Follow up", "--source", "asked", "--report", "demiurge:origin")
     assert "--report with new needs --state yours" in capsys.readouterr().err
+    assert snapshot(config.vault_path) == before
+
+
+def test_later_owner_work_stays_open_and_quiet(config, capsys):
+    out = run(config, capsys, "task", "new", "Explore job opportunities with Hope", "--source", "we'll do it together eventually",
+              "--state", "yours", "--later")
+    tid = out.split()[0]
+    task = tasks.find(config, tid)
+    assert task.later and tasks.is_open(task) and "later=true" in task.render()
+    row = next(r for r in state.build(config, config.today())["tasks"] if r["id"] == tid)
+    assert row["later"] is True and row["state"] == "yours"
+    assert tid not in [t.tid for t, _ in tasks.quiet([task], config.today() + timedelta(days=60))]
+    assert run(config, capsys, "task", tid, "set", "--now") == f"{tid} updated: now"
+    assert not tasks.find(config, tid).later
+    run(config, capsys, "task", tid, "set", "--later")
+    assert tasks.find(config, tid).later
+
+
+def test_later_only_for_owner_work(config, capsys):
+    before = snapshot(config.vault_path)
+    with pytest.raises(SystemExit):
+        run(config, capsys, "task", "new", "Mine", "--source", "asked", "--later")
+    with pytest.raises(SystemExit):
+        run(config, capsys, "task", "T-001", "set", "--later")
+    with pytest.raises(SystemExit):
+        run(config, capsys, "task", "T-001", "set", "--later", "--now")
+    assert snapshot(config.vault_path) == before
+
+
+def test_later_dropped_when_it_stops_being_owner_work(config, capsys):
+    tid = run(config, capsys, "task", "new", "Some day", "--source", "eventually", "--state", "yours", "--later").split()[0]
+    run(config, capsys, "task", tid, "set", "--state", "ready")
+    assert "later" not in tasks.find(config, tid).state
+
+
+def test_owner_work_a_task_waits_on_is_never_later(config, capsys):
+    run(config, capsys, "task", "new", "Send the key", "--source", "worker needs it", "--state", "yours", "--from", "T-001")
+    child = tasks.find(config, "T-002")
+    assert tasks.find(config, "T-001").task_state == "blocked"
+    before = snapshot(config.vault_path)
+    with pytest.raises(SystemExit):
+        run(config, capsys, "task", child.tid, "set", "--later")
+    with pytest.raises(SystemExit):
+        run(config, capsys, "task", "new", "Another", "--source", "worker needs it", "--state", "yours", "--from", "T-001", "--later")
     assert snapshot(config.vault_path) == before

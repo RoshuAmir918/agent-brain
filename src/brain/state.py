@@ -63,7 +63,7 @@ def _tasks(vault: Vault) -> list[dict]:
              "resume": midnight if task.tid in spent and tasks.pace(task) == "regular" and (task.resume or "") < midnight
                        else task.resume,
              "handoff": task.handoff[0] if task.handoff else None,
-             "report": task.report, "pace": tasks.pace(task),
+             "report": task.report, "pace": tasks.pace(task), "later": task.later,
              "lastChunk": worked.get(task.tid), "chunksToday": chunks.get(task.tid, 0) if task.handoff else None,
              "closed": tasks.closing(task)[0], "outcome": tasks.closing(task)[1],
              "left": fm.field(task.body, "Left"), "due": fm.field(task.body, "Due"),

@@ -50,6 +50,13 @@ class Task:
     def set_state(self, value: str) -> None:
         self.state["state"] = value
         self.state.pop("status", None)
+        if value != "yours":
+            self.state.pop("later", None)
+
+    @property
+    def later(self) -> bool:
+        """Owner work for some day, not now: open and theirs, kept out of what needs them today."""
+        return self.task_state == "yours" and self.state.get("later") == "true"
 
     @property
     def hub(self) -> str | None:
@@ -283,7 +290,7 @@ def _replace_field(body: str, name: str, value: str | None) -> str:
 def set_fields(config: Config, tid: str, today: date, *, state: str | None = None,
                values: dict[str, str] | None = None, clear: list[str] | tuple[str, ...] = (),
                reviewed: str | None = None, report: str | None = None, title: str | None = None,
-               agent_delivers: bool = False, said: str | None = None) -> Task:
+               agent_delivers: bool = False, said: str | None = None, later: bool | None = None) -> Task:
     """Update an open task's full entry; the caller holds the vault lock. `reviewed` appends a dated Reviewed line
     (the evening's decisions accumulate; they are never replaced). Clearing `handoff` takes the task back from its
     worker: it stays open, worked only when someone asks. `agent_delivers` marks a Delivers the agent wrote itself."""
@@ -308,8 +315,8 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         title = single_line("title", title)
         if not title:
             raise ValueError("title must not be empty")
-    if state is None and not values and not clear and not reviewed and report is None and title is None:
-        raise ValueError("set needs a field, --state, --title or --clear")
+    if state is None and not values and not clear and not reviewed and report is None and title is None and later is None:
+        raise ValueError("set needs a field, --state, --title, --later, --now or --clear")
     values = {name: _field_value(config, name, value) for name, value in values.items()}
     task = find(config, tid, open_only=True)
     if task is None:
@@ -347,6 +354,8 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
             task.body = _replace_field(task.body, "report", report or None)
         else:
             raise ValueError(f"{tid} was not handed off; there is no report line to change")
+    if later is not None:
+        _set_later(config, task, later)
     if (task.task_state == "waiting_for_owner" and not _owner_ask(task.body)
             and (previous.task_state != "waiting_for_owner" or _owner_ask(previous.body))):
         raise ValueError("waiting_for_owner needs the question: --ask \"…\" --why \"…\"")
@@ -467,7 +476,8 @@ def append_task(config: Config, task: Task) -> None:
 def new_task(config: Config, title: str, source: str, *, state: str = "ready",
              values: dict[str, str] | None = None, work: str | None = None, goal: str | None = None,
              inherit_goal: bool = True, agent_delivers: bool = False, said: str | None = None,
-             from_task: str | None = None, report: str | None = None, block_parent: bool = True) -> Task:
+             from_task: str | None = None, report: str | None = None, block_parent: bool = True,
+             later: bool = False) -> Task:
     """Create a task without handing it off; the caller holds the vault lock.
     An empty explicit From keeps an unlinked ask from inheriting the worker resolving it."""
     title, source = single_line("title", title), single_line("source", source)
@@ -491,6 +501,10 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
             raise ValueError(f"--from must name an existing task: {from_task}")
     if report is not None and state != "yours":
         raise ValueError("--report with new needs --state yours")
+    if later and state != "yours":
+        raise ValueError("--later with new needs --state yours")
+    if later and parent is not None and block_parent and is_open(parent):
+        raise ValueError(f"{parent.tid} would wait on this, so it is needed now; create it without --later")
     here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
     report = single_line("report", report if report is not None else f"demiurge:{here}" if here else "")
     from .goals import active, guard, is_routine
@@ -514,7 +528,7 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
         body += f"- **Report:** {report}\n"
     if work is not None:
         body += f"- **Work:** {work}\n"
-    task = Task(next_id(config), title, body, {"state": state})
+    task = Task(next_id(config), title, body, {"state": state, **({"later": "true"} if later else {})})
     if values.get("goal"):
         task.state["unasked"] = str(bool(unasked)).lower()
     if values.get("delivers"):
@@ -532,6 +546,18 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
     if state == "yours" and parent is not None and block_parent:
         block_on_owner(config, parent, task, config.today())
     return task
+
+
+def _set_later(config: Config, task: Task, later: bool) -> None:
+    if not later:
+        task.state.pop("later", None)
+        return
+    if task.task_state != "yours":
+        raise ValueError(f"{task.tid} is {task.task_state}; only owner work (yours) can wait for later")
+    parent = find(config, task.from_task, open_only=True) if task.from_task else None
+    if parent is not None and (fm.field(parent.body, "Blocker") or "").startswith(task.tid):
+        raise ValueError(f"{parent.tid} is blocked on {task.tid}, so it is needed now, not later")
+    task.state["later"] = "true"
 
 
 def block_on_owner(config: Config, parent: Task, child: Task, today: date) -> None:
@@ -784,11 +810,11 @@ def is_open(t: Task) -> bool:
 
 def quiet(tasks: list[Task], today: date, worked: dict[str, str] | None = None) -> list[tuple[Task, str]]:
     """Open tasks that have gone untouched long enough to review, oldest first, with the day each was last touched.
-    A set-aside task is already decided; the review never sees it again until its state changes. `worked` (each
+    A set-aside task, or owner work for later, is already decided; the review never sees it again until that changes. `worked` (each
     task's last continue chunk) counts as a touch: a handoff its worker moved today is not quiet."""
     out = []
     for t in tasks:
-        if not is_open(t) or t.task_state == "set_aside":
+        if not is_open(t) or t.task_state == "set_aside" or t.later:
             continue
         touched = max(t.last_touched(), (worked or {}).get(t.tid, "")[:10])
         days = OWNER_QUIET_DAYS if t.task_state in ("waiting_for_owner", "yours") else QUIET_DAYS
