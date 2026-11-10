@@ -17,11 +17,12 @@ from . import channel_files, fm, goals, loops, needs
 from .config import Config
 from .vault import Vault
 
-THRESHOLD = 0.25   # from the 11-09 replay: every item a strong model called actionable scored at least 0.30
+THRESHOLD = 0.35   # 11-10 live audit: every wake between 0.25 and 0.35 was noise (promos, bot replies, confirmations)
 BATCH = 100
 DEADLINE = 240     # seconds of screening per tick, well inside the harness's monitor timeout
 PENDING = timedelta(days=3)   # how long a wake no watch pass has handled is kept after its item is gone
 CALENDAR_DAYS = 14
+CALENDAR_WAKE_DAYS = 1   # only changes to today and tomorrow can wake; invites and cancellations further out arrive as mail
 EXCERPT = 1200
 
 
@@ -52,9 +53,12 @@ def context(config: Config, accounts: list[str]) -> dict:
 
 
 def candidates(config: Config, synced: list[tuple[str, Path]], seen_calendar: dict[str, str]) -> list[dict]:
-    """New mail worth a look in the last two date folders, and calendar days from today on whose text changed."""
+    """New mail worth a look in the last two date folders, and calendar days through tomorrow whose text changed. Later
+    days are only kept, so a day reaching tomorrow is compared with its last version and entering the horizon is no
+    change."""
     own = {name for name, _ in synced}
     today, horizon = config.today().isoformat(), (config.today() + timedelta(days=CALENDAR_DAYS)).isoformat()
+    soon = (config.today() + timedelta(days=CALENDAR_WAKE_DAYS)).isoformat()
     out = []
     for name, account in synced:
         mail = account / "mail"
@@ -79,6 +83,9 @@ def candidates(config: Config, synced: list[tuple[str, Path]], seen_calendar: di
                 key = f"{name}/calendar/{path.name}"
                 text = path.read_text(encoding="utf-8", errors="replace")
                 before = seen_calendar.get(key, "")
+                if path.stem > soon or text == before:
+                    out.append({"id": f"{key}@kept", "calendar": (key, text), "kept": True})
+                    continue
                 changes = [line for line in difflib.unified_diff(before.splitlines(), text.splitlines(), lineterm="", n=0)
                            if line[:1] in "+-" and line[:3] not in ("+++", "---")]
                 out.append({"id": f"{key}@{hashlib.sha1(text.encode()).hexdigest()[:8]}", "calendar": (key, text), "item": {
@@ -122,7 +129,7 @@ def screen(config: Config, home: Path, synced: list[tuple[str, Path]], now: date
     state = state or {}
     seen, calendar = state.get("items", {}), state.get("calendar", {})
     found = candidates(config, synced, calendar)
-    new = [c for c in found if c["id"] not in seen]
+    new = [c for c in found if c["id"] not in seen and not c.get("kept")]
     # The first screen only learns what is already there: a deploy must not wake for days of old mail.
     scores = [0.0] * len(new) if first else score(config, [name for name, _ in synced], new) if new else []
     log = []

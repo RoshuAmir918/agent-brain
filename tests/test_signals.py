@@ -289,6 +289,26 @@ def test_a_changed_calendar_day_is_screened_with_what_changed(monitor, scored):
     assert [i["changes"] for i in asked] == ["-- 09:00 Dentist\n+- 11:00 Dentist (moved)"]   # past days are not screened
 
 
+def test_only_today_and_tomorrow_can_wake_and_a_day_coming_closer_is_no_change(monitor, scored):
+    config, home, clock = monitor
+    table, asked = scored
+    register(config, "o")
+    calendar = home / "channels/o/calendar"
+    calendar.mkdir(parents=True)
+    (calendar / "2026-10-31.md").write_text("- 10:00 Run\n")
+    signals.watch(config)
+    table["2026-10-31"] = 0.9
+    (calendar / "2026-10-31.md").write_text("- 11:00 Run\n")
+    (calendar / "2026-11-11.md").write_text("- a day entering the horizon\n")
+    signals.watch(config)
+    assert asked == []   # three days out, and a new far day, are only kept
+    clock[0] += timedelta(days=2)
+    assert "calendar for 2026-10-31" not in signals.watch(config) and asked == []   # now tomorrow, but unchanged
+    (calendar / "2026-10-31.md").write_text("- 12:00 Run\n")
+    assert "calendar for 2026-10-31 changed" in signals.watch(config)
+    assert [i["changes"] for i in asked] == ["-- 11:00 Run\n+- 12:00 Run"]
+
+
 def test_an_unanswered_screen_wakes_and_the_gate_can_be_turned_off(monitor, monkeypatch):
     config, home, clock = monitor
     register(config, "o")
