@@ -247,6 +247,10 @@ def test_calendar_says_when_nothing_is_on_it_or_it_cannot_be_seen(synced, tmp_pa
     assert "- Note: nothing has synced for missing@example.com, so its calendar is not here." in block
     (tmp_path / "agent-home/harness/jobs.json").unlink()
     assert "I can't see the calendar: the mail and calendar sync is not set up." in channel_files.calendar(Vault(vault))
+    path = calendar_file(root, event())
+    shown = channel_files.calendar(Vault(vault))   # what synced before the job went missing is still the calendar
+    assert "Lunch" in shown and "- Note: the mail and calendar sync is not set up." in shown and "can't see" not in shown
+    path.unlink()
     sync_job(tmp_path / "agent-home", "2026-11-01T08:00:00-08:00")
     assert "Note: the mail and calendar sync last ran Sun Nov 1 08:00" in channel_files.calendar(Vault(vault))
     sync_job(tmp_path / "agent-home", Config.load(vault).now().isoformat(), status="error", error="401 token\nexpired")
