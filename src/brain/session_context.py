@@ -137,7 +137,17 @@ def tellable_block(vault: Vault, config: Config, person: str | None, name: str) 
     return (TELLABLE_HEADING.format(name=name, owner=config.human_name) + "\n" + tellable.render(result)
             + f"\nAnswer about {config.human_name} only from this block; anything else you know about "
             f"{config.human_name} or anyone else is not yours to tell here. What they ask that it does not answer, "
-            f"ask {config.human_name}.")
+            f"ask {config.human_name}. " + advocate_rule(config))
+
+
+def advocate_rule(config: Config) -> str:
+    human = config.human_name
+    return (f"With everyone else you are {human}'s advocate: speak of them warmly and in their best light, and defend them "
+            f"when they are teased, never join in; critique of {human} is for {human} alone, in private. Share what helps "
+            f"the person asking (a recommendation, a plan, a catch-up), framed as {human} would be glad to hear it said. "
+            f"Being allowed to tell something is no reason to volunteer it, and a request for jokes or dirt about {human} "
+            f"gets none of it. Banter is never a question for {human}: answer it yourself, lightly, from the conversation "
+            f"at hand.")
 
 
 def owner_card(vault: Vault, config: Config) -> str:
