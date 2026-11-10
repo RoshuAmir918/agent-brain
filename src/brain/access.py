@@ -159,15 +159,28 @@ def rules(vault: Vault, config: Config) -> list[Rule]:
     return result
 
 
+RULE_ID = re.compile(r"\b[A-Za-z]+-?\d+\b")
+RULE_RANGE = re.compile(r"\b([A-Za-z]+-?)(\d+)\s*[–-]\s*\1(\d+)\b")
+
+
 def grant_scope(vault: Vault, config: Config, ids: set[str]) -> dict[str, str]:
-    """Scope paragraphs beginning with one of these rule ids, preserved as prose."""
+    """Scope paragraphs naming one of these rule ids, alone or in a range (D-001–D-033), preserved as prose. A heading
+    line stays with the paragraph under it."""
     result = {}
     section = _section(_disclosure(vault, config), "Grant scope") or ""
+    heading = ""
     for paragraph in re.split(r"\n\s*\n", section):
-        match = re.match(r"([\w-]+)\b", paragraph)
-        if match and match[1] in ids:
-            rule_id = match[1]
-            result[rule_id] = "\n\n".join(part for part in (result.get(rule_id, ""), paragraph.strip()) if part)
+        paragraph = paragraph.strip()
+        if re.fullmatch(r"#{3,}[^\n]*", paragraph):
+            heading = paragraph
+            continue
+        named = set(RULE_ID.findall(paragraph))
+        for prefix, low, high in RULE_RANGE.findall(paragraph):
+            named |= {f"{prefix}{n:0{len(low)}d}" for n in range(int(low), int(high) + 1)}
+        text = "\n\n".join(part for part in (heading, paragraph) if part)
+        heading = ""
+        for rule_id in sorted(named & ids):
+            result[rule_id] = "\n\n".join(part for part in (result.get(rule_id, ""), text) if part)
     return result
 
 

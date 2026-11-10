@@ -115,4 +115,4 @@ def resolve(vault: Vault, config: Config, who: str = "anyone") -> dict:
 
 def render(result: dict) -> str:
     return "\n".join(f"- {subject} ({value['level']}): {text}"
-                     for subject, value in result["subjects"].items() for text in value["lines"]) or "Nothing yet."
+                     for subject, value in result["subjects"].items() for text in value["lines"]) or "Nothing."

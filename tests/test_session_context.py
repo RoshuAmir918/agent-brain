@@ -49,7 +49,7 @@ def test_unknown_context_is_fail_closed(people_vault):
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="NOPE", user_name="Visitor")
     assert block.startswith("This session is with an unknown person (slack NOPE, name shown as Visitor). No profile.")
     assert "nothing about Mira or anyone else may be disclosed" in block
-    assert "What you may tell anyone about Mira, and nothing else:\nNothing yet." in block
+    assert "What you may tell anyone about Mira, and nothing else:\nNothing." in block
     assert "Alice" not in block and "may learn" not in block
 
 
@@ -119,7 +119,7 @@ def test_missing_disclosure_file_is_explicit_and_defaults_to_no_disclosure(peopl
     del people_vault.notes["people/Disclosure.md"]
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
     assert "Disclosure.md is missing: memory/people/Disclosure.md." in block
-    assert block.split("\n\nWhat you may tell", 1)[0].endswith(session_context.DEFAULT_RULE)
+    assert block.split("\n\nWhat you may tell", 1)[0].endswith(session_context.default_rule(people_vault.config))
 
 
 @pytest.mark.parametrize("metadata", [{}, {"user_name": "Visitor"}, {"chat_id": "C_OWNER"}, {"platform": "cron"}])
@@ -209,9 +209,9 @@ def test_a_migrated_vault_gives_a_known_person_their_resolved_access(people_vaul
             "without specifics (whether and roughly when); details are the specifics:") in block
     assert "- schedule: tell details (D1); ask Mira before acting for them (D1)" in block
     assert "- plans: tell gist (D2)" in block
-    assert "health" not in block.split("may learn")[1].split("Scope:")[0]
+    assert "- health: nothing (D3), Mira's own decision for them, settled." in block and "health: tell" not in block
     assert "Scope: D1 covers reading the calendar" in block
-    assert "| D1 |" not in block and block.split("\n\nWhat you may tell", 1)[0].endswith(session_context.DEFAULT_RULE)
+    assert "| D1 |" not in block and block.split("\n\nWhat you may tell", 1)[0].endswith(session_context.default_rule(people_vault.config))
     bob = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_BOB")
     assert "- plans: tell gist (D2)" in bob and "schedule" not in bob.split("may learn")[1]
 
@@ -229,7 +229,8 @@ def test_an_anything_grant_is_shown_subject_by_subject_so_a_deny_is_not_hidden(p
         "| id | audience | subject | tell | do | date | source |\n| --- | --- | --- | --- | --- | --- | --- |\n"
         "| D1 | anyone | anything | details | yes | 2026-10-29 | Mira |\n| D2 | anyone | health | none | no | 2026-10-29 | Mira |\n")
     block = session_context.build(people_vault, people_vault.config, platform="slack", user_id="U_ALICE")
-    assert "- anything:" not in block and "- health:" not in block and "- schedule: tell details (D1)" in block
+    assert "- anything:" not in block and "- schedule: tell details (D1)" in block
+    assert "- health: nothing (D2), Mira's own decision for them, settled." in block
 
 
 def test_the_owners_profile_is_never_matched_as_a_person(people_vault, tmp_path):
@@ -243,7 +244,7 @@ def test_the_owners_profile_is_never_matched_as_a_person(people_vault, tmp_path)
 
 
 def test_the_owner_hears_how_to_work_with_them_and_what_the_agent_thinks_of_them(people_vault):
-    (people_vault.root / "human").mkdir()
+    (people_vault.root / "human").mkdir(exist_ok=True)
     fm.write(people_vault.root / "human/Profile.md", {"kind": "hub"},
              "# Mira\n\n## Who\nMira, Lisbon.\n\n## Working together\n- Terse answers; challenge her reasoning.\n\n"
              "## Impression\n- Decides fast, then wants pushback (likely; Oct 20, Oct 27).\n\n## Open questions\n- Hobbies?\n")
@@ -274,8 +275,8 @@ def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault
     unowned = session_context.build(Vault(root), vault.config, platform="demiurge", user_id="k57orphan")
     assert "its owner is not named there" in unowned and "no owner is named on its profile" in unowned
     assert "beyond what anyone may learn" in unowned
-    assert "A question it relays for its owner you answer now" in block and "is Mira's mail: ask Mira now" in block
-    assert "never hold it for a briefing" in block and "A relay grants nothing" in block
+    assert "A question it relays for its owner you answer now" in block and "goes to Mira now, from this session" in block
+    assert "hold it for a briefing" in block and "A relay grants nothing" in block
     assert "unknown person" not in block
     slack = session_context.build(vault, vault.config, platform="slack", user_id="k57nameless")
     assert "unknown person" in slack and "an intellect" not in slack   # an id is only its own platform's
@@ -328,3 +329,29 @@ def test_prefetch_applies_the_context_settings_and_names_each_person_once(people
     assert full.startswith(session_context.FULL_HEADER + "\n\n## memory/Garden plans.md (warm)\n\n# Garden plans") and len(full) <= 120
     monkeypatch.setenv("BRAIN_PREFETCH", "0")
     assert prefetch("--owner", "--seen", "Alice")["text"] == ""
+
+
+def test_an_intellect_sees_the_open_work_that_names_it_with_its_hub(people_vault):
+    root = people_vault.root
+    for folder in ("agents/Nameless", "agent"):
+        (root / folder).mkdir(parents=True)
+    fm.write(root / "agents/Nameless/Profile.md", {"kind": "profile", "tier": "warm"},
+             "# Nameless\n\n- **Owner:** [[memory/people/Alice/Profile|Alice]]\n- **Demiurge:** `k57nameless`\n")
+    fm.write(root / "agent/Tasks.md", {}, "# Tasks\n\n"
+             "### T-001 — Move the site\n- **Next:** Nameless reads the zone.\n- **Hub:** [[Site move]]\n\n"
+             "### T-002 — Plan the garden\n- **Next:** Pick seeds.\n")
+    fm.write(root / "Site move.md", {"kind": "hub"}, "# Site move\n\nAlice accepted the account invitation.\n")
+    vault = Vault(root)
+    block = session_context.build(vault, vault.config, platform="demiurge", user_id="k57nameless")
+    assert "Open work with Nameless" in block and "Alice accepted the account invitation." in block
+    assert "Plan the garden" not in block
+    vault.notes["people/Disclosure.md"].body = MIGRATED.replace("| D2 | known | plans | gist |", "| D2 | known | plans | none |")
+    assert "Open work with Nameless" not in session_context.build(vault, vault.config, platform="demiurge", user_id="k57nameless")
+
+
+def test_a_routine_run_gets_the_owner_card(people_vault):
+    (people_vault.root / "human").mkdir(exist_ok=True)
+    fm.write(people_vault.root / "human/Profile.md", {"kind": "profile"},
+             "# Mira\n\n## Working together\n\nJust tell me whether I need to do anything.\n")
+    block = session_context.build(Vault(people_vault.root), people_vault.config, platform="cron")
+    assert "Just tell me whether I need to do anything." in block

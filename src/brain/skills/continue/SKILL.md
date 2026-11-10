@@ -1,7 +1,7 @@
 ---
 name: {prefix}continue
 description: Work a handed-off thread until it is done
-version: 1.20.0
+version: 1.21.0
 metadata:
   runtime:
     tags: [routine, day, night, work]

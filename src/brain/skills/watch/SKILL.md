@@ -1,7 +1,7 @@
 ---
 name: {prefix}watch
 description: Follow through on due loops, new channel files and dropped conversations when the monitor sees a change
-version: 3.4.0
+version: 3.5.0
 metadata:
   runtime:
     tags: [routine, day]
@@ -28,7 +28,7 @@ These are the commands this pass uses; they are complete as written, so never sp
 3. **What is new on the channels.** Every live row of the registry (`{agent_dir}/Channels.md`) whose `read` is not none, opened the way its row says, for what changed since the last window only: its newest items, never a search over everything. A row kept as synced files starts with the items under `channels:` (files under `$AGENT_HOME/channels/`), then the rest of the mail listing from step 1; a row opened by a command, a browser profile, a remote machine or a room is checked the way it says, since this run is already awake. Check later replies before treating anything as open. Acting on it, a draft or a calendar change, goes through the command the row names, never by editing a file. Reconcile only important, actionable facts into the owning task: status, deadline, waiting-on, next step. A date-conditioned commitment becomes a commitment trigger. A durable, non-urgent fact gets a dated line on the task with a `morning:` tag. When the owner's Canvas is synced, the Canvas block in the session context is the school channel: a new grade, a new announcement or something newly missing is worth one line to the owner, once; something due within a day that is not handed in is worth one reminder.
 4. **Unanswered conversations.** For each session the signal lists under `unanswered`, read the conversation and check for a later reply. Answer it now under the usual rules, or say in one line why not.
 5. **{human_name}.** Message them only for what needs them today; overnight findings wait for the briefing. Never raise this profile's own connections or tools with them; a gap in what you can see is a Sleep Log matter.
-6. **Record.** Overwrite the state file with `checked_at` (when this pass began, ISO with offset) and the ids handled and nudged. Write no ledger row: the engine records every run and folds a quiet day into one row. When an item that woke you needed nothing, or you find something actionable that did not wake you, add one line about that kind of item to `{agent_dir}/Wake.md` ("wake for Sentry errors in production", "do not wake for City Fitness reminders"): it refines the screen for next time, so keep it to what is or is not actionable for {human_name}. Your account names what was settled and the loops closed (`resolved the Cloudflare ask: Arslan accepted; answered Kevin in #lab`); a quiet pass is `nothing`.
+6. **Record.** Overwrite the state file with `checked_at` (when this pass began, ISO with offset) and the ids handled and nudged. Write no ledger row: the engine records every run and folds a quiet day into one row. When an item that woke you needed nothing, or you find something actionable that did not wake you, add one line about that kind of item to `{agent_dir}/Wake.md` ("wake for Sentry errors in production", "do not wake for City Fitness reminders"): it refines the screen for next time, so keep it to what is or is not actionable for {human_name}.
 
 {owner_messages}
 ## Boundaries

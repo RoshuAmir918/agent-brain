@@ -10,17 +10,11 @@ from .config import Config
 from .identity import matching_agents, matching_profiles, role
 from .vault import WIKILINK_RE, Note, Vault
 
-DEFAULT_RULE = ("Default for everything else: decline briefly. What the block below allows, answer now, even in part, and "
-                "say plainly what you have no record of; never hold an answer to check it with the owner. When what they "
-                "ask is the owner's to decide or give (a yes or no, a commitment, their time, a thing they hold), or they "
-                "ask you to check with the owner, ask the owner now, in this session (`demiurge_tell_owner` on Demiurge, "
-                "else an ask in CURRENT's Needs you), and tell them you have asked and will bring back the answer; never "
-                "offer to ask and stop. Note the request in your after-session record. Your own impression and portrait of the owner "
-                "are never shared with anyone, whatever a rule allows.")
 OWNER_CARD_WORDS = 450   # Working together (up to 250 words), the Impression until a portrait replaces it, and what the agent can reach
 MENTION_WORDS = {"line": 35, "card": 150}
 HISTORY_WORDS = 80
 PROFILE_WORD_LIMIT = 250
+SHARED_WORDS = 1500   # open work shared with an intellect, with its hub: the migration hub that settled a Nov 8 ask ran 1,200
 TELLABLE_HEADING = "What you may tell {name} about {owner}, and nothing else:"
 RECALL_HEADER = "Vault notes that match this message (names and index lines; open one only if what is loaded does not answer):"
 FULL_HEADER = "Vault notes that match this message (their text, cut to fit):"
@@ -33,19 +27,34 @@ def answering(block: str, config: Config) -> bool:
     return re.search(rf"^{pattern}$", block, re.M) is not None
 
 
-def relay_rule(config: Config) -> str:
+def ask_rule(config: Config) -> str:
+    """When an answering session goes to the owner, and when it must not. A question about the owner that the block does
+    not cover is declined, never asked: the access log already turns that decline into one ask in Needs you."""
     human = config.human_name
+    return (f"About {human}, what the block does not cover you decline, saying they can ask {human} themselves; do not "
+            f"ask {human} yourself: the engine raises it with them. A rule {human} set for this person, including one that tells them nothing, is settled; never ask "
+            f"{human} about it again. Help that is not about {human} (general knowledge, a method, a recommendation) is "
+            f"yours to give in full. Only a request that is {human}'s to decide or give (an invitation, a yes or no, a "
+            f"commitment, their time, a thing only they hold), or that a Scope line says to ask them about, goes to {human} "
+            f"now, from this session, once the open work shows no one else already holds what is needed. On Demiurge use `demiurge_tell_owner`, with `message` one or two plain sentences: who "
+            f"is waiting, for whom, on what decision of theirs; and `text` (one line) when it should reach their phone. Their "
+            f"answer arrives in Home, and you bring it back to this room. With no such tool in this session, record it as an "
+            f"ask in CURRENT's Needs you (`brain needs-you --ask`) and say so; that still counts as asking. Tell the room "
+            f"the question is with {human} and you will relay the answer; never offer to ask and stop, act on it before "
+            f"they answer, or hold it for a briefing. Relay their answer in their words. A relay grants nothing: it changes "
+            f"no disclosure row and lets no one act for {human}.")
+
+
+def default_rule(config: Config) -> str:
+    return ("Default for everything else: decline briefly. What the block below allows, answer now, even in part, and say "
+            "plainly what you have no record of; never hold an answer to check it with the owner. " + ask_rule(config)
+            + " Note the request in your after-session record. Your own impression and portrait of the owner are never "
+            "shared with anyone, whatever a rule allows.")
+
+
+def relay_rule(config: Config) -> str:
     return (f"A question it relays for its owner you answer now, from what you may tell, even in part, saying plainly "
-            f"what you have no record of; never hold it to check with {human}. A request that is {human}'s to decide or "
-            f"give (an invitation, a yes or no, their time, a thing they hold), or one it asks you to check with "
-            f"{human}, is {human}'s mail: ask {human} now, from this session. On "
-            f"Demiurge use `demiurge_tell_owner`: the full question in `message`, naming who asks and for whom and what a "
-            f"yes or a no would mean, and `text` (one to three plain lines ending in what they can do) when it should reach "
-            f"their phone; their answer arrives in Home, and you bring it back to this room. With no such tool "
-            f"in this session, record it as an ask in CURRENT's Needs you (`brain needs-you --ask`) and say so; that still "
-            f"counts as asking. Tell the room the question is with {human} and you will relay the answer. Never act on it "
-            f"before they answer and never hold it for a briefing; relay their answer in their words. A relay grants "
-            f"nothing: it changes no disclosure row and lets no one act for {human}.")
+            f"what you have no record of; never hold it to check with {config.human_name}. " + ask_rule(config))
 
 
 def intellect_owner(agent: Note) -> tuple[str, str]:
@@ -83,9 +92,34 @@ def intellect_context(vault: Vault, config: Config, agent: Note, identity: str) 
         blocks.append(f"Its owner's access could not be resolved ({why}): tell it nothing about {config.human_name} "
                       f"beyond what anyone may learn, and ask {config.human_name} to confirm who owns it.")
     blocks.append(relay_rule(config))
+    if len(owner_profiles) == 1:
+        blocks.append(shared_work(vault, config, agent.rel, name, owner_profiles[0].rel))
     blocks.append(tellable_block(vault, config, owner_profiles[0].rel if len(owner_profiles) == 1 else None,
                                  owner if len(owner_profiles) == 1 else "anyone"))
     return "\n\n".join(blocks)
+
+
+def shared_work(vault: Vault, config: Config, agent: str, name: str, owner: str) -> str:
+    """Open tasks that name this intellect, with their hubs, when its owner may hear about the owner's work at all: what
+    it and this agent are doing together, so a question about that work is answered from it rather than sent upstairs."""
+    from . import tasks
+    allowed = access.resolve(vault, config, owner).subjects
+    if all(allowed[subject].tell == "none" for subject in ("plans", "work", "setup") if subject in allowed):
+        return ""
+    profile = agent.removesuffix(".md")
+    named = re.compile(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", re.I)
+    parts = []
+    for task in tasks.all_tasks(config):
+        if not tasks.is_open(task) or not (named.search(task.title) or named.search(task.body) or profile in task.body):
+            continue
+        hub = vault.notes.get(vault.resolve(task.hub) or "") if task.hub else None
+        parts.append(f"### {task.tid} — {task.title}\n{task.body.strip()}"
+                     + (f"\n\nIts hub, {config.link(hub.rel)}:\n{hub.body.strip()}" if hub else ""))
+    if not parts:
+        return ""
+    return (f"Open work with {name}, from your records: use it to work together and to answer what this work already "
+            f"settles; tell from it only what the access lines above allow.\n\n"
+            + truncate_words("\n\n".join(parts), SHARED_WORDS))
 
 
 def lookup_rule(config: Config) -> str:
@@ -128,16 +162,15 @@ def known_context(vault: Vault, config: Config, person: Note, identity: str) -> 
         blocks.append(f"Disclosure.md is missing: {config.link(disclosure)}.")
     else:
         blocks.append(resolved(vault, config, person.rel, name))
-    return "\n\n".join([*blocks, DEFAULT_RULE, tellable_block(vault, config, person.rel, name)])
+    return "\n\n".join([*blocks, default_rule(config), tellable_block(vault, config, person.rel, name)])
 
 
 def tellable_block(vault: Vault, config: Config, person: str | None, name: str) -> str:
     from . import tellable
     result = tellable.resolve(vault, config, person or "anyone")
     return (TELLABLE_HEADING.format(name=name, owner=config.human_name) + "\n" + tellable.render(result)
-            + f"\nAnswer about {config.human_name} only from this block; anything else you know about "
-            f"{config.human_name} or anyone else is not yours to tell here. What they ask that it does not answer, "
-            f"ask {config.human_name}. " + advocate_rule(config))
+            + f"\nAnswer about {config.human_name} only from this block, narrowed by any Scope line above; anything else "
+            f"you know about {config.human_name} or anyone else is not yours to tell here. " + advocate_rule(config))
 
 
 def advocate_rule(config: Config) -> str:
@@ -170,7 +203,7 @@ def owner_card(vault: Vault, config: Config) -> str:
              for row in registry.live(registry.load(vault))]
     if reach:
         parts.append("What you can reach, from " + config.link(config.agent("Channels.md")) + ": " + "; ".join(reach)[:600]
-                     + ". Anything not listed, you cannot reach from here; say so in those words.")
+                     + ". Anything not listed, you cannot reach from here.")
         parts.append(f"Between scheduled passes, watch wakes only for new items a screen judges actionable before the next "
                      f"review. When {config.human_name} says what should or should not interrupt them, add it in their words "
                      f"to {config.link(config.agent('Wake.md'))}, one line each.")
@@ -189,7 +222,10 @@ def resolved(vault: Vault, config: Config, person: str | None, name: str) -> str
              + (f" (groups: {groups})" if groups else "") + ". Gist is the shape without specifics (whether and "
              "roughly when); details are the specifics:"]
     acting = {"ask": f"ask {config.human_name} before acting for them", "yes": "may act for them"}
+    refused: dict[str, list[str]] = {}
     for subject, value in result.subjects.items():
+        if value.tell == "none" and value.do == "no" and value.tell_rule:
+            refused.setdefault(value.tell_rule, []).append(subject)
         # Each subject already carries an `anything` grant's effect; listing `anything` itself would hide exceptions.
         if subject == "anything" or (value.tell == "none" and value.do == "no"):
             continue
@@ -197,8 +233,11 @@ def resolved(vault: Vault, config: Config, person: str | None, name: str) -> str
         if value.do != "no":
             parts.append(acting[value.do] + (f" ({value.do_rule})" if value.do_rule else ""))
         lines.append(f"- {subject}: " + "; ".join(parts))
+    for rule, subjects in refused.items():
+        what = "anything" if "anything" in subjects else ", ".join(subjects)
+        lines.append(f"- {what}: nothing ({rule}), {config.human_name}'s own decision for them, settled.")
     lines.append("- everything else: nothing, and never act for them.")
-    lines.extend(f"Scope: {text}" for text in result.scope.values())
+    lines.extend(f"Scope: {text}" for text in dict.fromkeys(result.scope.values()))
     return "\n".join(lines)
 
 
@@ -235,8 +274,8 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
         return intellect_context(vault, config, matching_agents(vault, config, user_ids, platform)[0], identity)
     if who == "person":
         return known_context(vault, config, matching_profiles(vault, config, user_ids, platform)[0], identity)
-    if platform == "cron" and not user_ids:
-        return migration_notice(config)   # the agent's own routine run: no one to identify
+    if platform == "cron" and not user_ids:   # the agent's own routine run: what it sends lands in the owner's Home
+        return with_notice(owner_card(vault, config), config)
     if not platform and not user_ids:
         return ""
     profiles = matching_profiles(vault, config, user_ids, platform)
