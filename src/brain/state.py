@@ -58,7 +58,7 @@ def _tasks(vault: Vault) -> list[dict]:
              "goal": task.goal if config.edition == "personal" else None,
              "after": task.after,
              "from": task.from_task,
-             "delivers": task.delivers, "ask": fm.field(task.body, "Ask"), "why": fm.field(task.body, "Why"),
+             "delivers": task.delivers, "deliversProposed": tasks.proposed_delivers(task), "ask": fm.field(task.body, "Ask"), "why": fm.field(task.body, "Why"),
              "evidence": fm.field(task.body, "Latest evidence"),
              "resume": midnight if task.tid in spent and tasks.pace(task) == "regular" and (task.resume or "") < midnight
                        else task.resume,

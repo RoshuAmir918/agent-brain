@@ -366,9 +366,6 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         raise ValueError(f"{tid} would hold {after} words of current fields; the limit is {MAX_WORDS}. Say it shorter: "
                          "a sentence or two per field, the detail in a note linked with --evidence")
     save_task(config, task, today, previous)
-    if "delivers" in values or "delivers" in clear or title is not None:
-        from . import continuation
-        continuation.propose_finish_line(config, task)
     return task
 
 
@@ -541,8 +538,6 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
                          "a sentence or two per field")
     task.add_use(config.today().isoformat())   # made today is used today: a new task starts in the register
     append_task(config, task)
-    from . import continuation
-    continuation.propose_finish_line(config, task)
     if state == "yours" and parent is not None and block_parent:
         block_on_owner(config, parent, task, config.today())
     return task
@@ -686,9 +681,7 @@ def close(config: Config, tid: str, today: date, done: bool, why: str, left: str
             raise ValueError(f"{tid} is waiting_for_owner; record {config.human_name}'s answer and change its state first")
     from . import continuation
     if done and not by_owner and proposed_delivers(task):
-        continuation.propose_finish_line(config, task)
-        if continuation.finish_confirm_open(config, task):
-            why = why.rstrip(".") + ". Closed on the intellect's own definition of done."
+        why = why.rstrip(".") + ". Closed on the intellect's own definition of done."
     continuation.clear_close_out(config, tid)
     before = replace(task, state=dict(task.state))
     task.set_state("completed" if done else "cancelled")
