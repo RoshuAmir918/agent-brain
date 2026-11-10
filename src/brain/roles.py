@@ -25,7 +25,7 @@ DOTTED = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*")
 EVIDENCE = ("corrections", "team", "outcomes", "rulings", "work", "machine", "consults")
 BUILTIN_LENS = "solves_the_ask"   # every role's first reviewer: does the work solve what was asked, at its scope
 KEYS = ("kind", "template", "tier", "produces", "actions", "corrections", "sources", "notes", "lenses", "decisions",
-        "measures")
+        "measures", "screen")
 STRUCK = "Struck"   # the section a person moves a line into to strike it; deleting it in a commit strikes it too
 LESSON = re.compile(r"^- (?P<text>.+?)(?: \^(?P<id>[0-9a-f]{4}))?[ \t]*$")
 SOURCES = re.compile(r"\(([^()]*(?:\([^()]*\)[^()]*)*)\)(?: \*\((?:candidate|rule[^)]*)\)\*)?$")
@@ -44,6 +44,7 @@ class Role:
     lenses: list[dict]
     decisions: list[dict]
     measures: dict[str, str]
+    screen: dict = field(default_factory=dict)   # kinds, worth (a scale, lowest first) and keep: what the screen asks
 
     def shapes(self) -> list[str]:
         return [entry["shape"] for entry in self.notes]
@@ -179,12 +180,43 @@ def parse(text: str, name: str = "", known_sources: set[str] | None = None) -> t
     if not isinstance(measures, dict):
         problems.append(f"{where}: measures must map a name to what it counts")
         measures = {}
+    screen = _screen(data.get("screen"), problems, where)
     if problems:
         return None, problems
     return Role(name, data["template"], data["produces"], actions, corrections, sources, notes,
                 [{"lens": BUILTIN_LENS, "covers": "does the work solve what was asked, at the scope asked; "
                   "cites the ask, always a blocker, and flags growth beyond it"}, *lenses],
-                decisions, {str(k): str(v) for k, v in measures.items()}), []
+                decisions, {str(k): str(v) for k, v in measures.items()}, screen), []
+
+
+def _screen(raw, problems: list[str], where: str) -> dict:
+    """What the screen asks of each item: its kind, how much it teaches (a scale, lowest first), and which items are
+    kept for study. Whether it states a company fact is asked of every role (screen.py)."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict) or set(raw) - {"kinds", "worth", "keep"}:
+        problems.append(f"{where}: screen has kinds, worth and keep")
+        return {}
+    kinds = _entries(raw, "kinds", "kind", problems, where)
+    described = {entry.get("kind") for entry in raw.get("kinds", []) if isinstance(entry, dict)
+                 and isinstance(entry.get("covers"), str) and entry["covers"].strip()}
+    problems.extend(f"{where}: screen kind {entry['kind']!r} needs covers: what it means, for the classifier"
+                    for entry in kinds if entry["kind"] not in described)
+    worth = raw.get("worth", [])
+    if not isinstance(worth, list) or len(worth) < 2 or not all(isinstance(level, str) and level for level in worth):
+        problems.append(f"{where}: screen.worth is a scale of two or more descriptions, lowest first")
+        worth = []
+    keep = raw.get("keep", {})
+    keep_kinds = keep.get("kinds", []) if isinstance(keep, dict) else None
+    keep_worth = keep.get("worth") if isinstance(keep, dict) else None
+    if (not isinstance(keep_kinds, list) or not all(isinstance(kind, str) for kind in keep_kinds)
+            or set(keep_kinds) - {entry["kind"] for entry in kinds}):
+        problems.append(f"{where}: screen.keep.kinds names kinds from screen.kinds")
+        keep_kinds = []
+    if isinstance(keep_worth, bool) or not isinstance(keep_worth, int) or not 0 <= keep_worth < max(len(worth), 1):
+        problems.append(f"{where}: screen.keep.worth is a level on the worth scale, from 0")
+        keep_worth = 0
+    return {"kinds": kinds, "worth": worth, "keep": {"kinds": keep_kinds, "worth": keep_worth}}
 
 
 def _known_sources() -> set[str]:
@@ -511,6 +543,13 @@ def add(config: Config, name: str, template: str) -> list[Path]:
     role, problems = parse(text, name, _known_sources())
     if role is None:
         raise ValueError("; ".join(problems))
+    if role.screen:
+        from . import schedule, screen
+        existing = schedule.load(config)
+        for key, values in screen.routines(name, config.skill_prefix).items():
+            if key in existing and existing[key] != schedule.Routine(**values):
+                raise ValueError(f"routine {key} belongs to another role; name this one so it differs in more than "
+                                 "spaces, dashes or case")
     written = []
     for path, content in ((target, text), (base_path(config, name), text)):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -521,6 +560,13 @@ def add(config: Config, name: str, template: str) -> list[Path]:
         if not path.exists():
             fm.write(path, {"tier": "warm"}, f"# {entry['shape']}\n\n{entry.get('holds', '')}\n")
             written.append(path)
+    if role.screen:   # its nightly study and screen
+        from . import schedule, screen
+        routines = schedule.load(config)
+        routines |= {key: schedule.Routine(**values) for key, values in screen.routines(name, config.skill_prefix).items()
+                     if key not in routines}
+        schedule.save(config, routines)
+        written.append(schedule.path(config))
     return written
 
 
