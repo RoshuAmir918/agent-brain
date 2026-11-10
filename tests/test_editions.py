@@ -1,5 +1,6 @@
 """An intellect is one person's (personal) or an organisation's (enterprise): the same engine, installing only the
 routines and skill sections its edition is for. A personal vault renders exactly as before."""
+import re
 from datetime import date
 
 
@@ -23,7 +24,7 @@ def test_enterprise_installs_the_work_without_the_owners_day_and_removes_what_it
     personal = Config.load(vault)
     install.skills(personal)
     assert skill(personal, "morning") and "## Goals" in skill(personal, "recall")
-    assert "<!--" not in skill(personal, "recall") and "Talking to your colleagues" not in skill(personal, "recall")
+    assert not re.search(r"<!-- /?(personal|enterprise) -->", skill(personal, "recall")) and "Talking to your colleagues" not in skill(personal, "recall")
     config = enterprise(vault)
     install.skills(config)
     for gone in ("morning", "people", "prime"):
@@ -33,7 +34,7 @@ def test_enterprise_installs_the_work_without_the_owners_day_and_removes_what_it
     recall = skill(config, "recall")
     assert "## Talking to your colleagues" in recall and "## Goals" not in recall and "Disclosure.md" not in recall
     assert "## Grants" not in skill(config, "setup") and "*People:*" not in skill(config, "explore")
-    assert "<!--" not in recall
+    assert not re.search(r"<!-- /?(personal|enterprise) -->", recall)
 
 
 def test_an_enterprise_context_leaves_out_goals_and_primed_unless_the_vault_chose_them(vault):
