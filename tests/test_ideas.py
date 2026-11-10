@@ -110,7 +110,7 @@ def test_add_spacing_and_duplicate_refusal(vault, monkeypatch, age, days):
         ideas.add(config, TODAY + timedelta(days=days - 1), "Another idea?", "Topic")
     ideas.add(config, TODAY + timedelta(days=days), "Another idea?", "Topic")
     with pytest.raises(ValueError, match="already open"):
-        ideas.add(config, TODAY + timedelta(days=30), "  WATCH   the\ninbox?  ", "Different source")
+        ideas.add(config, TODAY + timedelta(days=ideas.LAPSE_DAYS), "  WATCH   the\ninbox?  ", "Different source")
 
 
 def test_add_uses_newest_bullet_date_and_preserves_other_sections(vault):
@@ -319,6 +319,39 @@ def test_add_refuses_past_the_open_cap(vault, monkeypatch):
     for n in range(ideas.OPEN_MAX):
         ideas.add(config, TODAY + timedelta(days=n), f"Idea number {n}?", "Topic")
     with pytest.raises(ValueError, match="10 ideas are open"):
-        ideas.add(config, TODAY + timedelta(days=30), "One more?", "Topic")
-    ideas.respond(config, "Idea number 0?", TODAY + timedelta(days=30), "no")
-    ideas.add(config, TODAY + timedelta(days=30), "One more?", "Topic")
+        ideas.add(config, TODAY + timedelta(days=12), "One more?", "Topic")
+    ideas.respond(config, "Idea number 0?", TODAY + timedelta(days=12), "no")
+    ideas.add(config, TODAY + timedelta(days=12), "One more?", "Topic")
+
+
+def test_unanswered_ideas_lapse_and_not_now_restarts_the_clock(vault):
+    config = Config.load(vault)
+    write_ideas(vault, bullet("Old?") + bullet("Snoozed?"))
+    old, snoozed = sorted(ideas.items(config, TODAY), key=lambda item: item.text)
+    ideas.respond(config, snoozed.id, TODAY + timedelta(days=10), "not-now")
+    last = TODAY + timedelta(days=ideas.LAPSE_DAYS)
+    assert old in ideas._open(config, last)
+    assert ideas._open(config, last + timedelta(days=1)) == [snoozed]
+    revived = TODAY + timedelta(days=10 + ideas.SNOOZE_DAYS + ideas.LAPSE_DAYS)
+    assert ideas.items(config, revived) == [snoozed]
+    assert ideas._open(config, revived + timedelta(days=1)) == []
+    ideas.add(config, last + timedelta(days=1), "Old?", "Topic")
+
+
+def test_withdraw_closes_without_answering(vault):
+    config = Config.load(vault)
+    path = write_ideas(vault, bullet("Mine to take back?"))
+    entry = ("## Improvements\n### October 30 — Method\n- **Ask:** Want me to show sources first?\n"
+             "- **Why:** Room for your view.\n- **Status:** `proposed`, 2026-11-03\n\n## Notes\nKeep me.\n")
+    hub = vault / "Reading.md"
+    fm.write(hub, {"skill": "own-reading", "records": "reading"}, entry)
+    with pytest.raises(ValueError, match="--because"):
+        ideas.withdraw(config, "Mine to take back?", TODAY, " ")
+    ideas.withdraw(config, "Mine to take back?", TODAY, "the project ended")
+    ideas.withdraw(config, "show sources first", TODAY, "my own method, not a decision")
+    assert ideas._open(config, TODAY) == [] and "Mine to take back?" not in path.read_text()
+    assert needs.improvement_status(hub.read_text()) == "withdrawn" and "Keep me." in hub.read_text()
+    assert ideas.cooldown_until(config, TODAY) is None and ideas._responses(config) == []
+    log = (vault / "agent/Answered/2026-11.md").read_text()
+    assert "· withdrawn · idea · Mine to take back? · the project ended · id:" in log
+    ideas.add(config, TODAY, "Mine to take back?", "Topic")
