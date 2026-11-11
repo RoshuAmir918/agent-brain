@@ -58,6 +58,9 @@ decisions:
   covers: risk the team accepts when shipping, such as an unflagged change or a migration under load
 measures:
   burden: review comments per PR
+process:
+  gate: true
+  review: true
 screen:
   kinds:
   - kind: correction
