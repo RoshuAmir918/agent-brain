@@ -171,7 +171,8 @@ def test_folder_discovery_and_note_kinds(vault):
     ("once 2026-11-12T19:00:00+02:00", {"at": "2026-11-12T19:00:00+02:00"}),
     ("once 2026-11-12T19:00:00Z", {"at": "2026-11-12T19:00:00+00:00"}),
 ])
-def test_derive_timing(vault, when, timing):
+def test_derive_timing(vault, when, timing, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-07-01")
     folder(vault, triggers=[{"kind": "schedule", "when": when}])
     loaded = Vault(vault)
     actual = responsibilities.derive(loaded.config, responsibilities.discover(loaded)[0])
@@ -368,3 +369,13 @@ def test_legacy_creation_keeps_names_that_match_new_commands(vault, tmp_path, mo
     assert (tmp_path / "agent-home/records" / name).is_dir()
     assert not (vault / "Responsibilities").exists()
 
+
+
+def test_spent_one_off_leaves_the_schedule_and_keeps_later_names(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-20")
+    folder(vault, triggers=[{"kind": "schedule", "when": "once 2026-11-12 19:00"},
+                            {"kind": "schedule", "when": "once 2026-11-19 19:00"},
+                            {"kind": "schedule", "when": "0 8 * * *"}])
+    loaded = Vault(vault)
+    actual = responsibilities.derive(loaded.config, responsibilities.discover(loaded)[0])
+    assert list(actual) == ["chicken-alerts-2", "chicken-alerts-3"]

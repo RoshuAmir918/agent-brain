@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
@@ -63,13 +63,14 @@ def derive(config: Config, entry: dict) -> dict[str, Routine]:
     skill = entry.get("skill")
     if skill is not None and (not isinstance(skill, str) or not skill.strip()):
         raise ValueError("skill must be a nonempty string")
-    out = {}
+    out, scheduled = {}, 0
     for index, trigger in enumerate(triggers, 1):
         where = f"triggers[{index}]"
         if not isinstance(trigger, dict) or not isinstance(trigger.get("kind"), str) or not trigger["kind"].strip():
             raise ValueError(f"{where}: must be a map with a kind")
         if trigger["kind"] != "schedule":
             continue
+        scheduled += 1
         when = trigger.get("when")
         timing = {}
         if isinstance(when, str):
@@ -86,10 +87,17 @@ def derive(config: Config, entry: dict) -> dict[str, Routine]:
                     if moment.tzinfo is None:
                         moment = moment.replace(tzinfo=config.zone)
                     timing = {"at": moment.isoformat()}
+                    # A one-off a day past its time has run (or never will): its routine goes, the trigger stays as
+                    # history. A day's grace lets a harness that was down catch up first.
+                    if moment < config.local() - timedelta(days=1):
+                        timing = {"spent": True}
                 except ValueError:
                     pass
         if not timing:
             raise ValueError(f"{where}.when: use a five-field cron expression, every <n>m/<n>h or once <ISO datetime>")
+        name = ident if scheduled == 1 else f"{ident}-{scheduled}"
+        if timing.get("spent"):
+            continue
         script = trigger.get("script")
         if script is not None:
             if (not isinstance(script, str) or not script.strip() or PurePosixPath(script).is_absolute()
@@ -108,7 +116,6 @@ def derive(config: Config, entry: dict) -> dict[str, Routine]:
         deliver = trigger.get("deliver", "demiurge")
         if not isinstance(deliver, str):
             raise ValueError(f"{where}.deliver: must be a string")
-        name = ident if not out else f"{ident}-{len(out) + 1}"
         out[name] = schedule.Routine(**timing, responsibility=ident, skills=[skill] if skill else [],
                                      prompt=prompt, deliver=deliver,
                                      needs=sorted(set(needs + extra_needs)), script=script, agent=trigger.get("agent", True))
