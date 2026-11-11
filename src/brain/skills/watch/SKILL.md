@@ -1,7 +1,7 @@
 ---
 name: {prefix}watch
 description: Follow through on due loops, new channel files and dropped conversations when the monitor sees a change
-version: 3.6.0
+version: 3.7.0
 metadata:
   runtime:
     tags: [routine, day]
