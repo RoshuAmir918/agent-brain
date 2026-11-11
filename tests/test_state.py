@@ -150,7 +150,7 @@ def test_folder_responsibilities_export_fields_routines_and_records(vault, skill
     assert result["responsibilities"] == [{
         "id": "chicken-alerts", "title": "Flock check", "hub": source, "skill": skill,
         "records": "Responsibilities/chicken-alerts/records", "routines": ["chicken-alerts", "chicken-alerts-2"],
-        "needs": ["computer"], "work": "flock", "delivers": "Healthy chickens", "folder": True,
+        "needs": ["computer"], "work": "flock", "delivers": "Healthy chickens", "folder": True, "path": "memory/Responsibilities/chicken-alerts/RESPONSIBILITY.md",
         "triggers": triggers, "asked_by": "Owner, in Home", "goal": "G-1", "role": "R-1", "version": 1}]
     assert result["routines"] == [
         {"name": name, "skill": skill, "hub": "Flock check", "ledger": None, "responsibility": "chicken-alerts"}

@@ -59,7 +59,7 @@ def test_state_responsibilities_come_from_schedule_without_ledger(vault):
     assert snapshot["responsibilities"] == [
         {"id": "chicken-alerts", "title": "Chicken alerts", "hub": "Chicken alerts.md",
          "skill": "brain-chicken-alerts", "records": "chicken-alerts", "routines": ["chicken-alerts"],
-         "needs": [], "work": None, "delivers": None, "folder": False}]
+         "needs": [], "work": None, "delivers": None, "folder": False, "path": "memory/Chicken alerts.md"}]
     assert snapshot["routines"] == [
         {"name": "chicken-alerts", "skill": "brain-chicken-alerts", "hub": "Chicken alerts", "ledger": None,
          "responsibility": "chicken-alerts"}]
@@ -155,7 +155,7 @@ def test_folder_discovery_and_note_kinds(vault):
     assert entries["chicken-alerts"] == {
         "id": "chicken-alerts", "title": "Chicken watch", "hub": path.relative_to(vault).as_posix(),
         "skill": "brain-watch", "records": "Responsibilities/chicken-alerts/records", "routines": [],
-        "needs": ["computer"], "work": "flock", "delivers": "Healthy chickens", "folder": True,
+        "needs": ["computer"], "work": "flock", "delivers": "Healthy chickens", "folder": True, "path": "memory/Responsibilities/chicken-alerts/RESPONSIBILITY.md",
         "triggers": [{"kind": "schedule", "when": "every 2h"}], "version": 1,
         "asked_by": "Owner, to keep an eye on chickens", "goal": "G-1", "role": "R-2"}
     assert entries["daily-check"]["title"] == "Daily check"
@@ -180,8 +180,8 @@ def test_derive_timing(vault, when, timing, monkeypatch):
     loaded = Vault(vault)
     actual = responsibilities.derive(loaded.config, responsibilities.discover(loaded)[0])
     assert actual == {"chicken-alerts": schedule.Routine(**timing, responsibility="chicken-alerts", deliver="demiurge",
-        prompt="Your responsibility Chicken alerts: read Responsibilities/chicken-alerts/RESPONSIBILITY.md and do what it says. "
-               "Its state between runs lives in Responsibilities/chicken-alerts/records.")}
+        prompt="Your responsibility Chicken alerts: read memory/Responsibilities/chicken-alerts/RESPONSIBILITY.md and do what it says. "
+               "Its state between runs lives in memory/Responsibilities/chicken-alerts/records.")}
 
 
 def test_derive_names_fields_and_owner_timezone(vault):
@@ -196,7 +196,7 @@ def test_derive_names_fields_and_owner_timezone(vault):
     actual = responsibilities.derive(loaded.config, responsibilities.discover(loaded)[0])
     assert list(actual) == ["chicken-alerts", "chicken-alerts-2", "chicken-alerts-3"]
     first = actual["chicken-alerts"]
-    assert first.script == "Responsibilities/chicken-alerts/scripts/check.py"
+    assert first.script == "memory/Responsibilities/chicken-alerts/scripts/check.py"
     assert first.agent is False and first.deliver == "local"
     assert first.prompt.endswith("\n\nCheck the feed.")
     assert first.skills == ["brain-watch"] and first.needs == ["computer"]
@@ -339,7 +339,7 @@ def test_add_from_stdin_sync_and_existing_folder_refusal(vault, monkeypatch, cap
     assert data == {"version": 1, "title": "Chicken alerts", "asked_by": "Owner, in Home", "delivers": "A healthy flock",
                     "triggers": [{"kind": "schedule", "when": "every 2h", "script": "scripts/check.py", "prompt": "Count them."}]}
     assert body == "# Chicken alerts\n\nCheck each chicken.\n"
-    assert schedule.load(Config.load(vault))["chicken-alerts"].script == "Responsibilities/chicken-alerts/scripts/check.py"
+    assert schedule.load(Config.load(vault))["chicken-alerts"].script == "memory/Responsibilities/chicken-alerts/scripts/check.py"
     assert not (path.parent / "records").exists()
     with pytest.raises(SystemExit, match="already exists"):
         cli.main(args)
@@ -468,7 +468,7 @@ def test_adopt_routines_copies_methods_scripts_and_timing_under_one_lock(vault, 
     assert all(actual[name].responsibility == "housekeeping-trades" for name in actual if name != "unrelated")
     assert not actual["housekeeping-trades"].enabled and not actual["housekeeping-trades-2"].enabled
     assert actual["housekeeping-trades-3"].enabled
-    assert actual["housekeeping-trades-2"].script == "Responsibilities/housekeeping-trades/scripts/trades.sh"
+    assert actual["housekeeping-trades-2"].script == "memory/Responsibilities/housekeeping-trades/scripts/trades.sh"
     assert actual["housekeeping-trades-3"].at == "2026-11-12T19:00:00+02:00"
     output = capsys.readouterr().out
     for written in (path, copied, schedule.path(config)):
@@ -506,7 +506,7 @@ def test_adopt_defaults_and_reason_flags(vault, extra, reason):
     ("workdir", "needs a hand conversion"), ("missing-script", "missing script file"),
     ("script-path", "script must be a bare name"), ("existing", "folder already exists"),
     ("collision", "derived routine name already exists"), ("duplicate", "only once"),
-    ("missing-skill", "has no SKILL.md"), ("bad-skill", "invalid skill name"),
+    ("bad-skill", "invalid skill name"),
     ("goal", "unknown goal"), ("role", "unknown role"), ("invalid-title", "responsibility id must match"),
     ("hub-id", "responsibility id already exists"),
 ])
@@ -516,6 +516,7 @@ def test_adopt_refusals_leave_everything_unchanged(vault, tmp_path, monkeypatch,
     routine = schedule.Routine(every="2h")
     name, extra, others = "alerts", [], {}
     if case == "owned":
+        folder(vault, "other")
         routine = replace(routine, responsibility="other")
     elif case == "fallback":
         hub(vault, "Legacy", skill="brain-alerts", records="legacy")
@@ -546,8 +547,8 @@ def test_adopt_refusals_leave_everything_unchanged(vault, tmp_path, monkeypatch,
         extra = ["--title", "Bundle"]
     elif case == "duplicate":
         extra = [name]
-    elif case in ("missing-skill", "bad-skill"):
-        routine = replace(routine, skills=["brain-missing" if case == "missing-skill" else "../outside"])
+    elif case == "bad-skill":
+        routine = replace(routine, skills=["../outside"])
     elif case in ("goal", "role"):
         extra = ["--" + case, "G-999" if case == "goal" else "R-999"]
     elif case == "invalid-title":
@@ -594,6 +595,12 @@ def test_adopt_hub_keeps_id_records_frontmatter_and_replaces_hub(vault, tmp_path
     reference = skill.parent / "references/tips.md"
     reference.parent.mkdir()
     reference.write_text("Old reference.\n")
+    snapshot = skill.parent / "scripts/waiver-snapshot.mjs"
+    snapshot.parent.mkdir()
+    snapshot.write_bytes(b"#!/usr/bin/env node\nconsole.log('snapshot');\n")
+    snapshot.chmod(0o751)
+    assets = {path.relative_to(skill.parent): (path.read_bytes(), path.stat().st_mode & 0o777)
+              for path in (reference, snapshot)}
     data = {"kind": "hub", "tier": "hot", "skill": skill.parent.name, "records": "trade-history",
             "work": "portfolio", "delivers": "Receipts", "asked_by": "Owner, dated request", "goal": "G-1", "role": "R-1",
             "uses": ["2026-11-10"], "uses_inferred": [], "activation": "night", "custom": {"keep": [1, 2]}, "title": "Old title"}
@@ -625,6 +632,10 @@ def test_adopt_hub_keeps_id_records_frontmatter_and_replaces_hub(vault, tmp_path
                              "See [[Responsibilities/trade-history/RESPONSIBILITY]].\n")
     assert not skill.parent.exists() and script.exists()
     assert (target.parent / "scripts/trades.sh").read_bytes() == script.read_bytes()
+    for relative, (content, mode) in assets.items():
+        copied = target.parent / relative
+        assert copied.read_bytes() == content and copied.stat().st_mode & 0o777 == mode
+    assert not (target.parent / "SKILL.md").exists()
     loaded = Vault(vault)
     entries = responsibilities.discover(loaded)
     assert len(entries) == 1 and entries[0]["id"] == "trade-history"
@@ -635,10 +646,226 @@ def test_adopt_hub_keeps_id_records_frontmatter_and_replaces_hub(vault, tmp_path
     assert all(actual[name].responsibility == "trade-history" for name in actual if name != "engine")
     assert str(records.resolve()) in actual["trade-history"].prompt
     output = capsys.readouterr().out
-    for removed in (skill, reference):
+    for removed in (skill, reference, snapshot):
         assert f"removed {removed}" in output
-    for written in (path, target, target.parent / "scripts/trades.sh", schedule.path(config)):
+    for written in (path, target, target.parent / "scripts/trades.sh", schedule.path(config),
+                    *(target.parent / relative for relative in assets)):
         assert f"wrote {written}" in output
+
+
+@pytest.mark.parametrize("conflict", [False, True])
+def test_adopt_hub_checks_skill_assets_against_routine_scripts_before_writing(vault, tmp_path, monkeypatch, capsys, conflict):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    config = Config.load(vault)
+    skill = own_skill(vault)
+    hub(vault, "Legacy", skill=skill.parent.name, records="history")
+    asset = skill.parent / "scripts/check.sh"
+    asset.parent.mkdir()
+    asset.write_text("#!/bin/sh\necho skill\n")
+    asset.chmod(0o751)
+    script = install.scripts_path() / asset.name
+    script.parent.mkdir(parents=True)
+    script.write_bytes(b"different script\n" if conflict else asset.read_bytes())
+    schedule.save(config, {"history": schedule.Routine(every="2h", script=script.name)})
+    before = tree(tmp_path)
+    if conflict:
+        def no_writes(*args, **kwargs):
+            pytest.fail("a file conflict must refuse before writing anything")
+
+        monkeypatch.setattr(schedule, "save", no_writes)
+        monkeypatch.setattr(fm, "write_text", no_writes)
+        with pytest.raises(SystemExit, match="conflicting file content"):
+            adopt(vault, "--hub", "Legacy")
+        assert tree(tmp_path) == before
+        assert capsys.readouterr().out == ""
+    else:
+        adopt(vault, "--hub", "Legacy")
+        copied = vault / "Responsibilities/history/scripts/check.sh"
+        assert copied.read_bytes() == script.read_bytes() and copied.stat().st_mode & 0o777 == 0o751
+        assert capsys.readouterr().out.count(f"wrote {copied}\n") == 1
+
+
+def test_adopt_hub_leaves_linked_one_offs_in_schedule_without_triggers(vault, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-11")
+    config = Config.load(vault)
+    skill = own_skill(vault)
+    hub(vault, "Legacy", skill=skill.parent.name, records="history")
+    one_offs = {
+        "game-expired": schedule.Routine(at="2026-11-08T19:00:00-08:00", responsibility="history",
+                                         prompt="Check that game.", skills=[skill.parent.name], enabled=False),
+        "game-window": schedule.Routine(at="2026-11-12T19:00:00-08:00", responsibility="history",
+                                        script="one-off.sh", needs=["computer"], agent=False),
+    }
+    schedule.save(config, {**one_offs, "recurring": schedule.Routine(every="2h", responsibility="history", enabled=False)})
+    adopt(vault, "--hub", "Legacy")
+    data, _ = fm.read(vault / "Responsibilities/history/RESPONSIBILITY.md")
+    assert data["triggers"] == [{"kind": "schedule", "when": "every 2h", "deliver": "local"}]
+    actual = schedule.load(config)
+    assert set(actual) == {*one_offs, "history"} and not actual["history"].enabled
+    assert {name: actual[name] for name in one_offs} == one_offs
+    output = capsys.readouterr().out
+    assert all(f"removed routine {name}" not in output for name in one_offs)
+    assert responsibilities.sync(Vault(vault)) == []
+    cli.main(["schedule", "prune", "--vault", str(vault)])
+    assert "game-expired" not in schedule.load(config) and schedule.load(config)["game-window"] == one_offs["game-window"]
+
+
+def test_adopt_into_appends_triggers_and_text_preserves_document_and_enabled_states(vault, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-11")
+    config = Config.load(vault)
+    path = folder(vault, "history")
+    data = {"custom": {"keep": [1, 2]}, "triggers": [
+        {"kind": "mail", "filter": "trades"},
+        {"kind": "schedule", "when": "once 2026-11-01T08:00:00-08:00"},
+        {"kind": "schedule", "when": "every 2h", "prompt": "Keep existing instructions."},
+        {"kind": "webhook"}, {"kind": "schedule", "when": "0 8 * * *"}],
+        "title": "Trading history", "version": 1, "asked_by": "Owner, original request",
+        "records": "agent/trade-history", "needs": ["computer"], "work": "portfolio", "delivers": "Receipts"}
+    original_body = "# Trading history\n\nKeep this body exactly.\n\n"
+    fm.write(path, data, original_body)
+    path.chmod(0o640)
+    record = path.parent / "records/receipt.md"
+    record.parent.mkdir()
+    record.write_text("Keep the receipt.\n")
+    skill = own_skill(vault)
+    script = install.scripts_path() / "trades.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/bin/sh\necho trades\n")
+    script.chmod(0o751)
+    responsibilities.sync(Vault(vault))
+    existing = schedule.load(config)
+    existing["history-2"] = replace(existing["history-2"], enabled=False)
+    sources = {
+        "alerts": schedule.Routine(cron="0 9 * * *", skills=[skill.parent.name, "brain-watch"],
+                                    script=script.name, prompt="Check trades.", deliver="demiurge"),
+        "history-4": schedule.Routine(at="2026-11-12T19:00:00-08:00", enabled=False, prompt="Check that window."),
+    }
+    schedule.save(config, {**existing, **sources, "unrelated": schedule.Routine(every="5h")})
+    before_skill, before_records = tree(skill.parent), tree(record.parent)
+    adopt(vault, *sources, "--into", "history")
+    actual_data, body = fm.read(path)
+    assert list(actual_data) == list(data)
+    assert {key: value for key, value in actual_data.items() if key != "triggers"} == {
+        key: value for key, value in data.items() if key != "triggers"}
+    assert actual_data["triggers"] == data["triggers"] + [
+        {"kind": "schedule", "when": "0 9 * * *", "prompt": "Check trades.", "script": "scripts/trades.sh"},
+        {"kind": "schedule", "when": "once 2026-11-12T19:00:00-08:00", "prompt": "Check that window.", "deliver": "local"}]
+    assert body.startswith(original_body)
+    assert "## Prompt (alerts)\n\nCheck trades." in body
+    assert "## Prompt (history-4)\n\nCheck that window." in body
+    assert "## Method (from brain-housekeeping)\n\nKeep every trade receipt." in body
+    assert "`brain-watch`" in body and "skill" not in actual_data
+    assert path.stat().st_mode & 0o777 == 0o640
+    assert tree(skill.parent) == before_skill and tree(record.parent) == before_records
+    copied = path.parent / "scripts/trades.sh"
+    assert copied.read_bytes() == script.read_bytes() and copied.stat().st_mode & 0o777 == 0o751
+    actual = schedule.load(config)
+    assert set(actual) == {"history-2", "history-3", "history-4", "history-5", "unrelated"}
+    assert all(actual[name] == routine for name, routine in existing.items())
+    assert actual["history-4"].enabled and not actual["history-5"].enabled
+    assert actual["history-4"].script == "memory/Responsibilities/history/scripts/trades.sh"
+    assert actual["history-5"].at == sources["history-4"].at
+    output = capsys.readouterr().out
+    for written in (path, copied, schedule.path(config)):
+        assert f"wrote {written}" in output
+    assert responsibilities.sync(Vault(vault)) == []
+
+
+@pytest.mark.parametrize("conflict", [False, True])
+def test_adopt_into_checks_existing_script_content_before_writing(vault, tmp_path, monkeypatch, conflict):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    config = Config.load(vault)
+    path = folder(vault, "history")
+    destination = path.parent / "scripts/check.sh"
+    destination.parent.mkdir()
+    destination.write_text("Keep this script.\n")
+    script = install.scripts_path() / destination.name
+    script.parent.mkdir(parents=True)
+    script.write_bytes(b"Different script.\n" if conflict else destination.read_bytes())
+    script.chmod(0o751)
+    schedule.save(config, {"alerts": schedule.Routine(every="2h", script=script.name)})
+    before = tree(tmp_path)
+    if conflict:
+        def no_writes(*args, **kwargs):
+            pytest.fail("a file conflict must refuse before writing anything")
+
+        monkeypatch.setattr(schedule, "save", no_writes)
+        monkeypatch.setattr(fm, "write_text", no_writes)
+        with pytest.raises(SystemExit, match="conflicting file content"):
+            adopt(vault, "alerts", "--into", "history")
+        assert tree(tmp_path) == before
+    else:
+        adopt(vault, "alerts", "--into", "history")
+        assert destination.read_bytes() == script.read_bytes() and destination.stat().st_mode & 0o777 == 0o751
+        assert schedule.load(config)["history-2"].script == "memory/Responsibilities/history/scripts/check.sh"
+
+
+@pytest.mark.parametrize("case, message", [
+    ("unknown", "unknown folder responsibility"), ("legacy", "unknown folder responsibility"),
+    ("no-document", "unknown folder responsibility"), ("broken", "triggers must be a list"),
+    ("title", "--into takes no --title or reason flags"), ("asked-by", "--into takes no --title or reason flags"),
+    ("goal", "--into takes no --title or reason flags"), ("role", "--into takes no --title or reason flags"),
+    ("collision", "derived routine name already exists"), ("schedule-collision", "derived routine name already exists"),
+    ("unknown-routine", "unknown routine"), ("owned", "already has a responsibility"),
+    ("fallback", "already has a responsibility"), ("engine", "engine routine"),
+    ("migration", "engine routine"), ("after", "after routines are engine plumbing"),
+    ("monitor", "monitor or classify routines stay plain"), ("classify", "monitor or classify routines stay plain"),
+    ("workdir", "needs a hand conversion"), ("missing-script", "missing script file"),
+    ("script-path", "script must be a bare name"), ("duplicate", "only once"),
+    ("bad-skill", "invalid skill name"),
+])
+def test_adopt_into_refusals_leave_everything_unchanged(vault, tmp_path, monkeypatch, case, message):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    config = Config.load(vault)
+    name, extra, others = "alerts", [], {}
+    routine = schedule.Routine(every="2h")
+    if case == "legacy":
+        hub(vault, "Legacy", skill="brain-other", records="history")
+    elif case == "no-document":
+        (vault / "Responsibilities/history").mkdir(parents=True)
+    elif case != "unknown":
+        folder(vault, "history", **({"triggers": None} if case == "broken" else {}))
+    if case in ("title", "asked-by", "goal", "role"):
+        extra = ["--" + case, "Override"]
+    if case == "collision":
+        folder(vault, "history-2")
+    elif case == "schedule-collision":
+        others["history-2"] = schedule.Routine(every="3h")
+    elif case == "owned":
+        routine = replace(routine, responsibility="history")
+    elif case == "fallback":
+        folder(vault, "history", skill="brain-alerts")
+        routine = replace(routine, skills=["brain-alerts"])
+    elif case == "engine":
+        name = "demiurge-sync"
+    elif case == "migration":
+        name = install.MIGRATION_ROUTINE + "0-148-0"
+    elif case == "after":
+        others["base"] = routine
+        routine = schedule.Routine(after="base")
+    elif case == "monitor":
+        routine = replace(routine, monitor="signal.sh")
+    elif case == "classify":
+        routine = replace(routine, classify=["roles", "screen"], agent=False)
+    elif case == "workdir":
+        routine = replace(routine, workdir=str(tmp_path / "elsewhere"))
+    elif case == "missing-script":
+        routine = replace(routine, script="gone.sh")
+    elif case == "script-path":
+        routine = replace(routine, script="somewhere/check.sh")
+    elif case == "duplicate":
+        extra = [name]
+    elif case == "bad-skill":
+        routine = replace(routine, skills=["../outside"])
+    schedule.save(config, {**others, name: routine})
+    if case == "unknown-routine":
+        name = "unknown"
+    before = tree(tmp_path)
+    with pytest.raises(SystemExit, match=message):
+        adopt(vault, name, *extra, "--into", "history")
+    assert tree(tmp_path) == before
 
 
 @pytest.mark.parametrize("reason", [{}, {"goal": "G-1"}])
@@ -719,6 +946,8 @@ def test_adopt_hub_refusals_preserve_hub_and_skill(vault, tmp_path, monkeypatch,
     (["alerts", "--hub", "Legacy"], "--hub takes no routines"),
     (["--hub", "Legacy", "--title", "Other"], "--hub takes no routines"),
     (["--hub", "Legacy", "--asked-by", "Owner"], "--hub takes no routines"),
+    (["--hub", "Legacy", "--into", "history"], "--hub takes no routines"),
+    (["--into", "history"], "requires at least one routine"),
 ])
 def test_adopt_rejects_invalid_argument_combinations_without_writing(vault, args, message):
     config = Config.load(vault)
@@ -735,6 +964,10 @@ def test_adopt_hub_with_symlinked_skill_keeps_target_and_restores_link_on_error(
     config = Config.load(vault)
     skill = own_skill(vault)
     directory = skill.parent
+    asset = directory / "references/tips.md"
+    asset.parent.mkdir()
+    asset.write_text("Keep the reference.\n")
+    asset.chmod(0o640)
     original = tmp_path / "own-method"
     directory.rename(original)
     directory.symlink_to(original, target_is_directory=True)
@@ -754,26 +987,50 @@ def test_adopt_hub_with_symlinked_skill_keeps_target_and_restores_link_on_error(
         adopt(vault, "--hub", "Legacy")
         assert not directory.exists() and not directory.is_symlink()
         assert "Keep every trade receipt." in fm.read(vault / "Responsibilities/history/RESPONSIBILITY.md")[1]
+        copied = vault / "Responsibilities/history/references/tips.md"
+        assert copied.read_bytes() == (original / "references/tips.md").read_bytes()
+        assert copied.stat().st_mode & 0o777 == 0o640
     assert tree(original) == target_before
 
 
-@pytest.mark.parametrize("hub_mode", [False, True])
-@pytest.mark.parametrize("failure", ["write", "sync", "pause"])
-def test_adopt_rolls_back_write_and_sync_errors(vault, tmp_path, monkeypatch, capsys, hub_mode, failure):
+@pytest.mark.parametrize("mode", ["group", "hub", "into"])
+@pytest.mark.parametrize("failure", ["write", "copy", "sync", "pause"])
+def test_adopt_rolls_back_write_and_sync_errors(vault, tmp_path, monkeypatch, capsys, mode, failure):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
     config = Config.load(vault)
     skill = own_skill(vault)
-    if hub_mode:
+    asset = skill.parent / "scripts/waiver-snapshot.mjs"
+    asset.parent.mkdir()
+    asset.write_bytes(b"#!/usr/bin/env node\nconsole.log('snapshot');\n")
+    asset.chmod(0o751)
+    script = install.scripts_path() / "run.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/bin/sh\necho run\n")
+    script.chmod(0o751)
+    if mode == "hub":
         hub(vault, "Legacy", skill=skill.parent.name, records="alerts")
-    schedule.save(config, {"alerts": schedule.Routine(every="2h", enabled=False, skills=[skill.parent.name])})
+    elif mode == "into":
+        target = folder(vault, "history", custom={"keep": [1, 2]})
+        target.chmod(0o640)
+        existing = target.parent / "scripts" / script.name
+        existing.parent.mkdir()
+        existing.write_bytes(script.read_bytes())
+        existing.chmod(0o600)
+        records = target.parent / "records/receipt.md"
+        records.parent.mkdir()
+        records.write_text("Keep the receipt.\n")
+    schedule.save(config, {"alerts": schedule.Routine(every="2h", enabled=False, skills=[skill.parent.name], script=script.name)})
     before = tree(tmp_path)
-    if failure == "write":
+    if failure in ("write", "copy"):
         real_write = fm.write_text
 
         def fail_write(path, *args, **kwargs):
-            if path.name == "RESPONSIBILITY.md":
+            if failure == "write" and path.name == "RESPONSIBILITY.md":
                 raise OSError("injected write error")
-            return real_write(path, *args, **kwargs)
+            result = real_write(path, *args, **kwargs)
+            if failure == "copy" and path.name == script.name:
+                raise OSError("injected copy error")
+            return result
 
         monkeypatch.setattr(fm, "write_text", fail_write)
     elif failure == "sync":
@@ -792,7 +1049,7 @@ def test_adopt_rolls_back_write_and_sync_errors(vault, tmp_path, monkeypatch, ca
 
         monkeypatch.setattr(schedule, "save", fail_pause)
     with pytest.raises(SystemExit, match="injected"):
-        adopt(vault, *(["--hub", "Legacy"] if hub_mode else ["alerts"]))
+        adopt(vault, *({"hub": ["--hub", "Legacy"], "group": ["alerts"], "into": ["alerts", "--into", "history"]}[mode]))
     assert tree(tmp_path) == before
     assert capsys.readouterr().out == ""
 
@@ -841,6 +1098,7 @@ def test_adoption_migration_renders_owner_and_stays_under_word_limit(vault, monk
     for command in ("brain install-skills", "brain schedule prune", "brain responsibility adopt --hub",
                     "brain responsibility sync", "brain validate", "brain loops --add", "brain migrate-done"):
         assert command in prompt
+    assert "by skill, name or what its prompt does" in prompt and "--into <id>" in prompt
 
 
 def test_adopt_is_not_blocked_by_another_broken_responsibility(vault):
@@ -864,3 +1122,16 @@ def test_one_off_runs_for_a_folder_responsibility_survive_sync_and_prune_when_sp
     assert {"window-old", "window-new"} <= set(schedule.load(config))
     cli.main(["schedule", "prune", "--vault", str(vault)])
     assert "window-old" not in schedule.load(config) and "window-new" in schedule.load(config)
+
+
+def test_adopt_takes_a_routine_with_a_dangling_responsibility_and_a_skill_that_is_gone(vault):
+    folder(vault, "housing")
+    config = Config.load(vault)
+    responsibilities.sync(Vault(vault))
+    routines = schedule.load(config)
+    routines["followup"] = schedule.Routine(cron="0 9 * * *", skills=["brain-gone"], responsibility="nyc-housing")
+    schedule.save(config, routines)
+    responsibilities.adopt(config, ["followup"], into="housing")
+    text = (vault / "Responsibilities/housing/RESPONSIBILITY.md").read_text()
+    assert "`brain-gone`, which no longer exists" in text
+    assert schedule.load(config)["housing-2"].responsibility == "housing"

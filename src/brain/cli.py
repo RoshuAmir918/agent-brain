@@ -235,14 +235,14 @@ def cmd_responsibility(a):
     try:
         if a.name == "adopt" and not a.skill:
             if any(getattr(a, key) is not None for key in ("records", "when", "script", "prompt", "delivers", "body")):
-                raise ValueError("adopt takes routines or --hub, with an optional --title and reason")
+                raise ValueError("adopt takes routines with --into or an optional --title and reason, or --hub")
             for change in responsibilities.adopt(a.config, ([a.title] if a.title else []) + a.routines,
-                                                 hub=a.hub, title=a.adopt_title,
+                                                 hub=a.hub, title=a.adopt_title, into=a.into,
                                                  asked_by=a.asked_by, goal=a.goal, role=a.role):
                 print(change)
             return
-        if a.routines or a.hub is not None or a.adopt_title is not None:
-            raise ValueError("extra routines, --hub and --title are only supported by adopt")
+        if a.routines or a.hub is not None or a.adopt_title is not None or a.into is not None:
+            raise ValueError("extra routines, --hub, --title and --into are only supported by adopt")
         if a.name == "sync" and not a.skill:
             if a.title:
                 raise ValueError("sync takes no title")
@@ -2284,7 +2284,7 @@ def main(argv=None):
     s = sub.add_parser("responsibility", help="add, adopt or sync standing work, or build a legacy hub with --skill", parents=[vault])
     s.add_argument("name", metavar="add|adopt|sync|NAME"); s.add_argument("title", nargs="?")
     s.add_argument("routines", nargs="*")
-    s.add_argument("--title", dest="adopt_title"); s.add_argument("--hub")
+    s.add_argument("--title", dest="adopt_title"); s.add_argument("--hub"); s.add_argument("--into")
     for key in ("skill", "records", "when", "script", "prompt", "asked-by", "delivers", "body"):
         s.add_argument("--" + key)
     reason = s.add_mutually_exclusive_group()

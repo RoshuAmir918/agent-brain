@@ -30,6 +30,10 @@ def identity(config: Config, note: Note) -> str:
 
 def discover(vault: Vault) -> list[dict]:
     out = []
+    try:   # `path` is from the repository root, where the runtime and the agent work
+        base = PurePosixPath(vault.config.vault_path.resolve().relative_to(vault.config.repo.resolve()).as_posix())
+    except ValueError:
+        base = PurePosixPath(vault.config.vault_path.as_posix())
     for source, note in sorted(vault.notes.items()):
         path = PurePosixPath(source)
         if len(path.parts) == 3 and path.parts[0] == "Responsibilities" and path.name == "RESPONSIBILITY.md":
@@ -38,7 +42,7 @@ def discover(vault: Vault) -> list[dict]:
                         "hub": source, "skill": note.data.get("skill"),
                         "records": note.data.get("records", f"Responsibilities/{ident}/records"),
                         "routines": [], "needs": note.data.get("needs", []), "work": note.data.get("work"),
-                        "delivers": note.data.get("delivers"), "folder": True,
+                        "delivers": note.data.get("delivers"), "folder": True, "path": (base / source).as_posix(),
                         **{key: note.data.get(key) for key in ("triggers", "asked_by", "goal", "role", "version")}})
             continue
         if vault.kind_for(source) != "hub" or note.data.get("kind", "hub") != "hub":
@@ -50,11 +54,20 @@ def discover(vault: Vault) -> list[dict]:
         out.append({"id": identity(vault.config, note), "title": note.stem, "hub": source,
                     "skill": note.data.get("skill"), "records": note.data.get("records"),
                     "routines": [], "needs": [], "work": note.data.get("work"), "delivers": note.data.get("delivers"),
-                    "folder": False})
+                    "folder": False, "path": (base / source).as_posix()})
     return out
 
 
 def derive(config: Config, entry: dict) -> dict[str, Routine]:
+    # The runtime and the agent work from the repository root, which can hold the vault in a subfolder (memory/).
+    try:
+        base = PurePosixPath(config.vault_path.resolve().relative_to(config.repo.resolve()).as_posix())
+    except ValueError:
+        base = PurePosixPath(config.vault_path.as_posix())
+
+    def repo_path(relative) -> str:
+        return (base / relative).as_posix()
+
     from . import schedule
     ident = entry["id"]
     if not re.fullmatch(ID_PATTERN, ident):
@@ -110,8 +123,9 @@ def derive(config: Config, entry: dict) -> dict[str, Routine]:
             if (not isinstance(script, str) or not script.strip() or PurePosixPath(script).is_absolute()
                     or ".." in PurePosixPath(script).parts or PurePosixPath(script) == PurePosixPath(".")):
                 raise ValueError(f"{where}.script: must be a path relative to the responsibility folder")
-            script = (PurePosixPath(entry["hub"]).parent / script).as_posix()
-        prompt = f"Your responsibility {entry['title']}: read {entry['hub']} and do what it says. Its state between runs lives in {entry['records']}."
+            script = repo_path(PurePosixPath(entry["hub"]).parent / script)
+        prompt = (f"Your responsibility {entry['title']}: read {repo_path(entry['hub'])} and do what it says. "
+                  f"Its state between runs lives in {repo_path(entry['records'])}.")
         if "prompt" in trigger:
             if not isinstance(trigger["prompt"], str):
                 raise ValueError(f"{where}.prompt: must be a string")
@@ -203,7 +217,8 @@ def link(entries: list[dict], routines: dict[str, Routine]) -> dict[str, str]:
 
 
 def adopt(config: Config, names: list[str], *, hub: str | None = None, title: str | None = None,
-          asked_by: str | None = None, goal: str | None = None, role: str | None = None) -> list[str]:
+          into: str | None = None, asked_by: str | None = None, goal: str | None = None,
+          role: str | None = None) -> list[str]:
     """Preflight a conversion, then write and sync it as one locked, reversible operation."""
     from . import goals, install, nightly, roles, schedule
 
@@ -216,7 +231,10 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
         # demiurge-sync is the platform's own routine, installed by the deploy rather than the engine.
         engine = set().union(*(schedule.defaults(replace(config, edition=edition)) for edition in ("personal", "enterprise")),
                              {"demiurge-sync", "demiurge-whoami"})
-        old_hub, own_folder = None, None
+        old_hub, own_folder, existing_note = None, None, None
+        existing_derived = {}
+
+        missing = Path()
 
         def own_skill(skill: str) -> Path | None:
             if not isinstance(skill, str) or not skill or Path(skill).name != skill or skill in (".", ".."):
@@ -225,12 +243,12 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
                 return None
             directory = config.skills_path / skill
             if not (directory / "SKILL.md").is_file():
-                raise ValueError(f"skill {skill!r} has no SKILL.md; needs a hand conversion")
+                return missing   # gone already, e.g. a hub's own skill that an earlier adoption folded into its folder
             return directory
 
         if hub is not None:
-            if names or any(value is not None for value in (title, asked_by, goal, role)):
-                raise ValueError("--hub takes no routines, title or reason flags")
+            if names or any(value is not None for value in (title, into, asked_by, goal, role)):
+                raise ValueError("--hub takes no routines, --into, title or reason flags")
             source = Path(hub).expanduser()
             if source.is_absolute():
                 try:
@@ -243,10 +261,12 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
                 raise ValueError(f"no old-style responsibility hub at the vault root: {hub}")
             old_hub = vault.notes[entry["hub"]]
             own_folder = own_skill(entry["skill"])
+            if own_folder is missing:
+                raise ValueError(f"skill {entry['skill']!r} has no SKILL.md; needs a hand conversion")
             if own_folder is None:
                 raise ValueError(f"{hub}: hub must name an own skill, not an engine skill")
             ident, title = entry["id"], old_hub.stem
-            names = entry["routines"]
+            names = [name for name in entry["routines"] if routines[name].at is None]
             excluded = {"kind", "tier", "skill", "records", *nightly.NIGHT_KEYS}
             data = {key: value for key, value in old_hub.data.items() if key not in excluded}
             if not any(data.get(key) for key in ("asked_by", "goal", "role")):
@@ -260,15 +280,28 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
         else:
             if not names:
                 raise ValueError("adopt requires at least one routine or --hub")
+            if into is not None and any(value is not None for value in (title, asked_by, goal, role)):
+                raise ValueError("--into takes no --title or reason flags; the existing document keeps its reason")
             if sum(value is not None for value in (asked_by, goal, role)) > 1:
                 raise ValueError("adopt takes only one of --asked-by, --goal or --role")
             if len(set(names)) != len(names):
                 raise ValueError("adopt each routine only once")
-            title = title if title is not None else names[0]
-            ident = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:63].rstrip("-")
-            data = {key: value for key, value in (("asked_by", asked_by), ("goal", goal), ("role", role)) if value is not None}
-            if not data:
-                data["asked_by"] = "origin unknown"
+            if into is not None:
+                entry = next((entry for entry in entries if entry["id"] == into and entry["folder"]), None)
+                if entry is None:
+                    raise ValueError(f"unknown folder responsibility: {into}")
+                existing_note = vault.notes[entry["hub"]]
+                existing_derived = derive(config, entry)
+                ident = into
+                data, body = dict(existing_note.data), existing_note.body
+            else:
+                title = title if title is not None else names[0]
+                ident = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:63].rstrip("-")
+                data = {key: value for key, value in (("asked_by", asked_by), ("goal", goal), ("role", role)) if value is not None}
+                if not data:
+                    data["asked_by"] = "origin unknown"
+                body = (f"# {title}\n\nAdopted from the routines {', '.join(names)} on {config.today()}; "
+                        "rewrite this into what it is for, how to do it, and what each run leaves visible.\n")
             if asked_by is not None and not asked_by.strip():
                 raise ValueError("--asked-by must name a reason")
             if goal is not None and goal not in {item.gid for item in goals.load(config) + goals.archived(config)}:
@@ -277,23 +310,33 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
                 known = {fm.read(roles.folder(config, name) / roles.ROLE_NOTE)[0].get("id") for name in roles.names(config)}
                 if not re.fullmatch(r"R-[0-9]+", role) or role not in known:
                     raise ValueError(f"unknown role {role!r}; use `brain roles list`")
-            body = (f"# {title}\n\nAdopted from the routines {', '.join(names)} on {config.today()}; "
-                    "rewrite this into what it is for, how to do it, and what each run leaves visible.\n")
 
         if not re.fullmatch(ID_PATTERN, ident):
             raise ValueError(f"responsibility id must match ^{ID_PATTERN}$")
         target = vault.root / "Responsibilities" / ident / "RESPONSIBILITY.md"
-        if target.parent.exists():
+        if existing_note is None and target.parent.exists():
             raise ValueError(f"responsibility folder already exists: Responsibilities/{ident}")
-        if any(entry["id"] == ident and (old_hub is None or entry["hub"] != old_hub.rel) for entry in entries):
+        original_note = old_hub or existing_note
+        if any(entry["id"] == ident and (original_note is None or entry["hub"] != original_note.rel) for entry in entries):
             raise ValueError(f"responsibility id already exists: {ident}")
 
-        triggers, scripts, skills = [], {}, []
+        triggers = list(data["triggers"]) if existing_note else []
+        scheduled = sum(trigger["kind"] == "schedule" for trigger in triggers)
+        copied, skills = {}, []
+
+        def copy_file(source: Path, relative: Path) -> None:
+            content, mode = source.read_bytes(), source.stat().st_mode & 0o777
+            if relative in copied and copied[relative][0] != content:
+                raise ValueError(f"conflicting file content: {target.parent / relative}")
+            copied[relative] = (content, mode)
+
         for name in names:
             if name not in routines:
                 raise ValueError(f"unknown routine: {name}")
             routine = routines[name]
-            if old_hub is None and (routine.responsibility is not None or name in owners):
+            # A routine naming a responsibility that doesn't exist (a typo, a renamed hub) has no owner to keep.
+            owned = routine.responsibility is not None and any(entry["id"] == routine.responsibility for entry in entries)
+            if old_hub is None and (owned or name in owners):
                 raise ValueError(f"{name}: already has a responsibility")
             if old_hub is None and (name in engine or name.startswith(install.MIGRATION_ROUTINE)):
                 raise ValueError(f"{name}: engine routine; stays plain")
@@ -320,7 +363,7 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
                 source = install.scripts_path() / script
                 if not source.is_file():
                     raise ValueError(f"{name}: missing script file {source}")
-                scripts[script.name] = (source.read_bytes(), source.stat().st_mode & 0o777)
+                copy_file(source, Path("scripts") / script)
                 trigger["script"] = f"scripts/{script.name}"
             triggers.append(trigger)
             if old_hub is None and routine.prompt:
@@ -331,22 +374,40 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
 
         for skill in skills:
             directory = own_skill(skill)
-            if directory is not None:
+            if directory is missing:
+                body += f"\nIts routine named the skill `{skill}`, which no longer exists.\n"
+            elif directory is not None:
                 body += f"\n## Method (from {skill})\n\n{fm.read(directory / 'SKILL.md')[1].strip()}\n"
-            elif "skill" not in data:
+            elif existing_note is None and "skill" not in data:
                 data["skill"] = skill
             else:
                 body += f"\nAlso follow the engine skill `{skill}`.\n"
-        data.update(version=1, title=title, triggers=triggers)
+        if existing_note:
+            data["triggers"] = triggers
+        else:
+            data.update(version=1, title=title, triggers=triggers)
         text = fm.join(data, body)
-        entry = {**data, "id": ident, "hub": target.relative_to(vault.root).as_posix(),
+        if own_folder:
+            for source in sorted(own_folder.rglob("*")):
+                if source.is_file() and source != own_folder / "SKILL.md":
+                    copy_file(source, source.relative_to(own_folder))
+        for relative, (content, _) in copied.items():
+            destination = target.parent / relative
+            if (relative == Path("RESPONSIBILITY.md") or Path("RESPONSIBILITY.md") in relative.parents
+                    or any(parent in copied for parent in relative.parents)
+                    or destination.exists() and (not destination.is_file() or destination.read_bytes() != content)
+                    or any(parent.exists() and not parent.is_dir() for parent in destination.parents)):
+                raise ValueError(f"conflicting file content: {destination}")
+        entry = {**data, "id": ident, "title": data.get("title") or ident.replace("-", " ").capitalize(),
+                 "hub": target.relative_to(vault.root).as_posix(),
                  "records": data.get("records", f"Responsibilities/{ident}/records")}
         derived = derive(config, entry)
         remaining = {name: routine for name, routine in routines.items() if name not in names}
         schedule.render(remaining)
         collisions = derived.keys() & remaining.keys()
+        collisions -= {name for name in existing_derived if name in remaining and remaining[name].responsibility == ident}
         for existing in entries:
-            if existing["folder"]:
+            if existing["folder"] and existing["hub"] != entry["hub"]:
                 try:
                     collisions |= derived.keys() & derive(config, existing).keys()
                 except ValueError:
@@ -364,15 +425,16 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
         # Another responsibility's broken document is validate's to report; only this one's blocks the adoption.
         if mine := [change for change in changes if change.startswith(f"kept {ident} ")]:
             raise ValueError("; ".join(mine))
-        enabled = {name: routines[name].enabled if name in names else routines[source].enabled
-                   for index, source in enumerate(names, 1)
+        enabled = {name: routines[name].enabled if existing_note is None and name in names else routines[source].enabled
+                   for index, source in enumerate(names, scheduled + 1)
                    if (name := ident if index == 1 else f"{ident}-{index}") in derived}
         schedule.render({name: replace(routine, enabled=enabled.get(name, routine.enabled)) for name, routine in planned.items()})
 
         schedule_path = schedule.path(config)
         originals = {path: (path.read_bytes(), path.stat().st_mode & 0o777) if path.exists() else None
-                     for path in [schedule_path, *([old_hub.path] if old_hub else [])]}
-        missing_dirs = sorted({path for parent in (target.parent, schedule_path.parent)
+                     for path in [schedule_path, target, *(target.parent / relative for relative in copied),
+                                  *([old_hub.path] if old_hub else [])]}
+        missing_dirs = sorted({path for parent in {path.parent for path in originals}
                                for path in (parent, *parent.parents) if not path.exists()},
                               key=lambda path: len(path.parts), reverse=True)
         removed_files = sorted(path for path in own_folder.rglob("*") if path.is_file() or path.is_symlink()) if own_folder else []
@@ -383,11 +445,11 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
                 shutil.copytree(own_folder, skill_backup, symlinks=True)
             try:
                 schedule.save(config, remaining)
-                target.parent.mkdir(parents=True)
-                fm.write_text(target, text)
-                for name, (content, mode) in scripts.items():
-                    destination = target.parent / "scripts" / name
-                    destination.parent.mkdir(exist_ok=True)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                fm.write_text(target, text, originals[target][1] if originals[target] else None)
+                for relative, (content, mode) in copied.items():
+                    destination = target.parent / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
                     fm.write_text(destination, content, mode)
                 if old_hub:
                     fm.write(old_hub.path, hub_data, f"See [[Responsibilities/{ident}/RESPONSIBILITY]].\n")
@@ -417,13 +479,11 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
                     else:
                         path.write_bytes(original[0])
                         path.chmod(original[1])
-                if target.parent.exists():
-                    shutil.rmtree(target.parent)
                 for directory in missing_dirs:
                     if directory.exists():
                         directory.rmdir()
                 raise
-        return ([f"wrote {target}"] + [f"wrote {target.parent / 'scripts' / name}" for name in scripts]
+        return ([f"wrote {target}"] + [f"wrote {target.parent / relative}" for relative in copied]
                 + ([f"wrote {old_hub.path}"] if old_hub else [])
                 + [f"removed {path}" for path in removed_files] + [f"wrote {schedule_path}"]
                 + [f"removed routine {name}" for name in names] + changes)
