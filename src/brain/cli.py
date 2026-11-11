@@ -970,6 +970,22 @@ def cmd_roles(args):
             verdicts = gate.sort(config, args.name, decisions)
             gate.save(config, args.name, args.work or "", verdicts)
             print(json.dumps([asdict(v) for v in verdicts], ensure_ascii=False, indent=2))
+        elif action == "actions":
+            try:
+                listed = json.loads(subprocess.run(["demiurge", "connections", "list", "--json"], capture_output=True,
+                                                   text=True, check=True, timeout=60).stdout or "[]")
+            except (OSError, subprocess.SubprocessError, ValueError) as error:
+                sys.exit(f"couldn't list the connections (demiurge connections list): {error}")
+            resolved = roles.actions(config, args.name, listed if isinstance(listed, list) else [])
+            if args.json:
+                print(json.dumps(resolved, ensure_ascii=False, indent=2))
+            else:
+                for entry in resolved:
+                    how = "; ".join(f"use {s['connection']} {s['use']}" + ("" if s["ready"] else " (switched off)") for s in entry["by"])
+                    print(f"{entry['action']} · {entry['status']}" + (f" · {how}" if how else
+                          " · no connection does this: connect one that does, such as a git host for git actions"))
+            if any(entry["status"] != "ready" for entry in resolved):
+                sys.exit(1)
         elif action == "lenses":
             role = roles.load(config, args.name)
             notes = [str(roles.folder(config, args.name) / f"{shape}.md") for shape in role.shapes()
@@ -1963,7 +1979,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_roles, roles_cmd=None)
     actions = s.add_subparsers(dest="roles_cmd")
     for action in ("list", "add", "rebuild", "show", "may-learn", "template", "screen", "study", "work", "correction",
-                   "gate", "lenses"):
+                   "gate", "lenses", "actions"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_roles)
         p.add_argument("--vault", default=argparse.SUPPRESS)
         if action == "add":
@@ -1999,6 +2015,8 @@ def main(argv=None):
             p.add_argument("name"); p.add_argument("--work", help="the work the plan is for: its decisions are kept with it")
         elif action == "lenses":
             p.add_argument("name")
+        elif action == "actions":
+            p.add_argument("name"); p.add_argument("--json", action="store_true")
         elif action == "study":
             p.add_argument("name"); p.add_argument("op", choices=["next", "done"])
             p.add_argument("--limit", type=int, default=40, help="next: exchanges to show")
