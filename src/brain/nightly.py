@@ -31,8 +31,8 @@ NIGHT_KEYS = ("uses", "uses_inferred", "tier", "activation")   # the frontmatter
 
 
 def mechanical(vault: Vault, rel: str) -> bool:
-    """Notes whose frontmatter the script owns: not logs, dreams or immutable daily archives."""
-    return not DAILY.fullmatch(rel) and vault.kind_for(rel) not in ("log", "dream")
+    """Notes whose frontmatter the script owns; wake-up documents and immutable archives keep their text."""
+    return not DAILY.fullmatch(rel) and vault.kind_for(rel) not in ("log", "dream", "responsibility")
 
 
 # ---------- frontmatter defaults

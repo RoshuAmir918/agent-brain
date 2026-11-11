@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from brain import cli as brain_cli, fm, install, schedule, validate
+from brain import cli as brain_cli, fm, install, responsibilities, schedule, validate
 from brain.config import Config
 from brain.schedule import Routine
 from brain.vault import Vault
@@ -76,6 +76,31 @@ skills = []
     assert parsed["z-watch"].responsibility == "chicken-alerts"
     assert parsed["z-watch"].needs == ["computer"]
     assert parsed["a-once"].responsibility is None and parsed["a-once"].needs == []
+
+
+def test_folder_routines_refuse_set_remove_and_keep_pause_through_sync(config):
+    path = config.vault_path / "Responsibilities/alerts/RESPONSIBILITY.md"
+    path.parent.mkdir(parents=True)
+    fm.write(path, {"version": 1, "asked_by": "Owner", "triggers": [
+        {"kind": "schedule", "when": "every 1h"}, {"kind": "schedule", "when": "0 8 * * *"}]}, "Check.\n")
+    responsibilities.sync(Vault(config.vault_path))
+    before = schedule.path(config).read_bytes()
+    for args in (("set", "alerts", "--every", "2h"), ("remove", "alerts-2"),
+                 ("set", "alerts", "--responsibility", ""),
+                 ("set", "alias", "--every", "2h", "--responsibility", "alerts")):
+        with pytest.raises(SystemExit, match="edit Responsibilities/alerts/RESPONSIBILITY.md and run `brain responsibility sync`"):
+            cli(config, *args)
+        assert schedule.path(config).read_bytes() == before
+    cli(config, "pause", "alerts")
+    data, body = fm.read(path)
+    data["triggers"][0]["when"] = "every 2h"
+    fm.write(path, data, body)
+    responsibilities.sync(Vault(config.vault_path))
+    assert schedule.load(config)["alerts"].enabled is False
+    assert schedule.load(config)["alerts"].every == "2h"
+    cli(config, "resume", "alerts")
+    assert responsibilities.sync(Vault(config.vault_path)) == []
+    assert schedule.load(config)["alerts"].enabled is True
 
 
 @pytest.mark.parametrize("source, expected", [

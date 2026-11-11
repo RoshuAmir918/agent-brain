@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -55,6 +56,7 @@ def test_install_scripts_copies_executable_package_resources(tmp_path, monkeypat
     assert [path.name for path in installed] == ["attribution.sh", "explore-signal.sh", "export-sessions.sh", "night-after.sh", "night-before.sh", "refresh.sh", "upgrade.sh", "watch-signal.sh"]
     refresh = (home / "scripts/refresh.sh").read_text()
     assert refresh.index("brain people sync --run >/dev/null 2>&1 || true") < refresh.index("brain compile-context --write")
+    assert refresh.index("brain responsibility sync >/dev/null 2>&1 || true") < refresh.index("brain commit --push")
     output = capsys.readouterr().out
     for path in installed:
         assert path.read_bytes() == files("brain").joinpath("scripts", path.name).read_bytes()
@@ -106,6 +108,37 @@ def test_packaged_scripts_run_with_config_and_isolated_external_commands(vault, 
     log = (vault / "agent/Use Log/2026-10.md").read_text()
     assert "| Acme Context.md | opened on demand in session cli-session | observed" in log
     assert "judged:" not in log
+
+
+def test_refresh_keeps_going_when_responsibility_sync_fails(tmp_path, monkeypatch):
+    root = tmp_path / "vault repo"
+    runtime = root / "memory/Runtime"
+    (runtime / "skills").mkdir(parents=True)
+    (runtime / "health.md").write_text("Healthy.\n")
+    (runtime / "schedule.toml").write_text("# derived schedule\n")
+    soul = root / "memory/SOUL.md"
+    soul.write_text("Identity.\n")
+    commands = tmp_path / "bin"
+    commands.mkdir()
+    log = tmp_path / "commands.jsonl"
+    paths = {"soul": str(soul), "skills": str(runtime / "skills"), "schedule": str(runtime / "schedule.toml")}
+    command = commands / "brain"
+    command.write_text(f"#!{sys.executable}\nimport json, sys\n"
+        f"with open({str(log)!r}, 'a') as stream:\n    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        f"paths = {paths!r}\n"
+        "if sys.argv[1:3] == ['responsibility', 'sync']:\n    print('sync failed', file=sys.stderr)\n    sys.exit(1)\n"
+        "if sys.argv[1] == 'paths':\n    print(paths[sys.argv[2]])\n")
+    command.chmod(0o755)
+    monkeypatch.setenv("PATH", str(commands) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("VAULT_REPO", str(root))
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-11")
+    result = subprocess.run(["bash", str(Path(__file__).resolve().parents[1] / "src/brain/scripts/refresh.sh")],
+                            capture_output=True, text=True, check=True)
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert calls.index(["responsibility", "sync"]) < next(i for i, call in enumerate(calls) if call[0] == "commit")
+    commit, = [call for call in calls if call[0] == "commit"]
+    assert "sync failed" not in result.stdout + result.stderr
 
 
 def test_default_skills_are_written_once_and_core_skills_always(tmp_path):

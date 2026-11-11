@@ -16,7 +16,7 @@ from pathlib import Path
 
 from . import access, attribute, compile_context, consults, digest, evidence, fm, health, identity, ideas, image, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
 from . import tasks as tasks_mod
-from . import goals, roles
+from . import goals, responsibilities, roles
 from .tasks import load_tasks, quiet
 from .vault import Vault
 from .config import FORMS, SECTIONS, Config
@@ -232,10 +232,54 @@ def cmd_validate(a):
 
 
 def cmd_responsibility(a):
-    records = a.records or a.skill.removeprefix(a.config.skill_prefix)
-    for path in install.responsibility(a.config, a.name, a.skill, records):
-        print(path)
-    print(install.records_path() / records)
+    try:
+        if a.name == "sync" and not a.skill:
+            if a.title:
+                raise ValueError("sync takes no title")
+            for change in responsibilities.sync(Vault(a.config.vault_path)):
+                print(change)
+            return
+        if a.name != "add" or a.title is None:
+            if not a.skill or a.title:
+                raise ValueError('use add "<Title>" --when "<when>", sync, or "<Name>" --skill <name>')
+            records = a.records or a.skill.removeprefix(a.config.skill_prefix)
+            for path in install.responsibility(a.config, a.name, a.skill, records):
+                print(path)
+            print(install.records_path() / records)
+            return
+        if not any(value and value.strip() for value in (a.goal, a.role, a.asked_by)):
+            raise ValueError("a responsibility names its reason: --goal, --role or --asked-by")
+        if not a.when:
+            raise ValueError("add requires --when")
+        if a.body not in (None, "-"):
+            raise ValueError("use --body - to read the wake-up document from stdin")
+        ident = re.sub(r"[^a-z0-9]+", "-", a.title.lower()).strip("-")[:63].rstrip("-")
+        if not re.fullmatch(responsibilities.ID_PATTERN, ident):
+            raise ValueError(f"responsibility id must match ^{responsibilities.ID_PATTERN}$")
+        data = {"version": 1, "title": a.title,
+                "triggers": [{"kind": "schedule", "when": a.when,
+                              **{key: getattr(a, key) for key in ("script", "prompt") if getattr(a, key) is not None}}],
+                **{key: getattr(a, key) for key in ("goal", "role", "asked_by", "delivers", "skill") if getattr(a, key) is not None}}
+        target = a.config.vault_path / "Responsibilities" / ident / "RESPONSIBILITY.md"
+        body = sys.stdin.read() if a.body == "-" else f"# {a.title}\n\nWrite what this responsibility is for, how to do it, and what each run leaves visible.\n"
+        with vault_lock(a.config):
+            if target.parent.exists():
+                raise ValueError(f"responsibility folder already exists: Responsibilities/{ident}")
+            if a.goal and a.goal not in {goal.gid for goal in goals.load(a.config) + goals.archived(a.config)}:
+                raise ValueError(f"unknown goal {a.goal!r}; use `brain goals list`")
+            if a.role:
+                known = [fm.read(roles.folder(a.config, name) / roles.ROLE_NOTE)[0].get("id") for name in roles.names(a.config)]
+                if not re.fullmatch(r"R-[0-9]+", a.role) or a.role not in known:
+                    raise ValueError(f"unknown role {a.role!r}; use `brain roles list`")
+            responsibilities.derive(a.config, {**data, "id": ident, "hub": target.relative_to(a.config.vault_path).as_posix(),
+                                              "records": f"Responsibilities/{ident}/records"})
+            target.parent.mkdir(parents=True)
+            fm.write(target, data, body)
+        print(target)
+        for change in responsibilities.sync(Vault(a.config.vault_path)):
+            print(change)
+    except (OSError, ValueError) as error:
+        sys.exit(f"responsibility: {error}")
 
 
 def cmd_attribute(a):
@@ -1755,6 +1799,13 @@ def cmd_schedule(args):
             else:
                 routines = schedule.load(config)
                 name = args.name
+                if action in ("set", "remove"):
+                    folders = {entry["id"]: entry for entry in responsibilities.discover(Vault(config.vault_path)) if entry["folder"]}
+                    owned = routines[name].responsibility if name in routines else None
+                    requested = getattr(args, "responsibility", None)
+                    owner = folders.get(owned) or folders.get(requested)
+                    if owner is not None:
+                        raise ValueError(f"edit {owner['hub']} and run `brain responsibility sync`")
                 if action == "set":
                     changes = {key: getattr(args, key) for key in schedule.Routine.__dataclass_fields__
                                if getattr(args, key, None) is not None}
@@ -2201,8 +2252,12 @@ def main(argv=None):
     s.add_argument("--ack-notices", action="store_true", help="acknowledge displayed app-change notices for this owner or routine session")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_session_context)
 
-    s = sub.add_parser("responsibility", help="build a hub, an own skill and a records folder for standing work", parents=[vault])
-    s.add_argument("name"); s.add_argument("--skill", required=True); s.add_argument("--records")
+    s = sub.add_parser("responsibility", help="add or sync standing work, or build a legacy hub with --skill", parents=[vault])
+    s.add_argument("name", metavar="add|sync|NAME"); s.add_argument("title", nargs="?")
+    for key in ("skill", "records", "when", "script", "prompt", "asked-by", "delivers", "body"):
+        s.add_argument("--" + key)
+    reason = s.add_mutually_exclusive_group()
+    reason.add_argument("--goal"); reason.add_argument("--role")
     s.set_defaults(fn=cmd_responsibility)
     s = sub.add_parser("timezone", help="print the owner's timezone from brain.toml", parents=[vault]); s.set_defaults(fn=cmd_timezone)
     s = sub.add_parser("install-skills", parents=[vault])
