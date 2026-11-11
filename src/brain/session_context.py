@@ -214,6 +214,14 @@ def owner_card(vault: Vault, config: Config) -> str:
             f"{config.human_name} alone, never where anyone else can read it. Full profile: {config.link(config.human_profile)}.")
 
 
+def owner_messages(config: Config) -> str:
+    """The rules for what the owner reads, in every owner session: a chat that never loads a skill still writes to them."""
+    from importlib.resources import files
+    from .install import for_edition, render
+    policy = files("brain").joinpath("templates", "owner-messages.md").read_text(encoding="utf-8")
+    return render(for_edition(policy, config.edition), config.template_values()).strip()
+
+
 def resolved(vault: Vault, config: Config, person: str | None, name: str) -> str:
     """What this person may learn and ask for, as `brain access` resolves it, in a few lines."""
     result = access.resolve(vault, config, person)
@@ -269,7 +277,7 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
         return with_notice(member_context(config, platform, user_ids, user_name, who == "owner"), config)
     if who == "owner":
         return with_notice("\n\n".join(part for part in (f"This session is with {config.human_name}, the owner.",
-                                                          owner_card(vault, config)) if part), config)
+                                                          owner_card(vault, config), owner_messages(config)) if part), config)
     if who == "intellect":
         return intellect_context(vault, config, matching_agents(vault, config, user_ids, platform)[0], identity)
     if who == "person":
