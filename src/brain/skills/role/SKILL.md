@@ -1,7 +1,7 @@
 ---
 name: {prefix}role
 description: Do a piece of work as one of the organisation's roles, from brief to draft, with its decisions sorted and its work reviewed
-version: 1.0.0
+version: 1.1.0
 metadata:
   runtime:
     tags: [roles, work]
@@ -31,7 +31,7 @@ Review with fresh eyes you don't have yourself: call `review_work` with the ask 
 Only blockers ask for a revision; should-fix and nit findings are worth a look, and anything you leave goes in the description, not into more changes. For each blocker: fix it in code, or answer it with a reason that holds. Rewording the description is neither. Then call `review_work` again with `recheck` and the findings, your answers and the new diff: a reviewer that didn't write it says, per blocker, fixed, answered, or not fixed. Anything not fixed goes back to step 5 once more; if it still isn't, stop and say plainly what is left.
 
 ## 6. Open it as a draft
-Push a branch and open a draft with the role's actions (for engineering: `git.push_branch`, `git.open_draft_pr`, `ci.run`), then register it: `brain roles work <role> add <work id> --title "<title>" --link <url>`. The description says what changed and why in a few sentences, the decisions you flagged with whose they are, what you asked and what was answered, and the checks you ran. Never merge. The manager reviews first, then the area's owner; what they say is the strongest thing you will learn from, and the nightly study files it.
+`brain roles actions <role>` says which connection does each of the role's actions here (for engineering: `git.push_branch`, `git.open_draft_pr`, `ci.run`), as `use <connection> <action>`; call exactly those, and if one is missing or switched off, stop and say so rather than finding another way. Push a branch and open a draft, then register it: `brain roles work <role> add <work id> --title "<title>" --link <url>`. The description says what changed and why in a few sentences, the decisions you flagged with whose they are, what you asked and what was answered, and the checks you ran. Never merge. The manager reviews first, then the area's owner; what they say is the strongest thing you will learn from, and the nightly study files it.
 
 ## When a review comes in on your draft
 Each comment, change requested or edit someone else pushed is a correction. Fix the work, then record and file it the way the study skill does (`brain roles correction <role> add`, then `file`). When the comment is about who decides ("check with Kim before changing the schema", "always ask me about exports"), file it as a decision right, not a lesson: `brain roles correction <role> file <id> --decides "<area>" --person <platform>:<id>`, with `--always` when they said always. The gate reads it on the very next plan. Then check your other open work against what you just learned, the same day.

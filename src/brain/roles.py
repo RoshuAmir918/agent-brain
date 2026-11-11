@@ -651,3 +651,18 @@ def problems(config: Config) -> list[str]:
             out.append(f"{FOLDER}/{name}: the shipped template changed; read "
                        f"{proposal_path(config, name).relative_to(config.vault_path)} and accept or decline it")
     return out
+
+
+def actions(config: Config, name: str, listed: list[dict]) -> list[dict]:
+    """Which granted connection does each of the role's actions, from the runtime's listing of connections
+    (`demiurge connections list --json`, each with the role actions its connector implements). A template names an
+    action by what it does, so any git host or ticket desk can serve it; this says which one does here, and which can't."""
+    role = load(config, name)
+    out = []
+    for action in role.actions:
+        serving = [{"connection": f"{entry.get('kind')}:{entry.get('folder')}", "use": item.get("use"), "ready": bool(item.get("ready"))}
+                   for entry in listed if isinstance(entry, dict)
+                   for item in entry.get("implements") or [] if isinstance(item, dict) and item.get("action") == action]
+        status = ("ready" if any(s["ready"] for s in serving) else "switched off" if serving else "missing")
+        out.append({"action": action, "status": status, "by": serving})
+    return out
