@@ -201,7 +201,51 @@ def restricted(config: Config) -> set[str]:
     """Read restricted areas from the optional Restricted section."""
     path = config.vault_path / config.agent("Owners.md")
     body = path.read_text(encoding="utf-8") if path.exists() else ""
+    head = fm.FM_RE.match(body)
+    body = body[head.end():] if head else body
     span = fm.section(body, "Restricted")
     return {" ".join(line[2:].casefold().split())
             for line in body[span[0]:span[1]].splitlines() if line.startswith("- ")
             and AREA.fullmatch(" ".join(line[2:].casefold().split()))} if span else set()
+
+
+def add_area(config: Config, area: str, person: str, name: str, covers: str, source: str) -> bool:
+    """Append an area's row, learned from what a person said, with where it was said. Never replaces a row: the table is
+    the people's, and theirs outranks what was learned. Caller holds the vault lock."""
+    area = " ".join(area.casefold().split())
+    if not AREA.fullmatch(area) or not PERSON.fullmatch(person):
+        raise ValueError("an area uses letters, digits, spaces or hyphens; a person is <platform>:<id>")
+    # A person's row counts even when it doesn't parse: a learned row never takes over from one they wrote.
+    if any(cells and " ".join(cells[0].casefold().split()) == area for _, cells in _table(config)):
+        return False
+    clean = lambda text: " ".join(text.replace("|", "/").split())
+    row = f"| {area} | {clean(name) or person} ({person}) | | {clean(covers)} | | {clean(source)} |"
+    path = config.vault_path / config.agent("Owners.md")
+    text = path.read_text(encoding="utf-8") if path.exists() else "# Owners\n"
+    head = fm.FM_RE.match(text)
+    top = len(text[:head.end()].splitlines()) if head else 0   # sections are looked for below the frontmatter
+    lines = text.splitlines()
+    table = _table(config)
+    if table:
+        lines.insert(table[-1][0], row)   # numbered from 1, so this lands after the table's last row
+    else:   # a new table, before the first section
+        at = next((i for i, line in enumerate(lines) if i >= top and line.startswith("## ")), len(lines))
+        block = ["| " + " | ".join(COLUMNS) + " |", "|" + " --- |" * len(COLUMNS), row]
+        lines[at:at] = ([""] if at and lines[at - 1].strip() else []) + block + ([""] if at < len(lines) else [])
+    fm.write_text(path, "\n".join(lines) + "\n")
+    return True
+
+
+def restrict(config: Config, area: str) -> bool:
+    """List an area as restricted: its actions require a named person, so the intellect always asks. Caller holds the
+    vault lock."""
+    from . import portrait
+    area = " ".join(area.casefold().split())
+    if area in restricted(config):
+        return False
+    path = config.vault_path / config.agent("Owners.md")
+    text = path.read_text(encoding="utf-8") if path.exists() else "# Owners\n"
+    head = fm.FM_RE.match(text)
+    front, body = (text[:head.end()], text[head.end():]) if head else ("", text)
+    fm.write_text(path, front + portrait.insert(body.rstrip("\n") + "\n", "Restricted", f"- {area}\n"))
+    return True

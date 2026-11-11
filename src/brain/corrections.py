@@ -152,13 +152,15 @@ def _find(config: Config, role: str, ident: str):
 
 
 def file(config: Config, role: str, event_id: str, *, note: str = "", section: str = "", claim: str = "",
-         to: str = "", rule: bool = False) -> str:
+         to: str = "", rule: bool = False, decides: str = "", person: str = "", always: bool = False) -> str:
     """File an event: a new line (`note`, `section`, `claim`), or one more source on the line `to` names. Refused when a
     person struck the claim; a person's own line is never edited, the event only confirms it. Returns what was done."""
     definition = roles.load(config, role)
     event = events(config, role).get(event_id)
     if event is None:
         raise ValueError(f"no correction {event_id!r}; `brain roles correction {role} next` lists them")
+    if decides:
+        return _decision_right(config, role, event, decides, person, always)
     if rule and not authority(config, event):
         raise ValueError(f"{event.by} ({event.speaker}) can't make it a rule on their word alone; file it as a candidate")
     source = source_text(event, works(config, role).get(event.work)) + (", stated as a rule" if rule else "")
@@ -208,6 +210,37 @@ def file(config: Config, role: str, event_id: str, *, note: str = "", section: s
         _record(config, role, event, "new", line)
         kind = "rule" if rule else "candidate"
         return f"new {kind} ^{ident} in {note} · {section.strip()}"
+
+
+def _decision_right(config: Config, role: str, event: Event, area: str, person: str, always: bool) -> str:
+    """"Check with Kim before changing the schema": a fact about who decides, so it goes to the people's records every
+    role and intellect reads (`Owners.md`), not to this role's notes. Stated by someone with authority, or by the person
+    about themselves; never over a row the table already has."""
+    from . import owners, routing
+    if not person:
+        raise ValueError("--decides needs --person <platform>:<id>: who decides it")
+    aliases = routing.identities(config)
+    canonical = lambda who: aliases.get(who, who)
+    platform = _platform(roles.load(config, role))
+    self_named = event.speaker not in screen.MACHINES and canonical(f"{platform}:{event.by}") == canonical(person)
+    if not (authority(config, event) or self_named):
+        raise ValueError(f"{event.by} ({event.speaker}) can't assign who decides {area}; only an owner or the person "
+                         "themselves can. File it as a candidate line instead")
+    source = source_text(event, works(config, role).get(event.work))
+    with vault_lock(config):
+        if event.id in filed(config, role):
+            return "already filed"
+        area = " ".join(area.casefold().split())
+        row = next((row for row in owners.load(config) if row.area == area), None)
+        if row and canonical(row.owner) != canonical(person):
+            raise ValueError(f"Owners.md already names {row.owner_name} for {area}; a person's table outranks what was "
+                             "learned: ask them to change it")
+        if not row:
+            owners.add_area(config, area, person, routing.name(config, person) or person, event.text[:120], source)
+        if always:
+            owners.restrict(config, area)
+        _record(config, role, event, "decision right", f"{area} -> {person}" + (" (always ask)" if always else ""))
+    return f"{area}: {routing.name(config, person) or person} decides" + (", always asked" if always else "")
 
 
 def _with_source(raw: str, source: str, rule: bool) -> str:
