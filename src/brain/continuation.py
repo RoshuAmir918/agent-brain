@@ -246,38 +246,22 @@ def review_status(config: Config, tid: str) -> dict:
             "lastReview": row.get("last_review")}
 
 
-def _finish_confirms(config: Config, task: tasks.Task) -> list[needs.Item]:
+def retire_finish_confirms(config: Config, entries: list[tasks.Task], report: list[str]) -> None:
+    """Finish lines live on the task now, where the owner can change them; old proposal confirms are resolved once.
+    Caller holds the lock."""
     current = config.vault_path / "CURRENT.md"
-    return [item for item in (needs.parse_section(current.read_text(encoding="utf-8")) if current.exists() else [])
-            if item.task == task.tid and item.kind == "confirm" and item.text.startswith("I'll call ")
-            and item.text.endswith("Say if that's not it.")]
-
-
-def finish_confirm_open(config: Config, task: tasks.Task) -> bool:
-    return bool(_finish_confirms(config, task))
-
-
-def propose_finish_line(config: Config, task: tasks.Task) -> None:
-    """One confirm per proposal, kept after closure and never raised again after acceptance. Caller holds the lock."""
-    proposed = tasks.proposed_delivers(task)
-    text = (f"I'll call {task.title} done when {fm.cut(task.delivers, 20)}. Say if that's not it."
-            if proposed else "")
-    fingerprint = hashlib.sha256(f"{task.title}\n{task.delivers}".encode("utf-8")).hexdigest() if proposed else None
-    previous = task.state.get("delivers_confirm")
-    if fingerprint == previous:
-        return
-    for item in _finish_confirms(config, task):
-        needs.resolve(config, item.id, "the task's Delivers changed", config.today(), record_answer=False)
-    if proposed:
-        journal.add_ask(config, config.today(), text, config.agent(f"Tasks#{task.tid}"), kind="confirm")
-        task.state["delivers_confirm"] = fingerprint
-    else:
-        task.state.pop("delivers_confirm", None)
-    tasks.save_task(config, task, config.today())
+    for item in needs.parse_section(current.read_text(encoding="utf-8")) if current.exists() else []:
+        if item.kind == "confirm" and item.text.startswith("I'll call ") and item.text.endswith("Say if that's not it."):
+            needs.resolve(config, item.id, "the finish line is shown on the task, where the owner can change it",
+                          config.today(), record_answer=False)
+            report.append(f"finish line: {item.task or item.id}: moved to the task")
+    for task in entries:
+        if task.state.pop("delivers_confirm", None) is not None:
+            tasks.save_task(config, task, config.today())
 
 
 def finish_lines(config: Config, report: list[str] | None = None) -> list[tasks.Task]:
-    """Migrate old finish questions and record proposals as confirms before scheduling either pace."""
+    """Migrate old finish questions and proposal confirms before scheduling either pace."""
     report = report if report is not None else []
     with vault_lock(config):
         entries = tasks.all_tasks(config)
@@ -300,19 +284,16 @@ def finish_lines(config: Config, report: list[str] | None = None) -> list[tasks.
             elif task and task.delivers:
                 tasks._delivers_by(task, True)
                 tasks.save_task(config, task, config.today())
-                because = "replaced by a proposal confirm; work and closing may continue"
+                because = "replaced by a proposal on the task; work and closing may continue"
             else:
                 because = "the worker will write Delivers before working"
-            if task:
-                propose_finish_line(config, task)
             needs.resolve(config, item.id, because, config.today(), record_answer=False)
             report.append(f"finish line: {item.task or item.id}: {because}")
         for task in entries:
             if "finish_asked" in task.state:
                 task.state.pop("finish_asked")
                 tasks.save_task(config, task, config.today())
-            if tasks.is_open(task):
-                propose_finish_line(config, task)
+        retire_finish_confirms(config, entries, report)
         marker = config.vault_path / config.runtime_dir / "finish-lines-0.123.0"
         if not marker.exists():
             marker.parent.mkdir(parents=True, exist_ok=True)
@@ -404,14 +385,6 @@ def answered(config: Config, source: str, question: str, because: str, owner_eng
     task = tasks.find(config, match[0], archived_closed=True) if match else None
     if task is None:
         return
-    # The owner resolving a proposal confirm accepts it. A correction is a conversation's own `task set --delivers`
-    # (after `task reopen` if closed), since --because is free text and must not become the finish line.
-    if (owner_engaged and kind == "confirm" and (not task.owner or not by or task.owner == by)
-            and question.startswith("I'll call ") and question.endswith("Say if that's not it.")
-            and tasks.proposed_delivers(task)):
-        tasks._delivers_by(task, False)
-        task.state.pop("delivers_confirm", None)
-        tasks.save_task(config, task, config.today())
     if task.handoff and runtime.configured() is not None:
         text = f"{question} Answer: {because}"
         if not (owner_engaged and mark_engaged(config, task.tid, text, by)):
