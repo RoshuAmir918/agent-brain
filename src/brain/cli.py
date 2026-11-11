@@ -1179,10 +1179,12 @@ def cmd_task(args):
                 raise ValueError("--clear, --title and --reviewed go with task T-nnn set")
             if args.from_ is not None and not args.from_.strip():
                 raise ValueError("--from must name an existing task")
+            if args.handoff and args.state not in (None, "ready", "in_progress"):
+                raise ValueError("--handoff is for your own work; owner work (--state yours) is never handed off")
         elif args.action not in ("done", "drop", "yours", "set", "reopen", "view"):
             raise ValueError("task ACTION must be done, drop, yours, reopen, set or view")
-        elif args.source is not None or args.json:
-            raise ValueError("--source and --json go with task new")
+        elif args.source is not None or args.json or args.handoff:
+            raise ValueError("--source, --json and --handoff go with task new")
         elif args.from_ is not None:
             raise ValueError("--from goes with task new")
         elif (args.later or args.now) and args.action != "set":
@@ -1215,7 +1217,8 @@ def cmd_task(args):
             if args.tid == "new":
                 task = tasks_mod.new_task(args.config, args.action, args.source, state="ready" if args.state is None else args.state,
                                           values=values, work=args.work, agent_delivers=not in_conversation(), said=args.said,
-                                          from_task=args.from_, report=args.report, later=args.later)
+                                          from_task=args.from_, report=None if args.handoff else args.report, later=args.later)
+                handed = hand_off(args, task.tid) if args.handoff else None
             elif args.action == "reopen":
                 task = tasks_mod.reopen(args.config, args.tid, args.config.today(), args.why)
             elif args.action in ("set", "yours"):
@@ -1239,8 +1242,8 @@ def cmd_task(args):
         print(error, file=sys.stderr)
         sys.exit(1)
     if args.tid == "new":
-        print(json.dumps({"id": task.tid, "title": task.title}, ensure_ascii=False) if args.json
-              else f"{task.tid} created: {task.title}")
+        print(json.dumps({"id": task.tid, "title": task.title, **({"handoff": handed} if handed else {})}, ensure_ascii=False)
+              if args.json else f"{task.tid} created: {task.title}" + (f"\n{handed}" if handed else ""))
     elif args.action == "set":
         fields = ((["state"] if args.state is not None else []) + list(values) + [f"cleared {name}" for name in args.clear or ()]
                   + (["reviewed"] if args.reviewed else []) + (["report"] if args.report is not None else [])
@@ -1281,29 +1284,34 @@ def cmd_works(args):
     print(f"{args.slug} view saved: {len(view['pieces'])} pieces" if view else f"{args.slug} view removed")
 
 
-def cmd_handoff(args):
-    try:
-        # On Demiurge the runtime names the conversation this turn is in: the report goes back where the work was asked for.
-        here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
-        report = f"demiurge:{here}" if here and not (args.report or "").startswith("demiurge:") else (args.report or "")
-        # In an organisation's intellect a task is the person's who handed it off: the runtime names the speaker.
-        owner = args.for_ or (speaker() if args.config.edition == "enterprise" else None)
-        with vault_lock(args.config):
-            task = tasks_mod.hand_off(args.config, args.tid, args.config.today(), report, work=args.work, owner=owner)
-            from . import continuation
-            continuation.mark_engaged(args.config, task.tid, by=speaker())
-    except ValueError as error:
-        print(error, file=sys.stderr)
-        sys.exit(1)
+def hand_off(args, tid: str) -> str:
+    """Hands `tid` to a background worker under the vault lock the caller holds, and says what happens next."""
+    # On Demiurge the runtime names the conversation this turn is in: the report goes back where the work was asked for.
+    here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
+    report = f"demiurge:{here}" if here and not (args.report or "").startswith("demiurge:") else (args.report or "")
+    # In an organisation's intellect a task is the person's who handed it off: the runtime names the speaker.
+    owner = getattr(args, "for_", None) or (speaker() if args.config.edition == "enterprise" else None)
+    task = tasks_mod.hand_off(args.config, tid, args.config.today(), report, work=args.work, owner=owner)
+    from . import continuation
+    continuation.mark_engaged(args.config, task.tid, by=speaker())
     where = task.handoff[1] if task.handoff else ""
     if os.environ.get("DEMIURGE_WORKERS", "").strip() == "1":
         # The runtime starts a background worker for the task within a minute; this turn should answer and end.
-        print(f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: a background worker starts on it within "
-              "a minute and reports back here. Tell them so in one line and end your reply; do not start the work in "
-              "this turn.")
-        return
-    print(f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: worked by a background worker until done or "
-          f"blocked{', reported in ' + where if where else ''}.")
+        return (f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: a background worker starts on it within "
+                "a minute and reports back here. Tell them so in one line and end your reply; do not start the work in "
+                "this turn.")
+    return (f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: worked by a background worker until done or "
+            f"blocked{', reported in ' + where if where else ''}.")
+
+
+def cmd_handoff(args):
+    try:
+        with vault_lock(args.config):
+            said = hand_off(args, args.tid)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        sys.exit(1)
+    print(said)
 
 
 def cmd_continue(args):
@@ -2180,6 +2188,8 @@ def main(argv=None):
     s.add_argument("--said", help="with --delivers: at least four exact words the owner said, checked against Source or recent conversations")
     s.add_argument("--work", metavar="SLUG", help="with new or set: Library work slug")
     s.add_argument("--json", action="store_true", help="with new: print {id, title}")
+    s.add_argument("--handoff", action="store_true",
+                   help="with new: hand it off in the same call, as `brain handoff` does; --report and --work go to the handoff")
     s.add_argument("--later", action="store_true",
                    help="with new --state yours or set: owner work for some day, kept out of what needs them today")
     s.add_argument("--now", action="store_true", help="with set: bring later owner work back to what needs them")
