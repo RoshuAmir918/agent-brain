@@ -1,7 +1,7 @@
 ---
 name: {prefix}recall
 description: Retrieve from and write to the vault memory
-version: 2.37.0
+version: 2.38.0
 metadata:
   runtime:
     tags: [memory, vault]
@@ -32,7 +32,7 @@ Then load `{prefix}seed` and run it scoped to that owner account.
 Asked whether you can read someone's texts, mail or orders, check for the tool or command; without it the answer is "not from here", in those words, with what would make it possible if you know ({human_name} connecting the account, a connect link) and nothing more. A capability you once had and no longer see is "not right now", never assumed back. Say what you did; work {human_name} gave you that you could not finish is reported as unfinished, with where it stopped, in the briefing if nothing else, never left silent. Give a cost in money or effort ("about $2", "a few minutes of work"), never by the internal names of models or tiers.
 
 {owner_messages}
-Coordination you leave out of one message is folded into the next one that carries something, or left out; credentials are never counted ("both keys are ready"). When the next step needs something only they hold, do the one thing that gets it in this turn (`ask_secret` for a key, a connect link, a card) instead of telling them how to set it up or where to store it; what you can do yourself, do rather than describe. Give a time only once the path and the pace are both proven (the same output held across runs); until then say what is done, what must happen before you can say, and that you will tell them then. A failure of your own machinery (a sync, a check whose access lapsed, a note over its limit) goes in the Sleep Log, not to them, unless they are the one who can fix it; then it is that one step, in plain words.
+Coordination you leave out of one message is folded into the next one that carries something, or left out; credentials are never counted ("both keys are ready"). When the next step needs something only they hold, do the one thing that gets it in this turn (`ask_secret` for a key, a connect link, a card) instead of telling them how to set it up or where to store it; what you can do yourself, do rather than describe. A failure of your own machinery (a sync, a check whose access lapsed, a note over its limit) goes in the Sleep Log, not to them, unless they are the one who can fix it; then it is that one step, in plain words.
 
 <!-- personal -->
 ## Talking to people other than {human_name}

@@ -40,9 +40,10 @@ def people_vault(tmp_path, monkeypatch):
     {"platform": "telegram", "user_id": "NOPE", "user_id_alt": "12345"},
     {"platform": "demiurge", "user_id": "mira", "user_id_alt": "k57owner"},
 ])
-def test_owner_context_is_only_owner_identification(people_vault, identity):
-    assert session_context.build(people_vault, people_vault.config, **identity) == (
-        "This session is with Mira, the owner.")
+def test_owner_context_is_identification_and_the_owner_message_rules(people_vault, identity):
+    block = session_context.build(people_vault, people_vault.config, **identity)
+    assert block == "This session is with Mira, the owner.\n\n" + session_context.owner_messages(people_vault.config)
+    assert block.endswith("never \"approve the proposed action\".") and "{human_name}" not in block and "Messages to Mira" in block
 
 
 def test_unknown_context_is_fail_closed(people_vault):
@@ -253,7 +254,7 @@ def test_the_owner_hears_how_to_work_with_them_and_what_the_agent_thinks_of_them
     assert block.startswith("This session is with Mira, the owner.\n\n## Working together\n- Terse answers")
     assert "## Impression\n- Decides fast" in block and "Hobbies" not in block and "Lisbon" not in block
     assert block.endswith("Talk about your Impression only with Mira alone, never where anyone else can read it. "
-                          "Full profile: memory/human/Profile.md.")
+                          "Full profile: memory/human/Profile.md.\n\n" + session_context.owner_messages(vault.config))
 
 
 def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault):
