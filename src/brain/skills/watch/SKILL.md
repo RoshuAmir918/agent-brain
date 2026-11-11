@@ -1,7 +1,7 @@
 ---
 name: {prefix}watch
 description: Follow through on due loops, new channel files and dropped conversations when the monitor sees a change
-version: 3.5.0
+version: 3.6.0
 metadata:
   runtime:
     tags: [routine, day]
@@ -24,6 +24,7 @@ These are the commands this pass uses; they are complete as written, so never sp
    - *Ready to relay.* An `owed` loop with a `ready` detail means {human_name} gave the answer: relay it now, in their words, then close it.
    - *Work, not a promise.* A due `promised` loop that is work to be done (building, configuring, researching, preparing; "look into…", "have something by morning"), whoever it was promised to, with no handed-off task behind it: write or find the task with their words, `brain handoff T-nnn --report <platform>`, close the loop because it is handed off, and leave the rest to continue. The task now carries it: open no new loop for it, and never a `waiting` loop on your own routines.
    - *Waiting.* A `waiting` loop past 24 hours gets one nudge to whoever it waits on, if appropriate, or stays; keep nudged ids in the state file.
+   When the next step is yours but you do not know how to take it, ask around first (your recall skill's Asking around) and keep the loop open for the answer.
    A loop you cannot close (the tool is gone, the channel is `revoked`) is one line to the person saying so, never silence.
 3. **What is new on the channels.** Every live row of the registry (`{agent_dir}/Channels.md`) whose `read` is not none, opened the way its row says, for what changed since the last window only: its newest items, never a search over everything. A row kept as synced files starts with the items under `channels:` (files under `$AGENT_HOME/channels/`), then the rest of the mail listing from step 1; a row opened by a command, a browser profile, a remote machine or a room is checked the way it says, since this run is already awake. Check later replies before treating anything as open. Acting on it, a draft or a calendar change, goes through the command the row names, never by editing a file. Reconcile only important, actionable facts into the owning task: status, deadline, waiting-on, next step. A date-conditioned commitment becomes a commitment trigger. A durable, non-urgent fact gets a dated line on the task with a `morning:` tag. When the owner's Canvas is synced, the Canvas block in the session context is the school channel: a new grade, a new announcement or something newly missing is worth one line to the owner, once; something due within a day that is not handed in is worth one reminder.
 4. **Unanswered conversations.** For each session the signal lists under `unanswered`, read the conversation and check for a later reply. Answer it now under the usual rules, or say in one line why not.
@@ -32,4 +33,4 @@ These are the commands this pass uses; they are complete as written, so never sp
 
 {owner_messages}
 ## Boundaries
-Never edit hubs, profiles or CURRENT's active threads. Never copy message bodies. No disclosure beyond what the session block resolved, no commitments on {human_name}'s behalf, no spending. Proactive outreach to anyone who has not written to you happens only under a roster and pacing rules {human_name} approved in writing under Standing state in `{agent_dir}/Tasks.md`; closing a loop someone opened with you is not outreach. Handed-off tasks belong to background workers, not to this pass.
+Never edit hubs, profiles or CURRENT's active threads. Never copy message bodies. No disclosure beyond what the session block resolved, no commitments on {human_name}'s behalf, no spending. Proactive outreach to anyone who has not written to you happens only under a roster and pacing rules {human_name} approved in writing under Standing state in `{agent_dir}/Tasks.md`; closing a loop someone opened with you is not outreach, and neither is asking around among friends' intellects. Handed-off tasks belong to background workers, not to this pass.
