@@ -955,12 +955,26 @@ def cmd_roles(args):
                 if not args.event_id:
                     sys.exit("file takes the correction's id")
                 print(corrections.file(config, args.name, args.event_id, note=args.note or "", section=args.section or "",
-                                       claim=args.claim or "", to=(args.to or "").lstrip("^"), rule=args.rule))
+                                       claim=args.claim or "", to=(args.to or "").lstrip("^"), rule=args.rule,
+                                       decides=args.decides or "", person=args.person or "", always=args.always))
             else:
                 if not args.event_id or not args.why:
                     sys.exit("dismiss takes the correction's id and --why")
                 corrections.dismiss(config, args.name, args.event_id, args.why)
                 print(f"dismissed {args.event_id}")
+        elif action == "gate":
+            from . import gate
+            decisions = json.loads(sys.stdin.read() or "[]")
+            if not isinstance(decisions, list):
+                sys.exit("gate takes the plan's decisions as a JSON list on stdin")
+            verdicts = gate.sort(config, args.name, decisions)
+            gate.save(config, args.name, args.work or "", verdicts)
+            print(json.dumps([asdict(v) for v in verdicts], ensure_ascii=False, indent=2))
+        elif action == "lenses":
+            role = roles.load(config, args.name)
+            notes = [str(roles.folder(config, args.name) / f"{shape}.md") for shape in role.shapes()
+                     if (roles.folder(config, args.name) / f"{shape}.md").is_file()]
+            print(json.dumps({"lenses": role.lenses, "decisions": role.decisions, "notes": notes}, ensure_ascii=False, indent=2))
         elif action == "template":
             if args.op == "check":
                 with vault_lock(config):
@@ -1948,7 +1962,8 @@ def main(argv=None):
     s = sub.add_parser("roles", help="roles: templates and what each has learned (enterprise)", parents=[vault])
     s.set_defaults(fn=cmd_roles, roles_cmd=None)
     actions = s.add_subparsers(dest="roles_cmd")
-    for action in ("list", "add", "rebuild", "show", "may-learn", "template", "screen", "study", "work", "correction"):
+    for action in ("list", "add", "rebuild", "show", "may-learn", "template", "screen", "study", "work", "correction",
+                   "gate", "lenses"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_roles)
         p.add_argument("--vault", default=argparse.SUPPRESS)
         if action == "add":
@@ -1973,11 +1988,17 @@ def main(argv=None):
         elif action == "correction":
             p.add_argument("name"); p.add_argument("op", choices=["add", "next", "file", "dismiss"])
             p.add_argument("event_id", nargs="?", help="file, dismiss: the correction's id from next")
-            for flag in ("work", "event", "by", "at", "text", "where", "link", "note", "section", "claim", "to", "why"):
+            for flag in ("work", "event", "by", "at", "text", "where", "link", "note", "section", "claim", "to", "why",
+                         "decides", "person"):
                 p.add_argument(f"--{flag}")
+            p.add_argument("--always", action="store_true", help="file --decides: always ask them (a restricted area)")
             p.add_argument("--source-id", help="add: the item's id on its source, so a repeat is kept once")
             p.add_argument("--rule", action="store_true", help="file: someone with authority stated it as a rule")
             p.add_argument("--json", action="store_true")
+        elif action == "gate":
+            p.add_argument("name"); p.add_argument("--work", help="the work the plan is for: its decisions are kept with it")
+        elif action == "lenses":
+            p.add_argument("name")
         elif action == "study":
             p.add_argument("name"); p.add_argument("op", choices=["next", "done"])
             p.add_argument("--limit", type=int, default=40, help="next: exchanges to show")
