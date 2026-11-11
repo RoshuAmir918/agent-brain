@@ -339,4 +339,8 @@ def routines(name: str, prefix: str) -> dict[str, dict]:
     return {f"role-{slug}-study": {"cron": "30 1 * * *", "skills": [f"{prefix}study"],
                                    "prompt": f"Run the nightly study for the {name} role."},
             f"role-{slug}-screen": {"after": f"role-{slug}-study", "prompt": "", "agent": False,
-                                    "classify": ["roles", "screen", name]}}
+                                    "classify": ["roles", "screen", name]},
+            # The weekly account: a report to the owner, not where the role learns.
+            f"role-{slug}-account": {"cron": "0 8 * * 1", "deliver": "demiurge",
+                                     "prompt": f"Send the {name} role's weekly account: run `brain roles account \"{name}\"` "
+                                               "and send its text as it is, with one line on the change that matters most."}}

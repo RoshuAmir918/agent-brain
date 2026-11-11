@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date
 
 from . import fm, portrait, roles, screen
@@ -29,6 +29,7 @@ class Work:
     title: str
     link: str
     opened: str
+    process: dict = field(default_factory=dict)   # which steps of the skill were on, so the account can compare
 
 
 @dataclass
@@ -55,14 +56,14 @@ def works(config: Config, role: str) -> dict[str, Work]:
 
 def add_work(config: Config, role: str, ident: str, title: str = "", link: str = "", opened: str = "") -> bool:
     """Register a piece of the role's own work, so corrections on it can be told from the team's on each other's."""
-    roles.load(config, role)
+    definition = roles.load(config, role)
     if not ident.strip():
         raise ValueError("a piece of work needs an id, such as reviews:acme-app#40")
     with evidence_lock(_folder(config, role)):
         if ident in works(config, role):
             return False
         screen._append(_folder(config, role) / "work.jsonl",
-                       [asdict(Work(ident, title, link, opened or config.today().isoformat()))])
+                       [asdict(Work(ident, title, link, opened or config.now().isoformat(timespec="seconds"), dict(definition.process)))])
     return True
 
 
@@ -136,11 +137,14 @@ def authority(config: Config, event: Event) -> bool:
     return person in {aliases.get(owner, owner) for owner in config.owner_user_ids}
 
 
-def _record(config: Config, role: str, event: Event, how: str, line: str) -> None:
+MISSES = ("knowledge", "retrieval", "execution", "decision", "new taste")   # docs/roles.md section 7, Diagnosing every miss
+
+
+def _record(config: Config, role: str, event: Event, how: str, line: str, miss: str = "") -> None:
     with evidence_lock(_folder(config, role)):
         if event.id not in filed(config, role):
-            screen._append(_folder(config, role) / "filed.jsonl",
-                           [{"id": event.id, "how": how, "line": line, "at": config.today().isoformat()}])
+            screen._append(_folder(config, role) / "filed.jsonl", [{"id": event.id, "how": how, "line": line,
+                           "at": config.today().isoformat(), **({"miss": miss} if miss else {})}])
 
 
 def _find(config: Config, role: str, ident: str):
@@ -152,15 +156,17 @@ def _find(config: Config, role: str, ident: str):
 
 
 def file(config: Config, role: str, event_id: str, *, note: str = "", section: str = "", claim: str = "",
-         to: str = "", rule: bool = False, decides: str = "", person: str = "", always: bool = False) -> str:
+         to: str = "", rule: bool = False, decides: str = "", person: str = "", always: bool = False, miss: str = "") -> str:
     """File an event: a new line (`note`, `section`, `claim`), or one more source on the line `to` names. Refused when a
     person struck the claim; a person's own line is never edited, the event only confirms it. Returns what was done."""
     definition = roles.load(config, role)
     event = events(config, role).get(event_id)
     if event is None:
         raise ValueError(f"no correction {event_id!r}; `brain roles correction {role} next` lists them")
+    if miss and miss not in MISSES:
+        raise ValueError(f"a miss is one of {', '.join(MISSES)}")
     if decides:
-        return _decision_right(config, role, event, decides, person, always)
+        return _decision_right(config, role, event, decides, person, always, miss)
     if rule and not authority(config, event):
         raise ValueError(f"{event.by} ({event.speaker}) can't make it a rule on their word alone; file it as a candidate")
     source = source_text(event, works(config, role).get(event.work)) + (", stated as a rule" if rule else "")
@@ -171,8 +177,10 @@ def file(config: Config, role: str, event_id: str, *, note: str = "", section: s
         if event_id in filed(config, role):
             return "already filed"
         index = roles.rebuild(config, role)
-        if any(source in path.read_text(encoding="utf-8") for path in roles.folder(config, role).glob("*.md")):
-            _record(config, role, event, "merged" if to else "new", to)
+        written = next((line for path in roles.folder(config, role).glob("*.md")
+                        for line in path.read_text(encoding="utf-8").splitlines() if source in line), None)
+        if written is not None:   # the lesson it landed on, so the record counts it with the others on that lesson
+            _record(config, role, event, "merged" if to else "new", to or written.strip(), miss)
             return "already in the notes; recorded"
         if to:
             lesson = next((item for item in index.lessons if item.id == to), None)
@@ -180,14 +188,14 @@ def file(config: Config, role: str, event_id: str, *, note: str = "", section: s
             if lesson is None or path is None:
                 raise ValueError(f"no live line ^{to} in {role}'s notes (a struck line takes no evidence)")
             if lesson.human:
-                _record(config, role, event, f"confirms ^{to}", to)
+                _record(config, role, event, f"confirms ^{to}", to, miss)
                 return f"confirms ^{to}, a person's line, left as they wrote it"
             data, body = fm.read(path)
             lines = body.splitlines(keepends=True)
             at = next(i for i, raw in enumerate(lines) if raw.rstrip().endswith(f"^{to}"))
             merged = _with_source(lines[at], source, rule)
             fm.write(path, data, "".join(lines[:at] + [merged] + lines[at + 1:]))
-            _record(config, role, event, "merged", to)
+            _record(config, role, event, "merged", to, miss)
             promoted = "*(candidate)*" in lines[at] and "*(candidate)*" not in merged
             return f"added to ^{to}" + (", now active" if promoted else "")
         if note not in definition.shapes():
@@ -207,12 +215,12 @@ def file(config: Config, role: str, event_id: str, *, note: str = "", section: s
         path = roles.folder(config, role) / f"{note}.md"
         data, body = fm.read(path) if path.is_file() else ({"tier": "warm"}, f"# {note}\n")
         fm.write(path, data, portrait.insert(body, section.strip(), line + "\n"))
-        _record(config, role, event, "new", line)
+        _record(config, role, event, "new", line, miss)
         kind = "rule" if rule else "candidate"
         return f"new {kind} ^{ident} in {note} · {section.strip()}"
 
 
-def _decision_right(config: Config, role: str, event: Event, area: str, person: str, always: bool) -> str:
+def _decision_right(config: Config, role: str, event: Event, area: str, person: str, always: bool, miss: str = "") -> str:
     """"Check with Kim before changing the schema": a fact about who decides, so it goes to the people's records every
     role and intellect reads (`Owners.md`), not to this role's notes. Stated by someone with authority, or by the person
     about themselves; never over a row the table already has."""
@@ -239,7 +247,7 @@ def _decision_right(config: Config, role: str, event: Event, area: str, person: 
             owners.add_area(config, area, person, routing.name(config, person) or person, event.text[:120], source)
         if always:
             owners.restrict(config, area)
-        _record(config, role, event, "decision right", f"{area} -> {person}" + (" (always ask)" if always else ""))
+        _record(config, role, event, "decision right", f"{area} -> {person}" + (" (always ask)" if always else ""), miss)
     return f"{area}: {routing.name(config, person) or person} decides" + (", always asked" if always else "")
 
 

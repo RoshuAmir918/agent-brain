@@ -25,7 +25,8 @@ DOTTED = re.compile(r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*")
 EVIDENCE = ("corrections", "team", "outcomes", "rulings", "work", "machine", "consults")
 BUILTIN_LENS = "solves_the_ask"   # every role's first reviewer: does the work solve what was asked, at its scope
 KEYS = ("kind", "template", "tier", "produces", "actions", "corrections", "sources", "notes", "lenses", "decisions",
-        "measures", "screen")
+        "measures", "screen", "process")
+PROCESS = ("gate", "review")   # steps of the role skill a template can switch off, to measure what each costs and earns
 STRUCK = "Struck"   # the section a person moves a line into to strike it; deleting it in a commit strikes it too
 LESSON = re.compile(r"^- (?P<text>.+?)(?: \^(?P<id>[0-9a-f]{4}))?[ \t]*$")
 SOURCES = re.compile(r"\(([^()]*(?:\([^()]*\)[^()]*)*)\)(?: \*\((?:candidate|rule[^)]*)\)\*)?$")
@@ -45,6 +46,7 @@ class Role:
     decisions: list[dict]
     measures: dict[str, str]
     screen: dict = field(default_factory=dict)   # kinds, worth (a scale, lowest first) and keep: what the screen asks
+    process: dict = field(default_factory=lambda: {step: True for step in PROCESS})
 
     def shapes(self) -> list[str]:
         return [entry["shape"] for entry in self.notes]
@@ -181,12 +183,17 @@ def parse(text: str, name: str = "", known_sources: set[str] | None = None) -> t
         problems.append(f"{where}: measures must map a name to what it counts")
         measures = {}
     screen = _screen(data.get("screen"), problems, where)
+    process = data.get("process", {})
+    if not isinstance(process, dict) or set(process) - set(PROCESS) or not all(isinstance(v, bool) for v in process.values()):
+        problems.append(f"{where}: process maps {' and '.join(PROCESS)} to true or false")
+        process = {}
     if problems:
         return None, problems
     return Role(name, data["template"], data["produces"], actions, corrections, sources, notes,
                 [{"lens": BUILTIN_LENS, "covers": "does the work solve what was asked, at the scope asked; "
                   "cites the ask, always a blocker, and flags growth beyond it"}, *lenses],
-                decisions, {str(k): str(v) for k, v in measures.items()}, screen), []
+                decisions, {str(k): str(v) for k, v in measures.items()}, screen,
+                {step: bool(process.get(step, True)) for step in PROCESS}), []
 
 
 def _screen(raw, problems: list[str], where: str) -> dict:
@@ -568,6 +575,27 @@ def add(config: Config, name: str, template: str) -> list[Path]:
         schedule.save(config, routines)
         written.append(schedule.path(config))
     return written
+
+
+def ensure_routines(config: Config) -> list[str]:
+    """Add any of a role's routines it lacks (a release can bring a new one, such as the weekly account), never
+    touching one that is there. Caller holds the vault lock."""
+    from . import schedule, screen
+    routines, added = schedule.load(config), []
+    for name in names(config):
+        try:
+            role = load(config, name)
+        except ValueError:
+            continue   # validate names what is wrong with it
+        if not role.screen:
+            continue
+        for key, values in screen.routines(name, config.skill_prefix).items():
+            if key not in routines:
+                routines[key] = schedule.Routine(**values)
+                added.append(key)
+    if added:
+        schedule.save(config, routines)
+    return added
 
 
 def template_check(config: Config) -> list[tuple[str, Path]]:

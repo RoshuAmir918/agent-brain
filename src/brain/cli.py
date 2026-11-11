@@ -956,7 +956,8 @@ def cmd_roles(args):
                     sys.exit("file takes the correction's id")
                 print(corrections.file(config, args.name, args.event_id, note=args.note or "", section=args.section or "",
                                        claim=args.claim or "", to=(args.to or "").lstrip("^"), rule=args.rule,
-                                       decides=args.decides or "", person=args.person or "", always=args.always))
+                                       decides=args.decides or "", person=args.person or "", always=args.always,
+                                       miss=args.miss or ""))
             else:
                 if not args.event_id or not args.why:
                     sys.exit("dismiss takes the correction's id and --why")
@@ -990,7 +991,23 @@ def cmd_roles(args):
             role = roles.load(config, args.name)
             notes = [str(roles.folder(config, args.name) / f"{shape}.md") for shape in role.shapes()
                      if (roles.folder(config, args.name) / f"{shape}.md").is_file()]
-            print(json.dumps({"lenses": role.lenses, "decisions": role.decisions, "notes": notes}, ensure_ascii=False, indent=2))
+            print(json.dumps({"lenses": role.lenses, "decisions": role.decisions, "notes": notes, "process": role.process},
+                             ensure_ascii=False, indent=2))
+        elif action == "routines":
+            with vault_lock(config):
+                added = roles.ensure_routines(config)
+            print("added " + ", ".join(added) if added else "every role has its routines")
+        elif action == "predict":
+            from . import account
+            print(f"{account.predict(config, args.name, args.work, args.expect or [])} prediction(s) kept for {args.work}")
+        elif action == "asked":
+            from . import account
+            account.asked(config, args.name, args.work, args.verdict, args.about or "")
+            print(f"recorded: the ask on {args.work} was {args.verdict}")
+        elif action == "account":
+            from . import account
+            report = account.account(config, args.name, args.days)
+            print(json.dumps(report, ensure_ascii=False, indent=2) if args.json else account.render(report))
         elif action == "template":
             if args.op == "check":
                 with vault_lock(config):
@@ -1979,7 +1996,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_roles, roles_cmd=None)
     actions = s.add_subparsers(dest="roles_cmd")
     for action in ("list", "add", "rebuild", "show", "may-learn", "template", "screen", "study", "work", "correction",
-                   "gate", "lenses", "actions"):
+                   "gate", "lenses", "actions", "predict", "asked", "account", "routines"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_roles)
         p.add_argument("--vault", default=argparse.SUPPRESS)
         if action == "add":
@@ -2008,6 +2025,7 @@ def main(argv=None):
                          "decides", "person"):
                 p.add_argument(f"--{flag}")
             p.add_argument("--always", action="store_true", help="file --decides: always ask them (a restricted area)")
+            p.add_argument("--miss", help="file: the kind of miss, when the default doesn't fit (retrieval, new taste, ...)")
             p.add_argument("--source-id", help="add: the item's id on its source, so a repeat is kept once")
             p.add_argument("--rule", action="store_true", help="file: someone with authority stated it as a rule")
             p.add_argument("--json", action="store_true")
@@ -2017,6 +2035,16 @@ def main(argv=None):
             p.add_argument("name")
         elif action == "actions":
             p.add_argument("name"); p.add_argument("--json", action="store_true")
+        elif action == "predict":
+            p.add_argument("name"); p.add_argument("--work", required=True)
+            p.add_argument("--expect", action="append", help="one thing you expect reviewers to raise; repeatable")
+        elif action == "asked":
+            p.add_argument("name"); p.add_argument("--work", required=True)
+            p.add_argument("--verdict", required=True, choices=["needed", "findable", "unneeded"],
+                           help="needed; findable: 'you could have found this'; unneeded: 'your call'")
+            p.add_argument("--about")
+        elif action == "account":
+            p.add_argument("name"); p.add_argument("--days", type=int, default=7); p.add_argument("--json", action="store_true")
         elif action == "study":
             p.add_argument("name"); p.add_argument("op", choices=["next", "done"])
             p.add_argument("--limit", type=int, default=40, help="next: exchanges to show")
