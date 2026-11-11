@@ -42,7 +42,7 @@ def run(vault: Vault, changed: set[str], body_changed: set[str] | None = None) -
         if not n:
             continue
         kind = vault.kind_for(rel)
-        if kind not in ("log", "orientation") and "tier" not in n.data:
+        if kind not in ("log", "orientation", "responsibility") and "tier" not in n.data:
             problems.append(f"{rel}: missing frontmatter key tier")
         if kind in ("log", "dream"):
             continue   # exports and fiction are never edited to keep their links alive
@@ -212,10 +212,18 @@ def tellable_hygiene(vault: Vault) -> list[str]:
 
 
 def responsibilities(vault: Vault) -> list[str]:
-    """Every own skill is a responsibility: a hub at the vault root names it and its records folder. On demand only; the nightly write is never blocked on it."""
+    """Check folder wake-up documents and legacy hubs. On demand only; never a nightly gate."""
     problems = []
     seen = {}
-    for entry in responsibility_ids.discover(vault):
+    from . import goals
+    entries = responsibility_ids.discover(vault)
+    folders = {entry["hub"] for entry in entries if entry["folder"]}
+    goal_ids = {goal.gid for goal in goals.load(vault.config) + goals.archived(vault.config)} if folders else set()
+    role_paths = {f"{roles.FOLDER}/{name}/{roles.ROLE_NOTE}" for name in roles.names(vault.config)}
+    role_ids = {note.data.get("id") for rel, note in vault.notes.items()
+                if rel in role_paths
+                and isinstance(note.data.get("id"), str)}
+    for entry in entries:
         ident, rel = entry["id"], entry["hub"]
         if not re.fullmatch(responsibility_ids.ID_PATTERN, ident):
             problems.append(f"{rel}: responsibility id must match ^{responsibility_ids.ID_PATTERN}$")
@@ -223,12 +231,41 @@ def responsibilities(vault: Vault) -> list[str]:
             problems.append(f"duplicate responsibility id {ident!r}: {seen[ident]} and {rel}")
         else:
             seen[ident] = rel
+        if not entry["folder"]:
+            continue
+        if type(entry.get("version")) is not int or entry["version"] != 1:
+            problems.append(f"{rel}: version: required and must be 1")
+        if not any(isinstance(entry.get(key), str) and entry[key].strip() for key in ("goal", "role", "asked_by")):
+            problems.append(f"{rel}: a responsibility names its reason: goal, role or asked_by")
+        if entry.get("asked_by") is not None and not isinstance(entry["asked_by"], str):
+            problems.append(f"{rel}: asked_by must be a string")
+        for key, known in (("goal", goal_ids), ("role", role_ids)):
+            value = entry.get(key)
+            if value is not None and (not isinstance(value, str) or value not in known
+                                      or key == "role" and not re.fullmatch(r"R-[0-9]+", value)):
+                problems.append(f"{rel}: unknown {key} {value!r}")
+        triggers = entry.get("triggers")
+        if not isinstance(triggers, list):
+            problems.append(f"{rel}: triggers must be a list of maps with a kind")
+            continue
+        for index, trigger in enumerate(triggers, 1):
+            try:
+                responsibility_ids.derive(vault.config, {**entry, "id": "validate", "version": 1, "triggers": [trigger]})
+            except ValueError as error:
+                problems.append(f"{rel}: trigger {index}: {error}")
+            if isinstance(trigger, dict) and trigger.get("kind") == "schedule" and isinstance(trigger.get("script"), str):
+                script = (vault.root / rel).parent / trigger["script"]
+                if not script.resolve().is_file():
+                    problems.append(f"{rel}: trigger {index}: script {trigger['script']!r} is missing on disk")
     packaged = {p.name for p in files("brain").joinpath("skills").iterdir()}
-    hubs = {n.data.get("skill"): rel for rel, n in vault.notes.items() if n.data.get("skill")}
+    hubs = {n.data["skill"]: rel for rel, n in vault.notes.items() if isinstance(n.data.get("skill"), str) and n.data["skill"]}
     for rel, n in vault.notes.items():
+        if rel in folders and n.data.get("skill") is not None and (not isinstance(n.data["skill"], str) or not n.data["skill"].strip()):
+            problems.append(f"{rel}: skill must be a nonempty string")
+            continue
         if n.data.get("skill") and not (vault.root / vault.config.runtime_dir / "skills" / n.data["skill"] / "SKILL.md").is_file():
             problems.append(f"{rel}: skill {n.data['skill']} has no SKILL.md under {vault.config.runtime_dir}/skills")
-        if n.data.get("skill") and not n.data.get("records"):
+        if rel not in folders and n.data.get("skill") and not n.data.get("records"):
             problems.append(f"{rel}: responsibility hub without a records folder")
     skills_dir = vault.root / vault.config.runtime_dir / "skills"
     if skills_dir.is_dir():
@@ -242,7 +279,7 @@ def responsibilities(vault: Vault) -> list[str]:
     return problems
 
 
-KINDS = ("hub", "role", "profile", "group", "episode", "reflection", "task", "trigger", "log", "dream", "orientation", "primed",
+KINDS = ("hub", "role", "responsibility", "profile", "group", "episode", "reflection", "task", "trigger", "log", "dream", "orientation", "primed",
          "draft", "conversation", "procedure")
 
 
@@ -346,7 +383,15 @@ def schedule_hygiene(vault: Vault) -> list[str]:
 
 def schedule_warnings(vault: Vault) -> list[str]:
     from . import schedule
-    return schedule.warnings(vault.config, {entry["id"] for entry in responsibility_ids.discover(vault)})
+    entries = responsibility_ids.discover(vault)
+    out = schedule.warnings(vault.config, {entry["id"] for entry in entries})
+    for entry in entries:
+        if not entry["folder"] or not isinstance(entry["triggers"], list):
+            continue
+        for trigger in entry["triggers"]:
+            if isinstance(trigger, dict) and isinstance(trigger.get("kind"), str) and trigger["kind"].strip() and trigger["kind"] != "schedule":
+                out.append(f"{entry['hub']}: trigger kind {trigger['kind']} is not built yet")
+    return out
 
 
 def watch_signal_hygiene(vault: Vault) -> list[str]:

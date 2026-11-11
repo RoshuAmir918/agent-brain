@@ -11,12 +11,12 @@ import sys
 from contextlib import nullcontext
 import time
 from dataclasses import asdict, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from . import access, attribute, compile_context, consults, digest, evidence, fm, health, identity, ideas, image, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
 from . import tasks as tasks_mod
-from . import goals, roles
+from . import goals, responsibilities, roles
 from .tasks import load_tasks, quiet
 from .vault import Vault
 from .config import FORMS, SECTIONS, Config
@@ -232,10 +232,64 @@ def cmd_validate(a):
 
 
 def cmd_responsibility(a):
-    records = a.records or a.skill.removeprefix(a.config.skill_prefix)
-    for path in install.responsibility(a.config, a.name, a.skill, records):
-        print(path)
-    print(install.records_path() / records)
+    try:
+        if a.name == "adopt" and not a.skill:
+            if any(getattr(a, key) is not None for key in ("records", "when", "script", "prompt", "delivers", "body")):
+                raise ValueError("adopt takes routines with --into or an optional --title and reason, or --hub")
+            for change in responsibilities.adopt(a.config, ([a.title] if a.title else []) + a.routines,
+                                                 hub=a.hub, title=a.adopt_title, into=a.into,
+                                                 asked_by=a.asked_by, goal=a.goal, role=a.role):
+                print(change)
+            return
+        if a.routines or a.hub is not None or a.adopt_title is not None or a.into is not None:
+            raise ValueError("extra routines, --hub, --title and --into are only supported by adopt")
+        if a.name == "sync" and not a.skill:
+            if a.title:
+                raise ValueError("sync takes no title")
+            for change in responsibilities.sync(Vault(a.config.vault_path)):
+                print(change)
+            return
+        if a.name != "add" or a.title is None:
+            if not a.skill or a.title:
+                raise ValueError('use add "<Title>" --when "<when>", sync, or "<Name>" --skill <name>')
+            records = a.records or a.skill.removeprefix(a.config.skill_prefix)
+            for path in install.responsibility(a.config, a.name, a.skill, records):
+                print(path)
+            print(install.records_path() / records)
+            return
+        if not any(value and value.strip() for value in (a.goal, a.role, a.asked_by)):
+            raise ValueError("a responsibility names its reason: --goal, --role or --asked-by")
+        if not a.when:
+            raise ValueError("add requires --when")
+        if a.body not in (None, "-"):
+            raise ValueError("use --body - to read the wake-up document from stdin")
+        ident = re.sub(r"[^a-z0-9]+", "-", a.title.lower()).strip("-")[:63].rstrip("-")
+        if not re.fullmatch(responsibilities.ID_PATTERN, ident):
+            raise ValueError(f"responsibility id must match ^{responsibilities.ID_PATTERN}$")
+        data = {"version": 1, "title": a.title,
+                "triggers": [{"kind": "schedule", "when": a.when,
+                              **{key: getattr(a, key) for key in ("script", "prompt") if getattr(a, key) is not None}}],
+                **{key: getattr(a, key) for key in ("goal", "role", "asked_by", "delivers", "skill") if getattr(a, key) is not None}}
+        target = a.config.vault_path / "Responsibilities" / ident / "RESPONSIBILITY.md"
+        body = sys.stdin.read() if a.body == "-" else f"# {a.title}\n\nWrite what this responsibility is for, how to do it, and what each run leaves visible.\n"
+        with vault_lock(a.config):
+            if target.parent.exists():
+                raise ValueError(f"responsibility folder already exists: Responsibilities/{ident}")
+            if a.goal and a.goal not in {goal.gid for goal in goals.load(a.config) + goals.archived(a.config)}:
+                raise ValueError(f"unknown goal {a.goal!r}; use `brain goals list`")
+            if a.role:
+                known = [fm.read(roles.folder(a.config, name) / roles.ROLE_NOTE)[0].get("id") for name in roles.names(a.config)]
+                if not re.fullmatch(r"R-[0-9]+", a.role) or a.role not in known:
+                    raise ValueError(f"unknown role {a.role!r}; use `brain roles list`")
+            responsibilities.derive(a.config, {**data, "id": ident, "hub": target.relative_to(a.config.vault_path).as_posix(),
+                                              "records": f"Responsibilities/{ident}/records"})
+            target.parent.mkdir(parents=True)
+            fm.write(target, data, body)
+        print(target)
+        for change in responsibilities.sync(Vault(a.config.vault_path)):
+            print(change)
+    except (OSError, ValueError, RuntimeError) as error:
+        sys.exit(f"responsibility: {error}")
 
 
 def cmd_attribute(a):
@@ -1727,6 +1781,18 @@ def cmd_schedule(args):
                     print(f"{name}: {timing}" + (" (paused)" if not routine.enabled else ""))
             return
         with vault_lock(config):
+            if action == "prune":
+                routines = schedule.load(config)
+                cutoff = config.local() - timedelta(days=1)
+                dead = [name for name, routine in routines.items()
+                        if name in ("demiurge-whoami", "brain-migration")
+                        or routine.at is not None and not name.startswith(install.MIGRATION_ROUTINE)
+                        and datetime.fromisoformat(routine.at) < cutoff]
+                if dead and not args.dry_run:
+                    schedule.save(config, {name: routine for name, routine in routines.items() if name not in dead})
+                for name in dead:
+                    print(f"{'would remove' if args.dry_run else 'removed'} routine {name} in {schedule.path(config)}")
+                return
             if action == "init":
                 routines = schedule.load(config)
                 defaults = schedule.defaults(config)
@@ -1755,6 +1821,18 @@ def cmd_schedule(args):
             else:
                 routines = schedule.load(config)
                 name = args.name
+                if action in ("set", "remove"):
+                    folders = {entry["id"]: entry for entry in responsibilities.discover(Vault(config.vault_path)) if entry["folder"]}
+                    owned = routines[name].responsibility if name in routines else None
+                    requested = getattr(args, "responsibility", None)
+                    owner = folders.get(owned) or folders.get(requested)
+                    # A one-off run for a responsibility (a game window, a follow-up) is scheduled here, not in its
+                    # document: it is spent once it runs, and prune removes it.
+                    one_off = (routines[name].at is not None if name in routines else True) and (
+                        action == "remove" or getattr(args, "at", None) is not None
+                        or name in routines and not any(getattr(args, key, None) for key in schedule.TIMING))
+                    if owner is not None and not one_off:
+                        raise ValueError(f"edit {owner['hub']} and run `brain responsibility sync`")
                 if action == "set":
                     changes = {key: getattr(args, key) for key in schedule.Routine.__dataclass_fields__
                                if getattr(args, key, None) is not None}
@@ -1809,7 +1887,7 @@ def main(argv=None):
     s.add_argument("--json", action="store_true", required=True); s.set_defaults(fn=cmd_record_spec)
     s = sub.add_parser("schedule")
     actions = s.add_subparsers(dest="schedule_cmd", required=True)
-    for action in ("list", "set", "remove", "pause", "resume", "check", "init"):
+    for action in ("list", "set", "remove", "pause", "resume", "check", "init", "prune"):
         s = actions.add_parser(action, parents=[vault]); s.set_defaults(fn=cmd_schedule)
         if action in ("set", "remove", "pause", "resume"):
             s.add_argument("name")
@@ -1817,6 +1895,8 @@ def main(argv=None):
             s.add_argument("--json", action="store_true")
         if action == "init":
             s.add_argument("--reset-night", action="store_true")
+        if action == "prune":
+            s.add_argument("--dry-run", action="store_true")
         if action == "set":
             timing = s.add_mutually_exclusive_group()
             for key in schedule.TIMING:
@@ -2201,8 +2281,14 @@ def main(argv=None):
     s.add_argument("--ack-notices", action="store_true", help="acknowledge displayed app-change notices for this owner or routine session")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_session_context)
 
-    s = sub.add_parser("responsibility", help="build a hub, an own skill and a records folder for standing work", parents=[vault])
-    s.add_argument("name"); s.add_argument("--skill", required=True); s.add_argument("--records")
+    s = sub.add_parser("responsibility", help="add, adopt or sync standing work, or build a legacy hub with --skill", parents=[vault])
+    s.add_argument("name", metavar="add|adopt|sync|NAME"); s.add_argument("title", nargs="?")
+    s.add_argument("routines", nargs="*")
+    s.add_argument("--title", dest="adopt_title"); s.add_argument("--hub"); s.add_argument("--into")
+    for key in ("skill", "records", "when", "script", "prompt", "asked-by", "delivers", "body"):
+        s.add_argument("--" + key)
+    reason = s.add_mutually_exclusive_group()
+    reason.add_argument("--goal"); reason.add_argument("--role")
     s.set_defaults(fn=cmd_responsibility)
     s = sub.add_parser("timezone", help="print the owner's timezone from brain.toml", parents=[vault]); s.set_defaults(fn=cmd_timezone)
     s = sub.add_parser("install-skills", parents=[vault])

@@ -52,6 +52,8 @@ def discover(config: Config) -> list[Path]:
     (a routine's first ledger, written before its folder joins `log_dirs`)."""
     root = config.vault_path / config.agent_dir
     paths = set()
+    for folder in (config.vault_path / "Responsibilities").glob("*/records"):
+        paths.update(path for path in folder.rglob("*.md") if MONTHLY.fullmatch(path.name))
     for prefix in config.log_paths:
         for path in (config.vault_path / prefix).rglob("*.md"):
             if MONTHLY.fullmatch(path.name) and path.relative_to(root).parts[0] not in ENGINE_LOGS:

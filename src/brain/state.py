@@ -106,13 +106,20 @@ def _improvements(body: str, source: str) -> list[dict]:
     return out
 
 
-def _hubs(vault: Vault, task_entries: list[dict]) -> list[dict]:
+def _hubs(vault: Vault, task_entries: list[dict], responsibility_entries: list[dict]) -> list[dict]:
     out = []
+    folders = {entry["hub"]: entry for entry in responsibility_entries if entry["folder"]}
     for source, note in sorted(vault.notes.items()):
-        if not _public(vault, source) or vault.kind_for(source) != "hub" or note.data.get("kind", "hub") != "hub":
+        folder = folders.get(source)
+        if not _public(vault, source) or (folder is None and
+                (vault.kind_for(source) != "hub" or note.data.get("kind", "hub") != "hub")):
             continue
         skill, records = note.data.get("skill"), note.data.get("records")
         responsibility = {"skill": skill, "records": records} if skill and records else None
+        title = note.stem
+        if folder is not None:
+            title = folder["title"]
+            responsibility = {key: folder[key] for key in ("id", "skill", "records", "routines")}
         span = fm.section(note.body, "Open questions")
         questions = [match[1].strip() for line in note.body[span[0]:span[1]].splitlines()
                      if (match := re.match(r"^[ \t]*[-*+] (.+)", line))] if span else []
@@ -120,7 +127,7 @@ def _hubs(vault: Vault, task_entries: list[dict]) -> list[dict]:
         linked = [task for task in task_entries if task["hub"] and task["hub"].casefold() in targets]
         progress = {"done": sum(task["state"] == "completed" for task in linked),
                     "total": sum(task["state"] != "cancelled" for task in linked)} if linked else None
-        out.append({"title": note.stem, "source": source, "responsibility": responsibility, "work": note.data.get("work"),
+        out.append({"title": title, "source": source, "responsibility": responsibility, "work": note.data.get("work"),
                     "delivers": note.data.get("delivers"), "openQuestions": questions, "improvements": _improvements(note.body, source), "progress": progress})
     return out
 
@@ -154,8 +161,10 @@ def _rows(vault: Vault) -> list[tuple[str, str, int, str, ledger.Row]]:
 
 def _matches_routine(config: Config, hub: dict, name: str) -> bool:
     responsibility = hub["responsibility"]
+    if "id" in responsibility:
+        return name.casefold() in {routine.casefold() for routine in responsibility["routines"]}
     return name.casefold() in (responsibility["records"].casefold(),
-                               responsibility["skill"].removeprefix(config.skill_prefix).casefold())
+                               (responsibility["skill"] or "").removeprefix(config.skill_prefix).casefold())
 
 
 def _routines(config: Config, hubs: list[dict], rows: list[tuple[str, str, int, str, ledger.Row]]) -> list[dict]:
@@ -170,16 +179,17 @@ def _routines(config: Config, hubs: list[dict], rows: list[tuple[str, str, int, 
         fallback = config.skill_prefix + name
         skill = hub["responsibility"]["skill"] if hub else (
             fallback if (config.skills_path / fallback).is_dir() else None)
-        if row.outcome is None and skill is None:
+        if row.outcome is None and skill is None and hub is None:
             continue   # a legacy row's second column is not always a routine (a person, a subject); only five-column rows promise one
         out[name.casefold()] = {"name": name, "skill": skill, "hub": hub["title"] if hub else None,
                                 "ledger": PurePosixPath(source).parent.as_posix()}
     for hub in responsibilities:
-        if any(_matches_routine(config, hub, routine["name"]) for routine in out.values()):
-            continue
         responsibility = hub["responsibility"]
-        name = responsibility["records"]
-        out[name.casefold()] = {"name": name, "skill": responsibility["skill"], "hub": hub["title"], "ledger": None}
+        if "id" not in responsibility and any(_matches_routine(config, hub, routine["name"]) for routine in out.values()):
+            continue
+        for name in responsibility.get("routines", [responsibility["records"]]):
+            if name.casefold() not in out:
+                out[name.casefold()] = {"name": name, "skill": responsibility["skill"], "hub": hub["title"], "ledger": None}
     return sorted(out.values(), key=lambda routine: (routine["name"].casefold(), routine["name"]))
 
 
@@ -279,9 +289,9 @@ def build(config: Config, today: date) -> dict:
         vault.config = config
         vault.load()
     task_entries = _tasks(vault)
-    hubs = _hubs(vault, task_entries)
     responsibility_entries = responsibilities.discover(vault)
     routine_owners = responsibilities.link(responsibility_entries, schedule.load(config))
+    hubs = _hubs(vault, task_entries, responsibility_entries)
     public_ids = {entry["id"] for entry in responsibility_entries if _public(vault, entry["hub"])}
     responsibility_entries = [entry for entry in responsibility_entries if _public(vault, entry["hub"])]
     rows = _rows(vault)

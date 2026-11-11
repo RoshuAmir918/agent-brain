@@ -116,6 +116,11 @@ class Vault:
             self.notes[rel] = Note(rel, p, data, body)
 
     def kind_for(self, rel: str) -> str:
+        parts = PurePosixPath(rel).parts
+        if len(parts) == 3 and parts[0] == "Responsibilities" and parts[2] == "RESPONSIBILITY.md":
+            return "responsibility"
+        if len(parts) >= 4 and parts[0] == "Responsibilities" and parts[2] == "records":
+            return "log"
         if rel in self.config.orientation:
             return "orientation"
         note = self.notes.get(rel)

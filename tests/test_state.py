@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import cli, fm, health, needs, nightly, reception, state, triggers, validate
+from brain import cli, fm, health, ledger, needs, nightly, reception, responsibilities, state, triggers, validate
 from brain.config import Config
 from brain.tasks import Task, write_archive
 from brain.vault import Vault
@@ -135,6 +135,35 @@ def test_routines_join_responsibilities_and_all_months_but_not_unknown_legacy_ro
         {"name": "upkeep", "skill": "brain-maintain", "hub": "Maintenance", "ledger": None, "responsibility": None},
         {"name": "WATCH", "skill": "brain-watch", "hub": "Watch", "ledger": "agent/Receipts", "responsibility": None},
     ]
+
+
+@pytest.mark.parametrize("skill", [None, "brain-watch"])
+def test_folder_responsibilities_export_fields_routines_and_records(vault, skill):
+    config = Config.load(vault)
+    source = "Responsibilities/chicken-alerts/RESPONSIBILITY.md"
+    triggers = [{"kind": "schedule", "when": "every 2h", "needs": ["computer"]},
+                {"kind": "mail", "filter": "chickens"}, {"kind": "schedule", "when": "0 8 * * *"}]
+    note(vault, source, "Check the flock.\n", version=1, title="Flock check", skill=skill, asked_by="Owner, in Home",
+         goal="G-1", role="R-1", delivers="Healthy chickens", work="flock", triggers=triggers)
+    responsibilities.sync(Vault(vault))
+    result = state.build(config, TODAY)
+    assert result["responsibilities"] == [{
+        "id": "chicken-alerts", "title": "Flock check", "hub": source, "skill": skill,
+        "records": "Responsibilities/chicken-alerts/records", "routines": ["chicken-alerts", "chicken-alerts-2"],
+        "needs": ["computer"], "work": "flock", "delivers": "Healthy chickens", "folder": True, "path": "memory/Responsibilities/chicken-alerts/RESPONSIBILITY.md",
+        "triggers": triggers, "asked_by": "Owner, in Home", "goal": "G-1", "role": "R-1", "version": 1}]
+    assert result["routines"] == [
+        {"name": name, "skill": skill, "hub": "Flock check", "ledger": None, "responsibility": "chicken-alerts"}
+        for name in ("chicken-alerts", "chicken-alerts-2")]
+    records = note(vault, "Responsibilities/chicken-alerts/records/2026-10.md",
+                   "2026-10-28 | CHICKEN-ALERTS-2 | done | Checked flock. | Wait.\n")
+    assert ledger.discover(config) == [records]
+    result = state.build(config, TODAY)
+    second = next(routine for routine in result["routines"] if routine["name"] == "CHICKEN-ALERTS-2")
+    assert second == {"name": "CHICKEN-ALERTS-2", "skill": skill, "hub": "Flock check",
+                      "ledger": "Responsibilities/chicken-alerts/records", "responsibility": "chicken-alerts"}
+    assert result["ledger"][0]["account"] == "Checked flock."
+    assert not any(hub["title"] == "2026-10" for hub in result["hubs"])
 
 
 def test_ledger_window_order_collapsed_rows_and_raw_ids(work):

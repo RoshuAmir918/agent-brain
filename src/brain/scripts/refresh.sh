@@ -5,6 +5,7 @@ VAULT_REPO="${VAULT_REPO:-$HOME/brain}"
 cd "$VAULT_REPO"
 brain pull >/dev/null
 brain people sync --run >/dev/null 2>&1 || true
+brain responsibility sync >/dev/null 2>&1 || true
 LAPSED="$(brain consult lapse 2>/dev/null || true)"
 brain compile-context --write
 brain health --write >/dev/null
