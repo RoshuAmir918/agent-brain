@@ -165,7 +165,8 @@ def _synced(vault: Vault, routines: dict[str, Routine]) -> tuple[dict[str, Routi
             continue
         removed = (ident not in known and not (vault.root / "Responsibilities" / ident).exists()
                    and re.fullmatch(re.escape(ident) + r"(?:-(?:[2-9]|[1-9][0-9]+))?", name))
-        if ident in folders and (name not in derived or derived[name].responsibility != ident) or removed:
+        one_off = routine.at is not None and name not in derived   # scheduled by hand for one run; prune removes it
+        if ident in folders and not one_off and (name not in derived or derived[name].responsibility != ident) or removed:
             del routines[name]
             changes.append(f"removed routine {name}")
     for name, routine in derived.items():
@@ -212,7 +213,9 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
         entries = discover(vault)
         owners = link(entries, routines)
         packaged = {path.name for path in files("brain").joinpath("skills").iterdir()}
-        engine = set().union(*(schedule.defaults(replace(config, edition=edition)) for edition in ("personal", "enterprise")))
+        # demiurge-sync is the platform's own routine, installed by the deploy rather than the engine.
+        engine = set().union(*(schedule.defaults(replace(config, edition=edition)) for edition in ("personal", "enterprise")),
+                             {"demiurge-sync", "demiurge-whoami"})
         old_hub, own_folder = None, None
 
         def own_skill(skill: str) -> Path | None:

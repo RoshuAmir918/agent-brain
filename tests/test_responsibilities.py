@@ -818,7 +818,7 @@ def test_schedule_prune_only_removes_named_dead_entries(vault, monkeypatch, caps
     schedule.save(config, routines)
     before = schedule.path(config).read_bytes()
     cli.main(["schedule", "prune", *extra, "--vault", str(vault)])
-    dead = {"expired", "expired-paused", "demiurge-whoami", "brain-migration"}
+    dead = {"expired", "expired-paused", "owned-expired", "demiurge-whoami", "brain-migration"}
     assert schedule.load(config) == (routines if extra else {name: routine for name, routine in routines.items() if name not in dead})
     if extra:
         assert schedule.path(config).read_bytes() == before
@@ -849,3 +849,18 @@ def test_adopt_is_not_blocked_by_another_broken_responsibility(vault):
     schedule.save(config, {"food-deals": schedule.Routine(cron="0 9 * * *", prompt="Check the deals.")})
     responsibilities.adopt(config, ["food-deals"])
     assert schedule.load(config)["food-deals"].responsibility == "food-deals"
+
+
+def test_one_off_runs_for_a_folder_responsibility_survive_sync_and_prune_when_spent(vault, monkeypatch, capsys):
+    folder(vault)
+    config = Config.load(vault)
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-11")
+    responsibilities.sync(Vault(vault))
+    for name, at in (("window-old", "2026-11-08T08:15:00-05:00"), ("window-new", "2026-11-12T19:00:00-05:00")):
+        cli.main(["schedule", "set", name, "--at", at, "--responsibility", "chicken-alerts", "--vault", str(vault)])
+    with pytest.raises(SystemExit):
+        cli.main(["schedule", "set", "window-new", "--cron", "0 8 * * *", "--vault", str(vault)])
+    responsibilities.sync(Vault(vault))
+    assert {"window-old", "window-new"} <= set(schedule.load(config))
+    cli.main(["schedule", "prune", "--vault", str(vault)])
+    assert "window-old" not in schedule.load(config) and "window-new" in schedule.load(config)

@@ -1786,7 +1786,7 @@ def cmd_schedule(args):
                 cutoff = config.local() - timedelta(days=1)
                 dead = [name for name, routine in routines.items()
                         if name in ("demiurge-whoami", "brain-migration")
-                        or routine.responsibility is None and routine.at is not None
+                        or routine.at is not None and not name.startswith(install.MIGRATION_ROUTINE)
                         and datetime.fromisoformat(routine.at) < cutoff]
                 if dead and not args.dry_run:
                     schedule.save(config, {name: routine for name, routine in routines.items() if name not in dead})
@@ -1826,7 +1826,12 @@ def cmd_schedule(args):
                     owned = routines[name].responsibility if name in routines else None
                     requested = getattr(args, "responsibility", None)
                     owner = folders.get(owned) or folders.get(requested)
-                    if owner is not None:
+                    # A one-off run for a responsibility (a game window, a follow-up) is scheduled here, not in its
+                    # document: it is spent once it runs, and prune removes it.
+                    one_off = (routines[name].at is not None if name in routines else True) and (
+                        action == "remove" or getattr(args, "at", None) is not None
+                        or name in routines and not any(getattr(args, key, None) for key in schedule.TIMING))
+                    if owner is not None and not one_off:
                         raise ValueError(f"edit {owner['hub']} and run `brain responsibility sync`")
                 if action == "set":
                     changes = {key: getattr(args, key) for key in schedule.Routine.__dataclass_fields__
