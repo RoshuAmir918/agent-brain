@@ -1,11 +1,14 @@
 """Responsibility ids, schedule ownership and state compatibility."""
 import io
 import shutil
-from datetime import date
+from contextlib import contextmanager
+from dataclasses import replace
+from datetime import date, datetime, timedelta
+from importlib.resources import files
 
 import pytest
 
-from brain import cli, fm, nightly, responsibilities, schedule, state, validate
+from brain import cli, fm, install, nightly, responsibilities, schedule, state, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -360,7 +363,7 @@ def test_add_with_known_goal_or_role_and_placeholder(vault):
     assert fm.read(path)[0]["goal"] == "G-1"
 
 
-@pytest.mark.parametrize("name", ["add", "sync"])
+@pytest.mark.parametrize("name", ["add", "adopt", "sync"])
 def test_legacy_creation_keeps_names_that_match_new_commands(vault, tmp_path, monkeypatch, name):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
     cli.main(["responsibility", name, "--skill", f"brain-{name}", "--vault", str(vault)])
@@ -379,3 +382,470 @@ def test_spent_one_off_leaves_the_schedule_and_keeps_later_names(vault, monkeypa
     loaded = Vault(vault)
     actual = responsibilities.derive(loaded.config, responsibilities.discover(loaded)[0])
     assert list(actual) == ["chicken-alerts-2", "chicken-alerts-3"]
+
+
+def own_skill(root, name="brain-housekeeping", body="Keep every trade receipt.\n"):
+    path = Config.load(root).skills_path / name / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    fm.write(path, {"name": name, "description": "A local method"}, body)
+    return path
+
+
+def tree(root):
+    return {path.relative_to(root).as_posix(): (path.read_bytes(), path.stat().st_mode & 0o777) if path.is_file() else None
+            for path in root.rglob("*")}
+
+
+def adopt(root, *args):
+    cli.main(["responsibility", "adopt", *args, "--vault", str(root)])
+
+
+def test_adopt_routines_copies_methods_scripts_and_timing_under_one_lock(vault, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-11")
+    config = Config.load(vault)
+    skill = own_skill(vault)
+    script = install.scripts_path() / "trades.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/bin/sh\necho trades\n")
+    script.chmod(0o751)
+    schedule.save(config, {
+        "housekeeping": schedule.Routine(cron="0 8 * * MON-FRI", prompt="Keep the house clean.",
+                                         skills=[skill.parent.name, "brain-watch", "brain-explore"], deliver="demiurge"),
+        "housekeeping-trades": schedule.Routine(every="2h", prompt="", script="trades.sh", agent=False,
+                                                needs=["computer"], enabled=False),
+        "reminder": schedule.Routine(at="2026-11-12T19:00:00+02:00", prompt="Run reminder.", deliver="demiurge"),
+        "unrelated": schedule.Routine(every="5h"),
+    })
+    schedule_path = schedule.path(config)
+    schedule_path.write_text(schedule_path.read_text().replace('[routines.reminder]', '[routines.reminder]\nprompt = "Run reminder."'))
+    before_skill, before_script = skill.read_bytes(), script.read_bytes()
+    locks, syncs = [], []
+    real_lock, real_sync = responsibilities.vault_lock, responsibilities.sync
+
+    @contextmanager
+    def counted_lock(config):
+        locks.append(config)
+        with real_lock(config):
+            yield
+
+    def checked_sync(vault, *, locked=False):
+        syncs.append(locked)
+        return real_sync(vault, locked=locked)
+
+    def no_git(*args, **kwargs):
+        pytest.fail("adoption must not invoke git")
+
+    monkeypatch.setattr(responsibilities, "vault_lock", counted_lock)
+    monkeypatch.setattr(responsibilities, "sync", checked_sync)
+    monkeypatch.setattr("subprocess.check_output", no_git)
+    monkeypatch.setattr("subprocess.run", no_git)
+    adopt(vault, "housekeeping", "housekeeping-trades", "reminder", "--title", "Housekeeping & trades",
+          "--asked-by", "Owner, Conversations/2026-11-01.md: keep trade receipts")
+    assert len(locks) == 1 and syncs == [True]
+    path = vault / "Responsibilities/housekeeping-trades/RESPONSIBILITY.md"
+    data, body = fm.read(path)
+    assert data == {
+        "version": 1, "title": "Housekeeping & trades", "skill": "brain-watch",
+        "asked_by": "Owner, Conversations/2026-11-01.md: keep trade receipts",
+        "triggers": [
+            {"kind": "schedule", "when": "0 8 * * MON-FRI", "prompt": "Keep the house clean."},
+            {"kind": "schedule", "when": "every 2h", "deliver": "local", "needs": ["computer"],
+             "agent": False, "script": "scripts/trades.sh"},
+            {"kind": "schedule", "when": "once 2026-11-12T19:00:00+02:00"},
+        ]}
+    assert body.startswith("# Housekeeping & trades\n\nAdopted from the routines housekeeping, housekeeping-trades, reminder on 2026-11-11;")
+    assert "## Prompt (housekeeping)\n\nKeep the house clean." in body
+    assert "## Prompt (reminder)\n\nRun reminder." in body
+    assert "## Prompt (housekeeping-trades)" not in body
+    assert "## Method (from brain-housekeeping)\n\nKeep every trade receipt." in body
+    assert "description:" not in body and "`brain-explore`" in body
+    copied = path.parent / "scripts/trades.sh"
+    assert copied.read_bytes() == before_script and copied.stat().st_mode & 0o777 == 0o751
+    assert skill.read_bytes() == before_skill and script.read_bytes() == before_script
+    actual = schedule.load(config)
+    assert set(actual) == {"housekeeping-trades", "housekeeping-trades-2", "housekeeping-trades-3", "unrelated"}
+    assert all(actual[name].responsibility == "housekeeping-trades" for name in actual if name != "unrelated")
+    assert not actual["housekeeping-trades"].enabled and not actual["housekeeping-trades-2"].enabled
+    assert actual["housekeeping-trades-3"].enabled
+    assert actual["housekeeping-trades-2"].script == "Responsibilities/housekeeping-trades/scripts/trades.sh"
+    assert actual["housekeeping-trades-3"].at == "2026-11-12T19:00:00+02:00"
+    output = capsys.readouterr().out
+    for written in (path, copied, schedule.path(config)):
+        assert f"wrote {written}" in output
+    assert responsibilities.sync(Vault(vault), locked=True) == []
+
+
+@pytest.mark.parametrize("extra, reason", [
+    ([], {"asked_by": "origin unknown"}),
+    (["--goal", "G-1"], {"goal": "G-1"}),
+    (["--role", "R-1"], {"role": "R-1"}),
+])
+def test_adopt_defaults_and_reason_flags(vault, extra, reason):
+    config = Config.load(vault)
+    goals = vault / "human/Goals.md"
+    goals.parent.mkdir()
+    goals.write_text("# Goals\n\n## Active\n\n### G-1 — Healthy chickens\n")
+    role = vault / "Roles/Engineering/Role.md"
+    role.parent.mkdir(parents=True)
+    fm.write(role, {"id": "R-1"}, "")
+    schedule.save(config, {"alerts": schedule.Routine(every="2h", enabled=False)})
+    adopt(vault, "alerts", *extra)
+    data, body = fm.read(vault / "Responsibilities/alerts/RESPONSIBILITY.md")
+    assert data == {"version": 1, "title": "alerts", "triggers": [
+        {"kind": "schedule", "when": "every 2h", "deliver": "local"}], **reason}
+    assert "Run alerts." not in body
+    assert schedule.load(config)["alerts"].enabled is False
+
+
+@pytest.mark.parametrize("case, message", [
+    ("unknown", "unknown routine"), ("owned", "already has a responsibility"),
+    ("fallback", "already has a responsibility"), ("engine", "engine routine"),
+    ("migration", "engine routine"), ("after", "after routines are engine plumbing"),
+    ("monitor", "monitor or classify routines stay plain"), ("classify", "monitor or classify routines stay plain"),
+    ("workdir", "needs a hand conversion"), ("missing-script", "missing script file"),
+    ("script-path", "script must be a bare name"), ("existing", "folder already exists"),
+    ("collision", "derived routine name already exists"), ("duplicate", "only once"),
+    ("missing-skill", "has no SKILL.md"), ("bad-skill", "invalid skill name"),
+    ("goal", "unknown goal"), ("role", "unknown role"), ("invalid-title", "responsibility id must match"),
+    ("hub-id", "responsibility id already exists"),
+])
+def test_adopt_refusals_leave_everything_unchanged(vault, tmp_path, monkeypatch, case, message):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    config = Config.load(vault)
+    routine = schedule.Routine(every="2h")
+    name, extra, others = "alerts", [], {}
+    if case == "owned":
+        routine = replace(routine, responsibility="other")
+    elif case == "fallback":
+        hub(vault, "Legacy", skill="brain-alerts", records="legacy")
+        routine = replace(routine, skills=["brain-alerts"])
+    elif case == "engine":
+        name = "morning"
+        (vault.parent / "brain.toml").write_text('[brain]\nedition="enterprise"\n')
+        config = Config.load(vault)
+    elif case == "migration":
+        name = install.MIGRATION_ROUTINE + "0-148-0"
+    elif case == "after":
+        routine = schedule.Routine(after="base")
+        others["base"] = schedule.Routine(every="2h")
+    elif case == "monitor":
+        routine = replace(routine, monitor="signal.sh")
+    elif case == "classify":
+        routine = replace(routine, classify=["roles", "screen"], agent=False)
+    elif case == "workdir":
+        routine = replace(routine, workdir=str(tmp_path / "elsewhere"))
+    elif case == "missing-script":
+        routine = replace(routine, script="gone.sh")
+    elif case == "script-path":
+        routine = replace(routine, script="somewhere/check.sh")
+    elif case == "existing":
+        (vault / "Responsibilities/alerts").mkdir(parents=True)
+    elif case == "collision":
+        others["bundle"] = schedule.Routine(every="5h")
+        extra = ["--title", "Bundle"]
+    elif case == "duplicate":
+        extra = [name]
+    elif case in ("missing-skill", "bad-skill"):
+        routine = replace(routine, skills=["brain-missing" if case == "missing-skill" else "../outside"])
+    elif case in ("goal", "role"):
+        extra = ["--" + case, "G-999" if case == "goal" else "R-999"]
+    elif case == "invalid-title":
+        extra = ["--title", "!!!"]
+    elif case == "hub-id":
+        hub(vault, "Legacy", skill="brain-other", records="alerts")
+        routine = replace(routine, responsibility=None)
+        others["explicit-owner"] = replace(routine, responsibility="alerts")
+    schedule.save(config, {**others, name: routine})
+    before = tree(tmp_path)
+    with pytest.raises(SystemExit, match=message):
+        adopt(vault, "unknown" if case == "unknown" else name, *extra)
+    assert tree(tmp_path) == before
+
+
+@pytest.mark.parametrize("edition", ["personal", "enterprise"])
+def test_adopt_refuses_every_engine_default(vault, edition):
+    config = Config.load(vault)
+    schedule.save(config, schedule.defaults(replace(config, edition=edition)))
+    before = tree(vault)
+    for name in schedule.defaults(replace(config, edition=edition)):
+        with pytest.raises(SystemExit, match="engine routine"):
+            adopt(vault, name)
+    assert tree(vault) == before
+
+
+def test_adopt_repo_workdir_is_allowed_and_pause_follows_renamed_source(vault):
+    config = Config.load(vault)
+    schedule.save(config, {"alerts": schedule.Routine(every="2h", enabled=False),
+                           "other": schedule.Routine(every="3h")})
+    path = schedule.path(config)
+    path.write_text(path.read_text().replace('[routines.alerts]', f'[routines.alerts]\nworkdir = "{config.repo}"'))
+    adopt(vault, "alerts", "other", "--title", "Bundle")
+    actual = schedule.load(config)
+    assert not actual["bundle"].enabled and actual["bundle-2"].enabled
+    assert actual["bundle"].workdir is None
+
+
+@pytest.mark.parametrize("hub_arg", ["title", "relative", "absolute"])
+def test_adopt_hub_keeps_id_records_frontmatter_and_replaces_hub(vault, tmp_path, monkeypatch, capsys, hub_arg):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    config = Config.load(vault)
+    skill = own_skill(vault)
+    reference = skill.parent / "references/tips.md"
+    reference.parent.mkdir()
+    reference.write_text("Old reference.\n")
+    data = {"kind": "hub", "tier": "hot", "skill": skill.parent.name, "records": "trade-history",
+            "work": "portfolio", "delivers": "Receipts", "asked_by": "Owner, dated request", "goal": "G-1", "role": "R-1",
+            "uses": ["2026-11-10"], "uses_inferred": [], "activation": "night", "custom": {"keep": [1, 2]}, "title": "Old title"}
+    path = vault / "Trade.jobs.md"
+    fm.write(path, data, "# Trade jobs\n\nKeep the original instructions.\n")
+    records = install.records_path() / "trade-history"
+    records.mkdir(parents=True)
+    (records / "receipt.md").write_text("Old receipt.\n")
+    script = install.scripts_path() / "trades.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/bin/sh\necho trades\n")
+    script.chmod(0o755)
+    schedule.save(config, {"old-trades": schedule.Routine(every="2h", responsibility="trade-history", skills=[skill.parent.name],
+                                                       prompt="Check trades.", enabled=False, script="trades.sh"),
+                           "rollup": schedule.Routine(cron="0 8 * * MON", responsibility="trade-history"),
+                           "engine": schedule.Routine(every="5h")})
+    before_records = tree(records)
+    argument = {"title": path.stem, "relative": path.name, "absolute": str(path)}[hub_arg]
+    adopt(vault, "--hub", argument)
+    target = vault / "Responsibilities/trade-history/RESPONSIBILITY.md"
+    adopted_data, body = fm.read(target)
+    assert adopted_data["version"] == 1 and adopted_data["title"] == "Trade.jobs"
+    assert adopted_data["records"] == str(records.resolve()) and tree(records) == before_records
+    for key in ("work", "delivers", "asked_by", "goal", "role", "custom"):
+        assert adopted_data[key] == data[key]
+    assert not {"kind", "tier", "skill", *nightly.NIGHT_KEYS} & adopted_data.keys()
+    assert body == "# Trade jobs\n\nKeep the original instructions.\n\n## Method\n\nKeep every trade receipt.\n"
+    assert fm.read(path) == ({key: value for key, value in data.items() if key not in ("skill", "records")},
+                             "See [[Responsibilities/trade-history/RESPONSIBILITY]].\n")
+    assert not skill.parent.exists() and script.exists()
+    assert (target.parent / "scripts/trades.sh").read_bytes() == script.read_bytes()
+    loaded = Vault(vault)
+    entries = responsibilities.discover(loaded)
+    assert len(entries) == 1 and entries[0]["id"] == "trade-history"
+    assert entries[0]["records"] == str(records.resolve())
+    actual = schedule.load(config)
+    assert set(actual) == {"engine", "trade-history", "trade-history-2"}
+    assert not actual["trade-history"].enabled and actual["trade-history-2"].enabled
+    assert all(actual[name].responsibility == "trade-history" for name in actual if name != "engine")
+    assert str(records.resolve()) in actual["trade-history"].prompt
+    output = capsys.readouterr().out
+    for removed in (skill, reference):
+        assert f"removed {removed}" in output
+    for written in (path, target, target.parent / "scripts/trades.sh", schedule.path(config)):
+        assert f"wrote {written}" in output
+
+
+@pytest.mark.parametrize("reason", [{}, {"goal": "G-1"}])
+def test_adopt_hub_without_records_uses_folder_default_and_preserves_reason(vault, tmp_path, monkeypatch, reason):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    skill = own_skill(vault)
+    hub(vault, "Legacy", skill=skill.parent.name, records="missing-records", **reason)
+    adopt(vault, "--hub", "Legacy")
+    data, body = fm.read(vault / "Responsibilities/missing-records/RESPONSIBILITY.md")
+    assert "records" not in data
+    assert ("asked_by" in data) == (not reason)
+    if not reason:
+        assert data["asked_by"] == "origin unknown"
+    entry, = responsibilities.discover(Vault(vault))
+    assert entry["records"] == "Responsibilities/missing-records/records"
+    assert entry["triggers"] == []
+
+
+def test_adopt_hub_links_legacy_routines_by_name_and_skill(vault, tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    config = Config.load(vault)
+    skill = own_skill(vault)
+    hub(vault, "Legacy", skill=skill.parent.name, records="history")
+    schedule.save(config, {"history": schedule.Routine(every="2h", enabled=False),
+                           "trade-extra": schedule.Routine(every="3h", skills=[skill.parent.name])})
+    adopt(vault, "--hub", "Legacy")
+    actual = schedule.load(config)
+    assert set(actual) == {"history", "history-2"}
+    assert all(routine.responsibility == "history" for routine in actual.values())
+    assert not actual["history"].enabled
+
+
+@pytest.mark.parametrize("case, message", [
+    ("unknown", "no old-style responsibility hub"), ("no-skill", "no old-style responsibility hub"),
+    ("engine-skill", "must name an own skill"), ("missing-skill", "has no SKILL.md"),
+    ("nested", "at the vault root"), ("outside", "at the vault root"),
+    ("existing", "folder already exists"), ("missing-script", "missing script file"),
+    ("malformed-skill", "frontmatter"),
+])
+def test_adopt_hub_refusals_preserve_hub_and_skill(vault, tmp_path, monkeypatch, case, message):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    config = Config.load(vault)
+    skill = own_skill(vault)
+    source = hub(vault, "Legacy", skill=skill.parent.name, records="history")
+    argument = "Legacy"
+    if case == "unknown":
+        argument = "Unknown"
+    elif case == "no-skill":
+        fm.write(source, {"kind": "hub"}, "Keep me.\n")
+    elif case == "engine-skill":
+        fm.write(source, {"kind": "hub", "skill": "brain-watch", "records": "history"}, "Keep me.\n")
+    elif case == "missing-skill":
+        skill.unlink()
+    elif case == "nested":
+        nested = vault / "Nested/Legacy.md"
+        nested.parent.mkdir()
+        source.rename(nested)
+        argument = "Nested/Legacy.md"
+    elif case == "outside":
+        argument = str(tmp_path / "outside.md")
+    elif case == "existing":
+        (vault / "Responsibilities/history").mkdir(parents=True)
+    elif case == "missing-script":
+        schedule.save(config, {"history": schedule.Routine(every="2h", responsibility="history", script="missing.sh")})
+    elif case == "malformed-skill":
+        skill.write_text("---\n[bad, header]\n---\nKeep me.\n")
+    before = tree(tmp_path)
+    with pytest.raises(SystemExit, match=message):
+        adopt(vault, "--hub", argument)
+    assert tree(tmp_path) == before
+
+
+@pytest.mark.parametrize("args, message", [
+    ([], "requires at least one routine"),
+    (["alerts", "--goal", "G-1", "--asked-by", "Owner"], "only one of"),
+    (["alerts", "--asked-by", " "], "must name a reason"),
+    (["alerts", "--when", "every 2h"], "adopt takes routines"),
+    (["alerts", "--hub", "Legacy"], "--hub takes no routines"),
+    (["--hub", "Legacy", "--title", "Other"], "--hub takes no routines"),
+    (["--hub", "Legacy", "--asked-by", "Owner"], "--hub takes no routines"),
+])
+def test_adopt_rejects_invalid_argument_combinations_without_writing(vault, args, message):
+    config = Config.load(vault)
+    schedule.save(config, {"alerts": schedule.Routine(every="2h")})
+    before = tree(vault)
+    with pytest.raises(SystemExit, match=message):
+        adopt(vault, *args)
+    assert tree(vault) == before
+
+
+@pytest.mark.parametrize("fail_sync", [False, True])
+def test_adopt_hub_with_symlinked_skill_keeps_target_and_restores_link_on_error(vault, tmp_path, monkeypatch, fail_sync):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    config = Config.load(vault)
+    skill = own_skill(vault)
+    directory = skill.parent
+    original = tmp_path / "own-method"
+    directory.rename(original)
+    directory.symlink_to(original, target_is_directory=True)
+    hub(vault, "Legacy", skill=directory.name, records="history")
+    schedule.save(config, {"history": schedule.Routine(every="2h")})
+    before, target_before = tree(vault), tree(original)
+    if fail_sync:
+        def broken_sync(*args, **kwargs):
+            raise ValueError("injected sync error")
+
+        monkeypatch.setattr(responsibilities, "sync", broken_sync)
+        with pytest.raises(SystemExit, match="injected sync error"):
+            adopt(vault, "--hub", "Legacy")
+        assert directory.is_symlink() and directory.readlink() == original
+        assert tree(vault) == before
+    else:
+        adopt(vault, "--hub", "Legacy")
+        assert not directory.exists() and not directory.is_symlink()
+        assert "Keep every trade receipt." in fm.read(vault / "Responsibilities/history/RESPONSIBILITY.md")[1]
+    assert tree(original) == target_before
+
+
+@pytest.mark.parametrize("hub_mode", [False, True])
+@pytest.mark.parametrize("failure", ["write", "sync", "pause"])
+def test_adopt_rolls_back_write_and_sync_errors(vault, tmp_path, monkeypatch, capsys, hub_mode, failure):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    config = Config.load(vault)
+    skill = own_skill(vault)
+    if hub_mode:
+        hub(vault, "Legacy", skill=skill.parent.name, records="alerts")
+    schedule.save(config, {"alerts": schedule.Routine(every="2h", enabled=False, skills=[skill.parent.name])})
+    before = tree(tmp_path)
+    if failure == "write":
+        real_write = fm.write_text
+
+        def fail_write(path, *args, **kwargs):
+            if path.name == "RESPONSIBILITY.md":
+                raise OSError("injected write error")
+            return real_write(path, *args, **kwargs)
+
+        monkeypatch.setattr(fm, "write_text", fail_write)
+    elif failure == "sync":
+        def fail_sync(*args, **kwargs):
+            raise ValueError("injected sync error")
+
+        monkeypatch.setattr(responsibilities, "sync", fail_sync)
+    else:
+        real_save, calls = schedule.save, []
+
+        def fail_pause(*args, **kwargs):
+            calls.append(True)
+            if len(calls) == 3:
+                raise OSError("injected pause error")
+            return real_save(*args, **kwargs)
+
+        monkeypatch.setattr(schedule, "save", fail_pause)
+    with pytest.raises(SystemExit, match="injected"):
+        adopt(vault, *(["--hub", "Legacy"] if hub_mode else ["alerts"]))
+    assert tree(tmp_path) == before
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("extra", [[], ["--dry-run"]])
+def test_schedule_prune_only_removes_named_dead_entries(vault, monkeypatch, capsys, extra):
+    config = Config.load(vault)
+    moment = datetime(2026, 11, 11, 12, tzinfo=config.zone)
+    monkeypatch.setattr(Config, "local", lambda self: moment)
+    routines = {
+        "expired": schedule.Routine(at=(moment - timedelta(days=1, seconds=1)).isoformat()),
+        "expired-paused": schedule.Routine(at=(moment - timedelta(days=2)).isoformat(), enabled=False),
+        "recent": schedule.Routine(at=(moment - timedelta(hours=23)).isoformat()),
+        "boundary": schedule.Routine(at=(moment - timedelta(days=1)).isoformat()),
+        "future": schedule.Routine(at=(moment + timedelta(days=1)).isoformat()),
+        "owned-expired": schedule.Routine(at=(moment - timedelta(days=2)).isoformat(), responsibility="alerts"),
+        "paused": schedule.Routine(every="2h", enabled=False),
+        "active": schedule.Routine(every="2h"),
+        "demiurge-whoami": schedule.Routine(every="2h"),
+        "brain-migration": schedule.Routine(every="2h", enabled=False),
+        "brain-migration-0-148-0": schedule.Routine(at=(moment + timedelta(days=1)).isoformat()),
+    }
+    schedule.save(config, routines)
+    before = schedule.path(config).read_bytes()
+    cli.main(["schedule", "prune", *extra, "--vault", str(vault)])
+    dead = {"expired", "expired-paused", "demiurge-whoami", "brain-migration"}
+    assert schedule.load(config) == (routines if extra else {name: routine for name, routine in routines.items() if name not in dead})
+    if extra:
+        assert schedule.path(config).read_bytes() == before
+    output = capsys.readouterr().out
+    assert len(output.splitlines()) == len(dead)
+    for name in dead:
+        assert f"{'would remove' if extra else 'removed'} routine {name} in" in output
+
+
+def test_adoption_migration_renders_owner_and_stays_under_word_limit(vault, monkeypatch):
+    config = Config.load(vault)
+    source = files("brain").joinpath("migrations/0.148.0.md").read_text()
+    assert fm.split(source)[0] == {"unattended": True}
+    assert len(source.split()) < 300
+    install.record_version(config, "0.147.0")
+    monkeypatch.setattr(install, "installed_version", lambda name: "0.148.0")
+    version, prompt = install.pending_migrations(config)[0]
+    assert version == "0.148.0" and "{human_name}" not in prompt
+    assert f"Tell {config.human_name}: your recurring jobs" in prompt
+    for command in ("brain install-skills", "brain schedule prune", "brain responsibility adopt --hub",
+                    "brain responsibility sync", "brain validate", "brain loops --add", "brain migrate-done"):
+        assert command in prompt
+
+
+def test_adopt_is_not_blocked_by_another_broken_responsibility(vault):
+    folder(vault, "broken", triggers=[{"kind": "schedule", "when": "tomorrow morning"}])
+    config = Config.load(vault)
+    schedule.save(config, {"food-deals": schedule.Routine(cron="0 9 * * *", prompt="Check the deals.")})
+    responsibilities.adopt(config, ["food-deals"])
+    assert schedule.load(config)["food-deals"].responsibility == "food-deals"

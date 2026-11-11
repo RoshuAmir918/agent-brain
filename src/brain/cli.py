@@ -11,7 +11,7 @@ import sys
 from contextlib import nullcontext
 import time
 from dataclasses import asdict, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from . import access, attribute, compile_context, consults, digest, evidence, fm, health, identity, ideas, image, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
@@ -233,6 +233,16 @@ def cmd_validate(a):
 
 def cmd_responsibility(a):
     try:
+        if a.name == "adopt" and not a.skill:
+            if any(getattr(a, key) is not None for key in ("records", "when", "script", "prompt", "delivers", "body")):
+                raise ValueError("adopt takes routines or --hub, with an optional --title and reason")
+            for change in responsibilities.adopt(a.config, ([a.title] if a.title else []) + a.routines,
+                                                 hub=a.hub, title=a.adopt_title,
+                                                 asked_by=a.asked_by, goal=a.goal, role=a.role):
+                print(change)
+            return
+        if a.routines or a.hub is not None or a.adopt_title is not None:
+            raise ValueError("extra routines, --hub and --title are only supported by adopt")
         if a.name == "sync" and not a.skill:
             if a.title:
                 raise ValueError("sync takes no title")
@@ -278,7 +288,7 @@ def cmd_responsibility(a):
         print(target)
         for change in responsibilities.sync(Vault(a.config.vault_path)):
             print(change)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, RuntimeError) as error:
         sys.exit(f"responsibility: {error}")
 
 
@@ -1771,6 +1781,18 @@ def cmd_schedule(args):
                     print(f"{name}: {timing}" + (" (paused)" if not routine.enabled else ""))
             return
         with vault_lock(config):
+            if action == "prune":
+                routines = schedule.load(config)
+                cutoff = config.local() - timedelta(days=1)
+                dead = [name for name, routine in routines.items()
+                        if name in ("demiurge-whoami", "brain-migration")
+                        or routine.responsibility is None and routine.at is not None
+                        and datetime.fromisoformat(routine.at) < cutoff]
+                if dead and not args.dry_run:
+                    schedule.save(config, {name: routine for name, routine in routines.items() if name not in dead})
+                for name in dead:
+                    print(f"{'would remove' if args.dry_run else 'removed'} routine {name} in {schedule.path(config)}")
+                return
             if action == "init":
                 routines = schedule.load(config)
                 defaults = schedule.defaults(config)
@@ -1860,7 +1882,7 @@ def main(argv=None):
     s.add_argument("--json", action="store_true", required=True); s.set_defaults(fn=cmd_record_spec)
     s = sub.add_parser("schedule")
     actions = s.add_subparsers(dest="schedule_cmd", required=True)
-    for action in ("list", "set", "remove", "pause", "resume", "check", "init"):
+    for action in ("list", "set", "remove", "pause", "resume", "check", "init", "prune"):
         s = actions.add_parser(action, parents=[vault]); s.set_defaults(fn=cmd_schedule)
         if action in ("set", "remove", "pause", "resume"):
             s.add_argument("name")
@@ -1868,6 +1890,8 @@ def main(argv=None):
             s.add_argument("--json", action="store_true")
         if action == "init":
             s.add_argument("--reset-night", action="store_true")
+        if action == "prune":
+            s.add_argument("--dry-run", action="store_true")
         if action == "set":
             timing = s.add_mutually_exclusive_group()
             for key in schedule.TIMING:
@@ -2252,8 +2276,10 @@ def main(argv=None):
     s.add_argument("--ack-notices", action="store_true", help="acknowledge displayed app-change notices for this owner or routine session")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_session_context)
 
-    s = sub.add_parser("responsibility", help="add or sync standing work, or build a legacy hub with --skill", parents=[vault])
-    s.add_argument("name", metavar="add|sync|NAME"); s.add_argument("title", nargs="?")
+    s = sub.add_parser("responsibility", help="add, adopt or sync standing work, or build a legacy hub with --skill", parents=[vault])
+    s.add_argument("name", metavar="add|adopt|sync|NAME"); s.add_argument("title", nargs="?")
+    s.add_argument("routines", nargs="*")
+    s.add_argument("--title", dest="adopt_title"); s.add_argument("--hub")
     for key in ("skill", "records", "when", "script", "prompt", "asked-by", "delivers", "body"):
         s.add_argument("--" + key)
     reason = s.add_mutually_exclusive_group()
