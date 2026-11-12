@@ -140,8 +140,9 @@ def _hubs(vault: Vault, task_entries: list[dict], responsibility_entries: list[d
             hub_tasks = {task["id"] for task in linked}
             kept = matters.state(note.body, today)
             entry["waiting"] = [item["id"] for item in waiting if _belongs(item, source, hub_tasks, hubbed)]
-            entry.update(kept, phase=matters.phase(kept, today, bool(entry["waiting"]) or
-                                                   any(task["open"] for task in linked)))
+            # A set-aside task, or the owner's work put off for later, is decided for now: it keeps nothing current.
+            live = any(task["open"] and task["state"] != "set_aside" and not task["later"] for task in linked)
+            entry.update(kept, phase=matters.phase(kept, today, bool(entry["waiting"]) or live))
         out.append(entry)
     return out
 
@@ -235,8 +236,8 @@ def _outputs(vault: Vault) -> list[dict]:
 
 def _prepared(vault: Vault, matters: list[str]) -> list[dict]:
     """What explore made unasked and holds in Prepared, not yet used or set aside, with how its offer stands. A draft
-    made for a task is that task's output, so it shows there instead. Its hub is the matter that links to it, as a draft
-    is filed with a wikilink from the note it serves."""
+    made for a task is that task's output, so it shows there instead. Its hub is the matter its `hub:` names, else the
+    matter that links to it, as a draft is filed with a wikilink from the note it serves."""
     folder = vault.config.agent("Prepared/")
     served = {}
     for hub in matters:
@@ -259,7 +260,7 @@ def _prepared(vault: Vault, matters: list[str]) -> list[dict]:
         out.append({"id": row.id, "title": str(note.data.get("index_line") or re.sub(r"^\d{4}-\d{2}-\d{2} ", "", note.stem)),
                     "source": source, "created": created.isoformat() if isinstance(created, date) else str(created),
                     "goal": note.data.get("goal") or fm.field(note.body, "Goal"), "for": str(note.data["for"]) if note.data.get("for") else None,
-                    "outcome": row.outcome, "hub": served.get(source)})
+                    "outcome": row.outcome, "hub": _matter(_hub(vault, str(note.data.get("hub") or "")), matters) or served.get(source)})
     out.sort(key=lambda draft: draft["created"], reverse=True)
     return out
 
@@ -306,7 +307,7 @@ def _loops(vault: Vault, items: list[loops.Item]) -> list[dict]:
 
 
 def _hub(vault: Vault, link: str) -> str:
-    """An item's hub line as the hub's exported path; a private or empty one is dropped, so the item falls back."""
+    """An item's or a draft's hub line as the hub's exported path; a private or empty one is dropped, so the item falls back."""
     link = link.strip().removeprefix("[[").removesuffix("]]").split("|", 1)[0].strip()
     return (_source(vault, link) or "") if link else ""
 
