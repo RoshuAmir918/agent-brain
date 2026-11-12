@@ -631,6 +631,8 @@ def hand_off(config: Config, tid: str, today: date, report_to: str = "", work: s
     if task.task_state in (None, "ready", *RESTING):
         task.set_state("in_progress")
     save_task(config, task, today, before)
+    from . import matters
+    matters.task_moved(config, task, today, f"handed off {task.title}")
     return task
 
 
@@ -697,6 +699,8 @@ def close(config: Config, tid: str, today: date, done: bool, why: str, left: str
     task.body = body.rstrip("\n") + "\n" + "\n".join(lines) + "\n"
     save_task(config, task, today, before)
     _work_history(task, today, why)
+    from . import matters
+    matters.task_moved(config, task, today, f"{'finished' if done else 'dropped'} {task.title}")
     # A task blocked on this one moves again now; its Blocker stays as the last evidence, as when a rest ends.
     entries = sum(load_tasks(config), [])
     for other in entries:

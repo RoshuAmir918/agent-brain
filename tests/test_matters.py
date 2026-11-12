@@ -186,3 +186,21 @@ def test_a_matter_named_by_its_path_is_found(owner, vault):
     talk(owner, "Talked Lisbon", [{"name": "Trips/Lisbon", "now": "booked"}])
     assert "**Now:** booked" in fm.read(vault / "Trips/Lisbon.md")[1]
     assert not (vault / "Trips Lisbon.md").exists()
+
+
+def test_a_task_serving_a_matter_moves_its_last_and_soon(owner):
+    from brain import tasks
+    fm.write(owner.vault_path / "agent/Tasks.md", {}, "# Tasks\n\n" + "\n".join(task.render() for task in [
+        Task("T-001", "Find a flat in Alfama", "- **Hub:** [[Lisbon trip]]\n- **Due:** 2026-11-18\n", {"state": "ready"}),
+        Task("T-002", "Tidy the watch", "- **Hub:** [[Watch]]\n", {"state": "ready"}),
+    ]))
+    fm.write(owner.vault_path / "Watch.md", {"kind": "hub", "skill": "brain-watch", "records": "receipts"}, "# Watch\n")
+    tasks.hand_off(owner, "T-001", TODAY, "")
+    kept = matters.state(fm.read(owner.vault_path / "Lisbon trip.md")[1], TODAY)
+    assert kept["last"] == {"text": "handed off Find a flat in Alfama", "date": "2026-11-11"}
+    assert kept["soon"] == {"text": "Find a flat in Alfama", "date": "2026-11-18"}
+    tasks.close(owner, "T-001", date(2026, 11, 12), True, "Booked the flat on Rua X", by_owner=True)
+    kept = matters.state(fm.read(owner.vault_path / "Lisbon trip.md")[1], date(2026, 11, 12))
+    assert kept["last"] == {"text": "finished Find a flat in Alfama", "date": "2026-11-12"}
+    tasks.close(owner, "T-002", TODAY, False, "No longer needed", by_owner=True)
+    assert "## Now" not in fm.read(owner.vault_path / "Watch.md")[1]
