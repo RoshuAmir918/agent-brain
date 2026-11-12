@@ -375,3 +375,14 @@ def test_a_facet_judged_before_it_recorded_its_reading_keeps_what_the_date_count
     with vault_lock(config):
         image.judged(config, "Play", date(2026, 11, 4))
     assert image.due(config) == []   # the old row stays read, as the date rule had it
+
+
+def test_what_not_to_draw_on_survives_a_full_portrait(config, vault):
+    sort_into_facets(config)
+    big = "".join(f"- {'word ' * 60}{i} · said · high · 2026-11-01 · [[S]] ^b{i:03d}\n" for i in range(8))
+    fm.write(vault / "human/Portrait/Music.md", {"kind": "hub", "tier": "warm", "facet": "Music", "rank": 2}, "## Taste\n" + big)
+    with vault_lock(config):
+        image.compile(config)
+    body = fm.read(vault / "human/Portrait.md")[1]
+    assert "Not a runner" in body and body.index("Not a runner") > body.index("word word")   # kept, and still reads last
+    assert len(body.split()) <= portrait.WORDS

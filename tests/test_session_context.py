@@ -410,3 +410,15 @@ def test_standing_directions_about_a_person_hold_with_them_and_their_intellect(p
     assert with_her.count(rule) == 1   # her profile was cut before the section, so it is added once
     bob = session_context.build(vault, vault.config, platform="slack", user_id="U_BOB")
     assert rule not in bob and "wants things handled" not in bob
+
+
+def test_the_owner_card_keeps_the_newest_working_together_lines(people_vault):
+    root = people_vault.root
+    (root / "human").mkdir(exist_ok=True)
+    old = "".join(f"- 2026-10-{day:02d} · an older preference about formatting number {day} kept for a while\n" for day in range(1, 31))
+    fm.write(root / "human/Profile.md", {"kind": "profile"}, "# Mira\n\n## Working together\n" + old
+             + "- 2026-11-11 · No em dashes, ever.\n")
+    vault = Vault(root)
+    card = session_context.owner_card(vault, vault.config)
+    assert "- 2026-11-11 · No em dashes, ever." in card and "number 1 kept" not in card
+    assert card.startswith("## Working together\n")
