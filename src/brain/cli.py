@@ -967,6 +967,9 @@ def cmd_learn(args):
         elif args.learn_cmd == "strike":
             line = learned.strike(config, args.field, args.line, args.by or config.agent_name, args.why, today)
             print(f"struck ^{line.id}")
+        elif args.learn_cmd == "merge":
+            note, count = learned.merge(config, args.source, args.target, today)
+            print(f"merged {args.source} into {note.field}: {count} line{'s' * (count != 1)} moved")
         elif args.learn_cmd == "account":
             print(learned.account(config, today, args.days))
         elif args.learn_cmd == "promote":
@@ -2203,7 +2206,7 @@ def main(argv=None):
     s = sub.add_parser("learn", help="how to do each kind of work: fields under Learned/, one line per lesson", parents=[vault])
     s.set_defaults(fn=cmd_learn, learn_cmd="fields")
     actions = s.add_subparsers(dest="learn_cmd")
-    for action in ("fields", "show", "add", "strike", "promote", "account"):
+    for action in ("fields", "show", "add", "strike", "promote", "account", "merge"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_learn)
         p.add_argument("--vault", default=argparse.SUPPRESS)
         if action == "show":
@@ -2221,6 +2224,8 @@ def main(argv=None):
             p.add_argument("--why", required=True); p.add_argument("--by", help="who struck it (default you)")
         elif action == "account":
             p.add_argument("--days", type=int, default=7)
+        elif action == "merge":
+            p.add_argument("source", help="the field to fold in"); p.add_argument("target", help="the broader field it joins")
         elif action == "promote":
             p.add_argument("field"); p.add_argument("line", help="your candidate's id, or words only it holds")
             p.add_argument("--evidence", required=True, help="the second, independent evidence: a task, a correction, a date")

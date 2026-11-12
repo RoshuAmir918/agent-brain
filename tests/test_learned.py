@@ -173,3 +173,24 @@ def test_a_struck_candidates_reversal_is_not_refused(config):
     learned.strike(config, "Coding", line.id, "Roshan", "one concern per PR", "2026-11-07")
     assert learned.add(config, "Coding", "Never prefer one big PR for related changes", "reflection on T-050",
                        "2026-11-07", "candidate")[0] == "added"
+
+
+def test_merging_a_field_moves_its_lines_and_ids_and_repoints_responsibilities(config):
+    _, rule, _ = learned.add(config, "Engineering", "Extend the closest existing pattern", "Roshan", "2026-11-04", "rule")
+    _, est, _ = learned.add(config, "Engineering estimation", "Estimate from demonstrated output", "Roshan", "2026-10-30", "rule",
+                            applies=["estimate"])
+    learned.add(config, "Engineering estimation", "Extend the closest existing pattern", "Roshan", "2026-11-05")
+    _, old, _ = learned.add(config, "Engineering estimation", "Pad every estimate by half", "reflection", "2026-11-06", "candidate")
+    learned.strike(config, "Engineering estimation", old.id, "Roshan", "no padding", "2026-11-07")
+    path = config.vault_path / "Responsibilities" / "standup" / "RESPONSIBILITY.md"
+    path.parent.mkdir(parents=True)
+    fm.write(path, {"version": 1, "goal": "G-1", "learned": ["Engineering estimation"],
+                    "triggers": [{"kind": "schedule", "when": "0 9 * * *"}]}, "# Standup\n")
+    note, moved = learned.merge(config, "engineering estimation", "Engineering", "2026-11-12")
+    assert moved == 2 and learned.find(config, "Engineering estimation") is None
+    assert [line.id for line in note.lines] == [rule.id, est.id] and [line.id for line in note.struck] == [old.id]
+    assert note.lines[1].status == "rule" and {"estimate", "engineering estimation"} <= set(note.applies)
+    assert fm.read(path)[0]["learned"] == ["Engineering"]
+    assert learned.add(config, "Engineering", "Pad every estimate by half", "reflection", "2026-11-07", "candidate")[0] == "refused"
+    with pytest.raises(ValueError, match="no field"):
+        learned.merge(config, "Nothing", "Engineering", "2026-11-12")
