@@ -101,3 +101,41 @@ def test_a_reversal_is_added_and_flagged_never_held_or_refused(config):
     assert outcome == "added" and [other.id for other in near] == [original.id]
     learned.strike(config, "Writing", original.id, config.human_name, "reversed", "2026-11-05")
     assert learned.add(config, "Writing", "Use bullet points in summaries for Arslan", "Arslan", "2026-11-05")[0] == "added"
+
+
+def test_a_conversation_gets_one_field_it_plainly_names_once_and_only_the_owners_lessons(config):
+    from brain import session_context
+    learned.add(config, "Ledger", "Keep the home page compact", "Rohan", "2026-11-07", "rule")
+    learned.add(config, "Ledger", "Try a darker palette", "reflection", "2026-11-08", "candidate")
+    learned.add(config, "Fantasy", "Use Vegas props, not ESPN projections", "Rohan", "2026-11-08", "rule", applies=["lineup", "start"])
+    vault = Vault(config.vault_path)
+    found = session_context.prefetch(vault, config, "can you fix the ledger home page", owner=True, seen=set())
+    assert "How to do Ledger work" in found["text"] and "compact" in found["text"] and "darker" not in found["text"]
+    assert "learned:Ledger" in found["people"]
+    again = session_context.prefetch(vault, config, "and the ledger budget view", owner=True, seen=set(found["people"]))
+    assert "How to do Ledger work" not in again["text"]
+    assert "Fantasy" not in session_context.prefetch(vault, config, "who should start this week", owner=True, seen=set())["text"]
+    assert "How to do" not in session_context.prefetch(vault, config, "fix the ledger home page", owner=False, seen=set())["text"]
+
+
+def test_a_worker_reads_the_fields_its_task_is_about(vault, capsys):
+    from brain import cli as brain_cli, tasks
+    config = Config.load(vault)
+    tasks.set_fields(config, "T-001", config.today(), values={"delivers": "finished study notes in Home"})
+    tasks.hand_off(config, "T-001", config.today(), "demiurge:conversation")
+    learned.add(config, "Law studies", "Preserve the owner's prose; add inline", "Kevin", "2026-11-05", "rule", applies=["notes"])
+    learned.add(config, "Ledger", "Keep the home page compact", "Rohan", "2026-11-07", "rule")
+    brain_cli.main(["continue", "T-001", "--vault", str(vault)])
+    out = capsys.readouterr().out
+    assert "How to do Law studies work" in out and "Preserve the owner's prose" in out and "Ledger" not in out
+
+
+def test_a_responsibility_names_the_fields_its_runs_read(vault):
+    from brain import responsibilities
+    path = vault / "Responsibilities" / "arono" / "RESPONSIBILITY.md"
+    path.parent.mkdir(parents=True)
+    fm.write(path, {"version": 1, "goal": "G-1", "learned": ["Law studies"],
+                    "triggers": [{"kind": "schedule", "when": "0 8 * * *"}]}, "# Arono\n")
+    loaded = Vault(vault)
+    [routine] = responsibilities.derive(loaded.config, responsibilities.discover(loaded)[0]).values()
+    assert "`brain learn show \"Law studies\"`; read them first." in routine.prompt

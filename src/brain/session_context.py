@@ -384,6 +384,10 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
     return "\n\n".join(blocks)
 
 
+LEARNED_WORDS = 80   # a conversation gets a few of the owner's lessons, never a field: the reply comes first
+LEARNED_SEEN = "learned:"   # how a shown field rides in the runtime's once-a-session list beside people's names
+
+
 def _people_block(form: str, blocks: list[str]) -> str:
     if not blocks:
         return ""
@@ -429,6 +433,14 @@ def prefetch(vault: Vault, config: Config, message: str, *, owner: bool, seen: s
         return {"text": _own_work(vault, message) if recall else "", "people": []}
     people = _named(vault, config, message[:2000], context.people) if owner and context.people != "off" and words else {}
     parts = [_people_block(context.people, [block for name, block in people.items() if name not in seen])]
+    fields = []
+    if owner and context.prefetch and len(words) >= 2:   # one field the message is plainly about, once a session: what not to repeat
+        from . import learned
+        field = next((note for note in learned.matching(config, message[:2000], strong=True)
+                      if f"{LEARNED_SEEN}{note.field}" not in seen), None)
+        if field and (text := learned.block(field, LEARNED_WORDS, candidates=False)):
+            parts.append(text)
+            fields.append(f"{LEARNED_SEEN}{field.field}")
     if context.prefetch and len(words) >= 2:
         form, full = context.prefetch_form, context.prefetch_form == "full"
         lines = []
@@ -437,7 +449,7 @@ def prefetch(vault: Vault, config: Config, message: str, *, owner: bool, seen: s
             lines.append(f"## {candidate.path} ({candidate.tier})\n\n{body}" if full else f"- {candidate.path} ({candidate.tier}): {body}")
         if lines:
             parts.append(("\n\n" if full else "\n").join([FULL_HEADER if full else RECALL_HEADER, *lines])[:context.prefetch_chars])
-    return {"text": "\n\n".join(part for part in parts if part), "people": list(people)}
+    return {"text": "\n\n".join(part for part in parts if part), "people": list(people) + fields}
 
 
 def may_hear_how_you_work(vault: Vault, config: Config, platform: str, user_ids: tuple[str, ...]) -> bool:

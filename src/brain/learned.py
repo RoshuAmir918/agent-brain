@@ -187,3 +187,32 @@ def problems(config: Config) -> list[str]:
         out += [f"{rel}: ^{line.id or '?'} has no source; end it with (where it was learned, date)"
                 for line in note.lines if not SOURCES.search(line.text)]
     return out
+
+
+def _mentions(text: str, term: str) -> bool:
+    return bool(term.strip()) and re.search(r"(?<![\w-])" + re.escape(term.strip()) + r"(?![\w-])", text, re.I) is not None
+
+
+def matching(config: Config, text: str, *, strong: bool) -> list[Note]:
+    """The fields some work is about, best first: those it names (the field or one of its hubs), then those whose
+    `applies:` words it uses. A strong match, for a conversation, needs a name or two of those words."""
+    scored = []
+    for note in notes(config):
+        named = _mentions(text, note.field) or any(_mentions(text, hub.removesuffix(".md")) for hub in note.hubs)
+        terms = sum(_mentions(text, term) for term in note.applies)
+        if named or terms >= (2 if strong else 1):
+            scored.append((named, terms, note))
+    return [note for _, _, note in sorted(scored, key=lambda item: (item[0], item[1]), reverse=True)]
+
+
+def block(note: Note, words: int, *, candidates: bool) -> str:
+    """A field's lessons within `words`: rules first, then the newest others; your own candidates only when asked for,
+    marked as yours."""
+    rules = [line for line in note.lines if line.status == "rule"]
+    others = [line for line in reversed(note.lines) if line.status == "active" or candidates and line.status == "candidate"]
+    out = [f"How to do {note.field} work, from what you have learned (`brain learn show \"{note.field}\"`):"]
+    for line in rules + others:
+        text = f"- {line.claim}" + (" (your conclusion, unconfirmed)" if line.status == "candidate" else "")
+        if len(" ".join(out + [text]).split()) <= words:
+            out.append(text)
+    return "\n".join(out) if len(out) > 1 else ""
