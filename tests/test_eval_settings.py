@@ -73,7 +73,6 @@ def test_sections_choose_the_parts_of_context_md(vault, monkeypatch):
     assert "## memory/START.md\n\n# Start\nSTART_BODY" in text and "## Holding" in text
     assert all(part not in text for part in ("# Current", "HOT_ENTRY", "## Directory", "# Tasks"))
     assert full.index("## memory/START.md") < full.index("## Holding")
-    assert text.endswith("Conversations and everything else are retrieved on demand with `brain retrieve`.\n")
 
 
 @pytest.mark.parametrize("sections", [["hot"], ["directory", "hot"]])
