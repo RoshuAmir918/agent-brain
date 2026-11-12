@@ -1,5 +1,5 @@
 """The runtime-independent specification for recording conversations and routine runs."""
-from . import access_log, loops, matters, needs, tasks
+from . import access_log, learned, loops, matters, needs, tasks
 from .config import Config
 from .ledger import NIGHT_STAGES, OUTCOMES
 
@@ -27,6 +27,10 @@ RECORD_SCHEMA = {
         "resolved": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
         "ready": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
         "workingTogether": {"type": ["array", "null"], "maxItems": 3, "items": {"type": "string", "maxLength": 200}},
+        "learned": {"type": ["array", "null"], "maxItems": 3, "items": {
+            "type": "object", "required": ["field", "claim", "words", "kind"], "additionalProperties": False,
+            "properties": {"field": {"type": "string", "maxLength": 40}, "claim": {"type": "string", "maxLength": 200},
+                           "words": {"type": "string", "maxLength": 160}, "kind": {"enum": ["rule", "correction"]}}}},
         "noted": {"type": ["array", "null"], "maxItems": 5, "items": {"type": "string", "maxLength": 240}},
         "about": {"type": ["array", "null"], "maxItems": 2, "items": {
             "type": "object", "required": ["name", "now", "soon"], "additionalProperties": False,
@@ -74,11 +78,17 @@ CONVERSATION = (
     "- access: list each time someone other than the owner asked for something a vault subject covers, and what you "
     "did; leave empty for the owner and small talk. Use the vault's subject, asked in a few words without sensitive "
     "specifics (at most 120 characters), the outcome, and a rule id from Disclosure.md or null.\n"
-    "- workingTogether: only when your owner told you how they want you to talk to them or work with them from now on: "
-    "style, format, length, tone, what to leave alone, how to approach their work or their projects. Each one "
-    "instruction, in their sense, under 200 characters (\"No em dashes; a few sentences unless I ask for detail\", "
-    "\"Build features as views into the brain, not new frameworks\"). Not a request for this one reply. Empty for "
-    "anyone but your owner.\n"
+    "- workingTogether: only when your owner told you how they want you to talk to them or deal with them from now on: "
+    "style, format, length, tone, what to leave alone. Each one instruction, in their sense, under 200 characters "
+    "(\"No em dashes; a few sentences unless I ask for detail\"). Not a request for this one reply. Empty for anyone "
+    "but your owner.\n"
+    "- learned: only when your owner told you how to do a kind of work well, or corrected how you did it: their taste in "
+    "code, design or writing, how they want a kind of document laid out, their vision for a project. `field` is the "
+    "kind of work, the exact name of a field listed below when one fits, else a short new one (\"Coding\", \"Vision\", "
+    "\"Clinical briefs\"); `claim` is how to act, as a rule for that work, under 200 characters (\"Build features as "
+    "views into the brain, not new frameworks\"); `words` is what they said, as close to verbatim as fits; `kind` is "
+    "rule when they said it as standing (\"always\", \"never\", \"I want\") and correction when they fixed one thing "
+    "and the lesson is yours to draw. Not how to talk to them, which is workingTogether. Empty for anyone but your owner.\n"
     "- noted: new facts or plans the person stated that matter beyond today: a trip, a date, a decision, a birthday, "
     "something about a person in their life. Each one plain line with the date when they gave one (\"Flying to Madison "
     "at 5 am on October 29 to visit Faisal; Hope is there too\"). Not what is already in your context, not what you did.\n"
@@ -117,5 +127,6 @@ def held(config: Config) -> str:
                  "in any wording; list answered ones in resolved:", asks),
                 ("Open loops; close these when finished, do not add them again:", open_loops),
                 ("Open tasks; each carries its own follow-up, so add no loop for their work or their reports:", open_tasks),
-                ("Matters in your owner's life; name these exactly in about:", shown))
+                ("Matters in your owner's life; name these exactly in about:", shown),
+                ("Fields of work you have learned; name these exactly in learned:", learned.index(config)))
     return "".join(f"\n{heading}\n" + "\n".join(lines) for heading, lines in sections if lines)

@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from importlib.resources import files
 from pathlib import PurePosixPath
 
-from . import access, fm, owners, roles, responsibilities as responsibility_ids, works
+from . import access, fm, learned, owners, roles, responsibilities as responsibility_ids, works
 from .identity import profile_ids, profiles
 from .vault import Vault
 from .tasks import TASK_STATES, parse_archive, parse_register
@@ -282,7 +282,7 @@ def responsibilities(vault: Vault) -> list[str]:
     return problems
 
 
-KINDS = ("hub", "role", "responsibility", "profile", "group", "episode", "reflection", "task", "trigger", "log", "dream", "orientation", "primed",
+KINDS = ("hub", "learned", "role", "responsibility", "profile", "group", "episode", "reflection", "task", "trigger", "log", "dream", "orientation", "primed",
          "draft", "conversation", "procedure")
 
 
@@ -356,7 +356,7 @@ def hygiene(vault: Vault) -> list[str]:
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
             + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault)
             + trigger_dates(vault) + owners.problems(vault.config) + tellable_hygiene(vault) + owner_facing_tasks(vault)
-            + roles.problems(vault.config) + kept_edits(vault))
+            + roles.problems(vault.config) + learned.problems(vault.config) + kept_edits(vault))
 
 
 def kept_edits(vault: Vault) -> list[str]:
