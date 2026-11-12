@@ -194,3 +194,20 @@ def test_merging_a_field_moves_its_lines_and_ids_and_repoints_responsibilities(c
     assert learned.add(config, "Engineering", "Pad every estimate by half", "reflection", "2026-11-07", "candidate")[0] == "refused"
     with pytest.raises(ValueError, match="no field"):
         learned.merge(config, "Nothing", "Engineering", "2026-11-12")
+
+
+def test_the_owners_app_reads_fields_and_confirms_or_strikes_a_line(config, capsys):
+    from brain import cli as brain_cli, state
+    _, own, _ = learned.add(config, "Writing", "Lead with the conclusion", "reflection on T-012", "2026-11-10", "candidate")
+    _, rule, _ = learned.add(config, "Writing", "No em dashes", "Human", "2026-11-04", "rule")
+    exported = state.build(config, config.today())["learned"]
+    [field] = exported["fields"]
+    assert [(line["id"], line["status"]) for line in field["lines"]] == [(rule.id, "rule"), (own.id, "candidate")]
+    assert field["lines"][1]["source"] == "reflection on T-012, 2026-11-10"
+    brain_cli.main(["learn", "confirm", "Writing", own.id, "--words", "yes, always", "--vault", str(config.vault_path)])
+    after = {line.id: line for line in learned.find(config, "Writing").lines}
+    assert after[own.id].status == "rule" and 'confirmed by Human' in after[own.id].text and "yes, always" in after[own.id].text
+    brain_cli.main(["learn", "strike", "Writing", rule.id, "--why", "fine now", "--by-owner", "--vault", str(config.vault_path)])
+    assert not [line for line in learned.find(config, "Writing").lines if line.id == rule.id]
+    week = state.build(config, config.today())["learned"]["week"]
+    assert (week["promoted"], week["struck"]) == (1, 1)
