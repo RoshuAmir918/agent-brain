@@ -120,7 +120,7 @@ def waiting_on(config: Config, agent: str, name: str) -> str:
     return (f"Your tasks waiting on {name}:\n" + "\n".join(rows) + "\n"
             f"When what {name} says answers one of them, record it in this turn with `task_answer` (the task, the answer, "
             f"and what it lets the task do next): the task resumes and its waiting loop closes. Its worker picks it up "
-            f"within a minute. Tell {config.human_name} only what changes for them: an answer the task was waiting for "
+            f"within a minute. Thank {name} in your reply. Tell {config.human_name} only what changes for them: an answer the task was waiting for "
             f"is the worker's to act on, not news to forward.")
 
 
