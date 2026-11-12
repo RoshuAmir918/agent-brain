@@ -1296,10 +1296,12 @@ def hand_off(args, tid: str) -> str:
     continuation.mark_engaged(args.config, task.tid, by=speaker())
     where = task.handoff[1] if task.handoff else ""
     if os.environ.get("DEMIURGE_WORKERS", "").strip() == "1":
-        # The runtime starts a background worker for the task within a minute; this turn should answer and end.
+        # The runtime starts a background worker for the task within a minute, and it works until done; this turn ends so
+        # the two do not work the same task at once.
         return (f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: a background worker starts on it within "
-                "a minute and reports back here. Tell them so in one line and end your reply; do not start the work in "
-                "this turn.")
+                "a minute and works it until it is done, blocked or needs them; its steps show live in the task's thread. "
+                "Tell them in one line that you are on it now and they will hear when it is done or needs them, then end "
+                "your reply.")
     return (f"{task.tid} handed off {task.handoff[0] if task.handoff else ''}: worked by a background worker until done or "
             f"blocked{', reported in ' + where if where else ''}.")
 

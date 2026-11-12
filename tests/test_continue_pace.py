@@ -400,4 +400,4 @@ def test_handoff_with_workers_tells_the_turn_not_to_start(vault, tmp_path, monke
     monkeypatch.setenv("DEMIURGE_WORKERS", "1")
     cli.main(["handoff", "T-001", "--vault", str(vault)])
     out = capsys.readouterr().out
-    assert "a background worker starts on it" in out and "do not start the work in this turn" in out
+    assert "a background worker starts on it" in out and "works it until it is done" in out and "end your reply" in out
