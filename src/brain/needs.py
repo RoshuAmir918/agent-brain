@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import InitVar, dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import PurePosixPath
 
 from . import access, access_log, fm, tasks as task_mod
@@ -46,6 +46,8 @@ class Item:
     area: str = ""    # the ownership area a consult concerns
     hours: dict = field(default_factory=dict)   # a consult recipient's current working hours
     away: str = ""    # the last local date of their current absence, else empty
+    wake: str = ""    # when it acts unprompted: an ask goes to the evening, a confirm is accepted, an idea lapses, a consult moves on
+    snoozed: str = ""   # an idea put off until this date
 
     def __post_init__(self, label: str | None) -> None:
         self.id = grammar.derived(self.origin, self.source, label if label is not None else self.text)
@@ -91,7 +93,20 @@ def read(block: grammar.Block) -> Item | None:
     why = " ".join(value for name, value in block.details if name == "why" and value)
     item.detail = fm.cut(why, WHY_WORDS)
     item.session = block.get("session") or ""
+    item.wake = day_of(block.get("wake"))
     return item
+
+
+def day_of(value: str | None) -> str:
+    try:
+        return date.fromisoformat(value).isoformat() if value else ""
+    except ValueError:
+        return ""
+
+
+def wake_for(kind: str, day: date) -> str:
+    """The wake a new ask or confirm is written with: the evening decides an ask, a confirm is taken as accepted."""
+    return (day + timedelta(days=CONFIRM_DAYS if kind == "confirm" else STALE_DAYS)).isoformat()
 
 
 def parse_section(body: str) -> list[Item]:
@@ -275,7 +290,9 @@ def stale(config: Config, today: date, days: int = STALE_DAYS) -> list[Item]:
     if not path.exists():
         return []
     body = path.read_bytes().decode("utf-8")
-    old = [item for item in open_asks(body) if not item.task and (today - date.fromisoformat(item.since)).days >= days]
+    # A written wake decides; an ask written before wakes were stored keeps its age. A task's ask waits with its task.
+    old = [item for item in open_asks(body) if not item.task
+           and (item.wake <= today.isoformat() if item.wake else (today - date.fromisoformat(item.since)).days >= days)]
     return sorted(old, key=lambda item: item.since)
 
 
@@ -437,7 +454,8 @@ def settle_tasks(config: Config, today: date, settled: list[tuple[str, str]], be
 
 def expire_confirms(config: Config, today: date) -> list[str]:
     return [item.text for item in _prune(config, lambda item: item.kind == "confirm"
-                                         and (today - date.fromisoformat(item.since)).days >= CONFIRM_DAYS)]
+                                         and (item.wake <= today.isoformat() if item.wake
+                                              else (today - date.fromisoformat(item.since)).days >= CONFIRM_DAYS))]
 
 
 GENERIC_ASK = re.compile(

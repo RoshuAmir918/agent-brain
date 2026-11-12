@@ -65,6 +65,8 @@ class Consult:
                           detail=self.why, context=self.area, default=self.default, area=self.area)
         item.owner = self.to
         item.id = self.id
+        # An ask moves on at its working-hours deadline; a went-ahead confirm is accepted as an owner's confirm is.
+        item.wake = self.until if self.kind == "ask" else needs.wake_for("confirm", date.fromisoformat(self.since))
         if config is not None:
             hours = (hours_of or owners.hours_lookup(config))(self.to)
             item.hours = hours.schedule()

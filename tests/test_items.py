@@ -84,3 +84,17 @@ def test_one_answer_settles_whatever_the_item_is(config):
     assert [item.id for item in ideas.items(config, config.today())] == []   # snoozed, not gone
     with pytest.raises(ValueError, match="no open item"):
         items.answer(config, ask.id, "no")
+
+
+def test_asks_confirms_and_ideas_are_written_with_when_they_act(config):
+    journal.add_ask(config, TODAY, "Book the hotel?", "Trip")
+    journal.add_ask(config, TODAY, "Moved the dentist to Friday.", "Trip", kind="confirm")
+    ideas.add(config, TODAY, "A packing list", "Trip")
+    ask, confirm = needs.parse_section(fm.read(config.vault_path / "CURRENT.md")[1])
+    [idea] = ideas._open(config, TODAY)
+    assert (ask.wake, confirm.wake, idea.wake) == ("2026-10-31", "2026-11-02", "2026-11-11")
+    assert needs.stale(config, date(2026, 10, 30)) == [] and [i.id for i in needs.stale(config, date(2026, 10, 31))] == [ask.id]
+    path = config.vault_path / "CURRENT.md"
+    reword(path, "  - wake: 2026-11-02", "  - wake: 2026-11-09")   # a confirm given longer by hand waits longer
+    assert needs.expire_confirms(config, date(2026, 11, 8)) == []
+    assert needs.expire_confirms(config, date(2026, 11, 9)) == ["Moved the dentist to Friday."]
