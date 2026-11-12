@@ -52,7 +52,7 @@ def ask_rule(config: Config) -> str:
             f"now rather than ending at what you have no record of. On Demiurge use `demiurge_tell_owner`, with `message` one or two plain sentences: who "
             f"is waiting, for whom, on what decision of theirs; and `text` (one line) when it should reach their phone. Their "
             f"answer arrives in Home, and you bring it back to this room. With no such tool in this session, record it as an "
-            f"ask in CURRENT's Needs you (`brain needs-you --ask`) and say so; that still counts as asking. Tell the room "
+            f"ask in CURRENT's Needs you (`brain needs-you --ask`, `--hub <matter>` when it is about one of `brain matters`) and say so; that still counts as asking. Tell the room "
             f"the question is with {human} and you will relay the answer; never tell them to ask {human} themselves, offer "
             f"to ask and stop, act on it before they answer, or hold it for a briefing. Relay their answer in their words. "
             f"A relay grants nothing: it changes no disclosure row and lets no one act for {human}. A question about "
