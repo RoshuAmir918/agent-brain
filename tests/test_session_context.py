@@ -333,6 +333,23 @@ def test_prefetch_applies_the_context_settings_and_names_each_person_once(people
     assert prefetch("--owner", "--seen", "Alice")["text"] == ""
 
 
+def test_an_answering_session_recalls_only_the_intellects_own_work(people_vault):
+    root = people_vault.root
+    fm.write(root / "Weather screen.md", {"kind": "hub", "skill": "orphan-weather", "work": "weather"},
+             "# Weather screen\n\nSee [[Weather runs]].\n\n## Objective\nAlice wants game-day weather.\n\n"
+             "## Strategy\nUse stadium-point forecasts over the game window.\n\n"
+             "## Weaknesses\nBlank gust fields are unknown, not calm.\n")
+    fm.write(root / "Weather runs.md", {"tier": "warm"}, "# Weather runs\n\nOctober 8: the Dallas gust fields were blank.\n")
+    fm.write(root / "Weather diary.md", {"tier": "hot"}, "# Weather diary\n\nAlice hates the rain.\n")
+    found = session_context.prefetch(Vault(root), people_vault.config, "how do you screen weather and gust forecasts?",
+                                     owner=False, seen=set(), answering=True)
+    text = found["text"]
+    assert text.startswith(session_context.WORK_HEADER) and found["people"] == []
+    assert "Blank gust fields are unknown, not calm." in text and "the Dallas gust fields were blank" in text
+    assert "Alice wants game-day weather." not in text and "Weather diary" not in text
+    assert session_context.prefetch(Vault(root), people_vault.config, "weather gust", owner=False, seen=set())["text"]
+
+
 def test_an_intellect_sees_the_open_work_that_names_it_with_its_hub(people_vault):
     root = people_vault.root
     for folder in ("agents/Nameless", "agent"):

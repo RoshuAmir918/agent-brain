@@ -100,11 +100,13 @@ def text(vault: Vault, candidate: Candidate, form: str) -> str:
     return index.index_line(note) if form == "snippet" else note.body.strip()
 
 
-def search(vault: Vault, query: str, limit: int = 12) -> list[Candidate]:
+def search(vault: Vault, query: str, limit: int = 12, within: set[str] | None = None) -> list[Candidate]:
+    """The notes that best match `query`; with `within`, only those notes, and no task or trigger IDs."""
     terms = tokens(query)
     if not terms:
         return []
-    candidates = {rel: metadata_score(vault, note, terms) for rel, note in vault.notes.items() if eligible(vault, rel)}
+    candidates = {rel: metadata_score(vault, note, terms) for rel, note in vault.notes.items()
+                  if eligible(vault, rel) and (within is None or rel in within)}
     spread(vault, candidates)
     for rel, candidate in candidates.items():
         if candidate.score == 0:
@@ -112,5 +114,6 @@ def search(vault: Vault, query: str, limit: int = 12) -> list[Candidate]:
             if matches:
                 candidate.add(min(1.5, 0.5 * len(matches)), "body match: " + ", ".join(sorted(matches)))
     scored = [candidate for candidate in candidates.values() if candidate.score > 0]
-    scored.extend(id_matches(vault, terms))
+    if within is None:
+        scored.extend(id_matches(vault, terms))
     return sorted(scored, key=lambda candidate: (-candidate.score, candidate.path, candidate.reason))[:max(0, limit)]

@@ -1789,7 +1789,8 @@ def cmd_session_context(args):
 
 
 def cmd_prefetch(args):
-    found = session_context.prefetch(Vault(args.config.vault_path), args.config, args.message, owner=args.owner, seen=set(args.seen))
+    found = session_context.prefetch(Vault(args.config.vault_path), args.config, args.message, owner=args.owner, seen=set(args.seen),
+                                     answering=args.answering)
     if args.json:
         print(json.dumps(found, ensure_ascii=False))
     elif found["text"]:
@@ -2398,6 +2399,8 @@ def main(argv=None):
                        parents=[vault])
     s.add_argument("message"); s.add_argument("--owner", action="store_true", help="the owner's own session: name the people it mentions")
     s.add_argument("--seen", action="append", default=[], metavar="NAME", help="a person already shown this session")
+    s.add_argument("--answering", action="store_true",
+                   help="a session answered from what may be told: only the intellect's own work that matches, as text")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_prefetch)
     s = sub.add_parser("task-answer", parents=[vault],
                        help="record another intellect's answer on a task waiting on it, from the conversation with it; resumes the task")
