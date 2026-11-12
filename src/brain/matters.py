@@ -170,3 +170,22 @@ def record(config, vault, today: date, about: list[dict], headline: str, opens: 
         fm.write_text(store, json.dumps({key: days for key, days in seen.items()
                                          if any(date.fromisoformat(day) >= today - SIGHTED for day in days)}, indent=1))
     return first
+
+
+def task_moved(config, task, today: date, what: str) -> None:
+    """A task serving a matter moves its Last (`finished <title>`, `handed off <title>`) and, while it is open with a
+    due day ahead, its Soon. No model: the task already says what happened. The caller holds the vault lock."""
+    if not task.hub:
+        return
+    from .vault import Vault
+    vault = Vault(config.vault_path)
+    source = vault.resolve(task.hub)
+    if not source or not _is_matter(vault, source, _responsibility_hubs(vault)):
+        return
+    path = config.vault_path / source
+    due, soon = fm.field(task.body, "Due") or "", None
+    if what.startswith("handed off") and re.fullmatch(r"\d{4}-\d{2}-\d{2}", due) and due >= today.isoformat():
+        kept = state(fm.read(path)[1], today)["soon"]
+        if not (kept and today.isoformat() <= kept["date"] < due):
+            soon = (due, task.title)
+    write(path, today, last=what, soon=soon)
