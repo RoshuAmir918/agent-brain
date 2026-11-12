@@ -13,6 +13,11 @@ from .lock import vault_lock
 from .roles import LESSON, NAME, SOURCES, STATUS, STRUCK, _words, line_id
 
 FOLDER = "Learned"
+LOG = "Learned Log"   # monthly rows of what was learned, repeated, struck and promoted: how recurrence is counted
+LOG_HEADER = ("---\nkind: log\ntier: cold\n---\n# Learned log\n\nOne row per change to a Learned field: date, event, "
+              "field, line id, claim, source. A repeat is a correction landing on a line already held.\n\n")
+LOG_ROW = re.compile(r"^- (?P<at>\d{4}-\d{2}-\d{2}) · (?P<event>[a-z]+(?::[a-z0-9]+)?) · (?P<field>[^·]+?) · \^(?P<id>[0-9a-f]{4}) · "
+                     r"(?P<claim>.+?) · (?P<source>.*?)\s*$")
 OVERLAP = 0.8   # roles.refusal's share of words in common; it cannot tell a claim from its reversal, so it only flags
 STRUCK_BY = re.compile(r"; struck by (?P<by>.+?) (?P<at>\d{4}-\d{2}-\d{2})\b")
 
@@ -41,6 +46,50 @@ class Note:
 
 def folder(config: Config) -> Path:
     return config.vault_path / config.agent(FOLDER)
+
+
+def log(config: Config, day: str, event: str, field: str, ident: str, claim: str, source: str) -> None:
+    """One row in the month's log; callers hold the vault lock."""
+    path = config.vault_path / config.agent(LOG) / f"{day[:7]}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = path.read_text(encoding="utf-8") if path.exists() else LOG_HEADER
+    clean = [" ".join(part.replace("·", "-").split()) for part in (field, claim, source)]
+    path.write_text(text.rstrip("\n") + f"\n- {day} · {event} · {clean[0]} · ^{ident} · {clean[1][:200]} · {clean[2][:160]}\n",
+                    encoding="utf-8")
+
+
+def logged(config: Config, since: str) -> list[dict]:
+    found = []
+    base = config.vault_path / config.agent(LOG)
+    for path in sorted(base.glob("*.md")) if base.is_dir() else []:
+        if path.stem < since[:7]:
+            continue
+        found += [match.groupdict() for line in path.read_text(encoding="utf-8").splitlines()
+                  if (match := LOG_ROW.match(line)) and match["at"] >= since]
+    return found
+
+
+def account(config: Config, today: str, days: int = 7) -> str:
+    """The week in learning: the owner's corrections, how many landed on a line already held (the lesson was learned
+    but did not reach the work), and the lines repeated most."""
+    from datetime import date, timedelta
+    since = (date.fromisoformat(today) - timedelta(days=days - 1)).isoformat()
+    rows = logged(config, since)
+    corrections = [row for row in rows if row["event"] in ("added:rule", "added:active", "repeat")]
+    repeats = [row for row in rows if row["event"] == "repeat"]
+    near = [row for row in rows if row["event"].startswith("near:")]
+    counts: dict[tuple[str, str], int] = {}
+    for row in repeats:
+        counts[(row["field"], row["id"])] = counts.get((row["field"], row["id"]), 0) + 1
+    out = [f"Learned, {since} to {today}: {len(corrections)} correction{'s' * (len(corrections) != 1)} from "
+           f"{config.human_name}, {len(repeats)} repeating a line already held, {len(near)} close to one (said again "
+           f"in other words, or a change of mind); "
+           + f"{sum(row['event'] == 'added:candidate' for row in rows)} lessons of your own, "
+           + f"{sum(row['event'] == 'promoted' for row in rows)} promoted, {sum(row['event'] == 'struck' for row in rows)} struck."]
+    for (field, ident), count in sorted(counts.items(), key=lambda item: -item[1])[:5]:
+        claim = next(row["claim"] for row in repeats if row["id"] == ident and row["field"] == field)
+        out.append(f"- repeated {count}x: {field} ^{ident}: {claim}")
+    return "\n".join(out)
 
 
 def path_for(config: Config, name: str) -> Path:
@@ -127,6 +176,8 @@ def add(config: Config, name: str, claim: str, source: str, day: str, status: st
                                                       if close(line.claim, claim) and day <= line.struck_at), None)):
             return "refused", struck, []
         if held := next((line for line in note.lines if plain(line.claim) == plain(claim)), None):
+            if status != "candidate":   # the owner saying it again: it was learned and did not reach the work
+                log(config, day, "repeat", note.field, held.id, claim, source)
             return "held", held, []
         near = [line for line in note.lines if close(line.claim, claim)]
         data, body = fm.read(path)
@@ -141,6 +192,9 @@ def add(config: Config, name: str, claim: str, source: str, day: str, status: st
         before += "\n\n" if before.rsplit("\n", 1)[-1].startswith("#") else "\n"
         body = f"{before}- {text} ^{ident}\n\n{body[heading:]}" if span else f"{before}- {text} ^{ident}\n"
         fm.write(path, data, body)
+        log(config, day, f"added:{status}", note.field, ident, claim, source)
+        for other in near if status != "candidate" else []:
+            log(config, day, f"near:{ident}", note.field, other.id, other.claim, source)
         return "added", Line(ident, text, status), near
 
 
@@ -167,8 +221,8 @@ def strike(config: Config, name: str, which: str, by: str, why: str, day: str) -
         kept = body[:end].rstrip("\n")
         body = f"{kept}\n- {text} ^{line.id}\n" + (f"\n{body[end:]}" if body[end:] else "")
         fm.write(note.path, data, body)
+        log(config, day, "struck", note.field, line.id, line.claim, f"{by}: {why}")
         return Line(line.id, text, line.status, day)
-
 
 
 def promote(config: Config, name: str, which: str, evidence: str) -> Line:
@@ -188,6 +242,7 @@ def promote(config: Config, name: str, which: str, evidence: str) -> Line:
         data, body = fm.read(note.path)
         body = re.sub(rf"^- {re.escape(line.text)} \^{line.id}[ \t]*$", lambda _: f"- {text} ^{line.id}", body, count=1, flags=re.M)
         fm.write(note.path, data, body)
+        log(config, config.today().isoformat(), "promoted", note.field, line.id, line.claim, evidence)
         return Line(line.id, text, "active")
 
 def index(config: Config) -> list[str]:
