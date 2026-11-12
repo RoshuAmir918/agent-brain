@@ -333,21 +333,51 @@ def test_prefetch_applies_the_context_settings_and_names_each_person_once(people
     assert prefetch("--owner", "--seen", "Alice")["text"] == ""
 
 
-def test_an_answering_session_recalls_only_the_intellects_own_work(people_vault):
+def _own_work_vault(people_vault):
     root = people_vault.root
-    fm.write(root / "Weather screen.md", {"kind": "hub", "skill": "orphan-weather", "work": "weather"},
-             "# Weather screen\n\nSee [[Weather runs]].\n\n## Objective\nAlice wants game-day weather.\n\n"
-             "## Strategy\nUse stadium-point forecasts over the game window.\n\n"
-             "## Weaknesses\nBlank gust fields are unknown, not calm.\n")
-    fm.write(root / "Weather runs.md", {"tier": "warm"}, "# Weather runs\n\nOctober 8: the Dallas gust fields were blank.\n")
-    fm.write(root / "Weather diary.md", {"tier": "hot"}, "# Weather diary\n\nAlice hates the rain.\n")
-    found = session_context.prefetch(Vault(root), people_vault.config, "how do you screen weather and gust forecasts?",
-                                     owner=False, seen=set(), answering=True)
+    disclosure = root / "people/Disclosure.md"
+    disclosure.write_text(MIGRATED.replace("| D3 |", "| D4 | [[memory/people/Alice/Profile\\|Alice]] | setup | details |  | 2026-10-29 | Mira |\n| D3 |"),
+                          encoding="utf-8")
+    (root / "agent/Experiments").mkdir(parents=True)
+    fm.write(root / "Weather screen.md", {"kind": "hub", "skill": "agent-weather", "work": "weather"},
+             "# Weather screen\n\nSee [[agent/Experiments/Weather runs]], [[Weather diary]] and [[agent/Drafts/Gust memo]].\n\n"
+             "## Objective\nMira wants gust checks for Dallas.\n\n## Strategy\nUse stadium-point forecasts over the game window.\n\n"
+             "## Weaknesses\nBlank gust fields are unknown, not calm.\n## Permission\nMira's Dallas gust budget is private.\n\n"
+             "## Owner background\n\n### Strategy\nMira's private Dallas gust plan.\n")
+    runs = "\n\n".join(f"Week {week}: quiet screen, nothing flagged." for week in range(1, 200))
+    fm.write(root / "agent/Experiments/Weather runs.md", {"tier": "warm"},
+             f"# Weather runs\n\n## Run records\n\n{runs}\n\n### October 8\n\nThe Dallas gust fields were blank, so the screen stayed incomplete.\n")
+    fm.write(root / "Weather diary.md", {"tier": "hot"}, "# Weather diary\n\nMira hates Dallas gust days.\n")
+    (root / "agent/Drafts").mkdir(parents=True)
+    fm.write(root / "agent/Drafts/Gust memo.md", {}, "# Gust memo\n\nFor Mira: the Dallas gust worry is overblown.\n")
+    return Vault(root)
+
+
+def test_an_answering_session_recalls_its_own_work_only_for_whom_the_owner_lets_learn_it(people_vault):
+    vault, config = _own_work_vault(people_vault), people_vault.config
+    found = session_context.prefetch(vault, config, "how do you screen weather and gust forecasts?", owner=False, seen=set(),
+                                     answering=True, platform="slack", user_ids=("U_ALICE",))
     text = found["text"]
     assert text.startswith(session_context.WORK_HEADER) and found["people"] == []
-    assert "Blank gust fields are unknown, not calm." in text and "the Dallas gust fields were blank" in text
-    assert "Alice wants game-day weather." not in text and "Weather diary" not in text
-    assert session_context.prefetch(Vault(root), people_vault.config, "weather gust", owner=False, seen=set())["text"]
+    assert "Blank gust fields are unknown, not calm." in text and "agent/Experiments/Weather runs.md" in text
+    assert "Mira wants gust checks" not in text and "Mira hates" not in text and "overblown" not in text
+    for stranger in (("slack", ("U_BOB",)), ("demiurge", ("k57nobody",)), ("", ())):
+        assert session_context.prefetch(vault, config, "weather gust forecasts", owner=False, seen=set(), answering=True,
+                                         platform=stranger[0], user_ids=stranger[1])["text"] == ""
+    assert session_context.prefetch(vault, config, "weather gust", owner=False, seen=set())["text"]
+
+
+def test_an_answering_session_searches_its_own_work_down_to_the_passage(people_vault):
+    vault, config = _own_work_vault(people_vault), people_vault.config
+    found = session_context.search_own_work(vault, config, "Dallas gust", platform="slack", user_ids=("U_ALICE",))
+    assert found.startswith(session_context.OWN_WORK_RULE)
+    assert "## agent/Experiments/Weather runs.md > Run records > October 8\n\nThe Dallas gust fields were blank" in found
+    assert "Blank gust fields are unknown, not calm." in found
+    assert "Mira" not in found.removeprefix(session_context.OWN_WORK_RULE) and "quiet screen" not in found and "overblown" not in found
+    assert "private" not in found.removeprefix(session_context.OWN_WORK_RULE)
+    assert session_context.search_own_work(vault, config, "sourdough", platform="slack",
+                                           user_ids=("U_ALICE",)).startswith("Nothing in your own work matches")
+    assert "has not allowed" in session_context.search_own_work(vault, config, "Dallas gust", platform="slack", user_ids=("U_BOB",))
 
 
 def test_an_intellect_sees_the_open_work_that_names_it_with_its_hub(people_vault):
