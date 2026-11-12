@@ -106,6 +106,8 @@ def test_a_struck_line_stays_struck(org):
     claim = "Prefer a parameter over a sibling method (review on #40, ann)"
     assert "Jo struck this" in roles.refusal(index(root), claim, struck[ident].at)
     assert roles.refusal(index(root), claim, "2999-01-01") is None   # new evidence may bring it back
+    assert roles.refusal(index(root), "Never prefer a parameter over a sibling method (review on #41, ann)",
+                         struck[ident].at) is None   # its reversal agrees with the strike
     with pytest.raises(SystemExit, match="refused"):
         run(root, "roles", "may-learn", "Engineering", "--claim", claim, "--evidence", struck[ident].at)
 

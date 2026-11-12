@@ -521,10 +521,9 @@ def _words(text: str) -> set[str]:
 
 def refusal(index: Index, text: str, evidence: str) -> str | None:
     """Why a claim may not be learned: a person struck it (or one close to it), and no evidence since says otherwise."""
-    words = _words(text)
+    from .learned import same_lesson   # learned.py builds on this module's grammar, so it is imported here
     for entry in index.struck:
-        theirs = _words(entry.text)
-        if theirs and len(words & theirs) / len(words | theirs) >= 0.8 and evidence <= entry.at:
+        if same_lesson(text, entry.text) and evidence <= entry.at:
             return (f"{entry.by} struck this on {entry.at} (^{entry.id}: {fm.cut(entry.text, 16)}); "
                     "learn it again only from evidence dated after that")
     return None
