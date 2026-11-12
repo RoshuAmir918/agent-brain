@@ -113,17 +113,15 @@ def test_cooldown_uses_latest_idea_response_across_months(vault):
     assert ideas.shown(config, date(2026, 11, 4)).text == "Still open?"
 
 
-@pytest.mark.parametrize("age,days", [(5, 1), (100, 1)])
-def test_add_spacing_and_duplicate_refusal(vault, monkeypatch, age, days):
+@pytest.mark.parametrize("age", [5, 100])
+def test_same_day_additions_and_duplicate_refusal(vault, monkeypatch, age):
     config = owner(vault, monkeypatch, age)
     ideas.add(config, TODAY, "Watch the inbox?", "agent/Channels", "Save the owner time.", "Gmail access")
     data, body = fm.read(vault / "agent/Ideas.md")
     assert data == {"kind": "orientation", "tier": "warm", "pinned": False}
     assert Vault(vault).kind_for("agent/Ideas.md") == "orientation"
     assert "## Open" in body and "  - needs: Gmail access" in body
-    with pytest.raises(ValueError, match="next idea can be added"):
-        ideas.add(config, TODAY + timedelta(days=days - 1), "Another idea?", "Topic")
-    ideas.add(config, TODAY + timedelta(days=days), "Another idea?", "Topic")
+    ideas.add(config, TODAY, "Another idea?", "Topic")
     with pytest.raises(ValueError, match="already open"):
         ideas.add(config, TODAY + timedelta(days=ideas.LAPSE_DAYS), "  WATCH   the\ninbox?  ", "Different source")
 
@@ -132,9 +130,7 @@ def test_add_uses_newest_bullet_date_and_preserves_other_sections(vault):
     path = write_ideas(vault, bullet("Newer?", TODAY) + bullet("Older?", TODAY - timedelta(days=4))
                        + "\n## Notes\nPreserve me.\n")
     config = Config.load(vault)
-    with pytest.raises(ValueError):
-        ideas.add(config, TODAY, "Fresh?", "Topic")
-    ideas.add(config, TODAY + timedelta(days=1), "Fresh?", "Topic")
+    ideas.add(config, TODAY, "Fresh?", "Topic")
     assert path.read_text().endswith("## Notes\nPreserve me.\n")
     assert len(ideas.items(config, TODAY + timedelta(days=1))) == 3
 
@@ -288,7 +284,7 @@ def test_ideas_hygiene_checks_uncut_why_and_is_part_of_hygiene(vault):
     assert all("agent/Ideas.md" in problem for problem in problems)
     assert "no why line" in problems[0] and "17 words" in problems[1] and "41 words" in problems[2]
     assert all(problem in validate.hygiene(Vault(vault)) for problem in problems)
-    assert len(ideas.items(Config.load(vault), TODAY)[1].detail.split()) == needs.WHY_WORDS
+    assert len(ideas.items(Config.load(vault), TODAY)[1].detail.split()) == needs.WHY_WORDS + 1
 
 
 def test_ideas_are_not_added_to_compiled_context(vault, monkeypatch):
@@ -304,8 +300,10 @@ def test_cli_shown_all_json_add_refusal_and_response(vault, capsys, monkeypatch)
     cli.main(argv + ["--add", "Watch the inbox?", "--source", "agent/Channels", "--why", "Save time.",
                          "--needs", "Gmail access"])
     assert "added idea" in capsys.readouterr().out
-    with pytest.raises(SystemExit, match="next idea can be added 2026-11-04"):
-        cli.main(argv + ["--add", "Another?", "--source", "Topic"])
+    cli.main(argv + ["--add", "Another?", "--source", "Topic"])
+    assert "added idea" in capsys.readouterr().out
+    cli.main(argv + ["--withdraw", "Another?", "--because", "covered elsewhere"])
+    capsys.readouterr()
     cli.main(argv)
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 2 and "Watch the inbox?" in lines[0] and lines[1] == "1 open, 0 snoozed; new owner"
@@ -370,3 +368,14 @@ def test_withdraw_closes_without_answering(vault):
     log = (vault / "agent/Answered/2026-11.md").read_text()
     assert "· withdrawn · idea · Mine to take back? · the project ended · id:" in log
     ideas.add(config, TODAY, "Mine to take back?", "Topic")
+
+
+def test_long_idea_and_why_remain_complete(vault, capsys):
+    config = Config.load(vault)
+    text = " ".join(f"idea{i}" for i in range(needs.ASK_WORDS + 1))
+    why = " ".join(f"reason{i}" for i in range(needs.WHY_WORDS + 1))
+    ideas.add(config, TODAY, text, "START", why)
+    out = capsys.readouterr()
+    assert out.err == ""
+    item, = ideas.items(config, TODAY)
+    assert item.text == text and item.detail == why

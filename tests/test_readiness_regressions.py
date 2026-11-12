@@ -90,51 +90,42 @@ def test_long_evidence_line_is_archived_and_hot_register_stays_bounded(tmp_path,
     assert read_archive_body(Config.load(root), task.tid).strip() == full_body.strip()
 
 
-def test_evidence_only_task_requires_parent_judgment_without_pointer_only_replacement(tmp_path):
+def test_evidence_only_task_is_kept_whole(tmp_path):
     root = fixture(tmp_path / "memory")
     task = long_task()
     task.body = "- **Evidence:** " + " ".join(f"DIAGNOSTIC_{n}" for n in range(1000)) + "\n"
     data, body = fm.read(root / "agent/Tasks.md")
     fm.write(root / "agent/Tasks.md", data, body + "\n" + task.render())
-    report = []
-    nightly.process_tasks(Config.load(root), date(2026, 10, 6), *load_tasks(Config.load(root)), report)
+    nightly.process_tasks(Config.load(root), date(2026, 10, 6), *load_tasks(Config.load(root)), [])
     _, entries = parse_register(fm.read(root / "agent/Tasks.md")[1])
-    assert next(t for t in entries if t.tid == "T-099").body == task.body   # it waits for judgment untouched
+    assert next(t for t in entries if t.tid == "T-099").body.strip() == task.body.strip()
     assert not (root / "agent/Tasks Archive/T-099.md").exists()
-    assert any("T-099: parent judgment required" in line and "no labeled current fields" in line for line in report)
 
 
 @pytest.mark.parametrize("label", ["Status", "Owner / scope", "Custom current field"])
-def test_required_field_overflow_fails_before_task_or_archive_mutation(tmp_path, label):
+def test_required_field_overflow_keeps_current_text_and_archives_evidence(tmp_path, label):
     root = fixture(tmp_path / "memory")
     task = long_task(evidence_first=True)
     task.body += f"- **{label}:** " + " ".join("DIAGNOSTIC_REQUIRED" for _ in range(151)) + "\n"
     write_archive(Config.load(root), task, "diagnostic original", date(2026, 10, 5))
-    before = snapshot(root)
     original = task.body
-    with pytest.raises(ValueError, match="T-099: parent judgment required.*current fields.*150-word"):
-        nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
-    assert task.body == original
-    assert snapshot(root) == before
+    nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
+    assert ("DIAGNOSTIC_REQUIRED " * 150 + "DIAGNOSTIC_REQUIRED") in task.body
+    assert task.word_count() > 150
+    assert read_archive_body(Config.load(root), task.tid).strip() == original.strip()
 
 
 @pytest.mark.parametrize("overflow", [False, True])
-def test_indented_current_field_continuation_is_preserved_or_requires_judgment(tmp_path, overflow):
+def test_indented_current_field_continuation_is_preserved(tmp_path, overflow):
     root = fixture(tmp_path / "memory")
     task = long_task(evidence_first=True)
     continuation = "  " + " ".join("DIAGNOSTIC_CONTINUATION" for _ in range(151 if overflow else 8))
     task.body = task.body.replace("- **Blocker:**", continuation + "\n- **Blocker:**")
     original = task.body
-    if overflow:
-        with pytest.raises(ValueError, match="parent judgment required"):
-            nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
-        assert task.body == original
-        assert not (root / "agent/Tasks Archive/T-099.md").exists()
-    else:
-        nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
-        assert continuation in task.body.splitlines()
-        assert task.word_count() <= 150
-        assert read_archive_body(Config.load(root), task.tid).strip() == original.strip()
+    nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
+    assert continuation in task.body.splitlines()
+    assert (task.word_count() > 150) == overflow
+    assert read_archive_body(Config.load(root), task.tid).strip() == original.strip()
 
 
 @pytest.mark.parametrize("current_words", [144, 145])
@@ -145,21 +136,15 @@ def test_current_fields_reserve_the_archive_pointer_at_the_exact_limit(tmp_path,
     padding = " ".join("DIAGNOSTIC_REQUIRED" for _ in range(current_words - len(fields.split())))
     task.body = task.body.replace("inspect diagnostic artifact", "inspect diagnostic artifact " + padding)
     original = task.body
-    if current_words == 145:
-        with pytest.raises(ValueError, match="parent judgment required"):
-            nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
-        assert task.body == original
-        assert not (root / "agent/Tasks Archive/T-099.md").exists()
-    else:
-        nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
-        assert task.word_count() == 150
-        assert read_archive_body(Config.load(root), task.tid).strip() == original.strip()
+    nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
+    assert task.word_count() == current_words + 6
+    assert read_archive_body(Config.load(root), task.tid).strip() == original.strip()
 
 
 @pytest.mark.parametrize("position,receipt", [
     ("start", "https://example.invalid/diagnostic-receipt"), ("end", "[[memory/Receipt]]"),
     ("end", "[receipt](https://example.invalid/diagnostic-receipt)")])
-def test_only_receipt_link_in_long_evidence_requires_parent_judgment(tmp_path, position, receipt):
+def test_only_receipt_link_in_long_evidence_is_kept_whole(tmp_path, position, receipt):
     root = fixture(tmp_path / "memory")
     task = long_task(evidence_first=True)
     task.body = "\n".join(line for line in task.body.splitlines() if not line.startswith("- **Latest evidence:**")) + "\n"
@@ -169,8 +154,7 @@ def test_only_receipt_link_in_long_evidence_requires_parent_judgment(tmp_path, p
         task.body = task.body.replace("DIAGNOSTIC_999\n", "DIAGNOSTIC_999 " + receipt + "\n")
     original = task.body
     before = snapshot(root)
-    with pytest.raises(ValueError, match="T-099: parent judgment required"):
-        nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
+    nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
     assert task.body == original
     assert snapshot(root) == before
 
@@ -196,8 +180,7 @@ def test_own_archive_pointer_is_not_a_direct_latest_receipt(tmp_path, archive_li
     task.body = task.body.replace("- **Evidence:**", "- **Evidence:** https://example.invalid/diagnostic-receipt")
     original = task.body
     before = snapshot(root)
-    with pytest.raises(ValueError, match="T-099: parent judgment required"):
-        nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
+    nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
     assert task.body == original
     assert snapshot(root) == before
 
@@ -252,23 +235,16 @@ def test_changed_compact_current_fields_never_restore_an_older_longer_archive(tm
 
 
 @pytest.mark.parametrize("overflow", [False, True])
-def test_unindented_next_action_continuation_is_preserved_or_requires_judgment(tmp_path, overflow):
+def test_unindented_next_action_continuation_is_preserved(tmp_path, overflow):
     root = fixture(tmp_path / "memory")
     task = long_task(evidence_first=True)
     continuation = " ".join("DIAGNOSTIC_ACTION_CONTINUATION" for _ in range(151 if overflow else 8))
     task.body = task.body.replace("- **Blocker:**", continuation + "\n- **Blocker:**")
     original = task.body
-    before = snapshot(root)
-    if overflow:
-        with pytest.raises(ValueError, match="T-099: parent judgment required"):
-            nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
-        assert task.body == original
-        assert snapshot(root) == before
-    else:
-        nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
-        assert "inspect diagnostic artifact\n" + continuation + "\n- **Blocker:**" in task.body
-        assert task.word_count() <= 150
-        assert read_archive_body(Config.load(root), task.tid).strip() == original.strip()
+    nightly.place(Config.load(root), task, date(2026, 10, 6), [], [])
+    assert "inspect diagnostic artifact\n" + continuation + "\n- **Blocker:**" in task.body
+    assert (task.word_count() > 150) == overflow
+    assert read_archive_body(Config.load(root), task.tid).strip() == original.strip()
 
 
 @pytest.mark.parametrize("status", ["completed", "cancelled"])
@@ -349,11 +325,12 @@ def test_nightly_required_field_overflow_keeps_the_task_and_finishes_the_night(t
         cli.main(args)
     except SystemExit:
         pass   # validation may still fail on the fixture; what matters is the night ran past the task
-    assert "T-099: parent judgment required" in capsys.readouterr().out
     _, tasks = parse_register(fm.read(root / "agent/Tasks.md")[1])
-    assert next(t for t in tasks if t.tid == task.tid).body.strip() == task.body.strip()
-    assert not (root / "agent/Tasks Archive/T-099.md").exists()
-    if not write:
+    actual = next(t for t in tasks if t.tid == task.tid)
+    assert ("DIAGNOSTIC_REQUIRED " * 151).strip() in actual.body
+    if write:
+        assert read_archive_body(Config.load(root), task.tid).strip() == task.body.strip()
+    else:
         assert snapshot(root) == before
 
 

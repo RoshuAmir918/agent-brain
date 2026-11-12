@@ -105,6 +105,14 @@ def test_close_refused_until_owner_settles_dependency(config, capsys, action, wa
     else:
         tasks.append_task(config, tasks.Task("T-002", "Send introduction", "- **From:** T-001\n", {"state": "yours"}))
     before = snapshot(config.vault_path)
+    if action == "done" and waiting != "yours":
+        out = run(config, capsys, "task", "T-001", action, "--why", "finished")
+        assert "settled 1 open ask(s)" in out
+        assert tasks.find(config, "T-001").task_state == "completed"
+        assert not needs.items(config, config.today())
+        answered = (config.vault_path / config.agent(f"Answered/{config.today():%Y-%m}.md")).read_text()
+        assert "finished" in answered
+        return
     with pytest.raises(SystemExit) as error:
         run(config, capsys, "task", "T-001", action, "--why", "finished")
     assert error.value.code == 1
@@ -180,8 +188,7 @@ def test_unlinked_ask_does_not_inherit_resolving_workers_task(config, capsys, mo
     assert tasks.find(config, "T-001").task_state is None
 
 
-@pytest.mark.parametrize("kind,title,extra", [("confirm", "Send it", []), ("ask", "", []),
-                                                ("ask", "Send it", ["--why", "word " * 41])])
+@pytest.mark.parametrize("kind,title,extra", [("confirm", "Send it", []), ("ask", "", [])])
 def test_invalid_conversion_keeps_ask_open_and_creates_nothing(config, capsys, kind, title, extra):
     journal.add_ask(config, config.today(), "Send the introduction?", "agent/Tasks#T-001", kind=kind)
     ask, = needs.items(config, config.today())
@@ -251,3 +258,11 @@ def test_owner_work_a_task_waits_on_is_never_later(config, capsys):
     with pytest.raises(SystemExit):
         run(config, capsys, "task", "new", "Another", "--source", "worker needs it", "--state", "yours", "--from", "T-001", "--later")
     assert snapshot(config.vault_path) == before
+
+
+def test_conversion_with_long_why_keeps_owner_text(config, capsys):
+    journal.add_ask(config, config.today(), "Send the introduction?", "agent/Tasks#T-001")
+    ask, = needs.items(config, config.today())
+    why = " ".join(f"reason{i}" for i in range(41))
+    run(config, capsys, "needs-you", "--resolve", ask.id, "--yours", "Send it", "--why", why)
+    assert fm.field(tasks.find(config, "T-002").body, "Why") == why

@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 
 from brain.config import Config
-from brain import attribute, fm, nightly, triggers
+from brain import attribute, fm, nightly
 from brain.tasks import Task, archive_path, read_archive_body, write_archive
 from brain.vault import Vault
 
@@ -45,36 +45,8 @@ def test_archive_history_survives_repeated_saves(tmp_path):
     assert archive_path(Config.load(tmp_path), "T-018").read_text() == text
 
 
-@pytest.mark.parametrize("status, cls", [("fulfilled/fired: read-only recheck", "commitment"),
-                                         ("fulfilled", "intention"), ("fired 2026-10-08", "commitment")])
-def test_terminal_trigger_keeps_fired_section_and_evidence(status, cls, template_config):
-    row = f"| TR-001 | {cls} | 2026-10-08 | recheck only | [[Source]] | {status} | 2026-10-05 |\n"
-    evidence = "\nRecheck evidence: confirmed source; no transaction or new permission.\n\n"
-    text = triggers.TEMPLATE.replace("## Fired\n\n", "## Fired\n\n" + row + evidence)
-    result, report = triggers.process(text, date(2026, 10, 9), {"Source": "cold"}, template_config)
-    assert result == text
-    assert report == {"fired": [], "mentioned": [], "retired": []}
-    result2, report2 = triggers.process(result, date(2026, 10, 10), {"Source": "cold"}, template_config)
-    assert result2 == text
-    assert report2 == report
-    active = triggers.TEMPLATE.replace("## Fired", row + "\nEvidence retained.\n\n## Fired")
-    moved, report3 = triggers.process(active, date(2026, 10, 9), {}, template_config)
-    assert moved.index("## Fired") < moved.index("| TR-001") and "Evidence retained." in moved
-    assert not report3["fired"]
 
 
-def test_firing_moves_attached_prose_without_losing_other_sections(template_config):
-    row = "| TR-001 | commitment | 2026-10-08 | recheck | [[Source]] | active | 2026-10-05 |\n"
-    evidence = "\nOriginal supporting sentence; do not repeat the transaction.\n\n"
-    text = triggers.TEMPLATE.replace("## Fired", row + evidence + "## Fired")
-    text += "\n## Operator notes\nPreserve this unrelated tail.\n"
-    result, report = triggers.process(text, date(2026, 10, 9), {}, template_config)
-    assert [t.id for t in report["fired"]] == ["TR-001"]
-    assert result.index("## Fired") < result.index("| TR-001") < result.index(evidence)
-    assert result.endswith("\n## Operator notes\nPreserve this unrelated tail.\n")
-    again, report2 = triggers.process(result, date(2026, 10, 10), {}, template_config)
-    assert again == result
-    assert not report2["fired"]
 
 
 @pytest.mark.parametrize("transform", ["defaults", "tiers", "fold"])

@@ -215,12 +215,11 @@ def test_owner_engagement_clears_pending_circling_and_restores_budget(worker, ca
     assert due(config, capsys)[0]["budget"] == 12   # penalty only applied on the review's local day
 
 
-@pytest.mark.parametrize("ask", [None, "Do you approve the proposed action?"])
-def test_circling_refuses_missing_or_generic_ask_without_changes(worker, capsys, ask):
+def test_circling_refuses_missing_ask_without_changes(worker, capsys):
     config, _ = worker
     before = (config.vault_path / "agent/Tasks.md").read_bytes()
     with pytest.raises(SystemExit) as error:
-        verdict(config, capsys, "circling", "drifting", *(["--ask", ask] if ask else []))
+        verdict(config, capsys, "circling", "drifting")
     assert error.value.code == 2
     assert capsys.readouterr().err
     assert (config.vault_path / "agent/Tasks.md").read_bytes() == before
@@ -352,3 +351,9 @@ def test_legacy_task_sourced_answer_is_available_without_rewriting_records(worke
     path.write_text(text)
     assert context(config, capsys)["ownerInstruction"] == "Should the shortlist stop at three apartments? Answer: Yes, just three"
     assert path.read_text() == text
+
+
+def test_circling_keeps_a_generic_ask(worker, capsys):
+    config, _ = worker
+    verdict(config, capsys, "circling", "drifting", "--ask", "Do you approve the proposed action?")
+    assert context(config, capsys)["lastReview"]["verdict"] == "circling"

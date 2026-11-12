@@ -89,7 +89,7 @@ def test_context_carries_the_portrait_after_current_with_its_rule(vault):
     write_portrait(vault)
     text = compile_context.build(Vault(vault))
     assert "## memory/human/Portrait.md\n\nWho you think Human is" in text
-    assert text.index("# Current") < text.index("Move to Lisbon") < text.index("# Triggers")
+    assert text.index("# Current") < text.index("Move to Lisbon") < text.index("## Upcoming")
     assert "never told to anyone else" in text
     assert "human/Portrait" not in compile_context.directory(Vault(vault))
 
@@ -124,7 +124,7 @@ def test_an_organisation_has_a_portrait_in_its_context_with_the_team_rule(vault)
     assert "What you understand of Acme" in text and "Ship the EDC migration tooling" in text
     assert "A guess about direction is never stated to the team" in text
     assert "never told to anyone else" not in text
-    assert text.index("# Current") < text.index("Ship the EDC") < text.index("# Triggers")
+    assert text.index("# Current") < text.index("Ship the EDC") < text.index("## Upcoming")
 
 
 def test_an_organisation_may_say_how_it_decides(vault):

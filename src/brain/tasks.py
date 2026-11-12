@@ -223,7 +223,6 @@ def note_name(config: Config, value: str) -> str:
 
 
 def _field_value(config: Config, name: str, value: str) -> str:
-    from .needs import ASK_WORDS, WHY_WORDS, vague_ask
     value = single_line(name, value)
     if name == "goal":
         from .goals import require_active
@@ -241,16 +240,10 @@ def _field_value(config: Config, name: str, value: str) -> str:
             date.fromisoformat(value)
         except ValueError:
             raise ValueError("due must be YYYY-MM-DD, the day the owner named") from None
-    if name == "ask":
-        if (reason := vague_ask(value)):
-            raise ValueError(f"ask refused: {reason}")
     if name == "work" and not works.SLUG.fullmatch(value):
         raise ValueError("work slug must match [a-z0-9-]+")
     if name == "after" and not TASK_ID_RE.fullmatch(value):
         raise ValueError("after must name a T-nnn task")
-    limit = {"ask": ASK_WORDS, "why": WHY_WORDS}.get(name)
-    if limit and len(value.split()) > limit:
-        raise ValueError(f"{name} must be at most {limit} words")
     return f"[[{note_name(config, value)}]]" if name == "hub" else value
 
 
@@ -329,9 +322,10 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
     ask = values.get("ask", question.text if question else None) if "ask" not in clear else None
     why = values.get("why", question.detail if question else "") if "why" not in clear else ""
     question_fields = question is not None or "ask" in values or "ask" in clear
-    before = current_words(task, config)
+    said_missed = False
     if said is not None:
         said = grounded_said(config, task, said)
+        said_missed = said is None
     if state is not None:
         task.set_state(state)
     if title is not None:
@@ -353,7 +347,7 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         else:
             task.body = _replace_field(task.body, name, values.get(name))
     if "delivers" in values or "delivers" in clear:
-        _delivers_by(task, agent_delivers and "delivers" in values and said is None, said, today)
+        _delivers_by(task, (agent_delivers or said_missed) and "delivers" in values and said is None, said, today)
     if reviewed:
         task.body = task.body.rstrip("\n") + f"\n- **Reviewed:** {today.isoformat()} — {reviewed}\n"
     if report is not None:
@@ -369,12 +363,6 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
     if (task.task_state == "waiting_for_owner" and not ask
             and (previous.task_state != "waiting_for_owner" or question)):
         raise ValueError("waiting_for_owner needs the question: --ask \"…\" --why \"…\"")
-    after = current_words(task, config)
-    # A field written long stays long: past the limit only a person can cut the entry down, so it is refused here,
-    # where the writer still has what it meant. A write that does not grow the entry is always taken.
-    if values and after > MAX_WORDS and after > before:
-        raise ValueError(f"{tid} would hold {after} words of current fields; the limit is {MAX_WORDS}. Say it shorter: "
-                         "a sentence or two per field, the detail in a note linked with --evidence")
     save_task(config, task, today, previous)
     if previous.task_state == "waiting_for_owner" and task.task_state != "waiting_for_owner":
         return task
@@ -417,11 +405,11 @@ def _owner_words(task: Task) -> list[str]:
     return [fm.field(task.body, "Source") or "", *said]
 
 
-def grounded_said(config: Config, task: Task, said: str) -> str:
+def grounded_said(config: Config, task: Task, said: str) -> str | None:
     from . import digest, install, runtime, session_tools, sessions
     said = " ".join(said.split())
     if sum(bool(re.search(r"\w", word)) for word in said.split()) < 4:
-        raise ValueError("--said needs at least four words quoted from the owner")
+        return None
     needle = _said_text(said)
     if any(needle in _said_text(words) for words in _owner_words(task)):
         return said
@@ -447,7 +435,7 @@ def grounded_said(config: Config, task: Task, said: str) -> str:
                         return said
             except (OSError, ValueError, KeyError, TypeError, AttributeError):
                 continue
-    raise ValueError("--said words were not found in what the owner said; drop --said to record a proposal")
+    return None
 
 
 def proposed_delivers(task: Task) -> bool:
@@ -553,12 +541,9 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
         task.state["unasked"] = str(bool(unasked)).lower()
     if values.get("delivers"):
         quote = grounded_said(config, task, said) if said is not None else None
-        _delivers_by(task, agent_delivers and quote is None, quote, config.today())
+        _delivers_by(task, (agent_delivers or said is not None) and quote is None, quote, config.today())
     if task.after:
         validate_after(config, task.tid, task.after)
-    if (words := current_words(task, config)) > MAX_WORDS:
-        raise ValueError(f"the new task would hold {words} words; the limit is {MAX_WORDS}. Say it shorter: "
-                         "a sentence or two per field")
     task.add_use(config.today().isoformat())   # made today is used today: a new task starts in the register
     append_task(config, task)
     if state == "yours" and parent is not None and block_parent:
@@ -698,12 +683,13 @@ def close(config: Config, tid: str, today: date, done: bool, why: str, left: str
             raise ValueError(f"{tid} waits on {config.human_name} for {child.tid} '{child.title}'; "
                              "it is blocked until that closes")
         ask = next((item for item in needs.items(config, today) if item.kind == "ask" and item.task == tid), None)
-        if ask:
-            path = (f"answer it and change {tid}'s state first" if ask.origin == "task" else
-                    f"answer it or run needs-you --resolve {ask.id} --because \"<the answer>\" first")
-            raise ValueError(f"{tid} waits on {config.human_name}: '{ask.text}'; {path}")
-        if task.task_state == "waiting_for_owner":
-            raise ValueError(f"{tid} is waiting_for_owner; record {config.human_name}'s answer and change its state first")
+        if not done:
+            if ask:
+                path = (f"answer it and change {tid}'s state first" if ask.origin == "task" else
+                        f"answer it or run needs-you --resolve {ask.id} --because \"<the answer>\" first")
+                raise ValueError(f"{tid} waits on {config.human_name}: '{ask.text}'; {path}")
+            if task.task_state == "waiting_for_owner":
+                raise ValueError(f"{tid} is waiting_for_owner; record {config.human_name}'s answer and change its state first")
     from . import continuation
     if done and not by_owner and proposed_delivers(task):
         why = why.rstrip(".") + ". Closed on the intellect's own definition of done."
@@ -714,7 +700,11 @@ def close(config: Config, tid: str, today: date, done: bool, why: str, left: str
              + ([f"- **Left:** {left}"] if left else []) + [f"- **Then:** {step}" for step in then])
     body = CLOSE_OUT.sub("", task.body) if done else task.body
     task.body = body.rstrip("\n") + "\n" + "\n".join(lines) + "\n"
+    from . import needs
+    settled = needs.settle_tasks(config, today, [(tid, before.body)], why)
     save_task(config, task, today, before)
+    if settled:
+        print(f"settled {len(settled)} open ask(s) for {tid} with the closing evidence")
     _work_history(task, today, why)
     from . import matters
     matters.task_moved(config, task, today, f"{'finished' if done else 'dropped'} {task.title}")
@@ -899,7 +889,7 @@ def _partition(t: Task, config: Config) -> tuple[list[list[str]], list[list[str]
 
 
 def current_words(t: Task, config: Config) -> int:
-    """Words a hot entry cannot shed to the archive: what `bounded_hot_body` must fit in MAX_WORDS."""
+    """Words a hot entry cannot shed to the archive."""
     try:
         required, _, pointer = _partition(t, config)
     except ValueError:
@@ -912,14 +902,10 @@ def bounded_hot_body(t: Task, config: Config) -> str:
     if t.word_count() <= MAX_WORDS:
         return t.body
     required, optional, pointer = _partition(t, config)
-    if not any(_chunk_label(chunk) not in (None, "evidence", "earlier evidence") for chunk in required):
-        raise ValueError(f"{t.tid}: parent judgment required: no labeled current fields; cannot create a useful task summary")
-    if not any(_chunk_label(chunk) in ("latest evidence", "evidence") and _direct_pointer(t, config, chunk) for chunk in required):
-        raise ValueError(f"{t.tid}: parent judgment required: latest direct evidence pointer is not identified; no evidence dropped")
-    budget = MAX_WORDS - len(pointer.split())
+    if not optional:
+        return t.body
     words = sum(len("\n".join(chunk).split()) for chunk in required)
-    if words > budget:
-        raise ValueError(f"{t.tid}: parent judgment required: current fields plus archive pointer exceed the {MAX_WORDS}-word limit; no fields truncated")
+    budget = max(MAX_WORDS - len(pointer.split()), words)
     kept = list(required)
     for chunk in optional:
         count = len("\n".join(chunk).split())

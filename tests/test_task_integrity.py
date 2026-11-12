@@ -179,7 +179,7 @@ def test_a_handoff_worked_today_is_not_quiet(vault):
     assert not tasks.quiet([task], TODAY, {"T-001": "2026-11-05T09:30:00-08:00"})
 
 
-def test_a_handoff_too_long_to_bound_is_still_listed_as_a_warm_line(vault):
+def test_a_long_handoff_keeps_its_evidence_in_full(vault):
     config = Config.load(vault)
     tasks.hand_off(config, "T-001", TODAY, "Home")
     task = find(config, "T-001")
@@ -189,11 +189,9 @@ def test_a_handoff_too_long_to_bound_is_still_listed_as_a_warm_line(vault):
     path = vault / "agent/Tasks.md"
     data, _ = fm.read(path)
     fm.write(path, data, "# Tasks\n## Active work\n")
-    report = []
-    nightly.process_tasks(config, TODAY, *tasks.load_tasks(config), report)
-    assert "### T-001 — Sample" in register(vault) and "- **Warm:**" in register(vault)
+    nightly.process_tasks(config, TODAY, *tasks.load_tasks(config), [])
+    assert "### T-001 — Sample" in register(vault) and "STEP_399" in register(vault)
     assert "STEP_399" in tasks.archive_path(config, "T-001").read_text()
-    assert any("listed warm" in line for line in report)
 
 
 def test_a_new_task_is_in_the_register_after_its_first_night(vault, capsys):

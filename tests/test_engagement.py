@@ -62,12 +62,8 @@ def test_continue_engaged_and_due_json_carry_the_budget(setup, capsys):
     assert json.loads(capsys.readouterr().out)[0]["budget"] == config.daily_chunks
 
 
-@pytest.mark.parametrize("text, vague", [
-    *[(text, True) for text in ("Do you approve the proposed action?", "Approve the plan?", "Should I proceed?",
-                                "Want me to go ahead with it?", "OK?")],
-    *[(text, False) for text in ("Want me to publish the 86 verified offers to In The Block now?",
-                                 "For the apartment search, want more listings, or tighter commute times?",
-                                 "Which of your two Gmails should I read first?")],
-])
-def test_an_ask_must_name_its_subject(text, vague):
-    assert bool(needs.vague_ask(text)) == vague
+@pytest.mark.parametrize("text", ["Do you approve the proposed action?", "Approve the plan?", "Should I proceed?", "OK?"])
+def test_asks_are_kept_without_judging_the_wording(vault, capsys, text):
+    cli.main(["needs-you", "--ask", text, "--vault", str(vault)])
+    assert needs.items(Config.load(vault), AT.date())[0].text == text
+    assert capsys.readouterr().err == ""

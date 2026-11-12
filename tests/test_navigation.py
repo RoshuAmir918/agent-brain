@@ -13,7 +13,6 @@ def make_vault(tmp_path):
     root.mkdir()
     (root / "agent").mkdir()
     (root / "agent/Tasks.md").write_text("# Tasks\n")
-    (root / "agent/Triggers.md").write_text("# Triggers\n")
     (root / "Live.md").write_text("---\ntier: warm\n---\n# Live\n")
     (root / "Design Mk. 1.md").write_text("---\ntier: warm\n---\n# Design\n")
     return Vault(root)

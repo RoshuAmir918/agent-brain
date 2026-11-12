@@ -118,12 +118,8 @@ def test_ask_any_person_without_map_and_proposed_rows_are_hints(enterprise):
 
 
 @pytest.mark.parametrize("field,value,message", [
-    ("text", "Proceed?", "name the subject"),
-    ("text", "", "too short"),
-    ("text", "word " * 17, "ask must be at most 16"),
+    ("text", "", "must not be empty"),
     ("default", " \n ", "give a default"),
-    ("default", "word " * 41, "default must be at most 40"),
-    ("why", "word " * 61, "why must be at most 60"),
     ("why", "", "give --why"),
     ("to", "Noah", "<platform>:<id>"),
     ("task", "T-999", "not an open task"),
@@ -905,3 +901,16 @@ def test_seeded_volume_counts_with_diminishing_returns(enterprise):
     ranked = {entry.person: entry.score for entry in consults.candidates(enterprise, "terraform deploys")}
     assert routing.WEIGHTS["owner"] < ranked[KIM] < 2 * routing.WEIGHTS["owner"]
     assert ranked[NOAH] == routing.WEIGHTS["owner"]
+
+
+@pytest.mark.parametrize("field,count", [("text", 17), ("default", 41), ("why", 61)])
+def test_long_consult_text_is_kept_and_warned(enterprise, capsys, field, count):
+    text = " ".join(f"word{i}" for i in range(count))
+    entry = ask(enterprise, **{field: text})
+    assert getattr(entry, field) == text
+    assert getattr(consults.load(enterprise)[0], field) == text
+    assert "warning:" in capsys.readouterr().out
+
+
+def test_consult_keeps_generic_ask(enterprise):
+    assert ask(enterprise, text="Proceed?").text == "Proceed?"

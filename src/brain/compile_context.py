@@ -61,11 +61,10 @@ def build(vault: Vault, only: tuple[str, ...] | None = None, *, app_changes: boo
     """The compiled context. `only` narrows it to the sections one run asks for (a routine's declaration), always within
     the sections the vault itself allows."""
     config = vault.config
+    only = tuple("holding" if name == "triggers" else name for name in only) if only is not None else None
     allowed = tuple(name for name in config.context.sections if only is None or name in only)
-    named = dict(zip(("start", "current", "portrait", "primed", "goals", "triggers", "tasks"), config.context_sources))
-    # Written by the agent, the night and the owner, so a vault may not have them yet; Triggers is gone once its rows
-    # became when loops (0.156.0).
-    optional = (config.human_portrait, config.agent("Primed.md"), config.human_goals, config.agent("Triggers.md"))
+    named = dict(zip(("start", "current", "portrait", "primed", "goals", "tasks"), config.context_sources))
+    optional = (config.human_portrait, config.agent("Primed.md"), config.human_goals)
     sources = [rel for name, rel in named.items() if name in allowed
                and (rel not in optional or (vault.root / rel).is_file())]
     header = ("Generated nightly by `brain`.\n"
@@ -86,7 +85,7 @@ def build(vault: Vault, only: tuple[str, ...] | None = None, *, app_changes: boo
         elif name == "library":
             if block := library():
                 sections.append(block)
-        elif name == "triggers" and named[name] not in sources:
+        elif name == "holding":
             if block := holding(config):
                 sections.append(block)
         elif named[name] in sources:
@@ -98,16 +97,12 @@ def build(vault: Vault, only: tuple[str, ...] | None = None, *, app_changes: boo
                 body = open_register(vault, body)
             elif rel == config.agent("Primed.md"):
                 body = capped(body, PRIMED_WORDS, config.link(rel))
-            elif rel == config.agent("Triggers.md"):
-                body = active_triggers(body, config.link(rel))
             elif rel == config.human_portrait:
                 rule = COMPANY_PORTRAIT if config.edition == "enterprise" else PORTRAIT
                 body = rule.format(human=config.human_name) + "\n\n" + body.strip()
             elif rel == config.human_goals:
                 body = goals.context(config, app_changes=app_changes)
             sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
-            if rel == config.agent("Triggers.md") and (block := holding(config)):
-                sections.append(block)
         elif name == "goals":
             sections.append(f"## {config.link(config.human_goals)}\n\n{goals.context(config, app_changes=app_changes)}")
     sections.append("Conversations and everything else are retrieved on demand with `brain retrieve`.")
@@ -128,14 +123,6 @@ def library() -> str:
     if count > LIBRARY_WORKS:
         kept += ["", f"(cut at {LIBRARY_WORKS} works; the rest is in $AGENT_HOME/works/LIBRARY.md)"]
     return "## Library\n\n" + "\n".join(kept).strip()
-
-
-def active_triggers(body: str, where: str) -> str:
-    """Only the triggers still waiting to fire; the fired and retired ones are records, read on demand."""
-    match = re.search(r"^## (?:Fired|Retired)\s*$", body, re.M)
-    if match is None:
-        return body
-    return body[:match.start()].rstrip() + f"\n\n(Fired and retired triggers are in {where}.)"
 
 
 def holding(config) -> str:
@@ -224,8 +211,6 @@ def directory(vault: Vault) -> str:
             hubs.append(rel[:-3])
     registered, archived = load_tasks(vault.config)
     tasks = [f"{t.tid} {t.title}" for t in registered + archived if t.state and is_open(t)]
-    trig = vault.root / vault.config.agent("Triggers.md")
-    triggers = sorted(set(re.findall(r"\bTR-\d{3}\b", fm.read(trig)[1]))) if trig.is_file() else []
     selected, _, _ = index.hot_selection(vault, vault.config.context.hot_words)
     lines = ["## Directory: what the vault knows", ""]
     if selected:
@@ -239,8 +224,6 @@ def directory(vault: Vault) -> str:
     if reflections:
         lines.append("- Reflections: " + ", ".join(reflections))
     lines.append("- Open tasks: " + "; ".join(tasks))
-    if triggers:
-        lines.append("- Triggers: " + ", ".join(triggers))
     return "\n".join(lines)
 
 

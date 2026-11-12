@@ -146,8 +146,7 @@ def test_ask_without_two_shared_words_still_creates_once(enterprise):
 
 
 @pytest.mark.parametrize("call,value,match", [
-    ("ask", " ", "single-line|at most 40"),
-    ("ask", "word " * 41, "at most 40"),
+    ("ask", " ", "nonempty"),
     ("cite", "one\ntwo", "single-line"),
     ("cite-task", "T-999", "not an open task"),
 ])

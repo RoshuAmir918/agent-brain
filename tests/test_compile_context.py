@@ -30,7 +30,7 @@ def context_vault(vault):
 
 def test_context_contains_source_bodies_and_only_open_register_sections(context_vault):
     text = compile_context.build(Vault(context_vault))
-    assert "START_BODY" in text and "# Current" in text and "# Triggers" in text
+    assert "START_BODY" in text and "# Current" in text and "# Triggers" not in text
     assert "pinned:" not in text and "tier:" not in text
     assert "ORIGINAL_FULL_BODY" in text and "### T-001" in text
     assert "### T-002" in text and "- **Warm:**" in text
@@ -98,7 +98,7 @@ def test_context_includes_active_goals_and_inference_guidance_until_then(context
     vault = Vault(context_vault)
     text = compile_context.build(vault)
     assert "## memory/human/Goals.md\n\n- G-1 — Read widely" in text
-    assert text.index("# Current") < text.index("G-1 — Read widely") < text.index("# Triggers")
+    assert text.index("# Current") < text.index("G-1 — Read widely") < text.index("## Upcoming")
     assert "human/Goals" not in compile_context.directory(vault)
     assert Config.load(context_vault).template_values()["human_goals"] == "human/Goals.md"
 
@@ -122,7 +122,7 @@ def test_context_includes_primed_after_current_once_the_night_wrote_it(context_v
              "# Today\nWHERE_AND_WITH_WHOM\n\ngestures: open\n")
     text = compile_context.build(Vault(context_vault))
     assert "## memory/agent/Primed.md\n\n# Today\nWHERE_AND_WITH_WHOM" in text
-    assert text.index("# Current") < text.index("WHERE_AND_WITH_WHOM") < text.index("# Triggers")
+    assert text.index("# Current") < text.index("WHERE_AND_WITH_WHOM") < text.index("## Upcoming")
     assert "memory/agent/Primed.md" in text.splitlines()[2]
 
 
@@ -148,7 +148,7 @@ def test_upcoming_lists_dates_in_the_next_week_from_hubs_and_histories_only(cont
     assert "- Mon Nov 2 · 2026-10-28 · said he is in Madison until November 2. · [[people/Faisal/History]]" in block
     assert "October 2" not in block and "November 20" not in block
     assert "November 3" not in block and "November 1" not in block
-    assert text.index("# Triggers") < text.index("## Upcoming") < text.index("### T-001")
+    assert text.index("# Current") < text.index("## Upcoming") < text.index("### T-001")
 
 
 def test_upcoming_section_can_be_switched_off_and_says_when_nothing_is_dated(context_vault, monkeypatch):
@@ -183,27 +183,31 @@ def test_primed_loads_at_most_its_cap_and_validate_names_the_overrun(context_vau
     assert validate.primed_size(Vault(context_vault)) == ["agent/Primed.md: 632 words; at most 300, and the context loads only that many"]
 
 
-def test_context_loads_only_the_triggers_still_waiting_to_fire(context_vault):
-    fm.write(context_vault / "agent/Triggers.md", {"kind": "orientation", "tier": "hot", "pinned": True},
-             "# Triggers\n\n| id | class | when | do | source | status | created |\n| --- | --- | --- | --- | --- | --- | --- |\n"
-             "| TR-001 | commitment | ACTIVE_WHEN | act | src | active | 2026-11-01 |\n\n## Fired\n\n"
-             "| TR-002 | intention | FIRED_WHEN | done | src | fired | 2026-10-01 |\n\n## Retired\n\nRETIRED_ROW\n")
+def test_context_ignores_retired_triggers_and_keeps_holding(context_vault):
+    from brain import loops
+    config = Config.load(context_vault)
+    fm.write(context_vault / "agent/Triggers.md", {"kind": "log", "tier": "cold"}, "# Triggers\nRETIRED_ROW\n")
+    loops.add(config, config.now(), "when", "Check the reply", "START", condition="the reply arrives")
     text = compile_context.build(Vault(context_vault))
-    assert "ACTIVE_WHEN" in text and "FIRED_WHEN" not in text and "RETIRED_ROW" not in text
-    assert "(Fired and retired triggers are in memory/agent/Triggers.md.)" in text
+    assert "RETIRED_ROW" not in text and "# Triggers" not in text
+    assert "## Holding" in text and "Check the reply" in text
+    assert "- Triggers:" not in compile_context.directory(Vault(context_vault))
 
 
 def test_a_run_can_ask_for_only_some_sections_within_what_the_vault_allows(context_vault, capsys, monkeypatch):
+    from brain import loops
+    config = Config.load(context_vault)
+    loops.add(config, config.now(), "promised", "Send the reply", "START")
     full = compile_context.build(Vault(context_vault))
-    narrow = compile_context.build(Vault(context_vault), ("current", "triggers"))
-    assert "# Current" in narrow and "# Triggers" in narrow
+    narrow = compile_context.build(Vault(context_vault), ("current", "holding"))
+    assert "# Current" in narrow and "## Holding" in narrow
     assert all(absent not in narrow for absent in ("START_BODY", "### T-001", "Directory: what the vault knows", "Before answering"))
     assert len(narrow) < len(full)
-    cli.main(["compile-context", "--vault", str(context_vault), "--sections", "current, triggers"])
+    cli.main(["compile-context", "--vault", str(context_vault), "--sections", "current, holding"])
     assert capsys.readouterr().out == narrow
     monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start,current")
-    within = compile_context.build(Vault(context_vault), ("current", "triggers"))
-    assert "# Current" in within and "# Triggers" not in within
+    within = compile_context.build(Vault(context_vault), ("current", "holding"))
+    assert "# Current" in within and "## Holding" not in within
     for bad in (["--sections", "current,nonsense"], ["--sections", ","], ["--sections", "current", "--write"]):
         with pytest.raises(SystemExit):
             cli.main(["compile-context", "--vault", str(context_vault), *bad])

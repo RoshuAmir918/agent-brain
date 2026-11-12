@@ -5,11 +5,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import index, triggers
+from . import index
 from .tasks import all_tasks, parse_register
 from .vault import Vault
 
-TOKEN_RE = re.compile(r"\b(?:tr-\d{3}|t-\d{3,}|\d{4}-\d{2}-\d{2}|[^\W_]+)\b", re.I)
+TOKEN_RE = re.compile(r"\b(?:t-\d{3,}|\d{4}-\d{2}-\d{2}|[^\W_]+)\b", re.I)
 STOPWORDS = set("a an and are as at be been but by can could did do does for from had has have how "
                 "i if in into is it its me my not of on or our that the their them there these they "
                 "this those to was we were what when where which who why will with would you your".split())
@@ -79,13 +79,6 @@ def id_matches(vault: Vault, terms: set[str]) -> list[Candidate]:
                 else f"{config.link(config.agent(f'Tasks Archive/{task.tid}.md'))}#{task.tid}")
         matches.append(Candidate(path, task.state.get("tier", register.data.get("tier", "warm") if register else "cold"),
                                  5.0, f"ID match: {task.tid} — {task.title}"))
-    trigger_note = vault.notes.get(vault.config.agent("Triggers.md"))
-    if trigger_note:
-        for trigger in triggers.parse(trigger_note.body):
-            if trigger.id.lower() in terms:
-                matches.append(Candidate(vault.config.link(trigger_note.rel),
-                                         trigger_note.data.get("tier", "warm"), 5.0,
-                                         f"ID match: {trigger.row()}"))
     return matches
 
 
@@ -101,7 +94,7 @@ def text(vault: Vault, candidate: Candidate, form: str) -> str:
 
 
 def search(vault: Vault, query: str, limit: int = 12, within: set[str] | None = None) -> list[Candidate]:
-    """The notes that best match `query`; with `within`, only those notes, and no task or trigger IDs."""
+    """The notes that best match `query`; with `within`, only those notes, and no task IDs."""
     terms = tokens(query)
     if not terms:
         return []

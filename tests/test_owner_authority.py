@@ -59,7 +59,8 @@ def test_a_workers_proposal_is_shown_on_the_task_and_a_conversation_write_is_the
     assert exported(config)["deliversProposed"] is False
 
 
-def test_an_old_proposal_confirm_is_resolved_by_the_next_pass(worker, capsys):
+def test_old_proposal_confirm_migrates_only_on_upgrade(worker, capsys, monkeypatch):
+    from brain import install
     config, _ = worker
     cli(config, capsys, "task", "T-001", "set", "--delivers", "a draft shortlist")
     t = task(config)
@@ -68,9 +69,14 @@ def test_an_old_proposal_confirm_is_resolved_by_the_next_pass(worker, capsys):
     journal.add_ask(config, config.today(), GUESS, config.agent("Tasks#T-001"), kind="confirm")
     assert asks(config) == [GUESS]
     due(config, capsys)
+    assert asks(config) == [GUESS]
+    monkeypatch.setattr(install, "pending_migrations", lambda config: [])
+    install.migrate_check(config)
     assert asks(config) == []
     assert "delivers_confirm" not in task(config).state
     assert task(config).state["delivers_by"] == "agent"
+    monkeypatch.setattr(continuation, "finish_lines", lambda *args: pytest.fail("migration ran twice"))
+    install.migrate_check(config)
 
 
 def test_a_refused_save_is_not_a_quiet_chunk(worker, capsys):
@@ -153,3 +159,34 @@ def test_a_correction_is_a_conversation_write(worker, capsys, monkeypatch):
     assert task(config).task_state == "ready"
     assert "delivers_by" not in task(config).state
     assert asks(config) == []
+
+
+@pytest.mark.parametrize("said", ["too short", "these words never came from the owner"])
+def test_ungrounded_said_becomes_agent_proposal_even_in_conversation(worker, capsys, monkeypatch, said):
+    config, _ = worker
+    monkeypatch.setenv("DEMIURGE_CONVERSATION", "c1")
+    out = cli(config, capsys, "task", "T-001", "set", "--delivers", "a draft shortlist", "--said", said)
+    saved = task(config)
+    assert "--said was not found in the owner's words; Delivers is recorded as your proposal" in out.out
+    assert tasks.proposed_delivers(saved)
+    assert "delivers_said" not in saved.state and "**Said:**" not in saved.body
+
+
+@pytest.mark.parametrize("grounded", [False, True])
+def test_new_task_said_retains_only_grounded_owner_attribution(worker, capsys, monkeypatch, grounded):
+    config, _ = worker
+    monkeypatch.setenv("DEMIURGE_CONVERSATION", "c1")
+    words = "Please prepare three listings under budget"
+    said = "prepare three listings under budget" if grounded else "publish all of the private listings"
+    out = cli(config, capsys, "task", "new", "Find listings", "--source", words,
+              "--delivers", "three listings", "--said", said, "--json")
+    result = json.loads(out.out)
+    saved = task(config, result["id"])
+    assert tasks.proposed_delivers(saved) is not grounded
+    assert "messages" not in result
+    if grounded:
+        assert saved.state["delivers_said"] == config.today().isoformat()
+        assert f'**Said:** "{said}"' in saved.body
+    else:
+        assert "**Said:**" not in saved.body
+        assert out.err == "--said was not found in the owner's words; Delivers is recorded as your proposal\n"

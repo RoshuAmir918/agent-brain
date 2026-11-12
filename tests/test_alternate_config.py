@@ -32,8 +32,6 @@ agent_name = "Guide"
     notes = {
         "START.md": "# Start\n", "CURRENT.md": "# Current\n" + nightly.MARK_START + "\n" + nightly.MARK_END,
         config.agent("Tasks.md"): "# Tasks\n## Active work\n" + "\n".join(tasks),
-        config.agent("Triggers.md"): "# Triggers\n| TR-001 | commitment | 2026-10-20 | revisit hot | T-001 | active | 2026-10-19 |\n"
-        f"| TR-002 | intention | quiet work returns | revisit | [[{config.link('Quiet Hub')}]] | active | 2026-09-01 |\n",
         config.agent("SOUL.md"): "# Guide\n", config.agent("Memory Spec.md"): "# Spec\n",
         config.agent("Reflections/Review.md"): "# Review\n",
         config.agent("Primed/2026-10-19.md"): "# Expired\n",
@@ -84,10 +82,7 @@ def test_alternate_layout_whole_night_and_preview(alternate, monkeypatch, capsys
     assert f"[[{config.link(config.agent('Tasks Archive/T-002'))}|" in register
     assert f"[[{config.link(config.agent('Tasks'))}#T-001" in (root / "CURRENT.md").read_text()
     assert "preserve full body" in read_archive_body(config, "T-003")
-    trigger_text = (root / config.agent("Triggers.md")).read_text()
-    assert "fired 2026-10-20" in trigger_text and "mentioned 2026-10-20" in trigger_text
     context = (config.repo / ".context.md").read_text()
-    assert f"## {config.link(config.agent('Triggers.md'))}" in context
     assert "- People with profiles: Alice Example" in context
     assert "- Agents registered: Helper" in context
     assert context == compile_context.build(Vault(root))
@@ -104,7 +99,7 @@ def test_alternate_layout_whole_night_and_preview(alternate, monkeypatch, capsys
     assert vault.resolve(config.sources_dir + "/Evidence") == "../" + config.sources_dir + "/Evidence.md"
     assert vault.resolve("Evidence") == "../" + config.sources_dir + "/Evidence.md"
     assert vault.resolve("Archive/Receipt") == "../Archive/Receipt.md"
-    assert all(candidate.path.startswith(config.vault + "/") for candidate in retrieve.search(vault, "project T-001 TR-001"))
+    assert all(candidate.path.startswith(config.vault + "/") for candidate in retrieve.search(vault, "project T-001"))
     with pytest.raises(SystemExit) as validated:
         cli.main(["validate"])
     assert validated.value.code == 0

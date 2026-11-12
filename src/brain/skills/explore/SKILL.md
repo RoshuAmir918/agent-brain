@@ -6,7 +6,7 @@ metadata:
   runtime:
     tags: [routine, day, research]
     category: brain
-    context: [start, primed, current, goals, tasks, triggers, upcoming]
+    context: [start, primed, current, goals, tasks, holding, upcoming]
 ---
 # Explore
 
@@ -40,4 +40,4 @@ A person, interest or occasion with none of these is not a reason; never invent 
 
 {owner_messages}
 ## Boundaries
-{human_name}'s channels are a source of candidates, never a report: no digest of their inbox, no "here is what came in", nothing copied into the vault beyond a surprise-gated fact with a pointer; what a channel yields is a thing done or held, judged by whether they would be glad of it. Reading is what the registry row allows; writing in their name is outward action and waits for Standing state. No sends to anyone but {human_name} (answering whoever wrote to you is watch's); a thing prepared for a friend's visit is for {human_name}, not for the friend, unless Standing state in `{agent_dir}/Tasks.md` records {human_name}'s permission for that person. No spending, sign-ups, new accounts or credentials. No edits to `{sources_dir}/`, SOUL, skills, Triggers' rules or the Memory Spec. Never invent a finding or manufacture an occasion to have something to report. Do not re-ask a question {human_name} has not answered. A goal is a reason to prepare, never to remind, schedule or raise it uninvited.
+{human_name}'s channels are a source of candidates, never a report: no digest of their inbox, no "here is what came in", nothing copied into the vault beyond a surprise-gated fact with a pointer; what a channel yields is a thing done or held, judged by whether they would be glad of it. Reading is what the registry row allows; writing in their name is outward action and waits for Standing state. No sends to anyone but {human_name} (answering whoever wrote to you is watch's); a thing prepared for a friend's visit is for {human_name}, not for the friend, unless Standing state in `{agent_dir}/Tasks.md` records {human_name}'s permission for that person. No spending, sign-ups, new accounts or credentials. No edits to `{sources_dir}/`, SOUL, skills or the Memory Spec. Never invent a finding or manufacture an occasion to have something to report. Do not re-ask a question {human_name} has not answered. A goal is a reason to prepare, never to remind, schedule or raise it uninvited.

@@ -60,6 +60,9 @@ def test_nightly_follows_brain_today_and_date_wins(vault, monkeypatch, capsys):
 
 def test_sections_choose_the_parts_of_context_md(vault, monkeypatch):
     fm.write(vault / "START.md", {"tier": "hot", "pinned": True}, "# Start\nSTART_BODY\n")
+    from brain import loops
+    config = Config.load(vault)
+    loops.add(config, config.now(), "promised", "Send the reply", "START")
     full = compile_context.build(Vault(vault))
     assert "START_BODY" in full and "# Current" in full and "HOT_ENTRY" in full and "## Directory" in full
     toml(vault, 'sections = ["directory"]\n')
@@ -67,9 +70,9 @@ def test_sections_choose_the_parts_of_context_md(vault, monkeypatch):
     assert "START_BODY" not in text and "# Current" not in text and "## Directory" in text
     monkeypatch.setenv("BRAIN_CONTEXT_SECTIONS", "start, triggers")
     text = compile_context.build(Vault(vault))
-    assert "## memory/START.md\n\n# Start\nSTART_BODY" in text and "# Triggers" in text
+    assert "## memory/START.md\n\n# Start\nSTART_BODY" in text and "## Holding" in text
     assert all(part not in text for part in ("# Current", "HOT_ENTRY", "## Directory", "# Tasks"))
-    assert full.index("## memory/START.md") < full.index("## memory/agent/Triggers.md")
+    assert full.index("## memory/START.md") < full.index("## Holding")
     assert text.endswith("Conversations and everything else are retrieved on demand with `brain retrieve`.\n")
 
 

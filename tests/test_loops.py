@@ -284,12 +284,15 @@ def test_cli_lists_adds_closes_and_quiet_exit_codes(config, monkeypatch, capsys)
     assert error.value.code == 0 and capsys.readouterr().out == ""
     cli.main(argv + ["--json"])
     result = json.loads(capsys.readouterr().out)
-    assert result["open"] == result["due"] and result["closed_recent"] == []
+    assert result["open"] == result["due"] and "closed_recent" not in result
     cli.main(argv + ["--close", result["open"][0]["id"], "--outcome", "dropped", "--because", "No longer needed"])
     assert "closed (dropped)" in capsys.readouterr().out
     cli.main(argv + ["--json"])
     result = json.loads(capsys.readouterr().out)
-    assert result["open"] == result["due"] == [] and result["closed_recent"][0]["outcome"] == "dropped"
+    assert result["open"] == result["due"] == [] and "closed_recent" not in result
+    cli.main(argv + ["--json", "--closed"])
+    result = json.loads(capsys.readouterr().out)
+    assert result["closed_recent"][0]["outcome"] == "dropped"
 
 
 @pytest.mark.parametrize("extra", [
@@ -354,7 +357,8 @@ def test_record_skips_one_refused_loop_and_applies_the_rest(known_config, capsys
                         {"kind": "owed", "text": "Send options", "with": "Kev", "due": "2026-10-29 09:30"}],
               "closed": [{"loop": "Book rooms", "outcome": "dropped", "why": "Trip cancelled"}]}
     journal.append_entry(config, record, "cli", AT)
-    assert capsys.readouterr().err == f"skipped loop: {reason}\n"
+    result = capsys.readouterr()
+    assert result.out == "" and result.err == f"skipped loop: {reason}\n"
     assert [item.text for item in loops.open_loops(config)] == ["Check fares", "Send options"]
     assert loops.open_loops(config)[1].due == "2026-10-29 09:30"
     assert [item.text for item in needs.items(config, AT.date())] == ["Which date?"]

@@ -177,3 +177,12 @@ def test_malformed_record_items_are_dropped_before_anything_is_written(config):
                                         touched=[None, "Lisbon trip"]), "demiurge", AT)
     [item] = loops.open_loops(config)
     assert (item.text, item.source) == ("Check rooms.", "Lisbon trip")
+
+
+def test_record_command_skips_malformed_fields_and_keeps_generic_ask(config, monkeypatch):
+    payload = record(needsYou="Proceed?", touched=[None, "Lisbon trip"], ready="L-1",
+                     loops=[{"kind": "owed"}, {"kind": "promised", "text": "Check rooms."}])
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    cli.main(["journal", "append", "--vault", str(config.vault_path), "--platform", "demiurge"])
+    assert [item.text for item in needs.items(config, config.today())] == ["Proceed?"]
+    assert [item.text for item in loops.open_loops(config)] == ["Check rooms."]

@@ -5,7 +5,7 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import cli, fm, health, ledger, needs, nightly, reception, responsibilities, state, triggers, validate
+from brain import cli, fm, health, ledger, needs, nightly, reception, responsibilities, state, validate
 from brain.config import Config
 from brain.tasks import Task, write_archive
 from brain.vault import Vault
@@ -59,11 +59,6 @@ def work(vault):
     note(vault, "Topics/Other.md", "# Other\n")
     note(vault, "CURRENT.md", "# Current\n## Needs you\n"
          "- 2026-10-27 · confirm · Already sent.\n- 2026-10-28 · ask · Choose a route.\n")
-    trigger_rows = [
-        triggers.Trigger("TR-002", "intention", "When inbox changes", "Read it", "[[Watch]]", "active", "2026-10-27"),
-        triggers.Trigger("TR-001", "commitment", "2026-10-20", "Call", "[[T-001]]", "fired 2026-10-20", "2026-10-01"),
-    ]
-    note(vault, "agent/Triggers.md", triggers.TEMPLATE + "\n".join(trigger.row() for trigger in trigger_rows))
     note(vault, "agent/Receipts/2026-10.md",
          "2026-10-28 12:30 | WATCH | progress | Café checked. | Ship.\n"
          "2026-10-28 12:30 | watch | done | Second tie. | Wait.\n"

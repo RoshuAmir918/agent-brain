@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 import pytest
 
-from brain import fm, journal, loops, matters, record, state
+from brain import fm, journal, loops, matters, needs, record, state
 from brain.config import Config
 from brain.tasks import Task
 
@@ -175,9 +175,11 @@ def test_a_first_sighting_with_a_date_is_a_matter_and_keeps_the_sooner_soon(owne
         "text": "book dinner", "date": "2026-12-01"}
 
 
-def test_a_vague_ask_does_not_open_a_matter(owner):
+def test_an_ask_opens_and_links_its_matter_without_judging_its_wording(owner):
     talk(owner, "Mentioned the Ohio move", [{"name": "Ohio move", "now": None}], needsYou="Proceed?")
-    assert not (owner.vault_path / "Ohio move.md").exists()
+    assert (owner.vault_path / "Ohio move.md").exists()
+    question, = needs.items(owner, owner.today())
+    assert question.text == "Proceed?" and question.hub == "Ohio move.md"
 
 
 def test_a_matter_named_by_its_path_is_found(owner, vault):
