@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
-from . import access, channels as registry, directory, fm, retrieve
+from . import access, channels as registry, directory, fm, responsibilities, retrieve
 from .compile_context import DATE
 from .config import Config
 from .identity import matching_agents, matching_profiles, role
@@ -20,6 +20,11 @@ SHARED_WORDS = 1500   # open work shared with an intellect, with its hub: the mi
 TELLABLE_HEADING = "What you may tell {name} about {owner}, and nothing else:"
 RECALL_HEADER = "Vault notes that match this message (names and index lines; open one only if what is loaded does not answer):"
 FULL_HEADER = "Vault notes that match this message (their text, cut to fit):"
+WORK_HEADER = ("Your own work that this message touches, from your notes (their text, cut to fit). Answer from how you do it "
+               "and what you have learned doing it:")
+WORK_CHARS = 6000   # an answering session cannot open a note, so it gets the text; a hub and its evidence note
+WORK_NOTES = 4
+KNOW_HOW = ("Strategy", "Findings", "Weaknesses", "Improvements")   # of a hub: how the work is done and what it taught
 
 
 def answering(block: str, config: Config) -> bool:
@@ -400,12 +405,15 @@ def _named(vault: Vault, config: Config, text: str, form: str) -> dict[str, str]
     return blocks
 
 
-def prefetch(vault: Vault, config: Config, message: str, *, owner: bool, seen: set[str]) -> dict:
+def prefetch(vault: Vault, config: Config, message: str, *, owner: bool, seen: set[str], answering: bool = False) -> dict:
     """What the runtime puts before an owner's message, by brain.toml's [context] and its BRAIN_* overrides: the people
     it names (in the owner's own sessions, each once per session: `seen` are those already shown) and the vault notes
-    that match it. `people` is everyone it names, for the runtime to add to `seen`."""
+    that match it. `people` is everyone it names, for the runtime to add to `seen`. An answering session gets only the
+    intellect's own work that matches: its responsibility hubs and the notes they link to, never the rest of the vault."""
     context = config.context
     words = [word for word in re.findall(r"[^\W_]+", message.lower()) if word not in retrieve.STOPWORDS]
+    if answering:
+        return {"text": _own_work(vault, message) if context.prefetch and len(words) >= 2 else "", "people": []}
     people = _named(vault, config, message[:2000], context.people) if owner and context.people != "off" and words else {}
     parts = [_people_block(context.people, [block for name, block in people.items() if name not in seen])]
     if context.prefetch and len(words) >= 2:
@@ -417,3 +425,22 @@ def prefetch(vault: Vault, config: Config, message: str, *, owner: bool, seen: s
         if lines:
             parts.append(("\n\n" if full else "\n").join([FULL_HEADER if full else RECALL_HEADER, *lines])[:context.prefetch_chars])
     return {"text": "\n\n".join(part for part in parts if part), "people": list(people)}
+
+
+def _own_work(vault: Vault, message: str) -> str:
+    hubs = [entry["hub"] for entry in responsibilities.discover(vault)]
+    within = set(hubs) | {target for hub in hubs for target in vault.links_in(vault.notes[hub].body)}
+    found = retrieve.search(vault, message[:300], min(vault.config.context.prefetch_limit, WORK_NOTES), within=within)
+    if not found:
+        return ""
+
+    def body(candidate) -> str:
+        rel = candidate.path.removeprefix(vault.config.vault + "/")
+        if rel not in hubs:
+            return retrieve.text(vault, candidate, "full")
+        text = vault.notes[rel].body
+        spans = [(title, fm.section(text, title)) for title in KNOW_HOW]
+        return "\n\n".join(f"### {title}\n{text[span[0]:span[1]].strip()}" for title, span in spans if span and text[span[0]:span[1]].strip())
+
+    share = WORK_CHARS // len(found)
+    return "\n\n".join([WORK_HEADER, *(f"## {candidate.path}\n\n{body(candidate)[:share]}" for candidate in found)])
