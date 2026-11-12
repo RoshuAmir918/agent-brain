@@ -8,7 +8,7 @@ from dataclasses import asdict
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 
-from . import fm, goals, health, ideas, reception, ledger, loops, image, needs, portrait, responsibilities, runtime, schedule, seed, tasks, views, works
+from . import fm, goals, health, ideas, reception, ledger, loops, image, matters, needs, portrait, responsibilities, runtime, schedule, seed, tasks, views, works
 from .config import Config
 from .vault import Vault
 
@@ -106,8 +106,10 @@ def _improvements(body: str, source: str) -> list[dict]:
     return out
 
 
-def _hubs(vault: Vault, task_entries: list[dict], responsibility_entries: list[dict]) -> list[dict]:
+def _hubs(vault: Vault, task_entries: list[dict], responsibility_entries: list[dict], waiting: list[dict],
+          today: date) -> list[dict]:
     out = []
+    hubbed = {task["id"] for task in task_entries if task["hub"]}
     folders = {entry["hub"]: entry for entry in responsibility_entries if entry["folder"]}
     for source, note in sorted(vault.notes.items()):
         folder = folders.get(source)
@@ -127,9 +129,27 @@ def _hubs(vault: Vault, task_entries: list[dict], responsibility_entries: list[d
         linked = [task for task in task_entries if task["hub"] and task["hub"].casefold() in targets]
         progress = {"done": sum(task["state"] == "completed" for task in linked),
                     "total": sum(task["state"] != "cancelled" for task in linked)} if linked else None
-        out.append({"title": title, "source": source, "responsibility": responsibility, "work": note.data.get("work"),
-                    "delivers": note.data.get("delivers"), "openQuestions": questions, "improvements": _improvements(note.body, source), "progress": progress})
+        entry = {"title": title, "source": source, "responsibility": responsibility, "work": note.data.get("work"),
+                 "delivers": note.data.get("delivers"), "openQuestions": questions,
+                 "improvements": _improvements(note.body, source), "progress": progress}
+        if responsibility is None:
+            hub_tasks = {task["id"] for task in linked}
+            kept = matters.state(note.body, today)
+            entry["waiting"] = [item["id"] for item in waiting if _belongs(item, source, hub_tasks, hubbed)]
+            entry.update(kept, phase=matters.phase(kept, today, bool(entry["waiting"]) or
+                                                   any(task["open"] for task in linked)))
+        out.append(entry)
     return out
+
+
+def _belongs(item: dict, source: str, hub_tasks: set[str], hubbed: set[str]) -> bool:
+    """A loop or ask is a matter's by its own hub line, else its task's hub, else its source when that is the hub:
+    a source is only what the conversation touched first, so it decides nothing when it is another note."""
+    if item["hub"]:
+        return item["hub"] == source
+    if item.get("task") in hubbed:
+        return item["task"] in hub_tasks
+    return item["source"].split("#", 1)[0] == source
 
 
 def _at(when: str) -> str | None:
@@ -272,8 +292,14 @@ def _goals(vault: Vault, task_entries: list[dict]) -> list[dict]:
 
 
 def _loops(vault: Vault, items: list[loops.Item]) -> list[dict]:
-    return [{**loops.as_dict(item), "source": source} for item in items
+    return [{**loops.as_dict(item), "source": source, "hub": _hub(vault, item.hub)} for item in items
             if (source := _source(vault, item.source)) is not None]
+
+
+def _hub(vault: Vault, link: str) -> str:
+    """An item's hub line as the hub's exported path; a private or empty one is dropped, so the item falls back."""
+    link = link.strip().removeprefix("[[").removesuffix("]]").split("|", 1)[0].strip()
+    return (_source(vault, link) or "") if link else ""
 
 
 def _engine() -> str:
@@ -291,7 +317,16 @@ def build(config: Config, today: date) -> dict:
     task_entries = _tasks(vault)
     responsibility_entries = responsibilities.discover(vault)
     routine_owners = responsibilities.link(responsibility_entries, schedule.load(config))
-    hubs = _hubs(vault, task_entries, responsibility_entries)
+    owner_items = []
+    for item in needs.items(vault, today):
+        source = item.source if item.origin == "access" else _source(vault, item.source)
+        if source is None and item.origin == "current":
+            source = "CURRENT.md"
+        if source is not None:
+            owner_items.append({**asdict(item), "source": source, "hub": _hub(vault, item.hub)})
+    open_loops = _loops(vault, loops.open_loops(config))
+    hubs = _hubs(vault, task_entries, responsibility_entries,
+                 open_loops + [item for item in owner_items if item["kind"] == "ask"], today)
     public_ids = {entry["id"] for entry in responsibility_entries if _public(vault, entry["hub"])}
     responsibility_entries = [entry for entry in responsibility_entries if _public(vault, entry["hub"])]
     rows = _rows(vault)
@@ -304,13 +339,6 @@ def build(config: Config, today: date) -> dict:
                "at": at, "routine": row.routine, "outcome": row.outcome, "account": row.account,
                "next": row.next, "source": source}
               for at, source, _, line, row in rows if floor <= at[:10] <= today.isoformat()]
-    owner_items = []
-    for item in needs.items(vault, today):
-        source = item.source if item.origin == "access" else _source(vault, item.source)
-        if source is None and item.origin == "current":
-            source = "CURRENT.md"
-        if source is not None:
-            owner_items.append({**asdict(item), "source": source})
     idea = ideas.shown(config, today)
     source = _source(vault, idea.source) if idea else None
     owner_idea = {**asdict(idea), "source": source} if source is not None else None
@@ -327,7 +355,7 @@ def build(config: Config, today: date) -> dict:
             "routines": routine_entries, "ledger": recent,
             "needsYou": owner_items, "outputs": _outputs(vault),
             "prepared": _prepared(vault),
-            "loops": _loops(vault, loops.open_loops(config)),
+            "loops": open_loops,
             "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
             "idea": owner_idea,
             "ideas": open_ideas,
