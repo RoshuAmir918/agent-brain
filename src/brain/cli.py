@@ -302,7 +302,8 @@ def cmd_compile_context(a):
     vault = Vault(a.config.vault_path)
     only = None
     if a.sections is not None:
-        only = tuple(name.strip() for name in a.sections.split(",") if name.strip())
+        only = tuple("holding" if name.strip() == "triggers" else name.strip()
+                     for name in a.sections.split(",") if name.strip())
         unknown = sorted(set(only) - set(SECTIONS))
         if unknown or not only:
             raise SystemExit(f"--sections takes a comma-separated list of {', '.join(SECTIONS)}; got {a.sections!r}")
@@ -374,10 +375,6 @@ def cmd_needs_you(args):
             journal.add_ask(args.config, args.config.today(), args.confirm, args.source, why=args.why or "", kind="confirm")
         return
     if args.ask:
-        from .needs import vague_ask
-        if (reason := vague_ask(args.ask)):
-            print(f"ask refused: {reason}", file=sys.stderr)
-            sys.exit(2)
         with vault_lock(args.config):
             here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
             journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "",
@@ -479,11 +476,12 @@ def cmd_loops(args):
     if args.quiet:
         raise SystemExit(0 if due else 1)
     if args.json:
-        print(json.dumps({"open": [loops.as_dict(item) for item in loops.open_loops(config)],
-                          "due": [loops.as_dict(item) for item in loops.due(config, now)],
-                          "stale": [loops.as_dict(item) for item in loops.stale(config, now)],
-                          "closed_recent": [loops.as_dict(item) for item in loops.closed_recent(config)]},
-                         ensure_ascii=False, indent=2))
+        result = {"open": [loops.as_dict(item) for item in loops.open_loops(config)],
+                  "due": [loops.as_dict(item) for item in loops.due(config, now)],
+                  "stale": [loops.as_dict(item) for item in loops.stale(config, now)]}
+        if args.closed:
+            result["closed_recent"] = [loops.as_dict(item) for item in loops.closed_recent(config)]
+        print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         for item in due if args.due or args.stale else loops.open_loops(config):
             details = ((f" · with: {item.with_}" if item.with_ else "") + (f" · due: {item.due}" if item.due else "")
@@ -1313,6 +1311,8 @@ def cmd_task(args):
         print(f"{task.tid} updated: {', '.join(fields)}")
     else:
         print(f"{task.tid} {task.task_state}: {task.title}")
+    if args.said is not None and tasks_mod.proposed_delivers(task):
+        print("--said was not found in the owner's words; Delivers is recorded as your proposal", file=sys.stderr if args.json else sys.stdout)
 
 
 def cmd_completed(args):
@@ -1440,10 +1440,8 @@ def cmd_continue(args):
                     tasks_mod.set_pace(args.config, tid, pace, args.config.today())
                 print(f"{tid} pace: {pace}")
             return
-        finish_report = []
-        task_list = continuation.finish_lines(args.config, finish_report)
-        for line in finish_report:
-            print(line, file=sys.stderr)
+        registered, archived = tasks_mod.load_tasks(args.config)
+        task_list = registered + archived
         worked = continuation.last_worked(args.config)
         chunks = continuation.chunks_today(args.config)
         caps = continuation.budget_caps(args.config)
@@ -2084,6 +2082,7 @@ def main(argv=None):
     mode.add_argument("--json", action="store_true"); mode.add_argument("--add", metavar="TEXT")
     mode.add_argument("--close", metavar="ID_OR_TEXT")
     s.add_argument("--due", nargs="?", const=True, metavar="DATE", help="only due loops, or a due date with --add")
+    s.add_argument("--closed", action="store_true", help="with --json: include recently closed loops")
     s.add_argument("--quiet", action="store_true", help="print nothing; exit 1 when nothing is due, 0 otherwise")
     s.add_argument("--stale", action="store_true", help=f"only loops due {loops.STALE_DAYS} days or more ago, for the evening")
     s.add_argument("--kind", choices=loops.KINDS); s.add_argument("--source", metavar="NOTE")

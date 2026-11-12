@@ -405,8 +405,10 @@ def _decision(config: Config, ident: str) -> tuple[str, routing.Decision]:
 
 def _brief(label: str, text: str) -> str:
     text = tasks.single_line(label, text)
-    if not text or len(text.split()) > needs.WHY_WORDS:
-        raise ValueError(f"--{label} must be nonempty and at most {needs.WHY_WORDS} words")
+    if not text:
+        raise ValueError(f"--{label} must be nonempty")
+    if len(text.split()) > needs.WHY_WORDS:
+        print(f"warning: {label} is {len(text.split())} words; suggested maximum {needs.WHY_WORDS}; text kept in full")
     return text
 
 
@@ -603,12 +605,12 @@ def ask(config: Config, to: str, text: str, default: str, why: str, area: str = 
     require_enterprise(config)
     _person(to, "--to")
     text, default, why = (" ".join(value.replace("·", "-").split()) for value in (text, default, why))
-    if reason := needs.vague_ask(text):
-        raise ValueError(f"ask refused: {reason}")
+    if not text:
+        raise ValueError("ask must not be empty")
     for label, value, limit in (("ask", text, needs.ASK_WORDS), ("default", default, needs.WHY_WORDS),
                                 ("why", why, WHY_WORDS)):
         if len(value.split()) > limit:
-            raise ValueError(f"{label} must be at most {limit} words; say it shorter")
+            print(f"warning: {label} is {len(value.split())} words; suggested maximum {limit}; text kept in full")
     if not default:
         raise ValueError("give a default: --default TEXT says what you will do without an answer")
     if not why:

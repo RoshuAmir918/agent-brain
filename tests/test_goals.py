@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from brain import cli, compile_context, fm, goals, ideas, state, tasks, validate
+from brain import cli, compile_context, fm, goals, state, tasks, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -174,7 +174,6 @@ def test_routines_need_a_goal_or_the_owner_quoted(vault, capsys, tmp_path, monke
     if kind == "task":
         run(vault, capsys, "task", "new", "Owner request", "--source", '"Please find books"')
     else:
-        monkeypatch.setattr(ideas, "ADD_SPACING", 0)
         run(vault, capsys, "ideas", "--add", "Owner request", "--source", '"Please suggest books"')
 
 

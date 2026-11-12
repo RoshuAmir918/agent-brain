@@ -355,7 +355,7 @@ def hygiene(vault: Vault) -> list[str]:
             + needs_ceiling(vault) + needs_hygiene(vault) + stale_current(vault) + closed_task_mentions(vault)
             + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
             + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault)
-            + trigger_dates(vault) + owners.problems(vault.config) + tellable_hygiene(vault) + owner_facing_tasks(vault)
+            + owners.problems(vault.config) + tellable_hygiene(vault) + owner_facing_tasks(vault)
             + roles.problems(vault.config) + learned.problems(vault.config) + kept_edits(vault))
 
 
@@ -373,15 +373,6 @@ def kept_edits(vault: Vault) -> list[str]:
             out.append(f"{entry['file']}: a pull on {entry['at']} changed it on both sides and kept the pushed edit where they clashed; "
                        f"see it with `git show {entry['agent']} -- {entry['file']}` and redo what still applies")
     return out
-
-
-def trigger_dates(vault: Vault) -> list[str]:
-    """A dated trigger whose day the calendar does not have never fires."""
-    from . import triggers
-    rel = vault.config.agent("Triggers.md")
-    note = vault.notes.get(rel)
-    return [f"{rel} · {trigger.id}: {trigger.when} is not a real date; it never fires" for trigger in
-            (triggers.parse(note.body) if note else []) if triggers.DATE_RE.match(trigger.when) and triggers.date_of(trigger.when) is None]
 
 
 def schedule_hygiene(vault: Vault) -> list[str]:
@@ -447,7 +438,7 @@ def ideas_hygiene(vault: Vault) -> list[str]:
     rel = vault.config.agent("Ideas.md")
     note = vault.notes.get(rel)
     out = []
-    for item in ideas.parse_section(note.body, cut=False) if note else []:
+    for item in ideas.parse_section(note.body) if note else []:
         where = f"{rel} · {item.text}"
         if not item.detail:
             out.append(f"{where}: no why line, what the owner gets")

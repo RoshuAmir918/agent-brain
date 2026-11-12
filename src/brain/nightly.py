@@ -16,7 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from . import activation as act
-from . import attribute, compile_context, consults, fm, image, items, journal, ledger, needs, reception, triggers, validate
+from . import attribute, compile_context, consults, fm, image, items, journal, ledger, needs, reception, validate
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import Config
@@ -159,31 +159,6 @@ def retier(vault: Vault, today: date, report: list[str]) -> set[str]:
             n.data["activation"] = newb
             changed.add(rel)
     return changed
-
-
-# ---------- triggers
-
-def fire_triggers(vault: Vault, tasks: list[Task], today: date, report: list[str]) -> str | None:
-    """Process Triggers.md as it is on disk now, crediting fired commitments to tasks. The caller holds the vault lock
-    and writes the new body only after the tasks, so an interrupted night retries a trigger instead of losing its use.
-    Returns the new body, or None when nothing changed."""
-    path = vault.root / vault.config.agent("Triggers.md")
-    if not path.exists():
-        return None
-    body = fm.read(path)[1]
-    new, rep = triggers.process(body, today, {rel: n.data.get("tier") for rel, n in vault.notes.items()}, vault.config)
-    for fired in rep["fired"]:
-        if fired.cls == "commitment":
-            ids = set(re.findall(r"\bT-\d{3,}\b", fired.source))
-            for task in tasks:
-                if task.tid in ids:
-                    task.add_use(today.isoformat())
-        report.append(f"trigger fired: {fired.id} ({fired.do})")
-    for t in rep["mentioned"]:
-        report.append(f"trigger mentioned once, source cold: {t.id}")
-    for t in rep["retired"]:
-        report.append(f"trigger retired: {t.id}")
-    return None if new == body else new
 
 
 def place(config: Config, t: Task, today: date, cold_open: list, report: list[str]) -> str:
@@ -380,7 +355,7 @@ def run(root: Path, today: date, sessions_dir: Path | None = None, *, library_re
         evidence_home: Path | None = None, stage: str = "all") -> list[str]:
     """Apply the night to the vault at root. Returns the report; exits 1 on validation failure.
 
-    `before` is everything the model passes read (uses, tiers, triggers, tasks, expiry, the sources' evidence);
+    `before` is everything the model passes read (uses, tiers, tasks, expiry, the sources' evidence);
     `after` is everything compiled from what they wrote (the portrait, CURRENT's threads, the context)."""
     vault = Vault(root)
     config = vault.config
@@ -448,12 +423,7 @@ def _before(vault: Vault, today: date, sessions_dir: Path | None, library_record
                 days = {x for value in (t.state.get(key, ""), credited.get(t.tid, {}).get(key, "")) for x in value.split(",") if x}
                 if days:
                     t.state[key] = ",".join(sorted(days, reverse=True)[:30])
-        fired = fire_triggers(vault, tasks + archived, today, report)
         process_tasks(config, today, tasks, archived, report)
-        if fired is not None:   # consumed only after the task uses it supplied are saved
-            rel = config.agent("Triggers.md")
-            fm.write(vault.root / rel, fm.read(vault.root / rel)[0], fired)
-            written.add(rel)
     with vault_lock(config):   # the after-session writer adds asks to CURRENT at any hour
         from . import goals
         try:

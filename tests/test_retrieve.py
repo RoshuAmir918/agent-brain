@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from brain import cli, fm, retrieve, triggers
+from brain import cli, fm, retrieve
 from brain.vault import Vault
 from conftest import snapshot
 
@@ -69,17 +69,11 @@ def test_task_id_matches_register_section(retrieval_vault):
     assert candidate.score == 5.0 and candidate.reason == "ID match: T-001 — Sample"
 
 
-def test_trigger_id_matches_the_row(retrieval_vault):
-    row = "| TR-002 | intention | Acme CI fails | check timeout | T-001 | active | 2026-10-05 |"
-    retrieval_vault.notes["agent/Triggers.md"].body = triggers.TEMPLATE + row + "\n"
-    candidate = retrieve.search(retrieval_vault, "TR-002")[0]
-    assert candidate.path == "memory/agent/Triggers.md"
-    assert candidate.score == 5.0 and candidate.reason == f"ID match: {row}"
 
 
 def test_tokens_preserve_ids_and_dates_and_exact_body_hits(retrieval_vault):
-    assert retrieve.tokens("The T-023, TR-002; 2026-10-05! Alice_Example CI") == {
-        "t-023", "tr-002", "2026-10-05", "alice", "example"}
+    assert retrieve.tokens("The T-023; 2026-10-05! Alice_Example CI") == {
+        "t-023", "2026-10-05", "alice", "example"}
     retrieval_vault.notes["Body.md"].body += "\n2026-10-05 compiler compilertools adapter\n"
     candidate = retrieve.search(retrieval_vault, "2026-10-05 compiler adapter")[0]
     assert candidate.score == 1.5 and "body match" in candidate.reason

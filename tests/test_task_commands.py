@@ -116,7 +116,6 @@ def test_set_open_state(location, vault, capsys, state, normal):
     (["--state", "completed"], "done or drop"), (["--state", "cancelled"], "done or drop"),
     (["--state", "Done"], "done or drop"), (["--state", "canceled"], "done or drop"),
     (["--state", "flying"], "unknown task state"),
-    (["--ask", "word " * 17], "at most 16 words"), (["--why", "word " * 41], "at most 40 words"),
     (["--hub", "Missing"], "note does not exist"), (["--hub", "[[START]]"], "without wikilink brackets"),
     (["--clear", "status", "--status", "value"], "set and cleared"),
     ([], "needs a field"),
@@ -203,7 +202,6 @@ def test_new_parses_appends_sources_json_and_shared_id_allocation(vault, capsys)
     (["--source", "words\nmore"], "single-line"),
     (["--source", "words", "--next", "line\nbreak"], "single-line"),
     (["--source", "words", "--verified", "no"], "unsupported new task field"),
-    (["--source", "words", "--next", "word " * 170], "Say it shorter"),
     (["--source", "words", "--state", "yours", "--due", "March"], "due must be YYYY-MM-DD"),
 ])
 def test_new_invalid_does_not_write(vault, capsys, args, message):
@@ -383,12 +381,25 @@ def words(n):
     return " ".join(f"w{i}" for i in range(n))
 
 
-def test_a_write_that_grows_the_entry_past_the_limit_is_refused_with_how_to_fix_it(vault, capsys):
+def test_a_write_that_grows_the_entry_keeps_every_word(vault, capsys):
     cli(vault, capsys, "T-001", "set", "--next", words(40))
-    with pytest.raises(SystemExit):
-        cli(vault, capsys, "T-001", "set", "--status", words(90), "--verified", words(60))
-    assert "Say it shorter" in capsys.readouterr().err
-    assert "w89" not in entry(Config.load(vault))[0].body
+    cli(vault, capsys, "T-001", "set", "--status", words(90), "--verified", words(60))
+    task = entry(Config.load(vault))[0]
+    assert words(90) in task.body and words(60) in task.body
+
+
+@pytest.mark.parametrize("ask_count,why_count", [(16, 40), (17, 41)])
+def test_long_questions_round_trip_in_full(vault, capsys, ask_count, why_count):
+    ask, why = words(ask_count), words(why_count)
+    cli(vault, capsys, "T-001", "set", "--ask", ask, "--why", why)
+    question = needs.task_ask(Config.load(vault), "T-001")
+    assert question.text == ask and question.detail == why
+
+
+def test_long_new_task_json_keeps_text(vault, capsys):
+    out = cli(vault, capsys, "new", "Long task", "--source", "Owner request", "--next", words(170), "--json")
+    result = json.loads(out)
+    assert words(170) in tasks.find(Config.load(vault), result["id"]).body
 
 
 def test_an_entry_already_too_long_takes_writes_that_shrink_it_and_its_dated_reviews(vault, capsys):
