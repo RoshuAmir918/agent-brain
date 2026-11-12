@@ -62,6 +62,10 @@ def test_hygiene_names_caps_missing_horizons_stale_guesses_and_reused_ids():
     assert "After · Unscoped: no horizon line" in found
     assert "Taste · Old hunch: a guess with no evidence since 2026-09-01" in found and "Fresh hunch" not in found
     assert "id ^aaaa is used twice" in found
+    seeded = ("## Taste\n- Seeded hunch · guess · low · 2026-08-01 · [[agent/Seeds/2026-10-20 me@x.com]]\n"
+              "- Old seeded hunch · guess · low · 2026-08-01 · [[agent/Seeds/2026-09-01 me@x.com]]\n")
+    stale = "\n".join(portrait.hygiene(seeded, date(2026, 11, 6), "P"))
+    assert "Old seeded hunch" in stale and "Seeded hunch: " not in stale   # the clock starts at the seed
     long = "## Not\n" + "- " + "word " * 700 + "· said · high · 2026-11-01 · [[S]]\n"
     assert any("words; keep it under 700" in p for p in portrait.hygiene(long, date(2026, 11, 6), "P"))
 
