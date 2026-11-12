@@ -166,3 +166,10 @@ def test_the_account_counts_a_correction_on_a_line_already_held_as_a_repeat(conf
                                       "1 lessons of your own, 0 promoted, 1 struck.")
     assert "- repeated 2x: Coding ^" in report and report.endswith("use bullet points in summaries for Arslan")
     assert not [p for p in validate.hygiene(Vault(config.vault_path)) if "Learned Log" in p]
+
+
+def test_a_struck_candidates_reversal_is_not_refused(config):
+    _, line, _ = learned.add(config, "Coding", "Prefer one big PR for related changes", "reflection", "2026-11-06", "candidate")
+    learned.strike(config, "Coding", line.id, "Roshan", "one concern per PR", "2026-11-07")
+    assert learned.add(config, "Coding", "Never prefer one big PR for related changes", "reflection on T-050",
+                       "2026-11-07", "candidate")[0] == "added"

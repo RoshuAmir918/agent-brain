@@ -143,11 +143,20 @@ def plain(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
 
 
+NEGATIONS = {"no", "not", "never", "don", "dont", "t", "avoid", "without", "stop", "nor"}
+
+
 def close(a: str, b: str) -> bool:
-    """Most words in common: the same lesson, a refinement of it, or its reversal ("never use bullets"), which only
-    the reader can tell apart."""
+    """Most words in common: the same lesson, a refinement of it, or its reversal ("never use bullets"), each worth
+    showing beside the line it may replace."""
     ours, theirs = _words(a), _words(b)
     return bool(ours and theirs) and len(ours & theirs) / len(ours | theirs) >= OVERLAP
+
+
+def same_lesson(a: str, b: str) -> bool:
+    """Close and with the same polarity, so a strike can refuse it: a negation on one side only is a reversal, which
+    agrees with striking the original rather than repeating it."""
+    return close(a, b) and bool(_words(a) & NEGATIONS) == bool(_words(b) & NEGATIONS)
 
 
 def add(config: Config, name: str, claim: str, source: str, day: str, status: str = "active",
@@ -173,7 +182,7 @@ def add(config: Config, name: str, claim: str, source: str, day: str, status: st
                      f"# {path.stem}\n\n## {STRUCK}\n")
             note = read(path)
         if status == "candidate" and (struck := next((line for line in note.struck
-                                                      if close(line.claim, claim) and day <= line.struck_at), None)):
+                                                      if same_lesson(line.claim, claim) and day <= line.struck_at), None)):
             return "refused", struck, []
         if held := next((line for line in note.lines if plain(line.claim) == plain(claim)), None):
             if status != "candidate":   # the owner saying it again: it was learned and did not reach the work
