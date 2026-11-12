@@ -84,6 +84,19 @@ def test_state_gives_each_matter_its_state_waiting_and_phase(lisbon):
     assert "phase" not in hubs["Watch"] and "now" not in hubs["Watch"]
 
 
+def test_only_live_work_keeps_a_matter_current(vault):
+    config = Config.load(vault)
+    for title in ("Paper", "Inbox", "Visa"):
+        fm.write(vault / f"{title}.md", {"kind": "hub"}, f"# {title}\n")
+    fm.write(vault / "agent/Tasks.md", {}, "# Tasks\n\n" + "".join(Task(tid, title, f"- **Hub:** [[{hub}]]\n", fields).render()
+             for tid, title, hub, fields in (
+                 ("T-001", "Draft the paper", "Paper", {"state": "in_progress"}),
+                 ("T-002", "Sort the inbox", "Inbox", {"state": "set_aside"}),
+                 ("T-003", "Renew the visa", "Visa", {"state": "yours", "later": "true"}))))
+    phases = {hub["title"]: hub["phase"] for hub in state.build(config, TODAY)["hubs"] if hub["title"] in ("Paper", "Inbox", "Visa")}
+    assert phases == {"Paper": "current", "Inbox": "fading", "Visa": "fading"}
+
+
 def test_a_private_hub_line_is_not_exported(lisbon, vault):
     fm.write(vault / "Secret.md", {"kind": "hub", "tier": "private"}, "# Secret\n")
     fm.write(loops.path_for(lisbon), {}, "## Open\n\n" + loops.render(

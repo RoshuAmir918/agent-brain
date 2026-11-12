@@ -370,6 +370,7 @@ def test_prepared_lists_held_unasked_drafts_with_their_offer(vault):
     note(vault, "agent/Prepared/For a task.md", kind="draft", task="T-004")
     note(vault, "agent/Prepared/Never offered.md", kind="draft")
     note(vault, "Drafts/Elsewhere.md", kind="draft")
+    note(vault, "agent/Prepared/Packing list.md", kind="draft", created="2026-10-26", hub="[[Lisbon]]")
     note(vault, "Trips/Lisbon.md", "# Lisbon\nThe [[Lease summary]] is ready.\n", kind="hub")
     note(vault, "Watch.md", "# Watch\n[[agent/Prepared/2026-10-27 Renal deck]]\n", kind="hub", skill="brain-watch", records="receipts")
     note(vault, "agent/Reception/2026-10.md", reception.HEADER +
@@ -378,15 +379,18 @@ def test_prepared_lists_held_unasked_drafts_with_their_offer(vault):
          "- 2026-10-28 09:00 · cccccc · draft · Lease · delivered · [[agent/Prepared/Lease summary]]\n"
          "- 2026-10-28 09:00 · dddddd · draft · Used · used · [[agent/Prepared/Used]]\n"
          "- 2026-10-28 09:00 · eeeeee · draft · Task · pending · [[agent/Prepared/For a task]]\n"
-         "- 2026-10-28 09:00 · ffffff · draft · Elsewhere · pending · [[Drafts/Elsewhere]]\n")
+         "- 2026-10-28 09:00 · ffffff · draft · Elsewhere · pending · [[Drafts/Elsewhere]]\n"
+         "- 2026-10-28 09:00 · 999999 · draft · Packing · pending · [[agent/Prepared/Packing list]]\n")
     assert state.build(config, TODAY)["prepared"] == [
         {"id": "cccccc", "title": "Lease summary", "source": "agent/Prepared/Lease summary.md", "created": "2026-10-28",
          "goal": None, "for": "the move", "outcome": "delivered", "hub": "Trips/Lisbon.md"},
         {"id": "bbbbbb", "title": "Renal deck", "source": "agent/Prepared/2026-10-27 Renal deck.md",
          "created": "2026-10-27", "goal": "G-1", "for": None, "outcome": "opened", "hub": None},  # a responsibility is no matter
+        {"id": "999999", "title": "Packing list", "source": "agent/Prepared/Packing list.md", "created": "2026-10-26",
+         "goal": None, "for": None, "outcome": "pending", "hub": "Trips/Lisbon.md"},  # named by its own hub: line
     ]
     reception.set_outcome(config, "agent/Prepared/2026-10-27 Renal deck", "used")
-    assert [draft["id"] for draft in state.build(config, TODAY)["prepared"]] == ["cccccc"]
+    assert [draft["id"] for draft in state.build(config, TODAY)["prepared"]] == ["cccccc", "999999"]
 
 
 
