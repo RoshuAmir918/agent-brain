@@ -64,7 +64,7 @@ def test_yours_origin_and_owner_fields_reach_state(config, capsys, monkeypatch, 
     assert f"- **Report:** {report}\n" in child.body
     row = next(row for row in state.build(config, config.today())["tasks"] if row["id"] == child.tid)
     assert {key: row[key] for key in ("from", "report", "why", "delivers", "next", "handoff")} == {
-        "from": "T-001", "report": report, "why": "Nameless is waiting for an introduction",
+        "from": "T-001", "report": report, "why": None,
         "delivers": "The introduction is sent", "next": "Open the draft and send it", "handoff": None,
     }
     run(config, capsys, "task", child.tid, "set", "--report", "demiurge:changed")

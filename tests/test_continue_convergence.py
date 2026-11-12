@@ -199,7 +199,7 @@ def test_circling_nonblocking_ask_halves_remaining_budget_and_second_review_wait
     assert due(config, capsys) == []
     questions = needs.items(config, config.today())
     assert len(questions) == 1 and questions[0].text == "Should the shortlist stop at two apartments?"
-    assert not needs.open_asks((config.vault_path / "CURRENT.md").read_text())
+    assert needs.open_asks((config.vault_path / "CURRENT.md").read_text()) == questions
 
 
 def test_owner_engagement_clears_pending_circling_and_restores_budget(worker, capsys):

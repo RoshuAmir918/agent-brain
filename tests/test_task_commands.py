@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from brain import cli as brain_cli, fm, goals, ideas, tasks
+from brain import cli as brain_cli, fm, goals, ideas, needs, tasks
 from brain.config import Config
 from conftest import snapshot
 
@@ -47,6 +47,8 @@ def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
              else "G-1" if name == "goal"
              else "2026-12-01" if name == "due"
              else "new value")
+    if name == "why":
+        tasks.set_fields(config, "T-001", TODAY, values={"ask": "Use the new value?"})
     if name == "goal":
         goals.new(config, "Reading", "Read widely", from_app=True)
     if name == "after":
@@ -56,8 +58,13 @@ def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
     task, = entry(config)
     expected = "[[Topics/Project]]" if name == "hub" else value
     label = "morning" if name == "morning" else tasks.LABELS.get(name, name.title())   # morning notes keep their lowercase convention
-    assert f"- **{label}:** {expected}\n" in task.body
-    assert task.body.count(f"**{label}:**") == 1
+    if name in ("ask", "why"):
+        question = needs.task_ask(config, "T-001")
+        assert (question.text if name == "ask" else question.detail) == expected
+        assert "**Ask:**" not in task.body and "**Why:**" not in task.body
+    else:
+        assert f"- **{label}:** {expected}\n" in task.body
+        assert task.body.count(f"**{label}:**") == 1
     if name == "next":
         assert "Next action" not in task.body and "ORIGINAL_FULL_BODY" not in task.body
     if name == "verified":
@@ -97,7 +104,8 @@ def test_multiline_duplicates_and_multiple_clear_preserve_other_fields(vault, ca
 ], indirect=["location"])
 def test_set_open_state(location, vault, capsys, state, normal):
     config, where = location
-    cli(vault, capsys, "T-001", "set", "--state", state)
+    extra = ["--ask", "Use the new value?"] if normal == "waiting_for_owner" else []
+    cli(vault, capsys, "T-001", "set", "--state", state, *extra)
     assert entry(config)[0].task_state == normal
     assert "status" not in entry(config)[0].state
     if where == "warm":
@@ -145,7 +153,9 @@ def test_task_new_refuses_set_only_flags(vault, capsys, flag):
 def test_word_limit_boundaries(vault, capsys):
     cli(vault, capsys, "T-001", "set", "--ask", "word " * 16, "--why", "word " * 40)
     task = entry(Config.load(vault))[0]
-    assert "- **Ask:** " in task.body and "- **Why:** " in task.body
+    assert "**Ask:**" not in task.body and "**Why:**" not in task.body
+    question = needs.task_ask(Config.load(vault), "T-001")
+    assert len(question.text.split()) == 16 and len(question.detail.split()) == 40
 
 
 @pytest.mark.parametrize("closed,location", [(None, "register"), ("completed", "warm"), ("cancelled", "archive")],
@@ -390,3 +400,35 @@ def test_an_entry_already_too_long_takes_writes_that_shrink_it_and_its_dated_rev
     cli(vault, capsys, "T-001", "set", "--next", words(30))
     tasks.set_fields(config, "T-001", TODAY, reviewed="kept: still due Friday")
     assert "Two chapters left." in entry(config)[0].body
+
+
+@pytest.mark.parametrize("location", ["register", "warm", "archive"], indirect=True)
+def test_set_ask_stores_the_question_in_current_with_task_and_report(location, vault, capsys):
+    config, _ = location
+    tasks.hand_off(config, "T-001", TODAY, "demiurge:task-thread")
+    cli(vault, capsys, "T-001", "set", "--state", "waiting_for_owner",
+        "--ask", "Use the new value?", "--why", "It keeps the project moving.")
+    task, = entry(config)
+    assert "**Ask:**" not in task.body and "**Why:**" not in task.body
+    question, = needs.items(config, TODAY)
+    assert (question.text, question.detail, question.task, question.source, question.session) == (
+        "Use the new value?", "It keeps the project moving.", "T-001", "agent/Tasks#T-001", "demiurge:task-thread")
+    assert "  - task: T-001" in fm.read(vault / "CURRENT.md")[1]
+    cli(vault, capsys, "T-001", "set", "--why", "The owner gets the latest result.")
+    changed, = needs.items(config, TODAY)
+    assert changed.id == question.id and changed.text == question.text
+    assert changed.detail == "The owner gets the latest result."
+    cli(vault, capsys, "T-001", "set", "--clear", "why")
+    assert needs.task_ask(config, "T-001").detail == ""
+    cli(vault, capsys, "T-001", "set", "--ask", "Use the second value?", "--why", "It is newer.")
+    latest, = needs.items(config, TODAY)
+    assert latest.task == "T-001" and latest.text == "Use the second value?"
+    assert "**Ask:**" not in entry(config)[0].body and "**Why:**" not in entry(config)[0].body
+
+
+def test_a_linked_open_ask_satisfies_entering_waiting_for_owner(vault):
+    config = Config.load(vault)
+    tasks.set_fields(config, "T-001", TODAY, values={"ask": "Use the new value?"})
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner")
+    assert tasks.find(config, "T-001").task_state == "waiting_for_owner"
+    assert needs.task_ask(config, "T-001").text == "Use the new value?"

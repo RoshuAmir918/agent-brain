@@ -209,7 +209,7 @@ def noted(config: Config, at: datetime, lines, speaker: str | None) -> Path | No
 
 
 def add_ask(config: Config, day: date, text: str, source: str | None, why: str = "", *,
-            distinct_source: bool = False, kind: str = "ask", session: str = "", hub: str = "") -> bool:
+            distinct_source: bool = False, kind: str = "ask", session: str = "", hub: str = "", task: str = "") -> bool:
     """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing; the caller
     holds the vault lock. Always adds: a question is never lost to a full list. Past the ceiling, the evening decides
     the lowest-ranked ones down to it."""
@@ -217,9 +217,10 @@ def add_ask(config: Config, day: date, text: str, source: str | None, why: str =
     data, body = fm.read(path) if path.exists() else ({}, "")
     text = " ".join(text.replace("·", "-").split())   # the separator, inside the text, would break the bullet
     asks = needs.parse_section(body)
-    if any(item.kind == kind and item.text.casefold() == text.casefold() and (not distinct_source or item.source == source) for item in asks):
+    tid = (task or needs.task_of(source or "")) if kind == "ask" else None
+    if not tid and any(item.kind == kind and item.text.casefold() == text.casefold() and (not distinct_source or item.source == source) for item in asks):
         return True   # already asked; the first one stands until it is resolved
-    if kind == "ask" and (tid := needs.task_of(source or "")):
+    if tid:
         body = needs.replace_task_asks(config, body, tid, day)
     bullet = f"- {day.isoformat()} · {kind} · {text}" + (f" · [[{source}]]" if source else "")
     why = " ".join(why.split())
@@ -227,6 +228,8 @@ def add_ask(config: Config, day: date, text: str, source: str | None, why: str =
         bullet += f"\n  - why: {why}"
     if session.strip():
         bullet += f"\n  - session: {session.strip()}"
+    if tid:
+        bullet += f"\n  - task: {tid}"
     bullet += f"\n  - wake: {needs.wake_for(kind, day)}"
     if hub.strip():
         bullet += f"\n  - hub: {hub.strip()}"

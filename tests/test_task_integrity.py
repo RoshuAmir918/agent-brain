@@ -97,8 +97,7 @@ def test_answering_the_owner_takes_the_ask_out_of_needs_you(vault, capsys):
     cli(vault, capsys, "T-001", "set", "--state", "waiting_for_owner", "--ask", "Want me to book the 7pm table?",
         "--why", "It is the last one free.")
     current = vault / "CURRENT.md"
-    data, body = fm.read(current)
-    fm.write(current, data, body + "\n## Needs you\n- 2026-11-05 · ask · Want me to book the 7pm table?\n")
+    assert needs.task_ask(config, "T-001").text == "Want me to book the 7pm table?"
     cli(vault, capsys, "T-001", "set", "--state", "in_progress")
     assert "7pm table" not in fm.read(current)[1]
     assert not [item for item in needs.items(config, TODAY) if "7pm" in item.text]

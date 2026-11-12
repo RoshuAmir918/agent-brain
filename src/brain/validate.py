@@ -295,15 +295,12 @@ def primed_size(vault: Vault) -> list[str]:
 
 
 def owner_questions(vault: Vault) -> list[str]:
-    """What the owner sees is written for them: a task waiting on them, and a proposed improvement, carry an Ask line
-    (a proposition) and a Why line (what they get), within their word caps."""
-    from . import needs
+    """Waiting tasks have a linked question; questions and improvement proposals stay within their word caps."""
+    from . import items, needs
     from .tasks import load_tasks
     out = []
 
-    def check(where: str, body: str) -> None:
-        ask = fm.field(body, "Ask")
-        why = fm.field(body, "Why") or ""
+    def check(where: str, ask: str | None, why: str) -> None:
         if not ask:
             out.append(f"{where}: no Ask line, the proposition the owner sees (and a Why line, what they get)")
             return
@@ -312,11 +309,19 @@ def owner_questions(vault: Vault) -> list[str]:
         if len(why.split()) > needs.WHY_WORDS:
             out.append(f"{where}: Why line is {len(why.split())} words; at most {needs.WHY_WORDS}")
 
+    note = vault.notes.get("CURRENT.md")
+    questions = {}
+    for block in items.blocks(note.body, fm.section(note.body, "Needs you")) if note else []:
+        item = needs.read(block)
+        if item and item.kind == "ask" and item.task:
+            questions[item.task] = (item.text, " ".join(value for name, value in block.details if name == "why"))
     if (vault.config.vault_path / vault.config.agent("Tasks.md")).exists():
         registered, archived = load_tasks(vault.config)
         for task in registered + archived:
-            if task.task_state == "waiting_for_owner":
-                check(task.tid, task.body)
+            if task.tid in questions:
+                check(task.tid, *questions[task.tid])
+            elif task.task_state == "waiting_for_owner":
+                out.append(f"{task.tid}: waiting_for_owner has no linked open ask in CURRENT's Needs you")
     for rel, note in sorted(vault.notes.items()):
         if vault.kind_for(rel) != "hub":
             continue
@@ -329,7 +334,7 @@ def owner_questions(vault: Vault) -> list[str]:
             stop = headings[index + 1].start() if index + 1 < len(headings) else len(section)
             entry = section[heading.end():stop]
             if needs.improvement_status(entry) == "proposed":
-                check(f"{rel} · {heading[1].strip()}", entry)
+                check(f"{rel} · {heading[1].strip()}", fm.field(entry, "Ask"), fm.field(entry, "Why") or "")
     return out
 
 
@@ -477,21 +482,16 @@ def broken_bytes(vault: Vault) -> list[str]:
 
 
 def needs_hygiene(vault: Vault) -> list[str]:
-    """Needs you holds the owner's own decisions, once: a bullet repeating a task already waiting on them, or one about
-    the brain itself (a migration, a skill, the runtime setup), is named so the agent removes it."""
+    """Needs you holds the owner's decisions; notes about the brain itself belong in the Sleep Log."""
     from . import needs
     note = vault.notes.get("CURRENT.md")
     if note is None:
         return []
     config = vault.config
-    waiting = [(item.source.split("#")[-1] if "#" in item.source else item.source.rsplit("/", 1)[-1].removesuffix(".md"), item)
-               for item in needs.items(vault, config.today()) if item.origin == "task"]
     runtime_folder = "/" + config.runtime_dir.strip("/") + "/"
     out = []
     for item in needs.parse_section(note.body):
-        if (tid := needs.duplicates(item, waiting)) is not None:
-            out.append(f"CURRENT.md: Needs you repeats {tid}, which already waits on the owner; remove the bullet: {item.text[:80]}")
-        elif runtime_folder in "/" + item.source + "/" or re.search(r"\bmigrations?\b", item.text, re.I):
+        if runtime_folder in "/" + item.source + "/" or re.search(r"\bmigrations?\b", item.text, re.I):
             out.append(f"CURRENT.md: Needs you holds a note about the brain itself; it belongs in the Sleep Log: {item.text[:80]}")
     return out
 
@@ -530,24 +530,28 @@ def task_states_by_id(vault: Vault) -> dict[str, str]:
     return states
 
 
-# A task's Next, Status, Blockers, Ask and Why are what its owner reads in their app. These mark text written in the
+# A task's current fields and linked question are what its owner reads in their app. These mark text written in the
 # engine's terms instead: the word "maintainer", code, a command, a file path or a raw message id.
 ENGINE_TEXT = re.compile(r"\bmaintainer\b|`[^`]+`|\bbrain \w+|(?:^|[\s(])(?:~|\.{0,2})/[\w.-]+/|\b[\w-]+\.(?:md|json|toml|py|sh|log)\b|\b\d{9,}\b", re.I)
-OWNER_FIELDS = ("Next", "Status", "Blockers", "Ask", "Why")
+OWNER_FIELDS = ("Next", "Status", "Blockers")
 
 
 def owner_facing_tasks(vault: Vault) -> list[str]:
     """An open task's fields are read by its owner in their app; one written in the engine's terms is named, so the agent
     says what it means for the owner and keeps the detail in the task's evidence note."""
     from .tasks import is_open, load_tasks
+    from . import needs
     if not (vault.root / vault.config.agent("Tasks.md")).exists():
         return []
     out = []
     for task in load_tasks(vault.config)[0]:
         if not is_open(task):
             continue
-        for name in OWNER_FIELDS:
-            text = fm.field(task.body, name)
+        question = needs.task_ask(vault, task.tid)
+        fields = [(name, fm.field(task.body, name)) for name in OWNER_FIELDS]
+        if question:
+            fields.extend((("Ask", question.text), ("Why", question.detail)))
+        for name, text in fields:
             if text and ENGINE_TEXT.search(text):
                 out.append(f"{task.tid}: its {name} is written in the engine's terms, not for its owner; say what it means for them, the detail in its evidence note: {text[:80]}")
     return out

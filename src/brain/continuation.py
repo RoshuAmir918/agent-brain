@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import fm, journal, needs, runtime, tasks
+from . import fm, needs, runtime, tasks
 from .config import DAILY_CHUNKS, Config
 from .lock import vault_lock
 
@@ -230,7 +230,8 @@ def status(config: Config, task, done: int, limit: int | None, due: bool) -> str
     if resume_at and resume_at > now:
         return f"Resting until {resume_at}" + (f"; blocked: {fm.field(task.body, 'Blocker', 'Blockers')}" if task.task_state == "blocked" else "")
     if task.task_state == "waiting_for_owner":
-        return f"Waiting on the owner: {fm.field(task.body, 'Ask') or 'their answer'}"
+        question = needs.task_ask(config, task.tid)
+        return f"Waiting on the owner: {question.text if question else 'their answer'}"
     if task.task_state in tasks.RESTING:
         return f"Not worked while {task.task_state.replace('_', ' ')}"
     if daily:
@@ -454,10 +455,6 @@ def review(config: Config, tid: str, verdict: str, reason: str, *, ask: str | No
                 tasks.set_fields(config, tid, config.today(),
                                  state="waiting_for_owner" if row.get("circling") else None,
                                  values={"ask": ask})
-                # CURRENT carries the first non-blocking ask; the escalated task supplies its own question.
-                needs.settle_tasks(config, config.today(), [(tid, task.body)], "replaced by the review's steering question")
-                if not row.get("circling"):
-                    journal.add_ask(config, config.today(), ask, config.agent(f"Tasks#{tid}"))
                 count = _count(row, now.date().isoformat())
                 row["budget_cap"] = {"date": now.date().isoformat(), "limit": count + max(0, limit - count) // 2}
             elif verdict == "stuck":

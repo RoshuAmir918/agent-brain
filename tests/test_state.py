@@ -389,3 +389,21 @@ def test_prepared_lists_held_unasked_drafts_with_their_offer(vault):
     ]
     reception.set_outcome(config, "agent/Prepared/2026-10-27 Renal deck", "used")
     assert [draft["id"] for draft in state.build(config, TODAY)["prepared"]] == ["cccccc"]
+
+
+
+def test_task_ask_and_why_are_exported_from_the_open_linked_ask(vault):
+    from brain import tasks
+    config = Config.load(vault)
+    task = tasks.find(config, "T-001")
+    task.body += "- **Ask:** Stale body question?\n- **Why:** Stale body reason.\n"
+    tasks.save_task(config, task, TODAY)
+    exported, = state.build(config, TODAY)["tasks"]
+    assert exported["ask"] is None and exported["why"] is None
+    note(vault, "CURRENT.md", "## Needs you\n- 2026-10-28 · ask · Use the smaller venue? · [[Trip]]\n"
+         "  - task: T-001\n  - why: The hall fits everyone.\n")
+    exported, = state.build(config, TODAY)["tasks"]
+    assert (exported["ask"], exported["why"]) == ("Use the smaller venue?", "The hall fits everyone.")
+    needs.resolve(config, "Use the smaller venue?", "yes", TODAY)
+    exported, = state.build(config, TODAY)["tasks"]
+    assert exported["ask"] is None and exported["why"] is None

@@ -359,3 +359,80 @@ def test_night_scripts_pass_yesterday_and_stage_and_do_not_upgrade(vault, tmp_pa
         assert all(f"brain {cmd}" not in script for cmd in ("update", "migrate-check", "install-skills"))
     upgrade = scripts["upgrade.sh"].read_text()
     assert upgrade.index("brain update") < upgrade.index("brain migrate-check") < upgrade.index("brain install-skills")
+
+
+@pytest.mark.parametrize("where", ["register", "warm", "archive"])
+def test_task_ask_conversion_preserves_computed_id_and_removes_fields_once(vault, monkeypatch, capsys, where):
+    from datetime import date
+    from brain import items, needs, tasks
+    config = Config.load(vault)
+    today = date(2026, 11, 11)
+    monkeypatch.setenv("BRAIN_TODAY", today.isoformat())
+    task = tasks.find(config, "T-001")
+    task.set_state("waiting_for_owner")
+    task.body = ("- **Status:** Waiting for the venue decision\n"
+                 "- **Ask:** Use the smaller venue?\n"
+                 "- **Why:** The hall fits everyone.\n"
+                 "- **Handed off:** 2026-11-10 · report in demiurge:task-thread\n"
+                 "- **Latest evidence:** 2026-11-10 — shortlist ready\n")
+    if where == "register":
+        tasks.save_task(config, task, today)
+    else:
+        tasks.write_archive(config, task, "warm" if where == "warm" else "cold", today, whole=True)
+        data, _ = fm.read(vault / "agent/Tasks.md")
+        fm.write(vault / "agent/Tasks.md", data, "# Tasks\n" + (task.render_line(config) if where == "warm" else ""))
+    old_source = "agent/Tasks.md#T-001" if where != "archive" else "agent/Tasks Archive/T-001.md"
+    old_id = needs.Item("ask", "Use the smaller venue?", "task", "2026-11-10", old_source, label=task.title).id
+    assert old_id == items.derived("task", old_source, task.title)
+    marker = vault / config.runtime_dir / "task-asks-0.171.0"
+    def installed_version(name):
+        assert marker.exists() and needs.task_ask(config, "T-001").id == old_id
+        return "0.171.0"
+    monkeypatch.setattr(install, "installed_version", installed_version)
+    monkeypatch.setattr(install, "pending_migrations", lambda config: [])
+    install.migrate_check(config)
+    question, = needs.items(config, today)
+    assert (question.id, question.text, question.detail, question.task, question.source, question.session) == (
+        old_id, "Use the smaller venue?", "The hall fits everyone.", "T-001", "agent/Tasks#T-001", "demiurge:task-thread")
+    body = tasks.find(config, "T-001").body
+    assert "**Ask:**" not in body and "**Why:**" not in body
+    assert "Waiting for the venue decision" in body and "shortlist ready" in body
+    assert f"  - id: {old_id}" in fm.read(vault / "CURRENT.md")[1]
+    assert capsys.readouterr().err.splitlines() == ["task ask: T-001: moved the question to Needs you"]
+    before = snapshot(vault)
+    install.migrate_check(config)
+    assert snapshot(vault) == before and not capsys.readouterr().err
+    task = tasks.find(config, "T-001")
+    task.body += "- **Ask:** A later legacy question?\n"
+    tasks.save_task(config, task, today)
+    install.migrate_check(config)
+    assert "**Ask:** A later legacy question?" in tasks.find(config, "T-001").body
+    assert needs.task_ask(config, "T-001").id == old_id
+
+
+@pytest.mark.parametrize("link", ["source", "same-text", "task-detail"])
+def test_task_ask_conversion_reuses_an_existing_current_bullet(vault, monkeypatch, capsys, link):
+    from datetime import date
+    from brain import needs, tasks
+    config = Config.load(vault)
+    today = date(2026, 11, 11)
+    task = tasks.find(config, "T-001")
+    task.set_state("waiting_for_owner")
+    task.body += "- **Ask:** Use the smaller venue?\n- **Why:** The task's reason.\n"
+    tasks.save_task(config, task, today)
+    source = "agent/Tasks#T-001" if link == "source" else "Trip"
+    text = "Pick the hall or the garden?" if link == "source" else "Use the smaller venue?"
+    original = (f"## Needs you\n- 2026-11-10 · ask · {text} · [[{source}]]\n"
+                "  - why: The original reason.\n  - id: 123456abcdef\n")
+    if link == "task-detail":
+        original += "  - task: T-001\n"
+    fm.write(vault / "CURRENT.md", {}, original)
+    monkeypatch.setattr(install, "pending_migrations", lambda config: [])
+    install.migrate_check(config)
+    question, = needs.items(config, today)
+    assert (question.id, question.text, question.detail, question.task, question.source) == (
+        "123456abcdef", text, "The original reason.", "T-001", source)
+    assert fm.read(vault / "CURRENT.md")[1] == original + ("  - task: T-001\n" if link != "task-detail" else "")
+    assert "**Ask:**" not in tasks.find(config, "T-001").body
+    assert "**Why:**" not in tasks.find(config, "T-001").body
+    assert capsys.readouterr().err.splitlines() == ["task ask: T-001: moved the question to Needs you"]

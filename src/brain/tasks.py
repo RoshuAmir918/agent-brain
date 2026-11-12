@@ -324,6 +324,11 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
     if "after" in values:
         validate_after(config, tid, values["after"])
     previous = replace(task, state=dict(task.state))
+    from . import needs
+    question = needs.task_ask(config, tid)
+    ask = values.get("ask", question.text if question else None) if "ask" not in clear else None
+    why = values.get("why", question.detail if question else "") if "why" not in clear else ""
+    question_fields = question is not None or "ask" in values or "ask" in clear
     before = current_words(task, config)
     if said is not None:
         said = grounded_said(config, task, said)
@@ -336,8 +341,13 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
             raise ValueError(f"{tid} was not handed off")
         task.body = PACE_LINE.sub("", HANDOFF_LINE.sub("", task.body))
         clear = [name for name in clear if name != "handoff"]
+    if question_fields and {"ask", "why"} & (set(values) | set(clear)):
+        for name in ("ask", "why"):
+            task.body = _replace_field(task.body, name, None)
     for name in dict.fromkeys([*values, *clear]):
-        if name == "morning" and name in values:
+        if question_fields and name in ("ask", "why"):
+            continue
+        elif name == "morning" and name in values:
             # A note carried to the next briefing; several may wait, and the morning removes them all with --clear.
             task.body = task.body.rstrip("\n") + f"\n- **morning:** {values[name]}\n"
         else:
@@ -356,8 +366,8 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
             raise ValueError(f"{tid} was not handed off; there is no report line to change")
     if later is not None:
         _set_later(config, task, later)
-    if (task.task_state == "waiting_for_owner" and not _owner_ask(task.body)
-            and (previous.task_state != "waiting_for_owner" or _owner_ask(previous.body))):
+    if (task.task_state == "waiting_for_owner" and not ask
+            and (previous.task_state != "waiting_for_owner" or question)):
         raise ValueError("waiting_for_owner needs the question: --ask \"…\" --why \"…\"")
     after = current_words(task, config)
     # A field written long stays long: past the limit only a person can cut the entry down, so it is refused here,
@@ -366,6 +376,18 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
         raise ValueError(f"{tid} would hold {after} words of current fields; the limit is {MAX_WORDS}. Say it shorter: "
                          "a sentence or two per field, the detail in a note linked with --evidence")
     save_task(config, task, today, previous)
+    if previous.task_state == "waiting_for_owner" and task.task_state != "waiting_for_owner":
+        return task
+    if "ask" in values:
+        from . import journal
+        journal.add_ask(config, today, ask, config.agent(f"Tasks#{tid}"), why, session=task.report or "", task=tid)
+    elif question and "ask" in clear:
+        needs.settle_tasks(config, today, [(tid, previous.body)], "the task's question was cleared")
+    elif question and ("why" in values or "why" in clear):
+        from . import items
+        path = config.vault_path / "CURRENT.md"
+        data, body = fm.read(path)
+        fm.write(path, data, items.set_details(body, "Needs you", needs.read, question.id, {"why": why}))
     return task
 
 
@@ -430,11 +452,6 @@ def grounded_said(config: Config, task: Task, said: str) -> str:
 
 def proposed_delivers(task: Task) -> bool:
     return bool(task.delivers) and task.state.get("delivers_by") == "agent"
-
-
-def _owner_ask(body: str) -> str | None:
-    match = re.search(r"^[ \t]*-[ \t]+\*\*Ask:\*\*[ \t]*(\S.*?)[ \t]*$", body, re.M)
-    return match[1] if match else None
 
 
 def next_id(config: Config) -> str:
