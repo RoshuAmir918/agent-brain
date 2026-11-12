@@ -139,3 +139,14 @@ def test_a_responsibility_names_the_fields_its_runs_read(vault):
     loaded = Vault(vault)
     [routine] = responsibilities.derive(loaded.config, responsibilities.discover(loaded)[0]).values()
     assert "`brain learn show \"Law studies\"`; read them first." in routine.prompt
+
+
+def test_a_candidate_is_promoted_with_its_second_evidence(config):
+    _, line, _ = learned.add(config, "Coding", "Dry-run parser changes on real vaults", "reflection on T-031", "2026-11-11", "candidate")
+    learned.add(config, "Coding", "No premature abstraction", "Roshan", "2026-11-04", "rule")
+    promoted = learned.promote(config, "Coding", line.id, "T-040 missed the same bug")
+    [after] = [other for other in learned.find(config, "Coding").lines if other.id == line.id]
+    assert promoted.status == after.status == "active"
+    assert after.text == "Dry-run parser changes on real vaults (reflection on T-031, 2026-11-11; T-040 missed the same bug)"
+    with pytest.raises(ValueError, match="no open candidate"):
+        learned.promote(config, "Coding", "abstraction", "again")

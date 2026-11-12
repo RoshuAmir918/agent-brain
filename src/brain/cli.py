@@ -967,6 +967,9 @@ def cmd_learn(args):
         elif args.learn_cmd == "strike":
             line = learned.strike(config, args.field, args.line, args.by or config.agent_name, args.why, today)
             print(f"struck ^{line.id}")
+        elif args.learn_cmd == "promote":
+            line = learned.promote(config, args.field, args.line, args.evidence)
+            print(f"promoted ^{line.id}")
     except ValueError as error:
         raise SystemExit(f"brain learn: {error}")
 
@@ -2191,7 +2194,7 @@ def main(argv=None):
     s = sub.add_parser("learn", help="how to do each kind of work: fields under Learned/, one line per lesson", parents=[vault])
     s.set_defaults(fn=cmd_learn, learn_cmd="fields")
     actions = s.add_subparsers(dest="learn_cmd")
-    for action in ("fields", "show", "add", "strike"):
+    for action in ("fields", "show", "add", "strike", "promote"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_learn)
         p.add_argument("--vault", default=argparse.SUPPRESS)
         if action == "show":
@@ -2207,6 +2210,9 @@ def main(argv=None):
         elif action == "strike":
             p.add_argument("field"); p.add_argument("line", help="the line's id, or words only it holds")
             p.add_argument("--why", required=True); p.add_argument("--by", help="who struck it (default you)")
+        elif action == "promote":
+            p.add_argument("field"); p.add_argument("line", help="your candidate's id, or words only it holds")
+            p.add_argument("--evidence", required=True, help="the second, independent evidence: a task, a correction, a date")
     s = sub.add_parser("roles", help="roles: templates and what each has learned (enterprise)", parents=[vault])
     s.set_defaults(fn=cmd_roles, roles_cmd=None)
     actions = s.add_subparsers(dest="roles_cmd")
