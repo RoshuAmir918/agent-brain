@@ -54,7 +54,7 @@ def test_install_scripts_copies_executable_package_resources(tmp_path, monkeypat
         (home / "scripts" / retired).write_text("exec brain continue-signal\n")
     cli.main(["install-scripts"])
     installed = sorted((home / "scripts").glob("*.sh"))
-    assert [path.name for path in installed] == ["attribution.sh", "explore-signal.sh", "export-sessions.sh", "night-after.sh", "night-before.sh", "refresh.sh", "upgrade.sh", "watch-signal.sh"]
+    assert [path.name for path in installed] == ["attribution.sh", "evening-signal.sh", "explore-signal.sh", "export-sessions.sh", "night-after.sh", "night-before.sh", "refresh.sh", "upgrade.sh", "watch-signal.sh"]
     refresh = (home / "scripts/refresh.sh").read_text()
     assert refresh.index("brain people sync --run >/dev/null 2>&1 || true") < refresh.index("brain compile-context --write")
     assert refresh.index("brain responsibility sync >/dev/null 2>&1 || true") < refresh.index("brain commit --push")

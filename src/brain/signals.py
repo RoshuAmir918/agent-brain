@@ -119,3 +119,26 @@ def explore(config: Config) -> str:
                                          "new since the last pass:", *added])}
     fm.write_text(path, json.dumps(state, ensure_ascii=False) + "\n")
     return state["text"]
+
+
+def evening(config: Config) -> str:
+    """Everything the evening decides, as one JSON, or nothing when it has nothing to decide (the run is skipped)."""
+    from . import continuation, needs, tasks, validate
+    now, today = _check(config), config.today()
+    registered, archived = tasks.load_tasks(config)
+    ask = lambda item: {"id": item.id, "since": item.since, "text": item.text, "source": item.source, "task": item.task}
+    vault = Vault(config.vault_path)
+    answered = config.vault_path / config.agent("Answered") / f"{today:%Y-%m}.md"
+    signal = {
+        "staleTasks": [{"id": task.tid, "state": task.task_state or "open", "tier": task.state.get("tier", "untiered"),
+                        "lastTouched": touched or "never", "title": task.title, "status": task.first_status() or ""}
+                       for task, touched in tasks.quiet(registered + archived, today, continuation.last_worked(config))],
+        "staleAsks": [ask(item) for item in needs.stale(config, today)],
+        "overflowAsks": [ask(item) for item in needs.overflow(config, today)],
+        "openAsks": [ask(item) for item in needs.items(vault, today) if item.kind == "ask"],
+        "needsYouProblems": validate.owner_questions(vault) + validate.needs_hygiene(vault),
+        "staleLoops": [loops.as_dict(item) for item in loops.stale(config, now)],
+        "answeredToday": [line.removeprefix("- ") for line in answered.read_text(encoding="utf-8").splitlines()
+                          if line.startswith(f"- {today.isoformat()} ")] if answered.is_file() else [],
+    }
+    return json.dumps(signal, ensure_ascii=False, indent=2) if any(signal.values()) else ""

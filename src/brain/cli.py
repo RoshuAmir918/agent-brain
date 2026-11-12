@@ -1384,8 +1384,10 @@ def cmd_handoff(args):
 def cmd_continue(args):
     from . import continuation
     try:
-        if (args.text is not None) != bool(args.checkpoint):
-            raise ValueError("--checkpoint TASK requires --text; --text goes with --checkpoint")
+        if args.checkpoint and args.text is None or args.text is not None and not (args.checkpoint or args.chunk):
+            raise ValueError("--checkpoint TASK requires --text; --text goes with --checkpoint or --chunk")
+        if args.run is not None and not args.chunk:
+            raise ValueError("--run goes with --chunk")
         if args.tid and (args.due or args.chunk or args.pace or args.checkpoint or args.engaged or args.extend
                          or args.review or args.review_context or args.wake is not None):
             raise ValueError("TASK cannot be combined with another continue mode")
@@ -1433,7 +1435,7 @@ def cmd_continue(args):
             return
         if args.chunk or args.pace or args.checkpoint:
             if args.chunk:
-                print(continuation.chunk(args.config, args.chunk))
+                print(continuation.chunk(args.config, args.chunk, args.run, args.text))
             elif args.checkpoint:
                 continuation.checkpoint(args.config, args.checkpoint, args.text)
                 print(f"{args.checkpoint} checkpoint saved")
@@ -1506,6 +1508,11 @@ def cmd_watch_signal(args):
 
 def cmd_explore_signal(args):
     print(signals.explore(args.config))
+
+
+def cmd_evening_signal(args):
+    if text := signals.evening(args.config):
+        print(text)
 
 
 def cmd_stale_tasks(args):
@@ -2361,13 +2368,17 @@ def main(argv=None):
     s.add_argument("--ask", help="with a circling review: a concrete steering question")
     s.add_argument("--resume", help="with a stuck review: computer or YYYY-MM-DD[ HH:MM], local time")
     s.add_argument("--instruction", help="with --engaged: the owner's latest words for the reviewer")
-    s.add_argument("--text", help="with --checkpoint: where the chunk stopped")
+    s.add_argument("--text", help="with --checkpoint, or --chunk to save it first: where the chunk stopped")
+    s.add_argument("--run", help="with --chunk: the worker run being counted, counted once (default: $BRAIN_RUN_ID)")
     s.add_argument("--json", action="store_true", help="due array (empty exits 0), TASK/review-context object, or woken ids (empty exits 1)")
     s.set_defaults(fn=cmd_continue)
     s = sub.add_parser("watch-signal", help="stable follow-through monitor output, without a model", parents=[vault])
     s.set_defaults(fn=cmd_watch_signal)
     s = sub.add_parser("explore-signal", help="explore's change gate: the first tick each day, then additions, without a model", parents=[vault])
     s.set_defaults(fn=cmd_explore_signal)
+    s = sub.add_parser("evening-signal", help="what the evening decides, as one JSON; nothing when there is nothing to decide",
+                       parents=[vault])
+    s.set_defaults(fn=cmd_evening_signal)
     s = sub.add_parser("stale-tasks", help="open tasks gone quiet long enough for the evening review", parents=[vault])
     s.set_defaults(fn=cmd_stale_tasks)
     s = sub.add_parser("reception", help="how each thing offered landed, and correction burden on the intellect's work",
