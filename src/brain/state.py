@@ -233,10 +233,15 @@ def _outputs(vault: Vault) -> list[dict]:
     return out
 
 
-def _prepared(vault: Vault) -> list[dict]:
+def _prepared(vault: Vault, matters: list[str]) -> list[dict]:
     """What explore made unasked and holds in Prepared, not yet used or set aside, with how its offer stands. A draft
-    made for a task is that task's output, so it shows there instead."""
+    made for a task is that task's output, so it shows there instead. Its hub is the matter that links to it, as a draft
+    is filed with a wikilink from the note it serves."""
     folder = vault.config.agent("Prepared/")
+    served = {}
+    for hub in matters:
+        for target in vault.links_in(vault.notes[hub].body):
+            served.setdefault(target, hub)
     latest = {}
     for _, row in reception.rows(vault.config):
         key = (_source(vault, row.source) or "").split("#", 1)[0].removesuffix(".md").casefold()
@@ -254,7 +259,7 @@ def _prepared(vault: Vault) -> list[dict]:
         out.append({"id": row.id, "title": str(note.data.get("index_line") or re.sub(r"^\d{4}-\d{2}-\d{2} ", "", note.stem)),
                     "source": source, "created": created.isoformat() if isinstance(created, date) else str(created),
                     "goal": note.data.get("goal") or fm.field(note.body, "Goal"), "for": str(note.data["for"]) if note.data.get("for") else None,
-                    "outcome": row.outcome})
+                    "outcome": row.outcome, "hub": served.get(source)})
     out.sort(key=lambda draft: draft["created"], reverse=True)
     return out
 
@@ -306,6 +311,12 @@ def _hub(vault: Vault, link: str) -> str:
     return (_source(vault, link) or "") if link else ""
 
 
+def _matter(source: str, matters: list[str]) -> str | None:
+    """The matter an idea came from, when it came from one: its source, a section of it included."""
+    note = source.split("#", 1)[0]
+    return note if note in matters else None
+
+
 def _engine() -> str:
     try:
         return health.installed_version("agent-brain")
@@ -343,13 +354,15 @@ def build(config: Config, today: date) -> dict:
                "at": at, "routine": row.routine, "outcome": row.outcome, "account": row.account,
                "next": row.next, "source": source}
               for at, source, _, line, row in rows if floor <= at[:10] <= today.isoformat()]
+    # A matter is a hub that is not a responsibility; what was made or thought of for one shows inside it.
+    matters = [hub["source"] for hub in hubs if hub["responsibility"] is None]
     idea = ideas.shown(config, today)
     source = _source(vault, idea.source) if idea else None
-    owner_idea = {**asdict(idea), "source": source} if source is not None else None
+    owner_idea = {**asdict(idea), "source": source, "hub": _matter(source, matters)} if source is not None else None
     if owner_idea and config.edition == "enterprise":
         owner_idea["goal"] = None
     # Every open idea, for the owner to read when they choose; Today still offers only the shown one, at its pace.
-    open_ideas = [{**asdict(item), "source": source, **({"goal": None} if config.edition == "enterprise" else {})}
+    open_ideas = [{**asdict(item), "source": source, "hub": _matter(source, matters), **({"goal": None} if config.edition == "enterprise" else {})}
                   for item in ideas.items(config, today) if (source := _source(vault, item.source)) is not None]
     version = health.git(config.vault_path, "rev-parse", "--short", "HEAD")
     if version and health.git(config.vault_path, "--no-optional-locks", "status", "--porcelain"):
@@ -358,7 +371,7 @@ def build(config: Config, today: date) -> dict:
             "goals": _goals(vault, task_entries),
             "routines": routine_entries, "ledger": recent,
             "needsYou": owner_items, "outputs": _outputs(vault),
-            "prepared": _prepared(vault),
+            "prepared": _prepared(vault, matters),
             "loops": open_loops,
             "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
             "idea": owner_idea,

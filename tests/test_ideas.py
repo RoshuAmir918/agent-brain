@@ -256,7 +256,7 @@ def test_state_exports_one_idea_with_a_normalized_source_and_withholds_private_i
     write_ideas(vault, bullet("First?") + bullet("Second?", TODAY - timedelta(days=1)))
     config = Config.load(vault)
     result = state.build(config, TODAY)
-    assert result["idea"] == asdict(ideas.shown(config, TODAY))
+    assert result["idea"] == {**asdict(ideas.shown(config, TODAY)), "hub": None}
     assert [idea["text"] for idea in result["ideas"]] == ["First?", "Second?"]
     assert result["needsYou"] == []
     ideas.respond(config, "First?", TODAY, "not-now")
@@ -269,6 +269,7 @@ def test_state_exports_one_idea_with_a_normalized_source_and_withholds_private_i
     later = TODAY + timedelta(days=1)
     result = state.build(config, later)
     assert result["idea"]["source"] == "Topic.md#Part"
+    assert result["idea"]["hub"] == "Topic.md"   # a matter's idea shows inside the matter
     assert result["idea"]["id"] == ideas.shown(config, later).id
     fm.write(vault / "Topic.md", {"tier": "private"}, "# Topic")
     assert state.build(config, later)["idea"] is None
