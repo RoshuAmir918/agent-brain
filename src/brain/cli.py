@@ -965,8 +965,12 @@ def cmd_learn(args):
             if outcome == "refused":
                 raise SystemExit(1)
         elif args.learn_cmd == "strike":
-            line = learned.strike(config, args.field, args.line, args.by or config.agent_name, args.why, today)
+            by = config.human_name if args.by_owner else args.by or config.agent_name
+            line = learned.strike(config, args.field, args.line, by, args.why, today)
             print(f"struck ^{line.id}")
+        elif args.learn_cmd == "confirm":
+            line = learned.confirm(config, args.field, args.line, args.words, today)
+            print(f"confirmed ^{line.id} as a rule")
         elif args.learn_cmd == "merge":
             note, count = learned.merge(config, args.source, args.target, today)
             print(f"merged {args.source} into {note.field}: {count} line{'s' * (count != 1)} moved")
@@ -2206,7 +2210,7 @@ def main(argv=None):
     s = sub.add_parser("learn", help="how to do each kind of work: fields under Learned/, one line per lesson", parents=[vault])
     s.set_defaults(fn=cmd_learn, learn_cmd="fields")
     actions = s.add_subparsers(dest="learn_cmd")
-    for action in ("fields", "show", "add", "strike", "promote", "account", "merge"):
+    for action in ("fields", "show", "add", "strike", "promote", "account", "merge", "confirm"):
         p = actions.add_parser(action); p.set_defaults(fn=cmd_learn)
         p.add_argument("--vault", default=argparse.SUPPRESS)
         if action == "show":
@@ -2222,6 +2226,10 @@ def main(argv=None):
         elif action == "strike":
             p.add_argument("field"); p.add_argument("line", help="the line's id, or words only it holds")
             p.add_argument("--why", required=True); p.add_argument("--by", help="who struck it (default you)")
+            p.add_argument("--by-owner", action="store_true", help="the owner struck it, from their app")
+        elif action == "confirm":
+            p.add_argument("field"); p.add_argument("line", help="the line's id, or words only it holds")
+            p.add_argument("--words", default="", help="what the owner said, if anything")
         elif action == "account":
             p.add_argument("--days", type=int, default=7)
         elif action == "merge":
