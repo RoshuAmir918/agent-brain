@@ -20,7 +20,7 @@ def _clean(text: str | None) -> str:
 
 # The record's list fields: whether an item may be a plain string, and the string keys an object item needs.
 LISTS = {"touched": (True, ()), "ready": (True, ()), "resolved": (True, ()), "workingTogether": (True, ()),
-         "noted": (True, ()), "about": (False, ("name",)), "loops": (False, ("kind", "text")), "closed": (True, ("loop", "outcome", "why"))}
+         "noted": (True, ()), "learned": (False, ("field", "claim")), "about": (False, ("name",)), "loops": (False, ("kind", "text")), "closed": (True, ("loop", "outcome", "why"))}
 
 
 def _coerce(record: dict) -> dict:
@@ -55,7 +55,8 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     vault = Vault(config.vault_path)
     ids = tuple(value for value in (user_id, user_id_alt) if value)
     # In an organisation's intellect a member is the owner of their own conversation and tasks.
-    owner = role(vault, config, platform, ids) in ("owner", "member")
+    speaker_role = role(vault, config, platform, ids)
+    owner = speaker_role in ("owner", "member")
     speaker = f"{platform}:{ids[-1]}" if ids and platform not in ("", "cli") else None
     touched = [title for title in dict.fromkeys(_clean(title) for title in record.get("touched") or [])
                if title and (target := vault.resolve(title)) and _public(vault, target)]
@@ -111,6 +112,8 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
                         session=f"{platform}:{session}" if session and ":" not in session else session, hub=hub)
     if owner:
         working_together(config, local.date(), record.get("workingTogether"))
+        if speaker_role == "owner":   # a member's lessons are theirs, not the owner's rules
+            learn(config, local.date(), record.get("learned"))
         promote_touched(config, vault, record.get("touched") or [], local.date(), speaker)
     noted(config, local, record.get("noted"), None if owner else (_clean(record.get("speaker")) or user_id or "someone"))
     access_log.append(config, record.get("access"), platform, at, user_id=user_id, user_id_alt=user_id_alt)
@@ -183,6 +186,26 @@ def working_together(config: Config, day: date, lines) -> list[str]:
             section = section.rstrip("\n") + "\n" + "\n".join(added) + "\n"
             body = body[:heading.end()] + section + ("\n" + body[end:].lstrip("\n") if body[end:].strip() else "")
             fm.write(path, data, body)
+    return added
+
+
+def learn(config: Config, day: date, entries) -> list[str]:
+    """The owner's lessons on how to do a kind of work, each a line in its field: a rule when they said it as standing,
+    an active line when the lesson was drawn from one correction. A line a field already holds, or one they struck, is
+    left as it is."""
+    from . import learned
+    added = []
+    for entry in entries or []:
+        words = _clean(entry.get("words"))[:160]
+        source = f"{config.human_name}: \"{words.replace(chr(34), chr(39))}\"" if words else config.human_name
+        try:
+            outcome, line = learned.add(config, _clean(entry["field"]), _clean(entry["claim"]), source, day.isoformat(),
+                                        "rule" if entry.get("kind") == "rule" else "active")
+        except ValueError as error:
+            print(f"skipped lesson {entry['claim']!r}: {error}", file=sys.stderr)
+            continue
+        if outcome == "added":
+            added.append(line.id)
     return added
 
 

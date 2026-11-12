@@ -945,6 +945,32 @@ def cmd_channels(args):
         print("no channels registered")
 
 
+def cmd_learn(args):
+    from . import learned
+    config, today = args.config, args.config.today().isoformat()
+    try:
+        if args.learn_cmd in (None, "fields"):
+            print("\n".join(learned.index(config)) or "No fields yet.")
+        elif args.learn_cmd == "show":
+            note = learned.find(config, args.field)
+            if note is None:
+                raise ValueError(f"no field {args.field}; see `brain learn fields`")
+            print(fm.read(note.path)[1].strip())
+        elif args.learn_cmd == "add":
+            status = "rule" if args.rule else "candidate" if args.candidate else "active"
+            applies = [word.strip() for word in (args.applies or "").split(",") if word.strip()]
+            outcome, line = learned.add(config, args.field, args.claim, args.source, args.date or today, status, applies)
+            print({"added": f"added ^{line.id}", "held": f"already held as ^{line.id}: {line.claim}",
+                   "refused": f"refused: struck as ^{line.id}: {line.text}; learn it again only from evidence dated after that"}[outcome])
+            if outcome == "refused":
+                raise SystemExit(1)
+        elif args.learn_cmd == "strike":
+            line = learned.strike(config, args.field, args.line, args.by or config.agent_name, args.why, today)
+            print(f"struck ^{line.id}")
+    except ValueError as error:
+        raise SystemExit(f"brain learn: {error}")
+
+
 def cmd_roles(args):
     """`brain roles`: the organisation's roles, their templates and what each has learned (docs/roles.md)."""
     config, action = args.config, args.roles_cmd or "list"
@@ -2149,6 +2175,25 @@ def main(argv=None):
     s.add_argument("--needs", metavar="TEXT"); s.add_argument("--answer", choices=ideas.ANSWERS)
     s.add_argument("--goal", metavar="G-n")
     s.set_defaults(fn=cmd_ideas)
+    s = sub.add_parser("learn", help="how to do each kind of work: fields under Learned/, one line per lesson", parents=[vault])
+    s.set_defaults(fn=cmd_learn, learn_cmd="fields")
+    actions = s.add_subparsers(dest="learn_cmd")
+    for action in ("fields", "show", "add", "strike"):
+        p = actions.add_parser(action); p.set_defaults(fn=cmd_learn)
+        p.add_argument("--vault", default=argparse.SUPPRESS)
+        if action == "show":
+            p.add_argument("field")
+        elif action == "add":
+            p.add_argument("--field", required=True); p.add_argument("--claim", required=True, help="how to act, in a line")
+            p.add_argument("--source", required=True, help="where it was learned: the owner's words, or reflection on T-nnn")
+            status = p.add_mutually_exclusive_group()
+            status.add_argument("--rule", action="store_true", help="the owner said it as a standing rule")
+            status.add_argument("--candidate", action="store_true", help="your own conclusion, until evidence confirms it")
+            p.add_argument("--applies", help="comma-separated words that mark work in this field")
+            p.add_argument("--date", metavar="YYYY-MM-DD", help="when it was learned (default today)")
+        elif action == "strike":
+            p.add_argument("field"); p.add_argument("line", help="the line's id, or words only it holds")
+            p.add_argument("--why", required=True); p.add_argument("--by", help="who struck it (default you)")
     s = sub.add_parser("roles", help="roles: templates and what each has learned (enterprise)", parents=[vault])
     s.set_defaults(fn=cmd_roles, roles_cmd=None)
     actions = s.add_subparsers(dest="roles_cmd")
