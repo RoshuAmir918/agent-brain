@@ -5,6 +5,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import json
+import os
 import re
 import subprocess
 from contextlib import contextmanager
@@ -223,8 +224,11 @@ def status(config: Config, task, done: int, limit: int | None, due: bool) -> str
     resume_at = (task.resume if " " in task.resume else task.resume + " 00:00") if task.resume and task.resume != "computer" else None
     daily = tasks.pace(task) == "daily"
     if due:
-        return ("Due now: a background worker runs its daily chunk next" if daily else
-                f"Due now: a background worker picks it up next; {max(0, limit - done)} of {limit} chunks left today")
+        if daily:
+            return "Due now: a background worker runs its daily chunk next"
+        left = max(0, limit - done)
+        return (f"Due now: a background worker picks it up next; {left} of {limit} chunks left today"
+                + ("; this is the last one today" if left == 1 and limit >= config.daily_chunks else ""))
     if task.resume == "computer":
         return "Resting until the owner's computer is back"
     if resume_at and resume_at > now:
@@ -357,7 +361,8 @@ def stages_text(earlier: list[dict]) -> str | None:
 
 def instructions(config: Config, task: tasks.Task, earlier: list[dict] | None = None) -> str | None:
     checkpoint = checkpoint_text(task.tid)
-    close = _progress(config).get(task.tid, {}).get("close_out")
+    row = _progress(config).get(task.tid, {})
+    close = row.get("close_out")
     parts = []
     if close and tasks.is_open(task):
         prefix = (f"The reviewer judged the Delivers met ({close['reason']}). This chunk closes the task: "
@@ -365,6 +370,8 @@ def instructions(config: Config, task: tasks.Task, earlier: list[dict] | None = 
                   f"with the evidence and tell {config.human_name} once where the task reports, or, if it is not "
                   f"actually met, say precisely what is missing with `brain task {task.tid} set --next …`.")
         parts.append(prefix)
+    if row.get("notice"):
+        parts.append(f"When the last chunk was counted: {row['notice']}.")
     if block := stages_text(stages(config, task) if earlier is None else earlier):
         parts.append(block)
     if checkpoint:
@@ -497,10 +504,14 @@ def checkpoint(config: Config, tid: str, text: str) -> None:
     with vault_lock(config):
         if tasks.find(config, tid, archived_closed=True) is None:
             raise ValueError(f"unknown task: {tid}")
-        folder = runtime.home() / "records" / "continue" / "tasks"
-        folder.mkdir(parents=True, exist_ok=True)
-        fm.write_text(folder / f"{tid}.json",
-                      json.dumps({"task": tid, "at": config.local().isoformat(), "text": text}, ensure_ascii=False) + "\n")
+        _save_checkpoint(config, tid, text)
+
+
+def _save_checkpoint(config: Config, tid: str, text: str) -> None:
+    folder = runtime.home() / "records" / "continue" / "tasks"
+    folder.mkdir(parents=True, exist_ok=True)
+    fm.write_text(folder / f"{tid}.json",
+                  json.dumps({"task": tid, "at": config.local().isoformat(), "text": text}, ensure_ascii=False) + "\n")
 
 
 def _checkpoint(tid: str) -> dict | None:
@@ -518,14 +529,21 @@ def checkpoint_text(tid: str) -> str | None:
     return row["text"] if row else None
 
 
-def chunk(config: Config, tid: str) -> str:
-    """Record a baseline or one chunk; saved work and resting or closed transitions count."""
+def chunk(config: Config, tid: str, run: str | None = None, text: str | None = None) -> str:
+    """Record a baseline or one chunk; saved work and resting or closed transitions count. `text` is saved as the
+    checkpoint first. A run is counted once: the harness counts every worker run it finishes, and an older continue
+    skill has the agent count the same run itself (BRAIN_RUN_ID in its environment)."""
+    run = run or os.environ.get("BRAIN_RUN_ID", "").strip() or None
     with vault_lock(config):
         task = _task(config, tid)
         if runtime.configured() is None:
             return f"{tid} progress not recorded: AGENT_HOME is not set"
         with _progress_records(config) as rows:
             previous = rows.get(tid)
+            if run and (previous or {}).get("run") == run:
+                return f"{tid} chunk already counted for this run"
+            if text and text.strip():
+                _save_checkpoint(config, tid, text.strip())
             now = config.local()
             day = now.date().isoformat()
             count = _count(previous or {}, day) + 1
@@ -534,6 +552,9 @@ def chunk(config: Config, tid: str) -> str:
                        "chunks": {"date": day, "count": count},
                        "chunks_since_review": (previous or {}).get("chunks_since_review", 0) + 1}
             current.pop("close_out", None)   # one counted chunk gets the close-out instruction
+            current.pop("notice", None)
+            if run:
+                current["run"] = run
             if previous is None or "state" not in previous:
                 message = f"{tid} baseline stored: 0 quiet chunks"
             else:
@@ -556,6 +577,7 @@ def chunk(config: Config, tid: str) -> str:
                     # The worker made something the runtime would not save: fixing that is the next chunk, not quiet.
                     current["quiet"] = previous.get("quiet", 0)
                     message = f"{tid} work not saved: refused ({refused}); remove it and save again"
+                    current["notice"] = message
                 else:
                     # An owner promotion starts a fresh run of regular chunks.
                     promoted = previous.get("pace") == "daily" and tasks.pace(task) == "regular"
@@ -563,6 +585,7 @@ def chunk(config: Config, tid: str) -> str:
                     if current["quiet"] >= 3 and tasks.pace(task) == "regular":
                         task = tasks.set_pace(config, tid, "daily", now.date())
                         message = f"{tid} moved to daily: 3 chunks without progress"
+                        current["notice"] = message
                     else:
                         message = f"{tid} no progress: {current['quiet']} quiet chunks; pace {tasks.pace(task)}"
             current["pace"] = tasks.pace(task)
