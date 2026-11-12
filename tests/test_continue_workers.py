@@ -56,6 +56,35 @@ def test_checkpoint_atomic_per_task_and_visible_in_due(worker, capsys):
     assert not (home / "records/continue/progress.json").exists()
 
 
+def test_a_run_is_counted_once_and_its_text_is_the_checkpoint(worker, capsys, monkeypatch):
+    config, home, clock = worker
+    cli(config, capsys, "--chunk", "T-001")
+    # An older skill has the agent count its own run; the harness then counts the same run with --run.
+    monkeypatch.setenv("BRAIN_RUN_ID", "task-T-001-run-1")
+    cli(config, capsys, "--chunk", "T-001")
+    monkeypatch.delenv("BRAIN_RUN_ID")
+    assert cli(config, capsys, "--chunk", "T-001", "--run", "task-T-001-run-1", "--text", "Ignored") == \
+        "T-001 chunk already counted for this run"
+    assert row(config, home)["chunks"]["count"] == 2 and continuation.checkpoint_text("T-001") is None
+    clock[0] += timedelta(minutes=5)
+    cli(config, capsys, "--chunk", "T-001", "--run", "task-T-001-run-2", "--text", "Chapter 2 done.\nChapter 3 next.")
+    saved = row(config, home)
+    assert saved["chunks"]["count"] == 3 and saved["run"] == "task-T-001-run-2"
+    assert continuation.checkpoint_text("T-001") == "Chapter 2 done.\nChapter 3 next."
+    assert saved["results"][-1]["text"] == "Chapter 2 done.\nChapter 3 next."
+    with pytest.raises(SystemExit):
+        cli(config, capsys, "--run", "x", "--due")
+
+
+def test_the_next_chunk_hears_what_counting_the_last_one_found(worker, capsys):
+    config, home, clock = worker
+    for _ in range(4):
+        cli(config, capsys, "--chunk", "T-001")
+    assert "When the last chunk was counted: T-001 moved to daily: 3 chunks without progress." in cli(config, capsys, "T-001")
+    cli(config, capsys, "--chunk", "T-001")
+    assert "When the last chunk was counted" not in cli(config, capsys, "T-001")
+
+
 @pytest.mark.parametrize("args,runtime", [
     (("--checkpoint", "T-001"), True), (("--text", "orphan"), True),
     (("--checkpoint", "T-001", "--text", "x", "--json"), True),
@@ -256,7 +285,7 @@ def test_one_task_says_whether_it_is_worked_and_why_not(worker, capsys, monkeypa
     monkeypatch.setenv("BRAIN_DAILY_CHUNKS", "1")
     config = Config.load(config.vault_path)
     status = lambda: json.loads(cli(config, capsys, "T-001", "--json"))["status"]
-    assert status() == "Due now: a background worker picks it up next; 1 of 1 chunks left today"
+    assert status() == "Due now: a background worker picks it up next; 1 of 1 chunks left today; this is the last one today"
     cli(config, capsys, "--chunk", "T-001")
     assert status().startswith("Resting until midnight: today's 1 chunks are used.")
     assert "--extend T-001" in status() and cli(config, capsys, "T-001").endswith(f"Status: {status()}.")

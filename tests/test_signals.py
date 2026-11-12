@@ -418,3 +418,21 @@ def test_explore_finds_a_resumed_thread_retries_a_failure_and_ignores_empty_cale
     from brain import compile_context
     monkeypatch.setattr(compile_context, "upcoming", lambda vault: "## Calendar\n- Nothing on the calendar for the next 7 days.\n- Note: x.")
     assert signals.explore(config) == third
+
+
+def test_evening_signal_lists_what_the_evening_decides_and_nothing_when_quiet(monitor, capsys):
+    config, home, clock = monitor
+    from brain import journal
+    signal = json.loads(run(capsys, config, "evening-signal"))
+    assert [task["id"] for task in signal["staleTasks"]] == ["T-001"]
+    assert {key for key, value in signal.items() if value} == {"staleTasks"}
+    tasks.set_fields(config, "T-001", config.today(), state="set_aside")
+    assert run(capsys, config, "evening-signal") == ""
+    journal.add_ask(config, config.today(), "Keep the Friday call?", "CURRENT.md", why="It clashes with the trip.")
+    signal = json.loads(run(capsys, config, "evening-signal"))
+    assert [ask["text"] for ask in signal["openAsks"]] == ["Keep the Friday call?"] and not signal["staleTasks"]
+    # What was answered today is the evening's to reflect on, even with nothing left to decide.
+    from brain import needs
+    needs.resolve(config, "Keep the Friday call?", "Sam moved the call", config.today())
+    signal = json.loads(run(capsys, config, "evening-signal"))
+    assert not signal["openAsks"] and "Keep the Friday call?" in signal["answeredToday"][0]

@@ -14,7 +14,7 @@ from brain.tasks import Task
 @pytest.fixture(autouse=True)
 def isolated_cli_env(monkeypatch):
     monkeypatch.setenv("PATH", os.path.dirname(sys.executable), prepend=os.pathsep)
-    for name in ("DEMIURGE_CONVERSATION", "DEMIURGE_TASK", "DEMIURGE_WORKERS", "BRAIN_SPEAKER", "AGENT_HOME"):
+    for name in ("DEMIURGE_CONVERSATION", "DEMIURGE_TASK", "DEMIURGE_WORKERS", "BRAIN_SPEAKER", "AGENT_HOME", "BRAIN_RUN_ID"):
         monkeypatch.delenv(name, raising=False)
 
 
