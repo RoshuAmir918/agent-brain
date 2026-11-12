@@ -15,6 +15,7 @@ MENTION_WORDS = {"line": 35, "card": 150}
 HISTORY_WORDS = 80
 PROFILE_WORD_LIMIT = 250
 STANDING_WORDS = 150   # an owner's standing directions about one person
+WORKING_WORDS = 250   # the owner's Working together, newest lines kept: the skills keep the section under this
 SHARED_WORDS = 1500   # open work shared with an intellect, with its hub: the migration hub that settled a Nov 8 ask ran 1,200
 TELLABLE_HEADING = "What you may tell {name} about {owner}, and nothing else:"
 RECALL_HEADER = "Vault notes that match this message (names and index lines; open one only if what is loaded does not answer):"
@@ -210,6 +211,16 @@ def advocate_rule(config: Config) -> str:
             f"at hand.")
 
 
+def newest(section: str, limit: int) -> str:
+    """A dated section within `limit` words, keeping its heading and dropping its oldest lines first: new corrections
+    are appended last, so a cut from the end would lose the newest one."""
+    lines = section.splitlines()
+    head, rest = lines[:1], lines[1:]
+    while rest and len(" ".join(head + rest).split()) > limit:
+        rest.pop(0)
+    return "\n".join(head + rest)
+
+
 def profile_section(body: str, title: str) -> str:
     """A profile's `## title` section with its heading, up to the next heading; empty when it is missing or bare."""
     heading = re.search(r"^##[ \t]+" + title + r"\b[^\n]*$", body, re.M)
@@ -239,7 +250,7 @@ def owner_card(vault: Vault, config: Config) -> str:
     portrait = (vault.root / config.human_portrait).is_file()   # the portrait, in the session context, holds the impression now
     for title in ("Working together",) + (() if portrait else ("Impression",)):
         if section := profile_section(note.body, title):
-            parts.append(section)
+            parts.append(newest(section, WORKING_WORDS) if title == "Working together" else section)
     reach = [f"{row.channel} ({row.whose}" + (f", {row.identity}" if row.identity else "") + ")"
              + (f": read {row.read}" if row.read else "") + (f"; write {row.write}" if row.write else "")
              for row in registry.live(registry.load(vault))]

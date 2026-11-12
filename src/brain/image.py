@@ -124,19 +124,23 @@ def compile(config: Config) -> int | None:
     order = {confidence: i for i, confidence in enumerate(CONFIDENCES)}
     whole = overview(config)
     out, count = (["# Portrait", "", f"## {SKETCH}", whole] if whole else ["# Portrait"]), 0
-    for section in SECTIONS:
+    picked: dict[str, list[str]] = {}
+    # Not is chosen first, though it reads last: what not to draw on must survive the word cap.
+    for section in ("Not", *(name for name in SECTIONS if name != "Not")):
         pool = sorted((line for facet in found for line in facet.lines if line.section == section and line.id),
                       key=lambda line: (line.rank, rank[line.facet], order.get(line.confidence, len(order))))
-        chosen: list[str] = []
+        chosen = picked[section] = []
         for line in pool:
             if len(chosen) == SECTION_LINES:
                 break
             block = render(line, link[line.facet])
-            if len("\n".join([*out, f"## {section}", *chosen, block]).split()) <= WORDS:
+            taken = [text for name in picked for text in (f"## {name}", *picked[name])]
+            if len("\n".join([*out, *taken, block]).split()) <= WORDS:
                 chosen.append(block)
-        if chosen:
-            out += ["", f"## {heading(config, section)}", *chosen]
-            count += len(chosen)
+    for section in SECTIONS:
+        if picked.get(section):
+            out += ["", f"## {heading(config, section)}", *picked[section]]
+            count += len(picked[section])
     new = "\n".join(out) + "\n"
     if data.get("compiled") != digest(new) or digest(body) != digest(new):
         fm.write(path, {**data, "compiled": digest(new)}, new)
