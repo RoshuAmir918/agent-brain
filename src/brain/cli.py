@@ -959,9 +959,11 @@ def cmd_learn(args):
         elif args.learn_cmd == "add":
             status = "rule" if args.rule else "candidate" if args.candidate else "active"
             applies = [word.strip() for word in (args.applies or "").split(",") if word.strip()]
-            outcome, line = learned.add(config, args.field, args.claim, args.source, args.date or today, status, applies)
+            outcome, line, near = learned.add(config, args.field, args.claim, args.source, args.date or today, status, applies)
             print({"added": f"added ^{line.id}", "held": f"already held as ^{line.id}: {line.claim}",
                    "refused": f"refused: struck as ^{line.id}: {line.text}; learn it again only from evidence dated after that"}[outcome])
+            for other in near:
+                print(f"close to ^{other.id}: {other.claim}; strike it if the new line replaces it")
             if outcome == "refused":
                 raise SystemExit(1)
         elif args.learn_cmd == "strike":

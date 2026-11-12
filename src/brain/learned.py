@@ -13,7 +13,7 @@ from .lock import vault_lock
 from .roles import LESSON, NAME, SOURCES, STATUS, STRUCK, _words, line_id
 
 FOLDER = "Learned"
-OVERLAP = 0.8   # roles.refusal's: at this share of words in common, two claims say the same thing
+OVERLAP = 0.8   # roles.refusal's share of words in common; it cannot tell a claim from its reversal, so it only flags
 STRUCK_BY = re.compile(r"; struck by (?P<by>.+?) (?P<at>\d{4}-\d{2}-\d{2})\b")
 
 
@@ -90,16 +90,23 @@ def find(config: Config, name: str) -> Note | None:
     return next((note for note in notes(config) if note.field.casefold() == name.strip().casefold()), None)
 
 
-def same(a: str, b: str) -> bool:
+def plain(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
+
+
+def close(a: str, b: str) -> bool:
+    """Most words in common: the same lesson, a refinement of it, or its reversal ("never use bullets"), which only
+    the reader can tell apart."""
     ours, theirs = _words(a), _words(b)
     return bool(ours and theirs) and len(ours & theirs) / len(ours | theirs) >= OVERLAP
 
 
 def add(config: Config, name: str, claim: str, source: str, day: str, status: str = "active",
-        applies: list[str] | None = None) -> tuple[str, Line]:
-    """Learn one line in a field, making the field when it is new. Returns what happened and the line: `added`, `held`
-    (a line already says it, returned instead) or `refused` (the owner struck one like it, and the evidence is no newer
-    than the strike)."""
+        applies: list[str] | None = None) -> tuple[str, Line, list[Line]]:
+    """Learn one line in a field, making the field when it is new. Returns what happened, the line, and the field's
+    lines close to it, for the writer to strike any the new one replaces. What happened is `added`, `held` (a line
+    already says it in the same words, returned instead) or `refused` (your own candidate, close to a line someone struck,
+    with no evidence newer than the strike). The owner's words are never refused: a reversal looks like what it reverses."""
     claim, source = " ".join(claim.split()), " ".join(source.replace("(", "").replace(")", "").split())
     if not claim or not source:
         raise ValueError("a line needs a claim and its source")
@@ -116,10 +123,12 @@ def add(config: Config, name: str, claim: str, source: str, day: str, status: st
                             "applies": list(applies or [path.stem.casefold()]), "hubs": []},
                      f"# {path.stem}\n\n## {STRUCK}\n")
             note = read(path)
-        if struck := next((line for line in note.struck if same(line.claim, claim) and day <= line.struck_at), None):
-            return "refused", struck
-        if held := next((line for line in note.lines if same(line.claim, claim)), None):
-            return "held", held
+        if status == "candidate" and (struck := next((line for line in note.struck
+                                                      if close(line.claim, claim) and day <= line.struck_at), None)):
+            return "refused", struck, []
+        if held := next((line for line in note.lines if plain(line.claim) == plain(claim)), None):
+            return "held", held, []
+        near = [line for line in note.lines if close(line.claim, claim)]
         data, body = fm.read(path)
         if applies:
             data["applies"] = list(dict.fromkeys([*_strings(data.get("applies")), *applies]))
@@ -132,7 +141,7 @@ def add(config: Config, name: str, claim: str, source: str, day: str, status: st
         before += "\n\n" if before.rsplit("\n", 1)[-1].startswith("#") else "\n"
         body = f"{before}- {text} ^{ident}\n\n{body[heading:]}" if span else f"{before}- {text} ^{ident}\n"
         fm.write(path, data, body)
-        return "added", Line(ident, text, status)
+        return "added", Line(ident, text, status), near
 
 
 def strike(config: Config, name: str, which: str, by: str, why: str, day: str) -> Line:

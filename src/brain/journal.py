@@ -199,7 +199,7 @@ def learn(config: Config, day: date, entries) -> list[str]:
         words = _clean(entry.get("words"))[:160]
         source = f"{config.human_name}: \"{words.replace(chr(34), chr(39))}\"" if words else config.human_name
         try:
-            outcome, line = learned.add(config, _clean(entry["field"]), _clean(entry["claim"]), source, day.isoformat(),
+            outcome, line, _ = learned.add(config, _clean(entry["field"]), _clean(entry["claim"]), source, day.isoformat(),
                                         "rule" if entry.get("kind") == "rule" else "active")
         except ValueError as error:
             print(f"skipped lesson {entry['claim']!r}: {error}", file=sys.stderr)
