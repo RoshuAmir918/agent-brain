@@ -26,25 +26,25 @@ def test_a_new_field_is_made_and_a_rule_reads_back_first_in_the_index(config):
     assert learned.index(config) == ["- Coding · 2 lines · Extend the closest existing pattern"]
 
 
-def test_a_claim_a_field_already_holds_is_held_not_added_twice(config):
-    _, first = learned.add(config, "Coding", "Extend the closest existing pattern first", "Roshan", "2026-11-04")
-    outcome, line = learned.add(config, "Coding", "extend the closest existing pattern, first", "Roshan", "2026-11-05")
+def test_a_claim_a_field_holds_in_the_same_words_is_held_not_added_twice(config):
+    _, first, _ = learned.add(config, "Coding", "Extend the closest existing pattern first", "Roshan", "2026-11-04")
+    outcome, line, _ = learned.add(config, "Coding", "extend the closest existing pattern, first", "Roshan", "2026-11-05")
     assert (outcome, line.id) == ("held", first.id)
     assert len(learned.find(config, "Coding").lines) == 1
 
 
 def test_a_struck_line_is_refused_until_newer_evidence(config):
-    _, line = learned.add(config, "Coding", "Prefer one big PR for related changes", "reflection", "2026-11-06", "candidate")
+    _, line, _ = learned.add(config, "Coding", "Prefer one big PR for related changes", "reflection", "2026-11-06", "candidate")
     learned.strike(config, "Coding", line.id, "Roshan", "one concern per PR (always)", "2026-11-07")
     note = learned.find(config, "Coding")
     assert not note.lines and note.struck[0].struck_at == "2026-11-07"
     assert "; struck by Roshan 2026-11-07: \"one concern per PR always\")" in note.struck[0].text
-    assert learned.add(config, "Coding", "Prefer one big PR for related changes", "reflection", "2026-11-07")[0] == "refused"
-    assert learned.add(config, "Coding", "Prefer one big PR for related changes", "Roshan", "2026-11-09")[0] == "added"
+    assert learned.add(config, "Coding", "Prefer one big PR for related changes", "reflection", "2026-11-07", "candidate")[0] == "refused"
+    assert learned.add(config, "Coding", "Prefer one big PR for related changes", "reflection", "2026-11-09", "candidate")[0] == "added"
 
 
 def test_only_the_owner_strikes_a_rule(config):
-    _, line = learned.add(config, "Coding", "No premature abstraction", config.human_name, "2026-11-04", "rule")
+    _, line, _ = learned.add(config, "Coding", "No premature abstraction", config.human_name, "2026-11-04", "rule")
     with pytest.raises(ValueError, match="only they strike it"):
         learned.strike(config, "Coding", line.id, config.agent_name, "seems wrong", "2026-11-05")
     learned.strike(config, "Coding", "premature", config.human_name, "changed my mind", "2026-11-05")
@@ -68,14 +68,14 @@ def test_the_record_writes_the_owners_lessons_and_ignores_anyone_elses(config):
 
 
 def test_a_strike_lands_in_struck_even_when_a_section_follows_it(config):
-    _, line = learned.add(config, "Coding", "Prefer one big PR", "reflection", "2026-11-06", "candidate")
+    _, line, _ = learned.add(config, "Coding", "Prefer one big PR", "reflection", "2026-11-06", "candidate")
     note = learned.find(config, "Coding")
     data, body = fm.read(note.path)
     fm.write(note.path, data, body + "\n## Notes\nFree text.\n")
     learned.strike(config, "Coding", line.id, "Roshan", "one concern per PR", "2026-11-07")
     note = learned.find(config, "Coding")
     assert not note.lines and [struck.id for struck in note.struck] == [line.id]
-    assert learned.add(config, "Coding", "Prefer one big PR", "reflection", "2026-11-07")[0] == "refused"
+    assert learned.add(config, "Coding", "Prefer one big PR", "reflection", "2026-11-07", "candidate")[0] == "refused"
 
 
 def test_a_field_with_broken_frontmatter_is_never_overwritten(config):
@@ -92,3 +92,12 @@ def test_a_line_with_only_a_status_marker_has_no_source(config):
     folder.mkdir(parents=True)
     fm.write(folder / "Coding.md", {"kind": "learned", "field": "Coding", "tier": "warm"}, "# Coding\n\n- Claim *(rule)* ^abcd\n")
     assert learned.problems(config) == ["agent/Learned/Coding.md: ^abcd has no source; end it with (where it was learned, date)"]
+
+
+def test_a_reversal_is_added_and_flagged_never_held_or_refused(config):
+    _, original, _ = learned.add(config, "Writing", "Use bullet points in summaries for Arslan", "Arslan", "2026-11-04", "rule")
+    outcome, line, near = learned.add(config, "Writing", "Never use bullet points in summaries for Arslan", "Arslan",
+                                      "2026-11-05", "rule")
+    assert outcome == "added" and [other.id for other in near] == [original.id]
+    learned.strike(config, "Writing", original.id, config.human_name, "reversed", "2026-11-05")
+    assert learned.add(config, "Writing", "Use bullet points in summaries for Arslan", "Arslan", "2026-11-05")[0] == "added"
