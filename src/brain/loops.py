@@ -196,7 +196,9 @@ def render(item: Item) -> str:
 def as_dict(item: Item) -> dict:
     out = {"id": item.id, "kind": item.kind, "text": item.text, "with": item.with_, "due": item.due,
            "since": item.since, "source": item.source, "ready": item.ready, "task": item.task,
-           "wake": item.wake, "if": item.if_, "hub": item.hub}
+           "wake": item.wake, "if": item.if_, "hub": item.hub,
+           # who it waits on: a wait's counterpart; a promise, a debt or a when waits on the intellect itself
+           "on": item.with_ if item.kind == "waiting" else ""}
     if item.closed:
         out.update(closed=item.closed, outcome=item.outcome, because=item.because)
     return out

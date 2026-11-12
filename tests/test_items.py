@@ -98,3 +98,13 @@ def test_asks_confirms_and_ideas_are_written_with_when_they_act(config):
     reword(path, "  - wake: 2026-11-02", "  - wake: 2026-11-09")   # a confirm given longer by hand waits longer
     assert needs.expire_confirms(config, date(2026, 11, 8)) == []
     assert needs.expire_confirms(config, date(2026, 11, 9)) == ["Moved the dentist to Friday."]
+
+
+def test_every_item_says_who_it_waits_on(config):
+    loops.add(config, AT, "waiting", "Kevin's answer on the venue", "Trip", "Kevin")
+    loops.add(config, AT, "promised", "Send the link", "Trip", "Kevin")
+    journal.add_ask(config, TODAY, "Book the hotel?", "Trip")
+    ideas.add(config, TODAY, "A packing list", "Trip")
+    assert [loops.as_dict(loop)["on"] for loop in loops.open_loops(config)] == ["Kevin", ""]
+    assert [item.on for item in needs.items(config, TODAY)] == ["owner"]
+    assert [idea.on for idea in ideas._open(config, TODAY)] == ["owner"]
