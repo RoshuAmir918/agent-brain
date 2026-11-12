@@ -67,24 +67,6 @@ def section(body: str, title: str) -> tuple[int, int] | None:
     return heading.end(), following.start() if following else len(body)
 
 
-def without(body: str, span: tuple[int, int], drop, *, bullet, detail: re.Pattern) -> tuple[str, list]:
-    """The section's lines without the bullets `drop(item)` selects and their indented detail lines. `bullet` parses a
-    line into an item or None; `detail` matches an indented line belonging to the bullet above it."""
-    kept, removed, dropping = [], [], False
-    for line in body[span[0]:span[1]].splitlines(keepends=True):
-        if detail.match(line.rstrip("\r\n")):
-            if not dropping:
-                kept.append(line)
-            continue
-        item = bullet(line)
-        dropping = bool(item and drop(item))
-        if dropping:
-            removed.append(item)
-        else:
-            kept.append(line)
-    return body[:span[0]] + "".join(kept) + body[span[1]:], removed
-
-
 def plain(text: str) -> str:
     """Case- and whitespace-insensitive form, for matching an item by its words."""
     return " ".join(text.casefold().split())

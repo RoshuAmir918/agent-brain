@@ -1,14 +1,13 @@
 """The owner's computed queue: current asks, waiting tasks and access requests."""
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import InitVar, dataclass, field
 from datetime import date
 from pathlib import PurePosixPath
 
 from . import access, access_log, fm, tasks as task_mod
+from . import items as grammar
 from .config import Config
 from .tasks import archive_path, load_tasks
 from .vault import Vault
@@ -49,8 +48,7 @@ class Item:
     away: str = ""    # the last local date of their current absence, else empty
 
     def __post_init__(self, label: str | None) -> None:
-        key = json.dumps([self.origin, self.source, label if label is not None else self.text], ensure_ascii=False)
-        self.id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+        self.id = grammar.derived(self.origin, self.source, label if label is not None else self.text)
         self.task = task_of(self.source) or ""
 
 
@@ -85,23 +83,19 @@ def _bullet(line: str) -> Item | None:
     return Item(kind, text, "current", since, source)
 
 
-WHY = re.compile(r"^[ \t]+-[ \t]+(why|session):[ \t]*(.+?)[ \t]*$")   # an indented line under a bullet: why it needs the owner, or where it was asked
+def read(block: grammar.Block) -> Item | None:
+    """A Needs you bullet with its `why` lines (joined, cut to WHY_WORDS) and the session it was asked in."""
+    item = _bullet(block.line)
+    if item is None:
+        return None
+    why = " ".join(value for name, value in block.details if name == "why" and value)
+    item.detail = fm.cut(why, WHY_WORDS)
+    item.session = block.get("session") or ""
+    return item
 
 
 def parse_section(body: str) -> list[Item]:
-    span = fm.section(body, "Needs you")
-    if span is None:
-        return []
-    out = []
-    for line in body[span[0]:span[1]].splitlines():
-        why = WHY.match(line)
-        if why and out and why[1] == "session":
-            out[-1].session = why[2]
-        elif why and out:
-            out[-1].detail = fm.cut((out[-1].detail + " " + why[2]).strip(), WHY_WORDS)
-        elif (item := _bullet(line)) is not None:
-            out.append(item)
-    return out
+    return grammar.parse(body, "Needs you", read)
 
 
 STATUS_FIELD = re.compile(r"^[ \t]*-[ \t]+\*\*Status:\*\*[ \t]*([^\r\n]*)", re.M | re.I)
@@ -204,8 +198,7 @@ def _access_items(vault: Vault, config: Config, today: date) -> list[Item]:
         text = (f"{name} asked {entry.asked.rstrip('.?!')}. "
                 f"Let {audience} see your {entry.subject} from now on?")
         item = Item("ask", text, "access", entry.when[:10], entry.source)
-        key = json.dumps(["access", *pair], ensure_ascii=False)
-        item.id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+        item.id = grammar.derived("access", *pair)
         out.append(item)
     return out
 
@@ -292,10 +285,7 @@ def _prune(config: Config, drop) -> list[Item]:
     if not path.exists():
         return []
     body = path.read_bytes().decode("utf-8")
-    span = fm.section(body, "Needs you")
-    if span is None:
-        return []
-    new, removed = fm.without(body, span, drop, bullet=_bullet, detail=WHY)
+    new, removed = grammar.without(body, "Needs you", read, drop)
     if removed:
         fm.write_text(path, new)
     return removed
@@ -323,16 +313,8 @@ def _pick(config: Config, which: str, today: date, prefer_current: bool = False)
     current = Vault(config.vault_path).notes.get("CURRENT.md")
     shown = {item.id for item in candidates}
     candidates += [item for item in (parse_section(current.body) if current else []) if item.id not in shown]
-    chosen = [item for item in candidates if item.id == which]
-    if not chosen:
-        needle = " ".join(which.split()).casefold()
-        chosen = [item for item in candidates if needle and needle in item.text.casefold()]
-    if len(chosen) > 1 and prefer_current and len(narrowed := [item for item in chosen if item.origin == "current"]) == 1:
-        chosen = narrowed
-    if len(chosen) != 1:
-        raise ValueError(("no open item matches " if not chosen else f"{len(chosen)} open items match ") + repr(which)
-                         + "; use an id from `brain needs-you --json`")
-    return chosen[0]
+    narrow = (lambda chosen: [item for item in chosen if item.origin == "current"]) if prefer_current else None
+    return grammar.pick(candidates, which, "item", "brain needs-you --json", narrow=narrow)
 
 
 def _remove_bullet(config: Config, item: Item) -> None:
@@ -479,10 +461,7 @@ def vague_ask(text: str) -> str | None:
 def replace_task_asks(config: Config, body: str, tid: str, today: date) -> str:
     """CURRENT's body without the open asks that stand for `tid`, each recorded as replaced: a task carries one question
     at a time, its newest. The caller holds the vault lock and writes the body."""
-    span = fm.section(body, "Needs you")
-    if span is None:
-        return body
-    new, removed = fm.without(body, span, lambda item: item.kind == "ask" and item.task == tid, bullet=_bullet, detail=WHY)
+    new, removed = grammar.without(body, "Needs you", read, lambda item: item.kind == "ask" and item.task == tid)
     for item in removed:
         answered(config, today, _answered_line(today, item, f"a newer question about {tid} replaced it"))
     return new
