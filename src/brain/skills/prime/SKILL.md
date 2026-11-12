@@ -29,4 +29,4 @@ Work for {human_name}, including requests from another intellect or found in a c
 5. `brain compile-context --write`, record `last_run` as above, `brain commit -m "prime(<date>)" --push <the files you changed>`.
 
 ## Boundaries
-Writes only Primed, the compiled context, the prime state file, important mail facts in their owning tasks, new yours tasks for owner work. Never hubs, profiles, Triggers or CURRENT. Never copy message bodies or contact anyone from this pass.
+Writes only Primed, the compiled context, the prime state file, important mail facts in their owning tasks, new yours tasks for owner work. Never hubs, profiles, loops or CURRENT. Never copy message bodies or contact anyone from this pass.

@@ -376,8 +376,9 @@ def _deadline(config: Config, item: Item) -> datetime | None:
     A `when` loop with only a condition is never due by the clock."""
     if item.wake:
         return config.local(_time(item.wake)).astimezone(timezone.utc)
-    if item.kind == "when":
-        return config.local(_time(item.due)).astimezone(timezone.utc) if item.due else None
+    if item.kind == "when":   # a bare date acts that morning, not at midnight
+        when = item.due + " 09:00" if len(item.due) == 10 else item.due
+        return config.local(_time(when)).astimezone(timezone.utc) if item.due else None
     opened = config.local(_time(item.since)).astimezone(timezone.utc)
     hours = WAITING_HOURS if item.kind == "waiting" else STALE_HOURS
     if item.due:

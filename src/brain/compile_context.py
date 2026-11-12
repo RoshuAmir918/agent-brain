@@ -21,7 +21,7 @@ BEFORE = ("## Before answering\n\n"
           "card is not enough. Do not run retrieval the recall block already ran, and do not read a note quoted here in "
           "full. If something loaded bears on the request (a trip, a deadline, a pending decision, an offer waiting on the "
           "owner, a goal), say the connection in a sentence. A task the owner parked has no question for them. A reminder "
-          "the owner asks for is a dated Triggers row, never a Needs you line. A password, token or key pasted into a "
+          "the owner asks for is a `when` loop with its date, never a Needs you line. A password, token or key pasted into a "
           "message is never saved or used, in a file, the keychain, a command or a note, inside the vault or out: say once "
           "that it goes through the safe route your platform gives, suggest revoking the pasted one, and offer to carry on "
           "once it is there. An answer any assistant could give without "
@@ -63,7 +63,9 @@ def build(vault: Vault, only: tuple[str, ...] | None = None, *, app_changes: boo
     config = vault.config
     allowed = tuple(name for name in config.context.sections if only is None or name in only)
     named = dict(zip(("start", "current", "portrait", "primed", "goals", "triggers", "tasks"), config.context_sources))
-    optional = (config.human_portrait, config.agent("Primed.md"), config.human_goals)   # written by the agent, the night and the owner: a vault may not have them yet
+    # Written by the agent, the night and the owner, so a vault may not have them yet; Triggers is gone once its rows
+    # became when loops (0.156.0).
+    optional = (config.human_portrait, config.agent("Primed.md"), config.human_goals, config.agent("Triggers.md"))
     sources = [rel for name, rel in named.items() if name in allowed
                and (rel not in optional or (vault.root / rel).is_file())]
     header = ("Generated nightly by `brain`.\n"
@@ -83,6 +85,9 @@ def build(vault: Vault, only: tuple[str, ...] | None = None, *, app_changes: boo
             sections.append(directory(vault))
         elif name == "library":
             if block := library():
+                sections.append(block)
+        elif name == "triggers" and named[name] not in sources:
+            if block := holding(config):
                 sections.append(block)
         elif named[name] in sources:
             rel = named[name]
@@ -219,8 +224,8 @@ def directory(vault: Vault) -> str:
             hubs.append(rel[:-3])
     registered, archived = load_tasks(vault.config)
     tasks = [f"{t.tid} {t.title}" for t in registered + archived if t.state and is_open(t)]
-    _, trig = fm.read(vault.root / vault.config.agent("Triggers.md"))
-    triggers = sorted(set(re.findall(r"\bTR-\d{3}\b", trig)))
+    trig = vault.root / vault.config.agent("Triggers.md")
+    triggers = sorted(set(re.findall(r"\bTR-\d{3}\b", fm.read(trig)[1]))) if trig.is_file() else []
     selected, _, _ = index.hot_selection(vault, vault.config.context.hot_words)
     lines = ["## Directory: what the vault knows", ""]
     if selected:
