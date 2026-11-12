@@ -346,7 +346,9 @@ def test_legacy_task_sourced_answer_is_available_without_rewriting_records(worke
     path = folder / "2026-11.md"
     text = ("# Answered\n- 2026-11-06 · ask · Should the shortlist stop at three apartments?"
             " · because Yes, just three · [[agent/Tasks#T-001]]\n"
-            "- 2026-11-06 · ask · Publish all apartments? · because Yes · [[agent/Tasks#T-002]]\n")
+            "- 2026-11-06 · ask · Publish all apartments? · because Yes · [[agent/Tasks#T-002]]\n"
+            "- 2026-11-06 12:00 · loop done · owed · Send the shortlist · because Sent"
+            " · id:0123456789ab · [[agent/Tasks#T-001]]\n")
     path.write_text(text)
     assert context(config, capsys)["ownerInstruction"] == "Should the shortlist stop at three apartments? Answer: Yes, just three"
     assert path.read_text() == text

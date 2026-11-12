@@ -21,7 +21,7 @@ def config(vault):
 
 def test_parse_format_and_stable_ids():
     item = loops.Item("owed", "Relay the answer", "2026-10-28 12:00", "Trip", "Kevin", "2026-10-29 09:30")
-    body = loops.TEMPLATE + loops.render(item)  # only the Open section should be read
+    body = loops.TEMPLATE + "## Other\n" + loops.render(item)
     assert loops.parse_section(body) == []
     body = "## Open\n\n" + loops.render(item) + "\n\n## Closed\n"
     assert loops.parse_section(body) == [item]
@@ -51,7 +51,7 @@ def test_add_deduplicates_open_text_without_changing_original(config):
     assert snapshot(config.vault_path) == before
     data, body = fm.read(loops.path_for(config))
     assert data == {"kind": "orientation", "tier": "warm", "pinned": False}
-    assert body.startswith("# Loops\n") and "## Open" in body and "## Closed" in body
+    assert body.startswith("# Loops\n") and "## Open" in body and "## Closed" not in body
     [item] = loops.open_loops(config)
     assert (item.with_, item.due, item.source) == ("Kevin", "2026-10-29", "Trip")
 
@@ -149,12 +149,12 @@ def test_counterparts_match_known_people_and_intellects_once_any_are_known(confi
 
 
 @pytest.mark.parametrize("outcome", ["done", "dropped"])
-def test_close_moves_all_details_to_closed_and_allows_reopening(config, outcome):
+def test_close_logs_details_in_answered_and_allows_reopening(config, outcome):
     loops.add(config, AT, "owed", "Send answer", "Trip", "Kevin", "2026-10-29")
     [item] = loops.open_loops(config)
     closed = loops.close(config, item.id, AT + timedelta(days=1), outcome, "The reason")
     assert loops.open_loops(config) == []
-    assert loops.closed_recent(config) == [closed]
+    assert loops.closed_recent(config) == [replace(closed, wake="")]
     assert (closed.id, closed.closed, closed.outcome, closed.because) == (
         item.id, "2026-10-29 12:00", outcome, "The reason")
     assert (closed.with_, closed.due) == ("Kevin", "2026-10-29")
@@ -176,23 +176,70 @@ def test_close_by_exact_or_unique_text_and_ambiguous_text_is_refused(config):
     assert snapshot(config.vault_path) == before
 
 
-def test_closed_archives_oldest_fifty_retained_by_closing_month(config):
-    # Reopening the same text must not erase other closures with the same id.
+@pytest.mark.parametrize("kind", ["waiting", "when"])
+def test_close_writes_answered_entry_with_ordered_details_on_local_close_date(config, kind):
+    from brain import tasks
+    task = tasks.new_task(config, "Plan the trip", "asked").tid if kind == "waiting" else ""
+    condition = "Kevin confirms" if kind == "when" else ""
+    loops.add(config, AT, kind, "Send the answer", "Trip", "Kevin", "2026-11-02 09:30", task, condition)
+    [item] = loops.open_loops(config)
+    closed = loops.close(config, item.id, datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc), "dropped", "No · trip")
+    entry = (f"- 2026-10-31 23:30 · loop dropped · {kind} · Send the answer · because No - trip · id:{item.id} · [[Trip]]\n"
+             "  - since: 2026-10-28 12:00\n  - with: Kevin\n  - due: 2026-11-02 09:30\n"
+             + (f"  - if: {condition}\n" if condition else "") + (f"  - task: {task}\n" if task else ""))
+    assert (config.vault_path / config.agent("Answered/2026-10.md")).read_text() == needs.ANSWERED_HEADER + entry
+    assert loops.closed_recent(config) == [replace(closed, wake="")]
+    assert loops.open_loops(config) == [] and "## Closed" not in loops.path_for(config).read_text()
+    assert not (config.vault_path / config.agent("Answered/2026-11.md")).exists()
+    assert not (config.vault_path / config.agent("Loops")).exists()
+
+
+def test_closed_history_keeps_all_entries_and_returns_fifty_unique_recent_loops(config):
     for index in range(53):
         at = datetime(2026, 9, 30, 23, 58) + timedelta(minutes=index)
-        loops.add(config, at, "promised", "Check again", "Trip", "Kevin")
-        loops.close(config, "Check again", at, "done", f"Check {index}")
+        loops.add(config, at, "promised", f"Check {index}", "Trip", "Kevin")
+        loops.close(config, f"Check {index}", at, "done", f"Check {index}")
+    loops.add(config, at, "promised", "Check 52", "Trip", "Kevin")
+    loops.close(config, "Check 52", at + timedelta(minutes=1), "done", "Checked again")
     kept = loops.closed_recent(config)
-    assert len(kept) == 50 and kept[0].because == "Check 52" and kept[-1].because == "Check 3"
-    archives = config.vault_path / config.agent("Loops")
-    september = archives / "2026-09.md"
-    october = archives / "2026-10.md"
+    assert len(kept) == 50 and kept[0].because == "Checked again" and kept[-1].because == "Check 3"
+    assert len({item.id for item in kept}) == 50
+    september = config.vault_path / config.agent("Answered/2026-09.md")
+    october = config.vault_path / config.agent("Answered/2026-10.md")
     assert fm.read(september)[0] == {"kind": "log", "tier": "cold"}
-    archived = loops.parse_section("## Closed\n" + fm.read(september)[1], "Closed")
-    archived += loops.parse_section("## Closed\n" + fm.read(october)[1], "Closed")
-    assert [item.because for item in archived] == ["Check 0", "Check 1", "Check 2"]
-    assert all(item.with_ == "Kevin" and item.outcome == "done" for item in archived)
-    assert ledger.discover(config) == []   # loop archives are engine logs, never routine ledgers
+    assert september.read_text().count(" · loop done · ") == 2
+    assert october.read_text().count(" · loop done · ") == 52
+    assert not (config.vault_path / config.agent("Loops")).exists()
+    assert "## Closed" not in loops.path_for(config).read_text()
+    assert ledger.discover(config) == []
+
+
+def test_closed_recent_merges_answered_and_legacy_newest_first_by_stored_id(config):
+    legacy = loops.Item("owed", "Legacy answer", "2026-09-01 09:00", "Trip", "Kevin", "2026-10-01",
+                        closed="2026-10-30 10:00", outcome="done", because="Sent")
+    duplicate = loops.Item("when", "Old wording", "2026-09-02 09:00", "Trip", closed="2026-10-29 10:00",
+                           outcome="dropped", because="Old reason")
+    duplicate.id = "123456789abc"
+    path = loops.path_for(config)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(loops.TEMPLATE + "## Closed\n\n" + loops.render(legacy) + "\n\n" + loops.render(duplicate) + "\n")
+    assert loops.closed_recent(config) == [legacy, duplicate]
+    legacy_section = path.read_text().split("## Closed", 1)[1]
+    loops.add(config, AT, "promised", "New month", "Trip")
+    loops.close(config, "New month", datetime(2026, 11, 1, 9, 0), "done", "Sent")
+    needs.answered(config, date(2026, 11, 3),
+                   "- 2026-11-03 09:00 · loop dropped · when · Reworded · because New reason · id:123456789abc · [[Trip]]\n"
+                   "  - if: Kevin replies")
+    needs.answered(config, date(2026, 9, 30),
+                   "- 2026-09-30 09:00 · loop done · promised · Oldest · because Sent · id:abcdef123456 · [[Trip]]")
+    needs.answered(config, date(2026, 11, 3), "- 2026-11-03 · idea · Another idea · yes · id:abcdef123456 · [[Trip]]")
+    result = loops.closed_recent(config)
+    assert [item.text for item in result] == ["Reworded", "New month", "Legacy answer", "Oldest"]
+    assert [item.id for item in result].count(duplicate.id) == 1
+    assert (result[0].id, result[0].since, result[0].if_, result[0].closed, result[0].outcome, result[0].because) == (
+        duplicate.id, "", "Kevin replies", "2026-11-03 09:00", "dropped", "New reason")
+    assert result[2] == legacy
+    assert path.read_text().split("## Closed", 1)[1] == legacy_section
 
 
 @pytest.mark.parametrize("kind,due,hours,expected", [
@@ -368,7 +415,7 @@ def test_ready_round_trips_and_overrides_age_and_future_deadline(config, monkeyp
     result = json.loads(capsys.readouterr().out)
     assert result["open"][0]["ready"] == result["due"][0]["ready"] == marked.ready
     closed = loops.close(config, item.id, AT, "done", "Relayed")
-    assert loops.closed_recent(config) == [closed] and closed.ready == marked.ready
+    assert loops.closed_recent(config) == [replace(closed, ready="", wake="")] and closed.ready == marked.ready
     with pytest.raises(ValueError, match="no open loop"):
         loops.ready(config, item.id, AT)
 
@@ -378,11 +425,11 @@ def test_ready_preserves_noncanonical_details_and_other_sections(config):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(loops.TEMPLATE.replace("## Open\n", "## Open\n\n"
                     "- 2026-10-28 12:00 · owed · Relay answer · [[Trip]]\n"
-                    "    - due: 2026-12-01\n  - with: Kevin\n"), encoding="utf-8")
+                    "    - due: 2026-12-01\n  - with: Kevin\n") + "## Closed\n\nOlder history stays.\n", encoding="utf-8")
     loops.ready(config, "Relay answer", AT)
     [item] = loops.open_loops(config)
     assert (item.ready, item.due, item.with_) == ("2026-10-28 12:00", "2026-12-01", "Kevin")
-    assert "## Closed\n" in path.read_text()
+    assert path.read_text().endswith("## Closed\n\nOlder history stays.\n")
 
 
 @pytest.mark.parametrize("by_id", [True, False])

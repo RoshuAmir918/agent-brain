@@ -250,6 +250,8 @@ def build(config: Config, gid: str | None = None, *, weeks: int | None = 2, vaul
             continue
         for line in path.read_text(encoding="utf-8").splitlines():
             parts = line.removeprefix("- ").split(" · ")
+            if len(parts) > 1 and parts[1] in ("loop done", "loop dropped"):
+                continue
             ident = next((part[3:] for part in parts if re.fullmatch(r"id:[0-9a-f]{12}", part)), None)
             if not ident or any(item["id"] == "idea:" + ident for items in out.values() for item in items):
                 continue

@@ -377,7 +377,7 @@ def test_legacy_creation_keeps_names_that_match_new_commands(vault, tmp_path, mo
 def test_spent_one_off_leaves_the_schedule_and_keeps_later_names(vault, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-11-20")
     folder(vault, triggers=[{"kind": "schedule", "when": "once 2026-11-12 19:00"},
-                            {"kind": "schedule", "when": "once 2026-11-19 19:00"},
+                            {"kind": "schedule", "when": "once 2026-11-20 08:00"},
                             {"kind": "schedule", "when": "0 8 * * *"}])
     loaded = Vault(vault)
     actual = responsibilities.derive(loaded.config, responsibilities.discover(loaded)[0])

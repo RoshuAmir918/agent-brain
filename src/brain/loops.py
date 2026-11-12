@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from . import directory, fm, items, tasks
+from . import directory, fm, items, needs, tasks
 from .config import Config
 from .identity import is_owner, profile_ids
 from .lock import vault_lock
@@ -17,7 +17,6 @@ OUTCOMES = ("done", "dropped")
 STALE_HOURS = 4
 WAITING_HOURS = 24
 STALE_DAYS = 2      # past due this long, watch has had its chances: the evening decides the loop
-CLOSED_KEEP = 50
 TEMPLATE = """---
 kind: orientation
 tier: warm
@@ -28,8 +27,6 @@ pinned: false
 What I am holding for you: promises, answers owed and waits on others.
 
 ## Open
-
-## Closed
 
 """
 STAMP = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}"
@@ -207,10 +204,47 @@ def open_loops(config: Config) -> list[Item]:
     return parse_section(fm.read(path)[1]) if path.exists() else []
 
 
+def _read_answered(block: items.Block) -> Item | None:
+    match = re.fullmatch(r"- (" + STAMP + r") · loop (done|dropped) · (" + "|".join(KINDS)
+                         + r") · ([^·\n]+?) · because ([^·\n]+?) · id:([0-9a-f]{12}) · \[\[([^\[\]\n]+)\]\]",
+                         block.line)
+    if not match or not match[4].strip() or not match[5].strip():
+        return None
+    try:
+        _time(match[1])
+    except ValueError:
+        return None
+    source = match[7].split("|", 1)[0].strip()
+    if not source:
+        return None
+    current = Item(match[3], match[4].strip(), "", source, closed=match[1], outcome=match[2], because=match[5].strip())
+    current.id = match[6]
+    for name, attr in (("since", "since"), ("with", "with_"), ("due", "due"), ("if", "if_"), ("task", "task")):
+        if value := block.get(name):
+            if name in ("since", "due"):
+                try:
+                    _time(value)
+                except ValueError:
+                    continue
+            setattr(current, attr, value)
+    return current
+
+
 def closed_recent(config: Config) -> list[Item]:
+    recent = []
+    for path in sorted((config.vault_path / config.agent("Answered")).glob("*.md"), reverse=True):
+        body = path.read_text(encoding="utf-8")
+        recent.extend(item for block in reversed(items.blocks(body, (0, len(body))))
+                      if (item := _read_answered(block)) is not None)
+        if len({item.id for item in recent}) >= 50:
+            break
     path = path_for(config)
-    items = parse_section(fm.read(path)[1], "Closed") if path.exists() else []
-    return sorted(reversed(items), key=lambda item: item.closed, reverse=True)
+    if path.exists():
+        recent.extend(reversed(parse_section(fm.read(path)[1], "Closed")))
+    unique = {}
+    for item in sorted(recent, key=lambda item: item.closed, reverse=True):
+        unique.setdefault(item.id, item)
+    return list(unique.values())[:50]
 
 
 def _insert(body: str, title: str, text: str) -> str:
@@ -292,26 +326,19 @@ def close(config: Config, which: str, at: datetime, outcome: str, because: str) 
 
 
 def _close(config: Config, item: Item, at: datetime, outcome: str, because: str) -> Item:
-    """Move one open loop to Closed; the caller holds the vault lock."""
+    """Close one open loop into the Answered log, the one history of what closed and why; the caller holds the vault lock."""
     path = path_for(config)
     data, body = fm.read(path)
     body, _ = items.without(body, "Open", read, lambda loop: loop.id == item.id)
     item.closed = config.local(at).strftime("%Y-%m-%d %H:%M")
     item.outcome, item.because = outcome, because
-    body = _insert(body, "Closed", render(item))
-    closed = sorted(parse_section(body, "Closed"), key=lambda loop: loop.closed)
-    if len(closed) > CLOSED_KEEP:
-        for old in closed[:-CLOSED_KEEP]:
-            archive = config.vault_path / config.agent("Loops") / f"{old.closed[:7]}.md"
-            archive.parent.mkdir(parents=True, exist_ok=True)
-            if not archive.exists():
-                archive.write_text("---\nkind: log\ntier: cold\n---\n\n# Closed loops\n\n", encoding="utf-8")
-            with archive.open("a", encoding="utf-8") as stream:
-                stream.write(render(old) + "\n\n")
-        span = fm.section(body, "Closed")
-        kept = "\n\n".join(render(old) for old in closed[-CLOSED_KEEP:])
-        body = body[:span[0]] + "\n\n" + kept + "\n\n" + body[span[1]:]
     fm.write(path, data, body)
+    entry = (f"- {item.closed} · loop {outcome} · {item.kind} · {item.text.replace('·', '-')}"
+             f" · because {because.replace('·', '-')} · id:{item.id} · [[{item.source}]]")
+    for name, value in (("since", item.since), ("with", item.with_), ("due", item.due), ("if", item.if_), ("task", item.task)):
+        if value:
+            entry += f"\n  - {name}: {value}"
+    needs.answered(config, config.local(at).date(), entry)
     return item
 
 

@@ -64,6 +64,21 @@ def test_parse_skips_malformed_bullets(line):
     assert ideas.parse_section("## Other\n" + line) == []
 
 
+def test_loop_history_does_not_change_dismissed_ids_or_idea_responses(vault):
+    config = Config.load(vault)
+    needs.answered(config, TODAY, "- 2026-11-03 · dismissed no · idea · Latest? · id:123456789abc")
+    needs.answered(config, TODAY, "- 2026-11-03 · idea · Earlier? · yes · id:abcdef123456")
+    dismissed, responses = needs.dismissed_ids(config), ideas._responses(config)
+    assert dismissed == {"123456789abc"}
+    assert responses == [(TODAY, "no", "Latest?", "123456789abc"), (TODAY, "yes", "Earlier?", "abcdef123456")]
+    needs.answered(config, TODAY,
+                   "- 2026-11-03 12:00 · loop done · promised · Latest? · because Sent · id:abcdef123456"
+                   " · [[Topic · dismissed no · idea · id:fedcba654321]]\n"
+                   "  - task: T-001 · dismissed no · ask · id:654321fedcba")
+    assert needs.dismissed_ids(config) == dismissed
+    assert ideas._responses(config) == responses
+
+
 @pytest.mark.parametrize("age,hubs,expected", [(0, 3, True), (20, 3, True), (21, 3, False),
                                               (100, 0, False), (100, 3, False), (None, 3, True)])
 def test_new_owner_by_repo_age_alone(vault, monkeypatch, age, hubs, expected):
