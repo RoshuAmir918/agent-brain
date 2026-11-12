@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from brain import cli, fm, identity, loops, session_context
+from brain import cli, fm, identity, loops, session_context, tasks
 from brain.vault import Vault
 
 
@@ -377,4 +377,17 @@ def test_an_intellect_session_lists_own_tasks_blocked_on_it_whatever_its_owner_m
     assert "Your tasks waiting on Orphan:" in block
     assert "T-001 — Go live (blocker: Orphan to say how the key is supplied.)" in block
     assert "T-003 — Ask about seeds" in block and "Plan the garden" not in block
-    assert "brain task T-nnn set --state in_progress" in block
+    assert "`task_answer`" in block
+
+    args = ["task-answer", "--vault", str(root), "--platform", "demiurge", "--user-id", "k57orphan"]
+    with pytest.raises(SystemExit, match="not one of your tasks waiting on Orphan"):
+        cli.main([*args, "T-002", "--answer", "Open on Monday"])
+    with pytest.raises(SystemExit, match="not one"):
+        cli.main([*args[:3], "--platform", "demiurge", "--user-id", "k57stranger", "T-001", "--answer", "Keychain"])
+    cli.main([*args, "T-001", "--answer", "The key goes in the keychain", "--next", "Read it from the keychain and deploy"])
+    task = tasks.find(vault.config, "T-001")
+    assert task.task_state == "in_progress" and fm.field(task.body, "Blocker") is None
+    assert fm.field(task.body, "Next") == "Read it from the keychain and deploy"
+    assert fm.field(task.body, "Latest evidence").endswith("Orphan: The key goes in the keychain")
+    cli.main([*args, "T-003", "--answer", "Tomatoes"])
+    assert not loops.open_loops(vault.config) and loops.closed_recent(vault.config)[0].because == "Orphan answered"

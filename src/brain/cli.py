@@ -1691,6 +1691,19 @@ def cmd_health(args):
         print(health.render(data), end="")
 
 
+def cmd_task_answer(args):
+    vault = Vault(args.config.vault_path)
+    user_ids = tuple(value for value in (args.user_id, args.user_id_alt) if value)
+    if identity.role(vault, args.config, args.platform, user_ids) != "intellect":
+        sys.exit("task-answer records an answer from another intellect, and this speaker is not one")
+    agent = identity.matching_agents(vault, args.config, user_ids, args.platform)[0]
+    name = Path(agent.rel).parent.name.replace("_", " ")
+    try:
+        print(loops.answer(args.config, args.tid, agent.rel, name, args.config.now(), args.answer, args.next))
+    except ValueError as error:
+        sys.exit(str(error))
+
+
 def cmd_session_context(args):
     vault = Vault(args.config.vault_path)
     text = session_context.build(vault, args.config,
@@ -2288,6 +2301,13 @@ def main(argv=None):
     s.add_argument("message"); s.add_argument("--owner", action="store_true", help="the owner's own session: name the people it mentions")
     s.add_argument("--seen", action="append", default=[], metavar="NAME", help="a person already shown this session")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_prefetch)
+    s = sub.add_parser("task-answer", parents=[vault],
+                       help="record another intellect's answer on a task waiting on it, from the conversation with it; resumes the task")
+    s.add_argument("tid", metavar="T-nnn"); s.add_argument("--answer", required=True)
+    s.add_argument("--next", default="", help="what the answer lets the task do now")
+    for option in ("platform", "user-id", "user-id-alt"):
+        s.add_argument("--" + option, default="")
+    s.set_defaults(fn=cmd_task_answer)
     s = sub.add_parser("session-context", parents=[vault])
     for option in ("platform", "user-id", "user-id-alt", "user-name", "chat-id"):
         s.add_argument("--" + option, default="")

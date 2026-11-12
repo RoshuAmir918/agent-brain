@@ -271,46 +271,89 @@ def close(config: Config, which: str, at: datetime, outcome: str, because: str) 
     if not because:
         raise ValueError("closing a loop needs a reason")
     with vault_lock(config):
-        item = _pick(config, which)
-        path = path_for(config)
-        data, body = fm.read(path)
-        body, _ = items.without(body, "Open", read, lambda loop: loop.id == item.id)
-        item.closed = config.local(at).strftime("%Y-%m-%d %H:%M")
-        item.outcome, item.because = outcome, because
-        body = _insert(body, "Closed", render(item))
-        closed = sorted(parse_section(body, "Closed"), key=lambda loop: loop.closed)
-        if len(closed) > CLOSED_KEEP:
-            for old in closed[:-CLOSED_KEEP]:
-                archive = config.vault_path / config.agent("Loops") / f"{old.closed[:7]}.md"
-                archive.parent.mkdir(parents=True, exist_ok=True)
-                if not archive.exists():
-                    archive.write_text("---\nkind: log\ntier: cold\n---\n\n# Closed loops\n\n", encoding="utf-8")
-                with archive.open("a", encoding="utf-8") as stream:
-                    stream.write(render(old) + "\n\n")
-            span = fm.section(body, "Closed")
-            kept = "\n\n".join(render(old) for old in closed[-CLOSED_KEEP:])
-            body = body[:span[0]] + "\n\n" + kept + "\n\n" + body[span[1]:]
-        fm.write(path, data, body)
+        item = _close(config, _pick(config, which), at, outcome, because)
         if outcome == "done" and item.task:
             _wake(config, item, config.local(at).date())
         return item
 
 
+def _close(config: Config, item: Item, at: datetime, outcome: str, because: str) -> Item:
+    """Move one open loop to Closed; the caller holds the vault lock."""
+    path = path_for(config)
+    data, body = fm.read(path)
+    body, _ = items.without(body, "Open", read, lambda loop: loop.id == item.id)
+    item.closed = config.local(at).strftime("%Y-%m-%d %H:%M")
+    item.outcome, item.because = outcome, because
+    body = _insert(body, "Closed", render(item))
+    closed = sorted(parse_section(body, "Closed"), key=lambda loop: loop.closed)
+    if len(closed) > CLOSED_KEEP:
+        for old in closed[:-CLOSED_KEEP]:
+            archive = config.vault_path / config.agent("Loops") / f"{old.closed[:7]}.md"
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            if not archive.exists():
+                archive.write_text("---\nkind: log\ntier: cold\n---\n\n# Closed loops\n\n", encoding="utf-8")
+            with archive.open("a", encoding="utf-8") as stream:
+                stream.write(render(old) + "\n\n")
+        span = fm.section(body, "Closed")
+        kept = "\n\n".join(render(old) for old in closed[-CLOSED_KEEP:])
+        body = body[:span[0]] + "\n\n" + kept + "\n\n" + body[span[1]:]
+    fm.write(path, data, body)
+    return item
+
+
 def _wake(config: Config, item: Item, today: date) -> None:
     """The answer a task was blocked on is in: the task goes back to its worker instead of waiting for someone to notice
-    (Nameless, 2026-11-11: Orphan's answers reached it at 14:09 and the task sat blocked until Arslan asked at 15:52).
-    Its Blocker stays as the last evidence, as when a child closes; a task blocked on its owner's own work (a yours
-    child) or waiting on them stays where it is."""
-    task = tasks.find(config, item.task, open_only=True)
+    (Nameless, 2026-11-11: Orphan's answers reached it at 14:09 and the task sat blocked until Arslan asked at 15:52)."""
+    _resume(config, item.task, today, {"evidence": f"{today} — {item.with_ or 'the answer'} answered: {item.text}"})
+
+
+def _resume(config: Config, tid: str, today: date, values: dict[str, str], answered: bool = False) -> bool:
+    """Record an answer on an open task and resume it if it was blocked. Its Blocker stays as the last evidence, as when
+    a child closes, unless the answer itself was recorded (answered), when a Blocker left behind would read as still
+    open. A task blocked on its owner's own work (a yours child) or waiting on them stays where it is. The caller holds
+    the vault lock. True when the task went back to its worker."""
+    task = tasks.find(config, tid, open_only=True)
     if task is None:
-        return
-    note = {"evidence": f"{today} — {item.with_ or 'the answer'} answered: {item.text}"}
+        return False
     blocker = fm.field(task.body, "Blocker") or ""
     child = TASK_ID_RE.match(blocker)
     if task.task_state == "blocked" and not (child and tasks.find(config, child[0], open_only=True)):
-        tasks.set_fields(config, task.tid, today, state="in_progress", values=note, clear=["resume"] if task.resume else [])
-    else:
-        tasks.set_fields(config, task.tid, today, values=note)
+        tasks.set_fields(config, task.tid, today, state="in_progress", values=values, clear=[*(["blocker"] if answered else []), *(["resume"] if task.resume else [])])
+        return True
+    tasks.set_fields(config, task.tid, today, values=values)
+    return False
+
+
+def waiting_on(config: Config, agent: str, name: str) -> list[tasks.Task]:
+    """This agent's own open tasks that wait on an intellect: linked by a waiting loop with it, or blocked and naming it
+    (by name or its profile) anywhere in the entry."""
+    named = re.compile(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", re.I)
+    profile = agent.removesuffix(".md")
+    linked = {loop.task for loop in open_loops(config) if loop.task and named.search(loop.with_)}
+    return [task for task in tasks.all_tasks(config)
+            if tasks.is_open(task) and (task.tid in linked or task.task_state == "blocked"
+                                        and (named.search(task.body) or profile in task.body))]
+
+
+def answer(config: Config, tid: str, agent: str, name: str, at: datetime, text: str, next_: str = "") -> str:
+    """An intellect's answer to a task that waits on it, recorded from the conversation with that intellect. That
+    conversation cannot write the vault, so this is its one write, and only to a task waiting on the intellect speaking
+    (Nameless, 2026-11-11: told to resume T-059 from Orphan's room, it could not, and the task sat blocked)."""
+    text, next_ = _clean(text), _clean(next_)
+    if not text:
+        raise ValueError("the answer must not be empty")
+    today = config.local(at).date()
+    with vault_lock(config):
+        if tid not in {task.tid for task in waiting_on(config, agent, name)}:
+            raise ValueError(f"{tid} is not one of your tasks waiting on {name}")
+        values = {"evidence": f"{today} — {name}: {text}", **({"next": next_} if next_ else {})}
+        resumed = _resume(config, tid, today, values, answered=True)
+        named = re.compile(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", re.I)
+        for loop in open_loops(config):
+            if loop.task == tid and named.search(loop.with_):
+                _close(config, loop, at, "done", f"{name} answered")
+    return (f"{tid}: the answer is recorded" + (" and the task is back with its worker" if resumed else
+            "; the task stays where it is (it waits on something else too)"))
 
 
 def _deadline(config: Config, item: Item) -> datetime:
