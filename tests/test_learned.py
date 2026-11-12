@@ -150,3 +150,19 @@ def test_a_candidate_is_promoted_with_its_second_evidence(config):
     assert after.text == "Dry-run parser changes on real vaults (reflection on T-031, 2026-11-11; T-040 missed the same bug)"
     with pytest.raises(ValueError, match="no open candidate"):
         learned.promote(config, "Coding", "abstraction", "again")
+
+
+def test_the_account_counts_a_correction_on_a_line_already_held_as_a_repeat(config):
+    learned.add(config, "Coding", "Use bullet points in summaries for Arslan", "Roshan", "2026-11-04", "rule")
+    learned.add(config, "Coding", "use bullet points in summaries for Arslan", "Roshan", "2026-11-10")
+    learned.add(config, "Coding", "Use bullet points in summaries for Arslan!", "Roshan", "2026-11-11")
+    learned.add(config, "Coding", "use bullet points in summaries for Arslan", "reflection", "2026-11-11", "candidate")
+    learned.add(config, "Coding", "Never use bullet points in summaries for Arslan", "Roshan", "2026-11-11")
+    _, line, _ = learned.add(config, "Coding", "Dry-run parser changes", "reflection on T-031", "2026-11-11", "candidate")
+    learned.strike(config, "Coding", line.id, "Roshan", "no", "2026-11-12")
+    report = learned.account(config, "2026-11-12")
+    assert report.splitlines()[0] == ("Learned, 2026-11-06 to 2026-11-12: 3 corrections from Human, 2 repeating a line "
+                                      "already held, 1 close to one (said again in other words, or a change of mind); "
+                                      "1 lessons of your own, 0 promoted, 1 struck.")
+    assert "- repeated 2x: Coding ^" in report and report.endswith("use bullet points in summaries for Arslan")
+    assert not [p for p in validate.hygiene(Vault(config.vault_path)) if "Learned Log" in p]
