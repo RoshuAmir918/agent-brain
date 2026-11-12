@@ -10,6 +10,6 @@ A migration file is a prompt to the agent, not a script. Say what changed, what 
 
 A step may edit `SOUL.md` or the runtime config: the migration is the engine's instruction, written by the people who ship it, so the agent does it unattended. No step waits for a person.
 
-A step that waits on a future event ("when the owner says Slack is switched off, remove the Slack ids") is not a step of the migration. Write it as a commitment trigger the migration creates, so `brain migrate-done` never waits on it.
+A step that waits on a future event ("when the owner says Slack is switched off, remove the Slack ids") is not a step of the migration. Write it as a `when` loop the migration opens (`brain loops --add … --kind when --if "<the event>"`), so `brain migrate-done` never waits on it.
 
 The inferred-goals migration (0.82.0) is unattended: refresh skills with `brain install-skills` and run one evidenced inference pass immediately, including vaults whose goal files are empty. Read existing and refused goals, merge the same aim, keep at most five active inferred goals and add at most two per 24 hours, counting readings already made today in the register and archive. Never ask a capture question or wait for confirmation; silence keeps a reading. Preparation is held and outward permissions stay as given.

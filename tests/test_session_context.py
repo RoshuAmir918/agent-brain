@@ -391,3 +391,22 @@ def test_an_intellect_session_lists_own_tasks_blocked_on_it_whatever_its_owner_m
     assert fm.field(task.body, "Latest evidence").endswith("Orphan: The key goes in the keychain")
     cli.main([*args, "T-003", "--answer", "Tomatoes"])
     assert not loops.open_loops(vault.config) and loops.closed_recent(vault.config)[0].because == "Orphan answered"
+
+
+def test_standing_directions_about_a_person_hold_with_them_and_their_intellect(people_vault):
+    root = people_vault.root
+    fm.write(root / "people/Alice/Profile.md", {"kind": "profile", "tier": "warm"},
+             "# Alice\nSlack: U_ALICE\n" + "Alice likes gardens. " * 300
+             + "\n\n## Working together\n- 2026-10-31 · Never relay anything Alice sends to Mira.\n")
+    (root / "agents/Nameless").mkdir(parents=True)
+    fm.write(root / "agents/Nameless/Profile.md", {"kind": "profile", "tier": "warm"},
+             "# Nameless\n\n- **Owner:** [[memory/people/Alice/Profile|Alice]]\n- **Demiurge:** `k57nameless`\n")
+    vault = Vault(root)
+    rule = "- 2026-10-31 · Never relay anything Alice sends to Mira."
+    with_intellect = session_context.build(vault, vault.config, platform="demiurge", user_id="k57nameless")
+    assert "How Mira wants things handled with Alice, from memory/people/Alice/Profile.md" in with_intellect
+    assert rule in with_intellect
+    with_her = session_context.build(vault, vault.config, platform="slack", user_id="U_ALICE")
+    assert with_her.count(rule) == 1   # her profile was cut before the section, so it is added once
+    bob = session_context.build(vault, vault.config, platform="slack", user_id="U_BOB")
+    assert rule not in bob and "wants things handled" not in bob

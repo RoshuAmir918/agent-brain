@@ -14,6 +14,7 @@ OWNER_CARD_WORDS = 450   # Working together (up to 250 words), the Impression un
 MENTION_WORDS = {"line": 35, "card": 150}
 HISTORY_WORDS = 80
 PROFILE_WORD_LIMIT = 250
+STANDING_WORDS = 150   # an owner's standing directions about one person
 SHARED_WORDS = 1500   # open work shared with an intellect, with its hub: the migration hub that settled a Nov 8 ask ran 1,200
 TELLABLE_HEADING = "What you may tell {name} about {owner}, and nothing else:"
 RECALL_HEADER = "Vault notes that match this message (names and index lines; open one only if what is loaded does not answer):"
@@ -95,6 +96,8 @@ def intellect_context(vault: Vault, config: Config, agent: Note, identity: str) 
     if waiting := waiting_on(config, agent.rel, name):
         blocks.append(waiting)
     if len(owner_profiles) == 1:
+        if rules := standing(config, owner_profiles[0], owner):
+            blocks.append(rules)
         blocks.append(shared_work(vault, config, agent.rel, name, owner_profiles[0].rel))
     blocks.append(tellable_block(vault, config, owner_profiles[0].rel if len(owner_profiles) == 1 else None,
                                  owner if len(owner_profiles) == 1 else "anyone"))
@@ -175,6 +178,8 @@ def known_context(vault: Vault, config: Config, person: Note, identity: str) -> 
               "Their profile and the disclosure rules that apply follow.",
               truncate_words(person.body, PROFILE_WORD_LIMIT),
               f"Full profile: {config.link(person.rel)}; dated history beside it in History.md."]
+    if (rules := standing(config, person, name)) and profile_section(person.body, "Working together") not in blocks[1]:
+        blocks.append(rules)   # the profile was cut before its Working together
     disclosure = f"{config.people_dir}/Disclosure.md"
     if disclosure not in vault.notes:
         blocks.append(f"Disclosure.md is missing: {config.link(disclosure)}.")
@@ -201,6 +206,26 @@ def advocate_rule(config: Config) -> str:
             f"at hand.")
 
 
+def profile_section(body: str, title: str) -> str:
+    """A profile's `## title` section with its heading, up to the next heading; empty when it is missing or bare."""
+    heading = re.search(r"^##[ \t]+" + title + r"\b[^\n]*$", body, re.M)
+    if heading is None:
+        return ""
+    following = re.search(r"^##?[ \t]+", body[heading.end():], re.M)
+    section = body[heading.start():heading.end() + (following.start() if following else len(body))].strip()
+    return section if len(section.split()) > 1 else ""
+
+
+def standing(config: Config, person: Note, name: str) -> str:
+    """The owner's standing directions about one person ("never relay what Chris sends"), from that person's Working
+    together. They hold whenever that person, or an intellect acting for them, is in the session."""
+    section = profile_section(person.body, "Working together")
+    if not section:
+        return ""
+    return (f"How {config.human_name} wants things handled with {name}, from {config.link(person.rel)}. These hold in "
+            f"this session, whoever is asking on {name}'s behalf:\n\n" + truncate_words(section, STANDING_WORDS))
+
+
 def owner_card(vault: Vault, config: Config) -> str:
     """How to work with the owner and what the agent has come to think of them, from their profile, kept short."""
     note = vault.notes.get(config.human_profile)
@@ -209,12 +234,7 @@ def owner_card(vault: Vault, config: Config) -> str:
     parts = []
     portrait = (vault.root / config.human_portrait).is_file()   # the portrait, in the session context, holds the impression now
     for title in ("Working together",) + (() if portrait else ("Impression",)):
-        heading = re.search(r"^##[ \t]+" + title + r"\b[^\n]*$", note.body, re.M)
-        if heading is None:
-            continue
-        following = re.search(r"^##?[ \t]+", note.body[heading.end():], re.M)
-        section = note.body[heading.start():heading.end() + (following.start() if following else len(note.body))].strip()
-        if len(section.split()) > 1:
+        if section := profile_section(note.body, title):
             parts.append(section)
     reach = [f"{row.channel} ({row.whose}" + (f", {row.identity}" if row.identity else "") + ")"
              + (f": read {row.read}" if row.read else "") + (f"; write {row.write}" if row.write else "")

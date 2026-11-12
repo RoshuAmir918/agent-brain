@@ -504,6 +504,8 @@ def test_a_when_loop_waits_for_its_date_and_a_condition_never_goes_stale(config)
     assert loops.due(config, datetime(2026, 11, 1, 8, 59)) == []
     assert [item.id for item in loops.due(config, datetime(2026, 11, 1, 9, 0))] == [dated.id]
     assert [item.id for item in loops.stale(config, datetime(2026, 12, 30))] == [dated.id]
+    loops.add(config, AT, "when", "Ask about the lease", "Trip", due="2026-11-02")
+    assert loops.open_loops(config)[-1].wake == "2026-11-02 09:00"
 
 
 def test_every_session_sees_what_is_held(config):
@@ -512,3 +514,11 @@ def test_every_session_sees_what_is_held(config):
     [item] = loops.open_loops(config)
     text = compile_context.build(Vault(config.vault_path))
     assert f"- {item.id} · when · Share the guide with Juno · if Juno is introduced" in text
+
+
+def test_a_vault_without_triggers_still_loads_what_it_holds(config):
+    from brain import compile_context
+    (config.vault_path / config.agent("Triggers.md")).unlink(missing_ok=True)
+    loops.add(config, AT, "when", "Share the guide with Juno", "Trip", condition="Juno is introduced")
+    text = compile_context.build(Vault(config.vault_path))
+    assert "## Holding" in text and "Share the guide with Juno" in text and "- Triggers:" not in text
