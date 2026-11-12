@@ -189,3 +189,49 @@ def task_moved(config, task, today: date, what: str) -> None:
         if not (kept and today.isoformat() <= kept["date"] < due):
             soon = (due, task.title)
     write(path, today, last=what, soon=soon)
+
+
+OPENS_A_DAY = 2   # matters the morning may open from the calendar, so a busy week never floods the owner's list
+
+
+def soon(config, name: str, when: date, what: str, today: date, *, open_: bool = False) -> str:
+    """Set a matter's Soon from a calendar event, keeping a sooner one still ahead; with `open_`, a significant event
+    with no matter opens one (marked `opened:` with the day, at most OPENS_A_DAY a day). Returns the matter's path. The
+    caller holds the vault lock."""
+    from .vault import Vault
+    if not today <= when <= today + AHEAD:
+        raise ValueError(f"the date must be between today and {(today + AHEAD).isoformat()}")
+    what = _flat(what)
+    if not what:
+        raise ValueError("--what must say what happens")
+    vault = Vault(config.vault_path)
+    source = find(vault, name)
+    if source is None:
+        if not open_:
+            raise ValueError(f"no matter named {name!r}; pass --open for a significant event with none")
+        name = _flat(UNSAFE.sub(" ", name))[:60].strip(" .")
+        opened = sum(note.data.get("opened") == today.isoformat() for note in vault.notes.values())
+        if opened >= OPENS_A_DAY:
+            raise ValueError(f"{OPENS_A_DAY} matters were already opened today; leave this one")
+        path = config.vault_path / f"{name}.md"
+        if not name or path.exists():
+            raise ValueError(f"{name!r} cannot be a matter: a note of that name exists or the name is empty")
+        fm.write(path, {"kind": "hub", "tier": "warm", "opened": today.isoformat()}, f"# {name}\n")
+        source = path.relative_to(config.vault_path).as_posix()
+    path = config.vault_path / source
+    kept = state(fm.read(path)[1], today)["soon"]
+    if not (kept and today.isoformat() <= kept["date"] < when.isoformat()):
+        write(path, today, soon=(when.isoformat(), what))
+    return source
+
+
+def lines(config, today: date) -> list[str]:
+    """The owner's current and soon matters, one line each, for the morning to link the calendar to."""
+    from .vault import Vault
+    vault = Vault(config.vault_path)
+    out = []
+    for title, source in listed(vault, today):
+        kept = state(vault.notes[source].body, today)
+        parts = [title] + [f"{key} {kept[key]['date']}: {kept[key]['text']}" for key in ("now", "soon") if kept[key]]
+        out.append("- " + " · ".join(parts))
+    return out

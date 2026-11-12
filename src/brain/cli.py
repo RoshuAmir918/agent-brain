@@ -427,6 +427,30 @@ def cmd_needs_you(args):
             print(f"{item.kind} · {item.text} · {item.source}")
 
 
+def cmd_matters(args):
+    from . import channel_files, matters
+    from .vault import Vault
+    today = args.config.today()
+    if args.soon:
+        try:
+            when = date.fromisoformat(args.date or "")
+        except ValueError:
+            print("--date YYYY-MM-DD is required with --soon", file=sys.stderr)
+            sys.exit(2)
+        try:
+            with vault_lock(args.config):
+                source = matters.soon(args.config, args.soon, when, args.what or "", today, open_=args.open)
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            sys.exit(1)
+        print(f"{source}: soon {when.isoformat()} · {args.what}")
+        return
+    print("## Matters\n\n" + ("\n".join(matters.lines(args.config, today)) or "- None yet."))
+    if args.calendar:
+        print("\n" + (channel_files.calendar(Vault(args.config.vault_path), matters.AHEAD.days)
+                      or "## Calendar\n\n- No calendar is connected."))
+
+
 def cmd_loops(args):
     config, now = args.config, args.config.now()
     try:
@@ -2007,6 +2031,13 @@ def main(argv=None):
     s.add_argument("--why", metavar="TEXT", help="with --ask or --resolve --yours: why it needs the owner, in plain words")
     s.add_argument("--hub", metavar="NOTE", help="with --ask: the matter in the owner's life it is about, e.g. Lisbon trip.md")
     s.set_defaults(fn=cmd_needs_you)
+    s = sub.add_parser("matters", help="what the owner's life holds now and soon; --soon links a calendar event to one",
+                       parents=[vault])
+    s.add_argument("--calendar", action="store_true", help="also the calendar for the next 21 days")
+    s.add_argument("--soon", metavar="MATTER", help="set this matter's Soon: its exact title, or a new name with --open")
+    s.add_argument("--date", metavar="YYYY-MM-DD"); s.add_argument("--what", metavar="TEXT")
+    s.add_argument("--open", action="store_true", help="with --soon: open a matter for a significant event that has none")
+    s.set_defaults(fn=cmd_matters)
     s = sub.add_parser("loops", help="promises, answers owed, waits on others, and what to do when something happens",
                        parents=[vault])
     mode = s.add_mutually_exclusive_group()
