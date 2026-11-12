@@ -102,25 +102,19 @@ def intellect_context(vault: Vault, config: Config, agent: Note, identity: str) 
 
 
 def waiting_on(config: Config, agent: str, name: str) -> str:
-    """This agent's own blocked tasks that wait on this intellect, so an answer it brings resumes the task here rather
-    than being forwarded to the owner (Nameless, 2026-11-11: Orphan's answers were relayed to Arslan at 14:09 and T-059
-    stayed blocked until he asked what was going on). Never told to the intellect; disclosure does not gate it."""
-    from . import loops, tasks
-    named = re.compile(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", re.I)
-    profile = agent.removesuffix(".md")
-    linked = {loop.task for loop in loops.open_loops(config) if loop.task and named.search(loop.with_)}
+    """This agent's own tasks that wait on this intellect, so an answer it brings resumes the task here rather than being
+    forwarded to the owner (Nameless, 2026-11-11: Orphan's answers were relayed to Arslan at 14:09 and T-059 stayed
+    blocked until he asked what was going on). Never told to the intellect; disclosure does not gate it."""
+    from . import loops
     rows = [f"- {task.tid} — {task.title} (blocker: {fm.field(task.body, 'Blocker') or 'none recorded'})"
-            for task in tasks.all_tasks(config)
-            if tasks.is_open(task) and (task.tid in linked or task.task_state == "blocked"
-                                        and (named.search(task.body) or profile in task.body))]
+            for task in loops.waiting_on(config, agent, name)]
     if not rows:
         return ""
     return (f"Your tasks waiting on {name}:\n" + "\n".join(rows) + "\n"
-            f"When what {name} says answers one of them, put the answer on the task in this turn and resume it: "
-            f"`brain task T-nnn set --state in_progress --next \"<what the answer lets you do now>\" --evidence \"<date> — "
-            f"{name}: <the answer>\"`, and close its waiting loop if one is open. Its worker picks it up within a minute. "
-            f"Tell {config.human_name} only what changes for them: an answer the task was waiting for is the worker's to "
-            f"act on, not news to forward.")
+            f"When what {name} says answers one of them, record it in this turn with `task_answer` (the task, the answer, "
+            f"and what it lets the task do next): the task resumes and its waiting loop closes. Its worker picks it up "
+            f"within a minute. Tell {config.human_name} only what changes for them: an answer the task was waiting for "
+            f"is the worker's to act on, not news to forward.")
 
 
 def shared_work(vault: Vault, config: Config, agent: str, name: str, owner: str) -> str:
