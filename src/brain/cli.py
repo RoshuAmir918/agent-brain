@@ -1792,11 +1792,17 @@ def cmd_session_context(args):
 
 def cmd_prefetch(args):
     found = session_context.prefetch(Vault(args.config.vault_path), args.config, args.message, owner=args.owner, seen=set(args.seen),
-                                     answering=args.answering)
+                                     answering=args.answering, platform=args.platform,
+                                     user_ids=tuple(value for value in (args.user_id, args.user_id_alt) if value))
     if args.json:
         print(json.dumps(found, ensure_ascii=False))
     elif found["text"]:
         print(found["text"])
+
+
+def cmd_own_work(args):
+    print(session_context.search_own_work(Vault(args.config.vault_path), args.config, args.query, platform=args.platform,
+                                          user_ids=tuple(value for value in (args.user_id, args.user_id_alt) if value)))
 
 
 def cmd_export_sessions(args):
@@ -2402,8 +2408,16 @@ def main(argv=None):
     s.add_argument("message"); s.add_argument("--owner", action="store_true", help="the owner's own session: name the people it mentions")
     s.add_argument("--seen", action="append", default=[], metavar="NAME", help="a person already shown this session")
     s.add_argument("--answering", action="store_true",
-                   help="a session answered from what may be told: only the intellect's own work that matches, as text")
+                   help="a session answered from what may be told: the intellect's own work that matches, when the speaker may learn its setup")
+    for option in ("platform", "user-id", "user-id-alt"):
+        s.add_argument("--" + option, default="")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_prefetch)
+    s = sub.add_parser("own-work", parents=[vault],
+                       help="search the intellect's own work (its responsibility hubs and the notes they link): what an answering session may search")
+    s.add_argument("query")
+    for option in ("platform", "user-id", "user-id-alt"):
+        s.add_argument("--" + option, default="")
+    s.set_defaults(fn=cmd_own_work)
     s = sub.add_parser("task-answer", parents=[vault],
                        help="record another intellect's answer on a task waiting on it, from the conversation with it; resumes the task")
     s.add_argument("tid", metavar="T-nnn"); s.add_argument("--answer", required=True)

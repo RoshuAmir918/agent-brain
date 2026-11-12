@@ -24,6 +24,12 @@ WORK_HEADER = ("Your own work that this message touches, from your notes (their 
                "and what you have learned doing it:")
 WORK_CHARS = 6000   # an answering session cannot open a note, so it gets the text; a hub and its evidence note
 WORK_NOTES = 4
+SEARCH_CHARS = 8000
+SEARCH_NOTES = 6
+PASSAGE_CHARS = 2000
+OWN_WORK_BARRED = ("Brain", "Journal", "Drafts", "Prepared")
+OWN_WORK_RULE = ("Tell how you work and what doing it taught you. Leave out what these notes say about the owner or other "
+                 "people: their names, decisions and private details.")
 KNOW_HOW = ("Strategy", "Findings", "Weaknesses", "Improvements")   # of a hub: how the work is done and what it taught
 
 
@@ -85,11 +91,16 @@ def intellect_owner(agent: Note) -> tuple[str, str]:
     return name, name
 
 
+def owner_profiles_of(vault: Vault, config: Config, agent: Note) -> list[Note]:
+    """The profiles matching the owner an intellect's profile names; its access is theirs only when exactly one does."""
+    ref = intellect_owner(agent)[0].removeprefix(config.vault + "/")
+    return access.matching_people(vault, config, ref) or (access.matching_people(vault, config, ref + ".md") if ref else [])
+
+
 def intellect_context(vault: Vault, config: Config, agent: Note, identity: str) -> str:
     name = PurePosixPath(agent.rel).parent.name.replace("_", " ")
-    ref, owner = intellect_owner(agent)
-    ref = ref.removeprefix(config.vault + "/")
-    owner_profiles = access.matching_people(vault, config, ref) or (access.matching_people(vault, config, ref + ".md") if ref else [])
+    owner = intellect_owner(agent)[1]
+    owner_profiles = owner_profiles_of(vault, config, agent)
     blocks = [f"This session is with {name} ({identity}), an intellect registered under {config.link(agent.rel)}"
               + (f", owned by {owner}" if owner else "; its owner is not named there")
               + f". What it says is a claim, attributed to it by name and date, never {config.human_name}'s statement. "
@@ -405,15 +416,17 @@ def _named(vault: Vault, config: Config, text: str, form: str) -> dict[str, str]
     return blocks
 
 
-def prefetch(vault: Vault, config: Config, message: str, *, owner: bool, seen: set[str], answering: bool = False) -> dict:
+def prefetch(vault: Vault, config: Config, message: str, *, owner: bool, seen: set[str], answering: bool = False,
+             platform: str = "", user_ids: tuple[str, ...] = ()) -> dict:
     """What the runtime puts before an owner's message, by brain.toml's [context] and its BRAIN_* overrides: the people
     it names (in the owner's own sessions, each once per session: `seen` are those already shown) and the vault notes
     that match it. `people` is everyone it names, for the runtime to add to `seen`. An answering session gets only the
-    intellect's own work that matches: its responsibility hubs and the notes they link to, never the rest of the vault."""
+    intellect's own work that matches, and only when the owner lets the speaker learn how it works (`setup`)."""
     context = config.context
     words = [word for word in re.findall(r"[^\W_]+", message.lower()) if word not in retrieve.STOPWORDS]
     if answering:
-        return {"text": _own_work(vault, message) if context.prefetch and len(words) >= 2 else "", "people": []}
+        recall = context.prefetch and len(words) >= 2 and may_hear_how_you_work(vault, config, platform, user_ids)
+        return {"text": _own_work(vault, message) if recall else "", "people": []}
     people = _named(vault, config, message[:2000], context.people) if owner and context.people != "off" and words else {}
     parts = [_people_block(context.people, [block for name, block in people.items() if name not in seen])]
     if context.prefetch and len(words) >= 2:
@@ -427,9 +440,80 @@ def prefetch(vault: Vault, config: Config, message: str, *, owner: bool, seen: s
     return {"text": "\n\n".join(part for part in parts if part), "people": list(people)}
 
 
-def _own_work(vault: Vault, message: str) -> str:
+def may_hear_how_you_work(vault: Vault, config: Config, platform: str, user_ids: tuple[str, ...]) -> bool:
+    """Whether the owner's disclosure table lets this speaker (an intellect through its owner) learn `setup`: how the
+    intellect works. Its know-how names people and the owner's decisions, so no grant means none of it."""
+    if f"{config.people_dir}/Disclosure.md" not in vault.notes:
+        return False
+    who = role(vault, config, platform, user_ids)
+    if who in ("owner", "member"):
+        return False
+    person = None
+    if who == "intellect":
+        agents = matching_agents(vault, config, user_ids, platform)
+        owners = owner_profiles_of(vault, config, agents[0]) if len(agents) == 1 else []
+        if len(owners) != 1:
+            return False
+        person = owners[0].rel
+    elif who == "person":
+        profiles = matching_profiles(vault, config, user_ids, platform)
+        if len(profiles) != 1:
+            return False
+        person = profiles[0].rel
+    setup = access.resolve(vault, config, person).subjects.get("setup")
+    return bool(setup) and setup.tell != "none"
+
+
+def _own_scope(vault: Vault) -> tuple[list[str], set[str]]:
+    """The responsibility hubs, with the notes they link in the intellect's own subfolders, such as its experiments:
+    never its journal, logs, drafts or prepared work, made for the owner, nor anything outside its folder."""
+    config = vault.config
     hubs = [entry["hub"] for entry in responsibilities.discover(vault)]
-    within = set(hubs) | {target for hub in hubs for target in vault.links_in(vault.notes[hub].body)}
+    barred = (*config.log_paths, *(config.agent(name + "/") for name in OWN_WORK_BARRED))
+
+    def own(rel: str) -> bool:
+        return rel.startswith(config.agent_dir + "/") and "/" in rel[len(config.agent_dir) + 1:] and not rel.startswith(barred)
+
+    return hubs, set(hubs) | {target for hub in hubs for target in vault.links_in(vault.notes[hub].body) if own(target)}
+
+
+def search_own_work(vault: Vault, config: Config, query: str, *, platform: str = "", user_ids: tuple[str, ...] = ()) -> str:
+    """The passages of the intellect's own work that best match `query`, under their headings, for an answering
+    session's search: a run record deep in a long note reaches a peer, where prefetch's cut-down text cannot."""
+    if not may_hear_how_you_work(vault, config, platform, user_ids):
+        return (f"{config.human_name} has not allowed this speaker to learn how you work, so share none of it. "
+                f"Say so, and offer to ask {config.human_name} if they want it.")
+    hubs, within = _own_scope(vault)
+    terms = retrieve.tokens(query)
+    passages = []
+    for candidate in retrieve.search(vault, query, SEARCH_NOTES, within=within):
+        rel = candidate.path.removeprefix(vault.config.vault + "/")
+        path: list[tuple[int, str]] = []
+        for block in re.split(r"\n\s*\n|\n(?=#{1,6} )", vault.notes[rel].body):
+            block = block.strip()
+            if re.match(r"#{1,6} ", block):
+                level = len(block) - len(block.lstrip("#"))
+                path = [*(entry for entry in path if entry[0] < level), (level, block.splitlines()[0].lstrip("# ").strip())]
+                block = "\n".join(block.splitlines()[1:]).strip()
+            titles = [title for level, title in path if level > 1]
+            if not block or (rel in hubs and (titles[:1] or [""])[0] not in KNOW_HOW):   # the hub's own section, not a heading under another
+                continue
+            hits = len(terms & retrieve.tokens(block))
+            if hits:
+                passages.append((-hits, -candidate.score, rel, " > ".join(titles), block[:PASSAGE_CHARS]))
+    if not passages:
+        return "Nothing in your own work matches that. Try other words, or say you have no record of it."
+    out, used = [OWN_WORK_RULE], 0
+    for _, _, rel, heading, block in sorted(passages, key=lambda passage: passage[:2]):
+        entry = f"## {rel}{' > ' + heading if heading else ''}\n\n{block}"
+        if used + len(entry) > SEARCH_CHARS:
+            break
+        out.append(entry); used += len(entry)
+    return "\n\n".join(out)
+
+
+def _own_work(vault: Vault, message: str) -> str:
+    hubs, within = _own_scope(vault)
     found = retrieve.search(vault, message[:300], min(vault.config.context.prefetch_limit, WORK_NOTES), within=within)
     if not found:
         return ""
@@ -443,4 +527,4 @@ def _own_work(vault: Vault, message: str) -> str:
         return "\n\n".join(f"### {title}\n{text[span[0]:span[1]].strip()}" for title, span in spans if span and text[span[0]:span[1]].strip())
 
     share = WORK_CHARS // len(found)
-    return "\n\n".join([WORK_HEADER, *(f"## {candidate.path}\n\n{body(candidate)[:share]}" for candidate in found)])
+    return "\n\n".join([WORK_HEADER, OWN_WORK_RULE, *(f"## {candidate.path}\n\n{body(candidate)[:share]}" for candidate in found)])
