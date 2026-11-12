@@ -1487,6 +1487,11 @@ def cmd_continue(args):
                   + (f" · checkpoint: {row['checkpoint']}" if row["checkpoint"] is not None and not args.tid else ""))
             if args.tid:
                 print(f"Status: {row['status']}.")
+                from . import learned
+                about = " ".join(filter(None, (task.title, task.work, task.delivers, row["next"], task.hub)))
+                for field in learned.matching(args.config, about, strong=False)[:2]:
+                    if text := learned.block(field, 200, candidates=True):
+                        print("\n" + text)
     except ValueError as error:
         print(error, file=sys.stderr)
         sys.exit(2)

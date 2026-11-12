@@ -43,7 +43,8 @@ def discover(vault: Vault) -> list[dict]:
                         "records": note.data.get("records", f"Responsibilities/{ident}/records"),
                         "routines": [], "needs": note.data.get("needs", []), "work": note.data.get("work"),
                         "delivers": note.data.get("delivers"), "folder": True, "path": (base / source).as_posix(),
-                        **{key: note.data.get(key) for key in ("triggers", "asked_by", "goal", "role", "version")}})
+                        **{key: note.data.get(key) for key in ("triggers", "asked_by", "goal", "role", "version")},
+                        **({"learned": note.data["learned"]} if note.data.get("learned") else {})})
             continue
         if vault.kind_for(source) != "hub" or note.data.get("kind", "hub") != "hub":
             continue
@@ -83,6 +84,9 @@ def derive(config: Config, entry: dict) -> dict[str, Routine]:
     skill = entry.get("skill")
     if skill is not None and (not isinstance(skill, str) or not skill.strip()):
         raise ValueError("skill must be a nonempty string")
+    learned = entry.get("learned") or []
+    if not isinstance(learned, list) or not all(isinstance(name, str) and name.strip() for name in learned):
+        raise ValueError("learned must be a list of field names")
     out, scheduled = {}, 0
     for index, trigger in enumerate(triggers, 1):
         where = f"triggers[{index}]"
@@ -125,7 +129,9 @@ def derive(config: Config, entry: dict) -> dict[str, Routine]:
                 raise ValueError(f"{where}.script: must be a path relative to the responsibility folder")
             script = repo_path(PurePosixPath(entry["hub"]).parent / script)
         prompt = (f"Your responsibility {entry['title']}: read {repo_path(entry['hub'])} and do what it says. "
-                  f"Its state between runs lives in {repo_path(entry['records'])}.")
+                  f"Its state between runs lives in {repo_path(entry['records'])}."
+                  + (" How to do this work well, from what you have learned: "
+                     + ", ".join(f"`brain learn show \"{name}\"`" for name in learned) + "; read them first." if learned else ""))
         if "prompt" in trigger:
             if not isinstance(trigger["prompt"], str):
                 raise ValueError(f"{where}.prompt: must be a string")

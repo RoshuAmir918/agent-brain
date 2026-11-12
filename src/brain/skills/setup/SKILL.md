@@ -29,7 +29,7 @@ Its frontmatter names what each run leaves visible: `work: <slug>` for a living 
 
 When {human_name} adopts an improvement, set its status and date in `RESPONSIBILITY.md`, edit the method there (or its named `skill:`) in the same session and no further than what they said, then sync. No method adds a check or gate that overrides {human_name}'s instructions; what they said last decides. A proposal is not an improvement until the records show the work got better.
 
-To change a responsibility's schedule or method, edit `RESPONSIBILITY.md`, then run `brain responsibility sync`. Its `version: 1` frontmatter has `triggers:`, each schedule entry with `kind: schedule` and `when:` (five-field cron, `every <n>m` / `every <n>h`, or `once <ISO datetime>` in {human_name}'s zone). A trigger may name a relative `script:`; `agent: false` requires one. Set `needs: [computer]` when its work uses {human_name}'s computer. Pause and resume with `brain schedule`; sync keeps the pause.
+To change a responsibility's schedule or method, edit `RESPONSIBILITY.md`, then run `brain responsibility sync`. Its `version: 1` frontmatter has `triggers:`, each schedule entry with `kind: schedule` and `when:` (five-field cron, `every <n>m` / `every <n>h`, or `once <ISO datetime>` in {human_name}'s zone). A trigger may name a relative `script:`; `agent: false` requires one. Set `needs: [computer]` when its work uses {human_name}'s computer. Set `learned: [<Field>]` to the Learned fields its work follows (`brain learn fields`); each run reads them first. Pause and resume with `brain schedule`; sync keeps the pause.
 
 <!-- personal -->
 ## Grants
