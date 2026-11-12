@@ -1,7 +1,7 @@
 ---
 name: {prefix}improve
 description: Get better at one responsibility; notice work that should become one
-version: 1.13.0
+version: 1.14.0
 metadata:
   runtime:
     tags: [routine, day, research]
@@ -13,6 +13,8 @@ metadata:
 The practitioner's pass. Runs each morning after the night and before the briefing, and asks two questions: how could {agent_name} do one of its existing responsibilities materially better, and did yesterday contain work that should become a responsibility. One investigation a day, carried across days until it is done. Never filler: a morning with nothing to recommend is a one-line ledger row.
 
 A responsibility is standing work held under a permission {human_name} gave: `Responsibilities/<id>/RESPONSIBILITY.md` (or an older hub with `skill:`), its method, and records under `$AGENT_HOME/records/`.
+
+Exclude `status: retired` responsibilities from the inventory, investigations and learning candidates. Keep their history; never propose restarting work the owner ended.
 
 ## Procedure
 <!-- personal -->

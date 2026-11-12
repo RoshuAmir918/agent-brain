@@ -23,6 +23,7 @@ A vault is a git repo with a `brain.toml` naming its folders and the two display
 | `brain attribute --sessions-dir <dir>` | observed and explicit use rows from harness session archives |
 | `brain export-sessions [--date <day>]` | archive harness session transcripts and native JSON shards |
 | `brain schedule list` / `set` / `pause` / `resume` / `remove` | manage the declared routines in `Runtime/schedule.toml` |
+| `brain responsibility add` / `adopt` / `sync` / `status <id> <active\|paused\|retired> [--reason "<why>"]` | manage standing work; its document controls whether it runs |
 | `brain digest --date <day> --write` | one file of that day's turns between owner and agent, with what the agent read before each reply |
 | `brain retrieve "<query>"` | deterministic candidates: index-line scoring, one-hop spread over links, cold grep |
 | `brain goals new` / `list` / `show` / `due` / `G-n edit` / `evidence` / `reached` / `superseded-by` / `asked-missed` / `set-aside` / `reopen` / `keep` / `not-a-goal` / `to-task` | the person's stated or evidenced goals, progress and the work toward them |
@@ -32,6 +33,8 @@ A vault is a git repo with a `brain.toml` naming its folders and the two display
 | `brain validate`, `paths` | checks, resolved paths |
 
 `docs/engine.md` has every command, the config keys, what the nightly pass does in order, and session archive formats. The [runtime contract](docs/runtime.md) defines `AGENT_HOME`, `Runtime/schedule.toml`, `.context.md` and harness sessions. `brain export-sessions` archives harness conversations and routine runs. The memory model itself is documented in the template's `memory/agent/Memory Spec.md`.
+
+When the owner says stop, end, drop or pause a responsibility, use `brain responsibility status` (`retired` ends, `paused` pauses, `active` resumes). Never delete its folder or hand-edit triggers to end it.
 
 Goals are inferred from repeated, dated evidence as well as stated by the person. `brain goals new "<title>" --words "<their quoted words>" --said YYYY-MM-DD --inferred --evidence "<date> · <what> · [[note]]"` records a reading; repeat `--evidence` for its sources. The nightly People pass alone infers goals and merges existing aims, read `brain goals refused --json` and keep at most five active inferred goals, with at most two new ones per night. Silence keeps them; thirty days without grounded evidence flags them stale for People to judge. Both origins fund preparation immediately, held, under existing outward permissions. Keep adopts a reading, Not a goal archives and blocks its return, and To task creates asked work and prints its task id. Nobody is asked whether something is a goal. See [the engine's goals reference](docs/engine.md#goals).
 

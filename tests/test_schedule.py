@@ -103,6 +103,69 @@ def test_folder_routines_refuse_set_remove_and_keep_pause_through_sync(config):
     assert schedule.load(config)["alerts"].enabled is True
 
 
+def test_folder_pause_uses_schedule_trigger_numbers_including_spent_once(config, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-12")
+    path = config.vault_path / "Responsibilities/alerts/RESPONSIBILITY.md"
+    path.parent.mkdir(parents=True)
+    triggers = [{"kind": "mail", "filter": "alerts"},
+                {"kind": "schedule", "when": "once 2026-11-01T08:00:00-08:00"},
+                {"kind": "schedule", "when": "every 1h"}, {"kind": "webhook"},
+                {"kind": "schedule", "when": "0 8 * * *"}]
+    data, body = {"version": 1, "triggers": triggers, "asked_by": "Owner", "custom": [1, 2]}, "Keep this body.\n\n"
+    fm.write(path, data, body)
+    responsibilities.sync(Vault(config.vault_path))
+    cli(config, "pause", "alerts-3")
+    expected = {**data, "triggers": [*triggers[:4], {**triggers[4], "paused": True}]}
+    assert fm.read(path) == (expected, body)
+    assert schedule.load(config)["alerts-2"].enabled
+    assert not schedule.load(config)["alerts-3"].enabled
+    cli(config, "resume", "alerts-3")
+    assert fm.read(path) == (data, body)
+    assert schedule.load(config)["alerts-3"].enabled
+
+
+@pytest.mark.parametrize("trigger_paused", [False, True])
+def test_folder_single_trigger_pause_resume_uses_responsibility_status(config, trigger_paused):
+    path = config.vault_path / "Responsibilities/alerts/RESPONSIBILITY.md"
+    path.parent.mkdir(parents=True)
+    trigger = {"kind": "schedule", "when": "every 1h", **({"paused": True} if trigger_paused else {})}
+    fm.write(path, {"version": 1, "triggers": [{"kind": "mail"}, trigger]}, "Check.\n")
+    responsibilities.sync(Vault(config.vault_path))
+    cli(config, "pause", "alerts")
+    assert fm.read(path)[0]["status"] == "paused"
+    assert not schedule.load(config)["alerts"].enabled
+    cli(config, "resume", "alerts")
+    data = fm.read(path)[0]
+    assert data["status"] == "active" and "paused" not in data["triggers"][1]
+    assert schedule.load(config)["alerts"].enabled
+
+
+def test_folder_resume_of_one_trigger_of_paused_responsibility_resumes_only_it(config):
+    path = config.vault_path / "Responsibilities/alerts/RESPONSIBILITY.md"
+    path.parent.mkdir(parents=True)
+    fm.write(path, {"version": 1, "status": "paused", "reason": "Away", "triggers": [
+        {"kind": "schedule", "when": "every 1h"},
+        {"kind": "schedule", "when": "every 2h", "paused": True}]}, "Check.\n")
+    responsibilities.sync(Vault(config.vault_path))
+    cli(config, "resume", "alerts-2")
+    data = fm.read(path)[0]
+    assert data["status"] == "active" and "reason" not in data
+    assert data["triggers"][0]["paused"] is True and "paused" not in data["triggers"][1]
+    routines = schedule.load(config)
+    assert not routines["alerts"].enabled and routines["alerts-2"].enabled
+
+
+def test_resume_before_conversion_keeps_explicit_owner_action(config):
+    path = config.vault_path / "Responsibilities/alerts/RESPONSIBILITY.md"
+    path.parent.mkdir(parents=True)
+    fm.write(path, {"version": 1, "triggers": [{"kind": "schedule", "when": "every 1h"}]}, "Check.\n")
+    schedule.save(config, {"alerts": Routine(every="1h", responsibility="alerts", enabled=False)})
+    cli(config, "resume", "alerts")
+    assert fm.read(path)[0]["status"] == "active"
+    assert schedule.load(config)["alerts"].enabled
+    assert responsibilities.sync(Vault(config.vault_path)) == []
+
+
 @pytest.mark.parametrize("source, expected", [
     ('[routines.x', "Expected ']'"),
     ('[routines.x]\nevery="1h"\n[routines.x]\nevery="2h"', 'Cannot declare'),

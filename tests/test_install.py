@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from brain import cli, fm, install, ledger, validate
+from brain import cli, fm, install, ledger, responsibilities, schedule, validate
 from brain.config import Config
 from brain.vault import Vault
 from conftest import snapshot
@@ -35,6 +35,62 @@ def test_install_skills_renders_every_template_and_is_idempotent(vault, prefix, 
     before = snapshot(vault)
     cli.main(args)
     assert snapshot(vault) == before
+
+
+@pytest.mark.parametrize("entry_point", ["migrate-check", "sync"])
+def test_responsibility_pause_conversion_precedes_sync_once(vault, monkeypatch, entry_point):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-12")
+    monkeypatch.setattr(install, "pending_migrations", lambda config: [])
+    config = Config.load(vault)
+    documents = {
+        "food-deals": {"version": 1, "custom": {"keep": [1, 2]}, "triggers": [
+            {"kind": "schedule", "when": "0 8 * * *"}]},
+        "l1-study": {"version": 1, "triggers": [
+            {"kind": "schedule", "when": "every 1h"}, {"kind": "mail"},
+            {"kind": "schedule", "when": "once 2026-11-01T08:00:00-08:00"},
+            {"kind": "schedule", "when": "0 8 * * *"}]},
+        "retired": {"version": 1, "status": "retired", "ended": "2026-11-10", "triggers": [
+            {"kind": "schedule", "when": "every 1h"}]},
+    }
+    paths = {}
+    for ident, data in documents.items():
+        paths[ident] = vault / "Responsibilities" / ident / "RESPONSIBILITY.md"
+        paths[ident].parent.mkdir(parents=True)
+        fm.write(paths[ident], data, "Keep body exactly.\n\n")
+    legacy = schedule.Routine(every="2h", responsibility="legacy", enabled=False)
+    fm.write(vault / "Legacy.md", {"skill": "brain-legacy", "records": "legacy"}, "Legacy work.\n")
+    schedule.save(config, {
+        "food-deals": schedule.Routine(cron="0 8 * * *", responsibility="food-deals", enabled=False),
+        "l1-study": schedule.Routine(every="1h", responsibility="l1-study"),
+        "l1-study-3": schedule.Routine(cron="0 8 * * *", responsibility="l1-study", enabled=False),
+        "retired": schedule.Routine(every="1h", responsibility="retired", enabled=False),
+        "legacy": legacy,
+    })
+    if entry_point == "migrate-check":
+        install.migrate_check(config)
+    else:
+        responsibilities.sync(Vault(vault))
+    assert fm.read(paths["food-deals"]) == ({**documents["food-deals"], "status": "paused"}, "Keep body exactly.\n\n")
+    partial, body = fm.read(paths["l1-study"])
+    assert "status" not in partial and body == "Keep body exactly.\n\n"
+    assert partial["triggers"] == [*documents["l1-study"]["triggers"][:3],
+                                   {**documents["l1-study"]["triggers"][3], "paused": True}]
+    assert fm.read(paths["retired"])[0] == documents["retired"]
+    marker = vault / config.runtime_dir / "responsibility-status-0.185.0"
+    assert marker.exists()
+    before = {ident: path.read_bytes() for ident, path in paths.items()}
+    assert responsibilities.migrate_pauses(Vault(vault)) == []
+    responsibilities.sync(Vault(vault))
+    assert {ident: path.read_bytes() for ident, path in paths.items()} == before
+    actual = schedule.load(config)
+    assert not actual["food-deals"].enabled and not actual["l1-study-3"].enabled
+    assert actual["l1-study"].enabled and "retired" not in actual
+    assert actual["legacy"] == legacy
+    data, body = fm.read(paths["food-deals"])
+    data["status"] = "active"
+    fm.write(paths["food-deals"], data, body)
+    responsibilities.sync(Vault(vault))
+    assert schedule.load(config)["food-deals"].enabled
 
 
 def test_every_routine_that_messages_the_owner_carries_one_owner_message_policy(vault):

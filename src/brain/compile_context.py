@@ -152,6 +152,8 @@ def upcoming(vault: Vault, days: int = UPCOMING_DAYS) -> str:
     for rel, note in sorted(vault.notes.items()):
         history = rel.endswith("/History.md")   # trips and visits land in a person's history first
         kind = vault.kind_for(rel)
+        if kind == "responsibility" and note.data.get("status") == "retired":
+            continue
         if kind in ("episode", "reflection", "dream", "primed") or rel.startswith(config.log_paths) \
                 or (kind == "log" and not history) or f"/{config.agent('Journal/')}" in f"/{rel}":
             continue

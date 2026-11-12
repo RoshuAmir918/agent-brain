@@ -484,7 +484,7 @@ def _own_scope(vault: Vault) -> tuple[list[str], set[str]]:
     """The responsibility hubs, with the notes they link in the intellect's own subfolders, such as its experiments:
     never its journal, logs, drafts or prepared work, made for the owner, nor anything outside its folder."""
     config = vault.config
-    hubs = [entry["hub"] for entry in responsibilities.discover(vault)]
+    hubs = [entry["hub"] for entry in responsibilities.discover(vault) if entry.get("status") != "retired"]
     barred = (*config.log_paths, *(config.agent(name + "/") for name in OWN_WORK_BARRED))
 
     def own(rel: str) -> bool:
