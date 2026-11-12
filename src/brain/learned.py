@@ -170,6 +170,26 @@ def strike(config: Config, name: str, which: str, by: str, why: str, day: str) -
         return Line(line.id, text, line.status, day)
 
 
+
+def promote(config: Config, name: str, which: str, evidence: str) -> Line:
+    """Make your own candidate an active line once a second, independent piece of evidence supports it; the evidence
+    joins its sources."""
+    evidence = " ".join(evidence.replace("(", "").replace(")", "").split())
+    if not evidence:
+        raise ValueError("name the second evidence")
+    with vault_lock(config):
+        note = find(config, name)
+        if note is None:
+            raise ValueError(f"no field {name}; see `brain learn fields`")
+        line = items.pick([line for line in note.lines if line.status == "candidate"], which, "candidate",
+                          f"brain learn show \"{note.field}\"")
+        text = STATUS.sub("", line.text).rstrip()
+        text = text[:-1] + f"; {evidence})" if text.endswith(")") else f"{text} ({evidence})"
+        data, body = fm.read(note.path)
+        body = re.sub(rf"^- {re.escape(line.text)} \^{line.id}[ \t]*$", lambda _: f"- {text} ^{line.id}", body, count=1, flags=re.M)
+        fm.write(note.path, data, body)
+        return Line(line.id, text, "active")
+
 def index(config: Config) -> list[str]:
     """One line per field: its name, how many lines it holds, and its first rule."""
     out = []
