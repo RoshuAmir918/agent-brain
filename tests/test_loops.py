@@ -569,3 +569,14 @@ def test_a_vault_without_triggers_still_loads_what_it_holds(config):
     loops.add(config, AT, "when", "Share the guide with Juno", "Trip", condition="Juno is introduced")
     text = compile_context.build(Vault(config.vault_path))
     assert "## Holding" in text and "Share the guide with Juno" in text and "- Triggers:" not in text
+
+
+def test_a_when_heard_in_conversation_becomes_a_when_loop(config):
+    from brain.record import RECORD_SCHEMA
+    record = {"headline": "Planning", "outcome": "nothing", "touched": ["Trip"], "loops": [
+        {"kind": "when", "text": "Tell Mira the venue", "with": None, "due": None, "if": "Kevin confirms the venue"},
+        {"kind": "when", "text": "Check the lease", "with": None, "due": None, "if": None}]}
+    assert set(RECORD_SCHEMA["properties"]["loops"]["items"]["required"]) >= {"kind", "if"}
+    journal.append_entry(config, record, "cli", AT)
+    [loop] = loops.open_loops(config)   # a when with neither a date nor a condition is skipped, not guessed
+    assert (loop.kind, loop.text, loop.if_) == ("when", "Tell Mira the venue", "Kevin confirms the venue")
