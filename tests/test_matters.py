@@ -204,3 +204,21 @@ def test_a_task_serving_a_matter_moves_its_last_and_soon(owner):
     assert kept["last"] == {"text": "finished Find a flat in Alfama", "date": "2026-11-12"}
     tasks.close(owner, "T-002", TODAY, False, "No longer needed", by_owner=True)
     assert "## Now" not in fm.read(owner.vault_path / "Watch.md")[1]
+
+
+def test_the_morning_sets_soon_from_the_calendar_and_opens_at_most_two(owner):
+    matters.soon(owner, "Lisbon trip", date(2026, 11, 20), "fly to Lisbon", TODAY)
+    matters.soon(owner, "lisbon trip", date(2026, 11, 25), "fly home", TODAY)
+    assert matters.state(fm.read(owner.vault_path / "Lisbon trip.md")[1], TODAY)["soon"] == {
+        "text": "fly to Lisbon", "date": "2026-11-20"}
+    with pytest.raises(ValueError, match="--open"):
+        matters.soon(owner, "Dentist", date(2026, 11, 14), "cleaning", TODAY)
+    with pytest.raises(ValueError, match="between today"):
+        matters.soon(owner, "Lisbon trip", date(2026, 12, 20), "too far", TODAY)
+    matters.soon(owner, "Dentist", date(2026, 11, 14), "cleaning", TODAY, open_=True)
+    matters.soon(owner, "Chem exam", date(2026, 11, 19), "final", TODAY, open_=True)
+    with pytest.raises(ValueError, match="already opened today"):
+        matters.soon(owner, "Move", date(2026, 11, 28), "movers", TODAY, open_=True)
+    assert fm.read(owner.vault_path / "Dentist.md")[0] == {"kind": "hub", "tier": "warm", "opened": "2026-11-11"}
+    listed = matters.lines(owner, TODAY)
+    assert "- Lisbon trip · soon 2026-11-20: fly to Lisbon" in listed and len(listed) == 3
