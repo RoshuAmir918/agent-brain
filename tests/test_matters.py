@@ -222,3 +222,17 @@ def test_the_morning_sets_soon_from_the_calendar_and_opens_at_most_two(owner):
     assert fm.read(owner.vault_path / "Dentist.md")[0] == {"kind": "hub", "tier": "warm", "opened": "2026-11-11"}
     listed = matters.lines(owner, TODAY)
     assert "- Lisbon trip · soon 2026-11-20: fly to Lisbon" in listed and len(listed) == 3
+
+
+def test_a_task_the_conversation_made_takes_its_matter(owner):
+    from brain import tasks
+    fm.write(owner.vault_path / "agent/Tasks.md", {}, "# Tasks\n\n" + "\n".join(task.render() for task in [
+        Task("T-001", "Send Theo the address", "- **Report:** demiurge:abc\n", {"state": "yours"}),
+        Task("T-002", "Book a table", "- **Report:** demiurge:abc\n- **Hub:** [[Dinners]]\n", {"state": "ready"}),
+        Task("T-003", "Other chat's task", "- **Report:** demiurge:xyz\n", {"state": "ready"}),
+    ]))
+    journal.append_entry(owner, {"headline": "Planned Theo's visit", "outcome": "progress",
+                                 "about": [{"name": "Theo's visit", "now": None, "soon": "2026-12-03 · Theo lands"}]},
+                         "cli", AT, session="demiurge:abc")
+    hubs = {task.tid: task.hub for task in tasks.all_tasks(owner)}
+    assert hubs == {"T-001": "Theo's visit", "T-002": "Dinners", "T-003": None}
