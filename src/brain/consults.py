@@ -63,7 +63,7 @@ class Consult:
     def item(self, config: Config | None = None, hours_of=None) -> needs.Item:
         item = needs.Item(self.kind, self.text, "consult", self.since, self.source,
                           detail=self.why, context=self.area, default=self.default, area=self.area)
-        item.owner = self.to
+        item.owner = item.on = self.to
         item.id = self.id
         # An ask moves on at its working-hours deadline; a went-ahead confirm is accepted as an owner's confirm is.
         item.wake = self.until if self.kind == "ask" else needs.wake_for("confirm", date.fromisoformat(self.since))

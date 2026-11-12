@@ -47,6 +47,7 @@ class Item:
     area: str = ""    # the ownership area a consult concerns
     hours: dict = field(default_factory=dict)   # a consult recipient's current working hours
     away: str = ""    # the last local date of their current absence, else empty
+    on: str = "owner"   # who it waits on: the owner, or for a consult the colleague asked (platform:id)
     wake: str = ""    # when it acts unprompted: an ask goes to the evening, a confirm is accepted, an idea lapses, a consult moves on
     snoozed: str = ""   # an idea put off until this date
 
