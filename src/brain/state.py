@@ -52,13 +52,17 @@ def _tasks(vault: Vault) -> list[dict]:
     # A regular task that spent today's budget rests until the owner's midnight, like one resting to a set time.
     midnight = f"{config.local().date() + timedelta(days=1)} 00:00"
     spent = {tid for tid, limit in limits.items() if chunks.get(tid, 0) >= limit}
+    current = vault.notes.get("CURRENT.md")
+    questions = {item.task: item for item in needs.open_asks(current.body) if item.task} if current else {}
     return [{"id": task.tid, "title": task.title, "state": task.task_state, "open": tasks.is_open(task),
              "detail": fm.field(task.body, "Status"), "next": fm.field(task.body, "Next", "Next action"),
              "blockers": fm.field(task.body, "Blocker", "Blockers"), "hub": _public_link(vault, task.hub), "work": task.work,
              "goal": task.goal if config.edition == "personal" else None,
              "after": task.after,
              "from": task.from_task,
-             "delivers": task.delivers, "deliversProposed": tasks.proposed_delivers(task), "ask": fm.field(task.body, "Ask"), "why": fm.field(task.body, "Why"),
+             "delivers": task.delivers, "deliversProposed": tasks.proposed_delivers(task),
+             "ask": questions[task.tid].text if task.tid in questions else None,
+             "why": (questions[task.tid].detail or None) if task.tid in questions else None,
              "evidence": fm.field(task.body, "Latest evidence"),
              "resume": midnight if task.tid in spent and tasks.pace(task) == "regular" and (task.resume or "") < midnight
                        else task.resume,

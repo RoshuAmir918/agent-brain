@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from brain import cli, fm, ideas, needs, nightly
+from brain import cli, fm, ideas, journal, needs, nightly, tasks
 from brain.config import Config
 from brain.tasks import Task, load_tasks, write_archive
 from brain.vault import Vault
@@ -69,7 +69,7 @@ def test_missing_section_is_empty(body):
     assert needs.parse_section(body + "- 2026-10-28 · ask · Not in the section.\n") == []
 
 
-def test_waiting_tasks_use_effective_state_and_latest_evidence(vault):
+def test_waiting_tasks_do_not_compute_questions_from_their_bodies(vault):
     states = [
         {"state": "waiting_for_owner", "status": "completed"},
         {"state": "ready", "status": "waiting_for_owner"},
@@ -84,11 +84,7 @@ def test_waiting_tasks_use_effective_state_and_latest_evidence(vault):
                   state) for index, state in enumerate(states, 1)]
     write_tasks(vault, *tasks)
     result = needs.items(Vault(vault), TODAY)
-    assert [(item.text, item.since, item.source) for item in result] == [
-        ("Task 1", "2026-10-27", "agent/Tasks.md#T-001"),
-        ("Task 10", None, "agent/Tasks.md#T-010"),
-    ]
-    assert all(item.kind == "ask" and item.origin == "task" for item in result)
+    assert result == []
 
 
 def test_archived_waiting_task_and_register_precedence(vault):
@@ -101,9 +97,10 @@ def test_archived_waiting_task_and_register_precedence(vault):
     write_archive(config, shadowed, "cold", TODAY)
     closed = Task("T-003", "Closed archive", "Completed.\n", {"state": "completed"})
     write_archive(config, closed, "cold", TODAY)
+    tasks.set_fields(config, "T-002", TODAY, values={"ask": "Resume the archived work?"})
     result = needs.items(config, TODAY)
     assert [(item.text, item.since, item.source) for item in result] == [
-        ("Archived wait", "2026-10-20", "agent/Tasks Archive/T-002.md")]
+        ("Resume the archived work?", TODAY.isoformat(), "agent/Tasks#T-002")]
 
 
 def test_warm_waiting_task_uses_recovered_body(vault):
@@ -114,9 +111,10 @@ def test_warm_waiting_task_uses_recovered_body(vault):
     path = vault / "agent/Tasks.md"
     data, body = fm.read(path)
     fm.write(path, data, body + "\n" + task.render_line(config))
+    tasks.set_fields(config, "T-002", TODAY, values={"ask": "Resume the warm work?"})
     item, = needs.items(config, TODAY)
-    assert item.since == "2026-10-22"
-    assert item.source == "agent/Tasks.md#T-002"
+    assert item.since == TODAY.isoformat()
+    assert item.source == "agent/Tasks#T-002"
 
 
 @pytest.mark.parametrize("status, included, day", [
@@ -183,6 +181,9 @@ def test_order_is_ranked_asks_then_confirms_with_ties_in_written_order(vault):
         fm.write(vault / (name + ".md"), {}, "## Improvements\n"
                  + improvement("October 27 — " + name + " newest", "proposed")
                  + improvement("October 26 — " + name + " older", "proposed"))
+    config = Config.load(vault)
+    for task in tasks.all_tasks(config):
+        tasks.set_fields(config, task.tid, TODAY, values={"ask": task.title})
     # Ranked: what blocks work (tasks waiting on the owner) first, then asks newest first, ties in written order;
     # confirms last.
     assert [item.text for item in needs.items(Config.load(vault), TODAY)] == [
@@ -217,8 +218,10 @@ def test_configured_task_and_archive_paths(vault):
     data, body = fm.read(path)
     fm.write(path, data, body + "\n" + task.render())
     write_archive(config, Task("T-003", "Archived wait", "", {"state": "waiting_for_owner"}), "cold", TODAY)
+    for tid in ("T-002", "T-003"):
+        tasks.set_fields(config, tid, TODAY, values={"ask": "Resume this work?"})
     assert [item.source for item in needs.items(config, TODAY)] == [
-        "Orphan/Tasks.md#T-002", "Orphan/Tasks Archive/T-003.md"]
+        "Orphan/Tasks#T-002", "Orphan/Tasks#T-003"]
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n"])
@@ -322,11 +325,12 @@ def test_cli_text_and_json(vault, capsys):
     write_current(vault, "- 2026-10-28 · confirm · Went ahead.\n"
                   "- 2026-10-28 · ask · Owner decision. · [[Trip]]\n")
     write_tasks(vault, Task("T-002", "Waiting task", "", {"state": "waiting_for_owner"}))
+    tasks.set_fields(Config.load(vault), "T-002", TODAY, values={"ask": "Resume the waiting task?"})
     fm.write(vault / "Topic.md", {}, "## Improvements\n" + improvement("October 26 — Better practice", "proposed"))
     before = snapshot(vault.parent)
     cli.main(["needs-you", "--vault", str(vault)])
     assert capsys.readouterr().out.splitlines() == [   # ranked: what blocks work, then newest first, confirms last
-        "ask · Waiting task · agent/Tasks.md#T-002", "ask · Owner decision. · Trip",
+        "ask · Resume the waiting task? · agent/Tasks#T-002", "ask · Owner decision. · Trip",
         "confirm · Went ahead. · CURRENT.md"]
     cli.main(["needs-you", "--json", "--vault", str(vault)])
     result = json.loads(capsys.readouterr().out)
@@ -472,7 +476,7 @@ def test_resolve_removes_the_answered_item_and_records_the_evidence(vault, capsy
 @pytest.mark.parametrize("which, because, message", [
     ("nothing like this", "x", "no open item matches"),
     ("?", "x", "open items match"),
-    ("Waiting task", "x", "change the task's state"),
+    ("Waiting task", "x", "no open item matches"),
     ("dinner", "", "needs --because"),
 ])
 def test_resolve_refuses_what_it_cannot_settle(vault, capsys, which, because, message):
@@ -503,6 +507,7 @@ def test_dismiss_no_sets_the_task_aside_and_the_item_never_returns(vault, capsys
 def test_dismiss_done_completes_a_waiting_task(vault, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
     write_tasks(vault, Task("T-012", "Renew registration", "- **Status:** waiting on Roshan\n", {"state": "waiting_for_owner"}))
+    tasks.set_fields(Config.load(vault), "T-012", TODAY, values={"ask": "Renew the registration?"})
     item, = needs.items(Config.load(vault), date(2026, 11, 3))
     cli.main(["needs-you", "--vault", str(vault), "--dismiss", item.id, "--reason", "done"])
     task, = [t for t in load_tasks(Config.load(vault))[0] if t.tid == "T-012"]
@@ -525,11 +530,12 @@ def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(va
                   "--why", "Two places have tables at 7; I'll book the one you pick, or neither."])
     cli.main(["needs-you", "--vault", str(vault), "--ask", "Keep the refundable fare?"])
     write_tasks(vault, Task("T-030", "Connect Roshan's Google accounts",
-                            "- **Status:** the Gmail link is ready\n- **Blocker:** T-030 step 3 needs an account pick\n"
-                            "- **Ask:** Which of your two Gmails should I read first?\n"
-                            "- **Why:** I'll start your morning summary from that one.\n",
+                            "- **Status:** the Gmail link is ready\n- **Blocker:** T-030 step 3 needs an account pick\n",
                             {"state": "waiting_for_owner"}),
                 Task("T-031", "Untitled wait", "- **Status:** no blocker written\n", {"state": "waiting_for_owner"}))
+    tasks.set_fields(Config.load(vault), "T-030", TODAY,
+                     values={"ask": "Which of your two Gmails should I read first?",
+                             "why": "I'll start your morning summary from that one."})
     fm.write(vault / "Correspondence.md", {}, "# Correspondence\n\n## Improvements\n\n"
              "### October 27 — Recheck changed correspondence, not every old letter\n"
              "- **Gap:** Each morning I reread every thread, even ones that have not changed.\n"
@@ -542,10 +548,9 @@ def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(va
     assert dinner.detail == "Two places have tables at 7; I'll book the one you pick, or neither."
     assert found["Keep the refundable fare?"].detail == ""
     google = found["Which of your two Gmails should I read first?"]
-    assert google.context == "Connect Roshan's Google accounts"
+    assert google.task == "T-030"
     assert google.detail == "I'll start your morning summary from that one."   # working notes never shown
-    untitled = found["Untitled wait"]                                 # no Ask: the title alone
-    assert untitled.context == "" and untitled.detail == ""
+    assert "Untitled wait" not in found
     idea, = ideas.items(Config.load(vault), TODAY)
     assert idea.text not in found
     assert idea.context == "Correspondence"
@@ -553,28 +558,26 @@ def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(va
     from brain import validate
     from brain.vault import Vault
     assert validate.owner_questions(Vault(vault)) == [
-        "T-031: no Ask line, the proposition the owner sees (and a Why line, what they get)",
+        "T-031: waiting_for_owner has no linked open ask in CURRENT's Needs you",
         "Correspondence.md · October 27 — Recheck changed correspondence, not every old letter: Why line is 60 words; at most 40"]
 
 
-def test_a_task_items_id_holds_when_its_ask_is_reworded_and_removing_an_ask_takes_its_why(vault, monkeypatch):
-    monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
-    write_tasks(vault, Task("T-040", "Hands share", "- **Ask:** Accept Kevin's share?\n", {"state": "waiting_for_owner"}))
-    first, = needs.items(Config.load(vault), TODAY)
-    write_tasks(vault, Task("T-040", "Hands share", "- **Ask:** Accept Kevin's share for Hands, once I check it's his Mac?\n",
-                            {"state": "waiting_for_owner"}))
-    second, = needs.items(Config.load(vault), TODAY)
-    assert first.id == second.id and first.text != second.text
-    write_current(vault, "- 2026-10-27 · ask · First?\n  - why: the first reason\n- 2026-10-27 · ask · Second?\n  - why: the second reason\n")
-    needs.resolve(Config.load(vault), "First?", "answered", TODAY)
-    body = fm.read(vault / "CURRENT.md")[1]
-    assert "First?" not in body and "the first reason" not in body
-    assert "Second?" in body and "the second reason" in body
-    second_ask, = [item for item in needs.items(Config.load(vault), TODAY) if item.origin == "current"]
-    assert second_ask.detail == "the second reason"
+def test_replacing_a_task_ask_takes_its_why_and_keeps_only_the_new_question(vault):
+    config = Config.load(vault)
+    tasks.set_fields(config, "T-001", TODAY, values={"ask": "Accept Kevin's share?", "why": "The first reason"})
+    first = needs.task_ask(config, "T-001")
+    tasks.set_fields(config, "T-001", TODAY, values={"ask": "Accept Kevin's share for Hands?", "why": "The second reason"})
+    second, = needs.items(config, TODAY)
+    assert second.task == "T-001" and second.detail == "The second reason"
+    assert first.text not in fm.read(vault / "CURRENT.md")[1]
+    assert "The first reason" not in fm.read(vault / "CURRENT.md")[1]
+    assert "a newer question about T-001 replaced it" in (vault / "agent/Answered/2026-10.md").read_text()
+    needs.resolve(config, second.id, "accepted", TODAY)
+    assert not needs.items(config, TODAY)
+    assert "The second reason" not in fm.read(vault / "CURRENT.md")[1]
 
 
-def test_a_current_bullet_repeating_a_waiting_task_is_shown_once_and_validate_names_it(vault, monkeypatch):
+def test_current_bullets_are_the_questions_and_validate_only_names_engine_notes(vault, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
     write_tasks(vault, Task("T-003", "Apartment token", "- **Ask:** Can you replace the apartment site's token?\n",
                             {"state": "waiting_for_owner"}))
@@ -584,16 +587,16 @@ def test_a_current_bullet_repeating_a_waiting_task_is_shown_once_and_validate_na
                          "- 2026-10-27 · ask · Book the Saturday dinner? · [[CURRENT]]\n")
     found = needs.items(Config.load(vault), TODAY)
     assert [(i.origin, i.text) for i in found if "token" in i.text or "other words" in i.text] == [
-        ("task", "Can you replace the apartment site's token?")]
+        ("current", "Can you replace the apartment site's token?"),
+        ("current", "Same task, other words")]
     from brain import validate
     from brain.vault import Vault
     problems = validate.needs_hygiene(Vault(vault))
-    assert len(problems) == 3
-    assert sum("repeats T-003" in p for p in problems) == 2
+    assert len(problems) == 1
     assert any("about the brain itself" in p and "Migration draft" in p for p in problems)
 
 
-def test_a_hidden_duplicate_bullet_can_still_be_resolved(vault, monkeypatch):
+def test_a_task_sourced_current_question_can_be_resolved(vault, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
     write_tasks(vault, Task("T-003", "Apartment token", "- **Ask:** Can you replace the apartment site's token?\n",
                             {"state": "waiting_for_owner"}))
@@ -603,7 +606,8 @@ def test_a_hidden_duplicate_bullet_can_still_be_resolved(vault, monkeypatch):
     from brain import validate
     from brain.vault import Vault
     assert validate.needs_hygiene(Vault(vault)) == []
-    assert [i.origin for i in needs.items(Config.load(vault), TODAY)] == ["task"]
+    assert needs.items(Config.load(vault), TODAY) == []
+    assert tasks.find(Config.load(vault), "T-003").task_state == "in_progress"
 
 
 def test_current_items_dated_over_two_weeks_ago_are_named_and_history_is_not(vault, monkeypatch):
@@ -632,3 +636,86 @@ def test_current_presenting_a_closed_task_as_live_is_named(vault, monkeypatch):
     from brain.vault import Vault
     problems = validate.closed_task_mentions(Vault(vault))
     assert len(problems) == 1 and "T-010" in problems[0] and "in progress" in problems[0]
+
+
+@pytest.mark.parametrize("source", ["Trip", "agent/Tasks#T-999"])
+def test_explicit_task_detail_wins_and_resolving_resumes_its_waiting_task(vault, monkeypatch, source):
+    from brain import continuation
+    config = Config.load(vault)
+    tasks.hand_off(config, "T-001", TODAY, "demiurge:original")
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner",
+                     values={"ask": "Use the smaller venue?", "blocker": "Waiting for the venue decision",
+                             "resume": "computer"})
+    current = vault / "CURRENT.md"
+    data, body = fm.read(current)
+    fm.write(current, data, body.replace("[[agent/Tasks#T-001]]", f"[[{source}]]"))
+    item, = needs.items(config, TODAY)
+    assert item.task == "T-001"
+    calls = []
+    monkeypatch.setattr(continuation, "answered", lambda *args, **kwargs: calls.append(args))
+    needs.resolve(config, item.id, "Use the hall by the park", TODAY, owner_engaged=True)
+    task = tasks.find(config, "T-001")
+    assert task.task_state == "in_progress" and task.resume is None
+    assert fm.field(task.body, "Blocker") is None
+    assert fm.field(task.body, "Latest evidence") == f"{TODAY} — the owner answered: Use the hall by the park"
+    assert not needs.items(config, TODAY)
+    assert calls[0][1:4] == ("agent/Tasks#T-001", item.text, "Use the hall by the park")
+    assert "because Use the hall by the park" in (vault / "agent/Answered/2026-10.md").read_text()
+
+
+@pytest.mark.parametrize("reason,expected", [("no", "set_aside"), ("stop-asking", "set_aside"), ("done", "completed")])
+def test_dismiss_a_question_linked_by_task_detail(vault, reason, expected):
+    config = Config.load(vault)
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner", values={"ask": "Use the smaller venue?"})
+    current = vault / "CURRENT.md"
+    data, body = fm.read(current)
+    fm.write(current, data, body.replace("[[agent/Tasks#T-001]]", "[[Trip]]"))
+    question = needs.task_ask(config, "T-001")
+    needs.dismiss(config, question.id, TODAY, reason)
+    assert tasks.find(config, "T-001").task_state == expected
+    assert not needs.items(config, TODAY)
+
+
+@pytest.mark.parametrize("route", ["set", "handoff", "aside", "owner-close"])
+def test_leaving_waiting_settles_questions_linked_only_by_task_detail(vault, route):
+    config = Config.load(vault)
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner", values={"ask": "Use the smaller venue?"})
+    current = vault / "CURRENT.md"
+    data, body = fm.read(current)
+    fm.write(current, data, body.replace("[[agent/Tasks#T-001]]", "[[Trip]]"))
+    if route == "set":
+        tasks.set_fields(config, "T-001", TODAY, state="in_progress")
+    elif route == "handoff":
+        tasks.hand_off(config, "T-001", TODAY, "demiurge:original")
+    elif route == "aside":
+        tasks.set_aside(config, "T-001", TODAY, "parked for now")
+    else:
+        tasks.close(config, "T-001", TODAY, True, "the owner finished", by_owner=True)
+    assert not needs.items(config, TODAY)
+    assert "Use the smaller venue?" not in fm.read(current)[1]
+
+
+def test_the_same_question_can_belong_to_two_tasks_and_an_unlinked_ask(vault):
+    config = Config.load(vault)
+    journal.add_ask(config, TODAY, "Use the smaller venue?", "Trip")
+    second = tasks.new_task(config, "Other booking", "the owner asked")
+    for tid in ("T-001", second.tid):
+        tasks.set_fields(config, tid, TODAY, values={"ask": "Use the smaller venue?"})
+        tasks.set_fields(config, tid, TODAY, values={"ask": "Use the smaller venue?"})
+    assert {item.task for item in needs.items(config, TODAY)} == {"", "T-001", second.tid}
+    assert len(needs.items(config, TODAY)) == 3
+
+
+def test_waiting_task_validation_reads_linked_question_caps_and_engine_text(vault):
+    from brain import validate
+    write_tasks(vault, Task("T-030", "Waiting", "- **Ask:** A stale task question?\n", {"state": "waiting_for_owner"}))
+    assert validate.owner_questions(Vault(vault)) == [
+        "T-030: waiting_for_owner has no linked open ask in CURRENT's Needs you"]
+    write_current(vault, "- 2026-10-28 · ask · Run brain task to choose " + "word " * 12 + "\n"
+                  "  - task: T-030\n  - why: Read details.md " + "word " * 40 + "\n")
+    problems = validate.owner_questions(Vault(vault))
+    assert any("Ask line is 17 words" in problem for problem in problems)
+    assert any("Why line is 42 words" in problem for problem in problems)
+    problems = validate.owner_facing_tasks(Vault(vault))
+    assert any("its Ask" in problem for problem in problems)
+    assert any("its Why" in problem for problem in problems)

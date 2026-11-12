@@ -1,4 +1,4 @@
-"""The owner's computed queue: current asks, waiting tasks and access requests."""
+"""The owner's queue: current asks and access requests."""
 from __future__ import annotations
 
 import re
@@ -9,7 +9,7 @@ from pathlib import PurePosixPath
 from . import access, access_log, fm, tasks as task_mod
 from . import items as grammar
 from .config import Config
-from .tasks import archive_path, load_tasks
+from .tasks import load_tasks
 from .vault import Vault
 
 KINDS = ("ask", "confirm")
@@ -41,7 +41,7 @@ class Item:
     hub: str = ""       # the matter it belongs to, as a note path, when the ask named one
     session: str = ""   # the conversation it was asked in (`demiurge:<id>`), so what settles it can be said there
     label: InitVar[str | None] = None   # what the id is keyed on, when the text is built from changing fields
-    task: str = field(init=False)       # the task it stands for (T-nnn), when its source names one; else ""
+    task: str = field(init=False)       # the task it stands for (T-nnn), from its detail or source; else ""
     owner: str = field(init=False, default="")   # who it is for: its task's owner, in an organisation's intellect; else ""
     default: str = ""   # a consult's stated default when nobody answers
     area: str = ""    # the ownership area a consult concerns
@@ -95,6 +95,8 @@ def read(block: grammar.Block) -> Item | None:
     why = " ".join(value for name, value in block.details if name == "why" and value)
     item.detail = fm.cut(why, WHY_WORDS)
     item.session = block.get("session") or ""
+    if (task := block.get("task")) is not None:
+        item.task = task
     item.wake = day_of(block.get("wake"))
     item.hub = block.get("hub") or ""
     return item
@@ -133,7 +135,7 @@ def improvement_status(entry: str) -> str | None:
 
 
 def _owner_lines(body: str) -> tuple[str | None, str]:
-    """The owner-facing Ask and Why lines of a task or proposal, cut to their caps. Working notes (Blocker, Status,
+    """The owner-facing Ask and Why lines of a proposal, cut to their caps. Working notes (Blocker, Status,
     Gap, Change) are the agent's own records and are never shown to the owner."""
     ask = fm.field(body, "Ask")
     why = fm.field(body, "Why") or ""
@@ -226,23 +228,12 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     config = vault_or_config if isinstance(vault_or_config, Config) else vault.config
     current = vault.notes.get("CURRENT.md")
     out = parse_section(current.body) if current else []
-    waiting = []
     register = config.agent("Tasks.md")
+    tasks, archived = [], []
     if (config.vault_path / register).exists():
         tasks, archived = load_tasks(config)
-        registered = {task.tid for task in tasks}
-        for task in tasks + archived:
-            if task.task_state != "waiting_for_owner":
-                continue
-            source = (register + "#" + task.tid if task.tid in registered else
-                      archive_path(config, task.tid).relative_to(config.vault_path).as_posix())
-            ask, why = _owner_lines(task.body)
-            waiting.append((task.tid, Item("ask", ask or task.title, "task", task.last_evidence_date() or None, source,
-                                           detail=why, context=task.title if ask else "", label=task.title,
-                                           session=task.report or "")))
-    out = [item for item in out if duplicates(item, waiting) is None] + [item for _, item in waiting]
     out.extend(_access_items(vault, config, today))
-    owners = {task.tid: task.owner for task in tasks + archived if task.owner} if (config.vault_path / register).exists() else {}
+    owners = {task.tid: task.owner for task in tasks + archived if task.owner}
     for tid in {item.task for item in out if item.kind == "confirm" and item.task and item.task not in owners}:
         if task := task_mod.find(config, tid, archived_closed=True):
             owners[tid] = task.owner or ""
@@ -252,15 +243,6 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     out.extend(consults.items(config))
     gone = dismissed_ids(config)
     return sorted((item for item in out if item.id not in gone), key=lambda item: rank(item, config, today))
-
-
-def duplicates(item: Item, waiting: list[tuple[str, Item]]) -> str | None:
-    """The waiting task a CURRENT bullet repeats, by the same words or a source naming the task; the task is the one
-    the owner sees, since it carries the state."""
-    if item.origin != "current" or item.kind != "ask":
-        return None
-    named = set(re.findall(r"\bT-\d{3,}\b", item.source))
-    return next((tid for tid, task in waiting if tid in named or fm.plain(task.text) == fm.plain(item.text)), None)
 
 
 def rank(item: Item, config: Config, today: date) -> tuple:
@@ -285,6 +267,57 @@ def overflow(config: Config, today: date, ceiling: int = OPEN_ASKS) -> list[Item
 
 def open_asks(body: str) -> list[Item]:
     return [item for item in parse_section(body) if item.kind == "ask"]
+
+
+def task_ask(vault_or_config: Vault | Config, tid: str) -> Item | None:
+    """The task's open question in CURRENT, including older bullets linked only by their source."""
+    if isinstance(vault_or_config, Vault):
+        note = vault_or_config.notes.get("CURRENT.md")
+        body = note.body if note else ""
+    else:
+        path = vault_or_config.vault_path / "CURRENT.md"
+        body = path.read_text(encoding="utf-8") if path.exists() else ""
+    return next((item for item in open_asks(body) if item.task == tid), None)
+
+
+def migrate_task_asks(config: Config, report: list[str]) -> None:
+    """Move waiting tasks' old questions into CURRENT, keeping ids already held by the app."""
+    from . import journal
+    from .lock import vault_lock
+    marker = config.vault_path / config.runtime_dir / "task-asks-0.171.0"
+    with vault_lock(config):
+        if marker.exists():
+            return
+        registered, archived = load_tasks(config)
+        in_register = {task.tid for task in registered}
+        current = config.vault_path / "CURRENT.md"
+        for task in registered + archived:
+            ask = fm.field(task.body, "Ask")
+            if task.task_state != "waiting_for_owner" or not ask:
+                continue
+            data, body = fm.read(current) if current.exists() else ({}, "")
+            existing = next((item for item in open_asks(body) if item.task == task.tid), None)
+            if existing is None:
+                existing = next((item for item in open_asks(body) if not item.task and
+                                 (task.tid in re.findall(r"\bT-\d{3,}\b", item.source)
+                                  or fm.plain(item.text) == fm.plain(ask))), None)
+            if existing:
+                fm.write(current, data, grammar.set_details(body, "Needs you", read, existing.id, {"task": task.tid}))
+            else:
+                source = (config.agent("Tasks.md") + "#" + task.tid if task.tid in in_register else
+                          task_mod.archive_path(config, task.tid).relative_to(config.vault_path).as_posix())
+                old_id = grammar.derived("task", source, task.title)
+                journal.add_ask(config, config.today(), ask, config.agent(f"Tasks#{task.tid}"),
+                                fm.field(task.body, "Why") or "", session=task.report or "", task=task.tid)
+                data, body = fm.read(current)
+                question = task_ask(config, task.tid)
+                fm.write(current, data, grammar.set_details(body, "Needs you", read, question.id, {"id": old_id}))
+            for name in ("ask", "why"):
+                task.body = task_mod._replace_field(task.body, name, None)
+            task_mod.save_task(config, task, config.today())
+            report.append(f"task ask: {task.tid}: moved the question to Needs you")
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        fm.write_text(marker, config.today().isoformat() + "\n")
 
 
 def stale(config: Config, today: date, days: int = STALE_DAYS) -> list[Item]:
@@ -327,12 +360,8 @@ def dismissed_ids(config: Config) -> set[str]:
 
 
 def _pick(config: Config, which: str, today: date, prefer_current: bool = False) -> Item:
-    """One open item by id, or by text matching exactly one. A CURRENT bullet hidden because it repeats a waiting task
-    is still reachable here, so the duplicate `brain validate` names can be removed."""
+    """One open item by id, or by text matching exactly one."""
     candidates = items(config, today)
-    current = Vault(config.vault_path).notes.get("CURRENT.md")
-    shown = {item.id for item in candidates}
-    candidates += [item for item in (parse_section(current.body) if current else []) if item.id not in shown]
     narrow = (lambda chosen: [item for item in chosen if item.origin == "current"]) if prefer_current else None
     return grammar.pick(candidates, which, "item", "brain needs-you --json", narrow=narrow)
 
@@ -428,27 +457,33 @@ def resolve(config: Config, which: str, because: str, today: date, *, record_ans
         reception.answered(config, "ask", item.text, "used")
     if record_answer:
         from . import continuation
-        continuation.answered(config, item.source, item.text, because, owner_engaged, by, kind=item.kind)
+        continuation.answered(config, config.agent(f"Tasks#{item.task}") if item.task else item.source,
+                              item.text, because, owner_engaged, by, kind=item.kind)
     if child:
         if item.task:
             parent = task_mod.find(config, item.task, archived_closed=True)
             task_mod.block_on_owner(config, parent, child, today)
         return child
+    if item.kind == "ask" and item.task:
+        task = task_mod.find(config, item.task, open_only=True)
+        if task and task.task_state == "waiting_for_owner":
+            task_mod.set_fields(config, task.tid, today, state="in_progress",
+                                values={"evidence": f"{today} — the owner answered: {because}"},
+                                clear=["blocker", "resume"])
     return item
 
 
 def settle_tasks(config: Config, today: date, settled: list[tuple[str, str]], because: str) -> list[str]:
     """Take out of CURRENT's Needs you the asks that stood for tasks no longer waiting on the owner (answered, moved on
-    or closed): a bullet whose source names the task, or that repeats its Ask. `settled` is (task id, the entry as it
+    or closed): a bullet whose source or task detail names the task. `settled` is (task id, the entry as it
     was when it waited). The caller holds the vault lock; each one is recorded as answered."""
     if not settled:
         return []
-    asks = {tid: fm.plain(ask) for tid, entry in settled if (ask := _owner_lines(entry)[0])}
     def stood_for(item: Item) -> bool:
         if item.kind != "ask":
             return False
         named = set(re.findall(r"\bT-\d{3,}\b", item.source))
-        return any(tid in named or asks.get(tid) == fm.plain(item.text) for tid, _ in settled)
+        return any(item.task == tid or (not item.task and tid in named) for tid, _ in settled)
     removed = _prune(config, stood_for)
     for item in removed:
         answered(config, today, _answered_line(today, item, because))
