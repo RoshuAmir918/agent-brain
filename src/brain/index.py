@@ -23,7 +23,9 @@ def index_line(note) -> str:
 
 
 def hot_selection(vault: Vault, budget_words: int):
-    hot = [n for n in vault.notes.values() if n.data.get("tier") == "hot" and vault.kind_for(n.rel) not in ("orientation", "log", "primed", "episode", "dream", "draft")]
+    hot = [n for n in vault.notes.values() if n.data.get("tier") == "hot"
+           and vault.kind_for(n.rel) not in ("orientation", "log", "primed", "episode", "dream", "draft")
+           and not (vault.kind_for(n.rel) == "responsibility" and n.data.get("status") == "retired")]
     hot.sort(key=lambda n: (not n.data.get("pinned", False), -float(n.data.get("activation", -99)), n.rel))
     selected, overflow, total = [], [], 0
     for n in hot:

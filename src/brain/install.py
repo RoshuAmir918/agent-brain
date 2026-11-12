@@ -193,6 +193,10 @@ def pending_migrations(config: Config) -> list[tuple[str, str]]:
 
 def migrate_check(config: Config) -> Path | None:
     """Record the installed version, or write the pending migration prompt and leave the version alone."""
+    from . import responsibilities
+    from .vault import Vault
+    for line in responsibilities.migrate_pauses(Vault(config.vault_path)):
+        print(line, file=sys.stderr)
     marker = config.vault_path / config.runtime_dir / "task-asks-0.171.0"
     if not marker.exists() and (config.vault_path / config.agent("Tasks.md")).exists():
         from . import needs

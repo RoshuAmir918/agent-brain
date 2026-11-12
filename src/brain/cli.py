@@ -233,6 +233,14 @@ def cmd_validate(a):
 
 def cmd_responsibility(a):
     try:
+        if a.name == "status" and not a.skill:
+            if a.title is None or len(a.routines) != 1:
+                raise ValueError("use status <id> <active|paused|retired> [--reason <text>]")
+            for change in responsibilities.set_status(Vault(a.config.vault_path), a.title, a.routines[0], a.reason):
+                print(change)
+            return
+        if a.reason is not None:
+            raise ValueError("--reason is only supported by status")
         if a.name == "adopt" and not a.skill:
             if any(getattr(a, key) is not None for key in ("records", "when", "script", "prompt", "delivers", "body")):
                 raise ValueError("adopt takes routines with --into or an optional --title and reason, or --hub")
@@ -251,7 +259,7 @@ def cmd_responsibility(a):
             return
         if a.name != "add" or a.title is None:
             if not a.skill or a.title:
-                raise ValueError('use add "<Title>" --when "<when>", sync, or "<Name>" --skill <name>')
+                raise ValueError('use add "<Title>" --when "<when>", status <id> <active|paused|retired>, sync, or "<Name>" --skill <name>')
             records = a.records or a.skill.removeprefix(a.config.skill_prefix)
             for path in install.responsibility(a.config, a.name, a.skill, records):
                 print(path)
@@ -1965,6 +1973,11 @@ def cmd_schedule(args):
                     if action == "remove":
                         del routines[name]
                     else:
+                        changes = responsibilities.pause(Vault(config.vault_path), name, action == "pause")
+                        if changes is not None:
+                            for change in changes:
+                                print(change)
+                            return
                         routines[name] = replace(routines[name], enabled=action == "resume")
                     verb = {"remove": "removed", "pause": "paused", "resume": "resumed"}[action]
                     changed = f"{verb} routine {name} in {schedule.path(config)}"
@@ -2461,10 +2474,11 @@ def main(argv=None):
     s.add_argument("--ack-notices", action="store_true", help="acknowledge displayed app-change notices for this owner or routine session")
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_session_context)
 
-    s = sub.add_parser("responsibility", help="add, adopt or sync standing work, or build a legacy hub with --skill", parents=[vault])
-    s.add_argument("name", metavar="add|adopt|sync|NAME"); s.add_argument("title", nargs="?")
+    s = sub.add_parser("responsibility", help="add, adopt, set status or sync standing work, or build a legacy hub with --skill", parents=[vault])
+    s.add_argument("name", metavar="add|adopt|status|sync|NAME"); s.add_argument("title", nargs="?")
     s.add_argument("routines", nargs="*")
     s.add_argument("--title", dest="adopt_title"); s.add_argument("--hub"); s.add_argument("--into")
+    s.add_argument("--reason")
     for key in ("skill", "records", "when", "script", "prompt", "asked-by", "delivers", "body"):
         s.add_argument("--" + key)
     reason = s.add_mutually_exclusive_group()

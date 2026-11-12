@@ -1,14 +1,15 @@
 """Responsibility ids, schedule ownership and state compatibility."""
 import io
+import json
 import shutil
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from importlib.resources import files
 
 import pytest
 
-from brain import cli, fm, install, nightly, responsibilities, schedule, state, validate
+from brain import cli, compile_context, fm, install, matters, nightly, responsibilities, schedule, session_context, state, validate
 from brain.config import Config
 from brain.vault import Vault
 
@@ -157,6 +158,7 @@ def test_folder_discovery_and_note_kinds(vault):
         "skill": "brain-watch", "records": "Responsibilities/chicken-alerts/records", "routines": [],
         "needs": ["computer"], "work": "flock", "delivers": "Healthy chickens", "folder": True, "path": "memory/Responsibilities/chicken-alerts/RESPONSIBILITY.md",
         "triggers": [{"kind": "schedule", "when": "every 2h"}], "version": 1,
+        "status": "active", "ended": None, "reason": None,
         "asked_by": "Owner, to keep an eye on chickens", "goal": "G-1", "role": "R-2"}
     assert entries["daily-check"]["title"] == "Daily check"
     assert entries["legacy"]["folder"] is False
@@ -222,7 +224,7 @@ def test_sync_updates_preserves_pause_removes_obsolete_and_deleted_but_keeps_leg
                            "gone-manual": schedule.Routine(every="1h", responsibility="gone")})
     loaded = Vault(vault)
     shutil.rmtree(deleted.parent)
-    before = path.read_bytes()
+    before_data, before_body = fm.read(path)
     changes = responsibilities.sync(loaded)
     assert "updated routine chicken-alerts" in changes
     assert {"removed routine chicken-alerts-2", "removed routine custom-alias", "removed routine gone",
@@ -231,7 +233,7 @@ def test_sync_updates_preserves_pause_removes_obsolete_and_deleted_but_keeps_leg
     assert set(actual) == {"legacy", "legacy-2", "engine", "chicken-alerts", "gone-manual"}
     assert actual["legacy"] == actual["legacy-2"] == legacy
     assert actual["chicken-alerts"].every == "2h" and actual["chicken-alerts"].enabled is False
-    assert path.read_bytes() == before
+    assert fm.read(path) == ({**before_data, "status": "paused"}, before_body)
     stamp = schedule.path(config).stat().st_mtime_ns
     assert responsibilities.sync(loaded) == []
     assert schedule.path(config).stat().st_mtime_ns == stamp
@@ -363,7 +365,7 @@ def test_add_with_known_goal_or_role_and_placeholder(vault):
     assert fm.read(path)[0]["goal"] == "G-1"
 
 
-@pytest.mark.parametrize("name", ["add", "adopt", "sync"])
+@pytest.mark.parametrize("name", ["add", "adopt", "status", "sync"])
 def test_legacy_creation_keeps_names_that_match_new_commands(vault, tmp_path, monkeypatch, name):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
     cli.main(["responsibility", name, "--skill", f"brain-{name}", "--vault", str(vault)])
@@ -451,7 +453,7 @@ def test_adopt_routines_copies_methods_scripts_and_timing_under_one_lock(vault, 
         "triggers": [
             {"kind": "schedule", "when": "0 8 * * MON-FRI", "prompt": "Keep the house clean."},
             {"kind": "schedule", "when": "every 2h", "deliver": "local", "needs": ["computer"],
-             "agent": False, "script": "scripts/trades.sh"},
+             "agent": False, "script": "scripts/trades.sh", "paused": True},
             {"kind": "schedule", "when": "once 2026-11-12T19:00:00+02:00"},
         ]}
     assert body.startswith("# Housekeeping & trades\n\nAdopted from the routines housekeeping, housekeeping-trades, reminder on 2026-11-11;")
@@ -466,7 +468,7 @@ def test_adopt_routines_copies_methods_scripts_and_timing_under_one_lock(vault, 
     actual = schedule.load(config)
     assert set(actual) == {"housekeeping-trades", "housekeeping-trades-2", "housekeeping-trades-3", "unrelated"}
     assert all(actual[name].responsibility == "housekeeping-trades" for name in actual if name != "unrelated")
-    assert not actual["housekeeping-trades"].enabled and not actual["housekeeping-trades-2"].enabled
+    assert actual["housekeeping-trades"].enabled and not actual["housekeeping-trades-2"].enabled
     assert actual["housekeeping-trades-3"].enabled
     assert actual["housekeeping-trades-2"].script == "memory/Responsibilities/housekeeping-trades/scripts/trades.sh"
     assert actual["housekeeping-trades-3"].at == "2026-11-12T19:00:00+02:00"
@@ -493,7 +495,7 @@ def test_adopt_defaults_and_reason_flags(vault, extra, reason):
     adopt(vault, "alerts", *extra)
     data, body = fm.read(vault / "Responsibilities/alerts/RESPONSIBILITY.md")
     assert data == {"version": 1, "title": "alerts", "triggers": [
-        {"kind": "schedule", "when": "every 2h", "deliver": "local"}], **reason}
+        {"kind": "schedule", "when": "every 2h", "deliver": "local", "paused": True}], **reason}
     assert "Run alerts." not in body
     assert schedule.load(config)["alerts"].enabled is False
 
@@ -700,7 +702,7 @@ def test_adopt_hub_leaves_linked_one_offs_in_schedule_without_triggers(vault, tm
     schedule.save(config, {**one_offs, "recurring": schedule.Routine(every="2h", responsibility="history", enabled=False)})
     adopt(vault, "--hub", "Legacy")
     data, _ = fm.read(vault / "Responsibilities/history/RESPONSIBILITY.md")
-    assert data["triggers"] == [{"kind": "schedule", "when": "every 2h", "deliver": "local"}]
+    assert data["triggers"] == [{"kind": "schedule", "when": "every 2h", "deliver": "local", "paused": True}]
     actual = schedule.load(config)
     assert set(actual) == {*one_offs, "history"} and not actual["history"].enabled
     assert {name: actual[name] for name in one_offs} == one_offs
@@ -719,7 +721,7 @@ def test_adopt_into_appends_triggers_and_text_preserves_document_and_enabled_sta
     data = {"custom": {"keep": [1, 2]}, "triggers": [
         {"kind": "mail", "filter": "trades"},
         {"kind": "schedule", "when": "once 2026-11-01T08:00:00-08:00"},
-        {"kind": "schedule", "when": "every 2h", "prompt": "Keep existing instructions."},
+        {"kind": "schedule", "when": "every 2h", "prompt": "Keep existing instructions.", "paused": True},
         {"kind": "webhook"}, {"kind": "schedule", "when": "0 8 * * *"}],
         "title": "Trading history", "version": 1, "asked_by": "Owner, original request",
         "records": "agent/trade-history", "needs": ["computer"], "work": "portfolio", "delivers": "Receipts"}
@@ -736,7 +738,6 @@ def test_adopt_into_appends_triggers_and_text_preserves_document_and_enabled_sta
     script.chmod(0o751)
     responsibilities.sync(Vault(vault))
     existing = schedule.load(config)
-    existing["history-2"] = replace(existing["history-2"], enabled=False)
     sources = {
         "alerts": schedule.Routine(cron="0 9 * * *", skills=[skill.parent.name, "brain-watch"],
                                     script=script.name, prompt="Check trades.", deliver="demiurge"),
@@ -751,7 +752,7 @@ def test_adopt_into_appends_triggers_and_text_preserves_document_and_enabled_sta
         key: value for key, value in data.items() if key != "triggers"}
     assert actual_data["triggers"] == data["triggers"] + [
         {"kind": "schedule", "when": "0 9 * * *", "prompt": "Check trades.", "script": "scripts/trades.sh"},
-        {"kind": "schedule", "when": "once 2026-11-12T19:00:00-08:00", "prompt": "Check that window.", "deliver": "local"}]
+        {"kind": "schedule", "when": "once 2026-11-12T19:00:00-08:00", "prompt": "Check that window.", "deliver": "local", "paused": True}]
     assert body.startswith(original_body)
     assert "## Prompt (alerts)\n\nCheck trades." in body
     assert "## Prompt (history-4)\n\nCheck that window." in body
@@ -994,7 +995,7 @@ def test_adopt_hub_with_symlinked_skill_keeps_target_and_restores_link_on_error(
 
 
 @pytest.mark.parametrize("mode", ["group", "hub", "into"])
-@pytest.mark.parametrize("failure", ["write", "copy", "sync", "pause"])
+@pytest.mark.parametrize("failure", ["write", "copy", "sync", "schedule"])
 def test_adopt_rolls_back_write_and_sync_errors(vault, tmp_path, monkeypatch, capsys, mode, failure):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
     config = Config.load(vault)
@@ -1019,7 +1020,9 @@ def test_adopt_rolls_back_write_and_sync_errors(vault, tmp_path, monkeypatch, ca
         records = target.parent / "records/receipt.md"
         records.parent.mkdir()
         records.write_text("Keep the receipt.\n")
-    schedule.save(config, {"alerts": schedule.Routine(every="2h", enabled=False, skills=[skill.parent.name], script=script.name)})
+    folder(vault, "unrelated")
+    schedule.save(config, {"alerts": schedule.Routine(every="2h", enabled=False, skills=[skill.parent.name], script=script.name),
+                           "unrelated": schedule.Routine(every="1h", responsibility="unrelated", enabled=False)})
     before = tree(tmp_path)
     if failure in ("write", "copy"):
         real_write = fm.write_text
@@ -1041,13 +1044,13 @@ def test_adopt_rolls_back_write_and_sync_errors(vault, tmp_path, monkeypatch, ca
     else:
         real_save, calls = schedule.save, []
 
-        def fail_pause(*args, **kwargs):
+        def fail_schedule(*args, **kwargs):
             calls.append(True)
-            if len(calls) == 3:
-                raise OSError("injected pause error")
+            if len(calls) == 2:
+                raise OSError("injected schedule error")
             return real_save(*args, **kwargs)
 
-        monkeypatch.setattr(schedule, "save", fail_pause)
+        monkeypatch.setattr(schedule, "save", fail_schedule)
     with pytest.raises(SystemExit, match="injected"):
         adopt(vault, *({"hub": ["--hub", "Legacy"], "group": ["alerts"], "into": ["alerts", "--into", "history"]}[mode]))
     assert tree(tmp_path) == before
@@ -1122,6 +1125,163 @@ def test_one_off_runs_for_a_folder_responsibility_survive_sync_and_prune_when_sp
     assert {"window-old", "window-new"} <= set(schedule.load(config))
     cli.main(["schedule", "prune", "--vault", str(vault)])
     assert "window-old" not in schedule.load(config) and "window-new" in schedule.load(config)
+
+
+@pytest.mark.parametrize("status, enabled", [(None, [True, False]), ("active", [True, False]),
+                                             ("paused", [False, False]), ("retired", [])])
+def test_derive_responsibility_and_trigger_status(vault, status, enabled):
+    data = {"status": status} if status is not None else {}
+    if status == "retired":
+        data["ended"] = date(2026, 11, 10)
+    folder(vault, triggers=[{"kind": "schedule", "when": "every 1h"}, {"kind": "mail"},
+                            {"kind": "schedule", "when": "0 8 * * *", "paused": True}], **data)
+    loaded = Vault(vault)
+    derived = responsibilities.derive(loaded.config, responsibilities.discover(loaded)[0])
+    assert [routine.enabled for routine in derived.values()] == enabled
+
+
+@pytest.mark.parametrize("data, error", [
+    ({"status": "ended"}, "status must be"), ({"status": None}, "status must be"),
+    ({"status": ["active"]}, "status must be"),
+    ({"status": "retired"}, "ended: YYYY-MM-DD"),
+    ({"status": "retired", "ended": "2026-02-30"}, "ended: YYYY-MM-DD"),
+    ({"status": "retired", "ended": "20261110"}, "ended: YYYY-MM-DD"),
+    ({"reason": 12}, "reason must be"),
+    ({"triggers": [{"kind": "schedule", "when": "every 1h", "paused": "true"}]}, "paused: must be a boolean"),
+])
+def test_derive_rejects_invalid_status_fields(vault, data, error):
+    folder(vault, **data)
+    loaded = Vault(vault)
+    with pytest.raises(ValueError, match=error):
+        responsibilities.derive(loaded.config, responsibilities.discover(loaded)[0])
+
+
+def test_sync_enabled_comes_only_from_document_after_conversion(vault):
+    path = folder(vault)
+    hub(vault, "Legacy", skill="brain-legacy", records="legacy")
+    loaded = Vault(vault)
+    responsibilities.sync(loaded)
+    routines = schedule.load(loaded.config)
+    routines["chicken-alerts"] = replace(routines["chicken-alerts"], enabled=False)
+    routines["legacy"] = schedule.Routine(every="1h", responsibility="legacy", enabled=False)
+    schedule.save(loaded.config, routines)
+    responsibilities.sync(loaded)
+    assert schedule.load(loaded.config)["chicken-alerts"].enabled
+    assert not schedule.load(loaded.config)["legacy"].enabled
+    data, body = fm.read(path)
+    fm.write(path, {**data, "status": "paused"}, body)
+    responsibilities.sync(loaded)
+    assert not schedule.load(loaded.config)["chicken-alerts"].enabled
+    fm.write(path, data, body)
+    responsibilities.sync(loaded)
+    assert schedule.load(loaded.config)["chicken-alerts"].enabled
+
+
+def test_status_cli_preserves_document_and_syncs_under_one_lock(vault, monkeypatch, capsys):
+    path = folder(vault, custom={"keep": [1, "two"]}, learned=["Animal care"])
+    data, body = fm.read(path)
+    (vault.parent / "brain.toml").write_text('[brain]\ntimezone="Pacific/Honolulu"\n')
+    monkeypatch.delenv("BRAIN_TODAY", raising=False)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 13, 1, tzinfo=timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr("brain.config.datetime", Clock)
+    held, locks = [], []
+    real_lock, real_status, real_sync = responsibilities.vault_lock, responsibilities._status, responsibilities.sync
+
+    @contextmanager
+    def counted_lock(config):
+        assert not held
+        with real_lock(config):
+            held.append(True)
+            locks.append(True)
+            yield
+            held.pop()
+
+    def checked_status(*args, **kwargs):
+        assert held
+        return real_status(*args, **kwargs)
+
+    def checked_sync(vault, *, locked=False):
+        assert held and locked
+        return real_sync(vault, locked=locked)
+
+    monkeypatch.setattr(responsibilities, "vault_lock", counted_lock)
+    monkeypatch.setattr(responsibilities, "_status", checked_status)
+    monkeypatch.setattr(responsibilities, "sync", checked_sync)
+
+    def status(value, *extra):
+        cli.main(["responsibility", "status", "chicken-alerts", value, *extra, "--vault", str(vault)])
+
+    status("paused", "--reason", "Owner is away")
+    assert fm.read(path) == ({**data, "status": "paused", "reason": "Owner is away"}, body)
+    assert not schedule.load(Config.load(vault))["chicken-alerts"].enabled
+    status("paused")
+    assert "reason" not in fm.read(path)[0]
+    status("retired", "--reason", "Work ended")
+    assert fm.read(path) == ({**data, "status": "retired", "reason": "Work ended", "ended": "2026-11-12"}, body)
+    assert not schedule.load(Config.load(vault))
+    status("retired")
+    assert "reason" not in fm.read(path)[0]
+    status("active", "--reason", "ignored")
+    assert fm.read(path) == ({**data, "status": "active"}, body)
+    assert schedule.load(Config.load(vault))["chicken-alerts"].enabled
+    assert len(locks) == 5
+    assert "set responsibility chicken-alerts status retired" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("args, message", [
+    (["missing", "paused"], "unknown folder responsibility: missing"),
+    (["chicken-alerts", "gone"], "status must be active, paused or retired"),
+    (["chicken-alerts"], "use status <id>"),
+    (["chicken-alerts", "active", "extra"], "use status <id>"),
+])
+def test_status_cli_errors_leave_document_untouched(vault, args, message):
+    path = folder(vault)
+    config = Config.load(vault)
+    schedule.save(config, {"chicken-alerts": schedule.Routine(every="2h", responsibility="chicken-alerts", enabled=False)})
+    before = path.read_bytes()
+    with pytest.raises(SystemExit, match=message):
+        cli.main(["responsibility", "status", *args, "--vault", str(vault)])
+    assert path.read_bytes() == before
+    assert not (vault / config.runtime_dir / responsibilities.STATUS_MIGRATION).exists()
+
+
+def test_retired_stays_exported_and_out_of_working_context_and_matters(vault, monkeypatch, capsys):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-12")
+    active = folder(vault, "active")
+    retired = folder(vault, "retired", status="retired", ended=date(2026, 11, 10), reason="Owner ended it", tier="hot")
+    data, _ = fm.read(retired)
+    fm.write(retired, data, "## Strategy\n\nRetired strategy.\n\n## Now\n\nDeadline 2026-11-13.\n")
+    loaded = Vault(vault)
+    active_hub, retired_hub = (path.relative_to(vault).as_posix() for path in (active, retired))
+    hubs, within = session_context._own_scope(loaded)
+    assert active_hub in hubs and retired_hub not in within
+    assert retired_hub in matters._responsibility_hubs(loaded)
+    assert matters.find(loaded, retired_hub) is None
+    context = compile_context.build(loaded)
+    assert "Retired strategy" not in context and "Deadline 2026-11-13" not in context
+    responsibilities.sync(loaded)
+    cli.main(["state", "--json", "--vault", str(vault)])
+    entry = next(entry for entry in json.loads(capsys.readouterr().out)["responsibilities"] if entry["id"] == "retired")
+    assert {key: entry[key] for key in ("status", "ended", "reason", "routines")} == {
+        "status": "retired", "ended": "2026-11-10", "reason": "Owner ended it", "routines": []}
+
+
+def test_retiring_removes_declared_once_and_hand_scheduled_runs(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-12")
+    folder(vault, triggers=[{"kind": "schedule", "when": "every 1h"},
+                            {"kind": "schedule", "when": "once 2026-11-13T19:00:00-08:00"}])
+    loaded = Vault(vault)
+    responsibilities.sync(loaded)
+    routines = schedule.load(loaded.config)
+    routines["extra"] = schedule.Routine(at="2026-11-13T19:00:00-08:00", responsibility="chicken-alerts")
+    schedule.save(loaded.config, routines)
+    cli.main(["responsibility", "status", "chicken-alerts", "retired", "--vault", str(vault)])
+    assert schedule.load(loaded.config) == {}
 
 
 def test_adopt_takes_a_routine_with_a_dangling_responsibility_and_a_skill_that_is_gone(vault):

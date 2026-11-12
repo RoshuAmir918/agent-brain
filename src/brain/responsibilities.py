@@ -6,7 +6,7 @@ import shutil
 from contextlib import nullcontext
 from copy import copy
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from .schedule import Routine
 
 ID_PATTERN = r"[a-z0-9][a-z0-9-]{0,62}"
+STATUS_MIGRATION = "responsibility-status-0.184.0"
 
 
 def identity(config: Config, note: Note) -> str:
@@ -43,7 +44,9 @@ def discover(vault: Vault) -> list[dict]:
                         "records": note.data.get("records", f"Responsibilities/{ident}/records"),
                         "routines": [], "needs": note.data.get("needs", []), "work": note.data.get("work"),
                         "delivers": note.data.get("delivers"), "folder": True, "path": (base / source).as_posix(),
-                        **{key: note.data.get(key) for key in ("triggers", "asked_by", "goal", "role", "version")},
+                        "status": note.data.get("status", "active"),
+                        "ended": str(note.data["ended"]) if note.data.get("ended") is not None else None,
+                        **{key: note.data.get(key) for key in ("triggers", "asked_by", "goal", "role", "version", "reason")},
                         **({"learned": note.data["learned"]} if note.data.get("learned") else {})})
             continue
         if vault.kind_for(source) != "hub" or note.data.get("kind", "hub") != "hub":
@@ -75,6 +78,19 @@ def derive(config: Config, entry: dict) -> dict[str, Routine]:
         raise ValueError(f"responsibility id must match ^{ID_PATTERN}$")
     if type(entry.get("version")) is not int or entry["version"] != 1:
         raise ValueError("version: required and must be 1")
+    status = entry.get("status", "active")
+    if status not in ("active", "paused", "retired"):
+        raise ValueError("status must be active, paused or retired")
+    if entry.get("reason") is not None and not isinstance(entry["reason"], str):
+        raise ValueError("reason must be a string")
+    if status == "retired":
+        try:
+            date.fromisoformat(str(entry.get("ended")))
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(entry["ended"])):
+                raise ValueError
+        except ValueError:
+            raise ValueError("retired responsibility requires ended: YYYY-MM-DD") from None
+        return {}
     triggers = entry.get("triggers")
     if not isinstance(triggers, list):
         raise ValueError("triggers must be a list of maps with a kind")
@@ -95,6 +111,8 @@ def derive(config: Config, entry: dict) -> dict[str, Routine]:
         if trigger["kind"] != "schedule":
             continue
         scheduled += 1
+        if type(trigger.get("paused", False)) is not bool:
+            raise ValueError(f"{where}.paused: must be a boolean")
         when = trigger.get("when")
         timing = {}
         if isinstance(when, str):
@@ -144,7 +162,7 @@ def derive(config: Config, entry: dict) -> dict[str, Routine]:
         if not isinstance(deliver, str):
             raise ValueError(f"{where}.deliver: must be a string")
         out[name] = schedule.Routine(**timing, responsibility=ident, skills=[skill] if skill else [],
-                                     prompt=prompt, deliver=deliver,
+                                     prompt=prompt, deliver=deliver, enabled=status == "active" and not trigger.get("paused", False),
                                      needs=sorted(set(needs + extra_needs)), script=script, agent=trigger.get("agent", True))
     schedule.render(out)
     return out
@@ -154,11 +172,114 @@ def sync(vault: Vault, *, locked: bool = False) -> list[str]:
     """Sync under the vault lock, or reuse the caller's lock when locked=True."""
     from . import schedule
     with nullcontext() if locked else vault_lock(vault.config):
+        migrated = migrate_pauses(vault, locked=True)
         vault.load()
         routines, changes = _synced(vault, schedule.load(vault.config))
         if any(not change.startswith("kept ") for change in changes):
             schedule.save(vault.config, routines)
+        return migrated + changes
+
+
+def _schedule_triggers(entry: dict) -> dict[str, dict]:
+    triggers = entry.get("triggers")
+    if not isinstance(triggers, list):
+        return {}
+    scheduled = [trigger for trigger in triggers if isinstance(trigger, dict) and trigger.get("kind") == "schedule"]
+    return {entry["id"] if index == 1 else f"{entry['id']}-{index}": trigger
+            for index, trigger in enumerate(scheduled, 1)}
+
+
+def migrate_pauses(vault: Vault, *, locked: bool = False) -> list[str]:
+    """Carry schedule-only pauses into their documents before the first document-driven sync."""
+    from . import schedule
+    marker = vault.root / vault.config.runtime_dir / STATUS_MIGRATION
+    with nullcontext() if locked else vault_lock(vault.config):
+        if marker.exists():
+            return []
+        vault.load()
+        routines = schedule.load(vault.config)
+        changes = []
+        for entry in discover(vault):
+            if not entry["folder"] or entry["status"] != "active":
+                continue
+            triggers = _schedule_triggers(entry)
+            owned = {name: routine for name, routine in routines.items()
+                     if name in triggers and routine.responsibility == entry["id"]}
+            disabled = [name for name, routine in owned.items() if not routine.enabled and triggers[name].get("paused") is not True]
+            if not disabled:
+                continue
+            note = vault.notes[entry["hub"]]
+            try:
+                declared = derive(vault.config, entry)
+            except ValueError:
+                declared = triggers
+            if all(name in disabled or triggers[name].get("paused") is True for name in (declared or owned)):
+                note.data["status"] = "paused"
+            else:
+                for name in disabled:
+                    triggers[name]["paused"] = True
+            note.save()
+            changes.append(f"migrated pauses for responsibility {entry['id']}")
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        fm.write_text(marker, "done\n")
         return changes
+
+
+def _status(config: Config, note: Note, status: str, reason: str | None = None) -> None:
+    note.data["status"] = status
+    if status == "retired":
+        note.data["ended"] = config.today().isoformat()
+    elif status == "active":
+        note.data.pop("ended", None)
+    if status != "active" and reason:
+        note.data["reason"] = reason
+    else:
+        note.data.pop("reason", None)
+    note.save()
+
+
+def set_status(vault: Vault, ident: str, status: str, reason: str | None = None) -> list[str]:
+    if status not in ("active", "paused", "retired"):
+        raise ValueError("status must be active, paused or retired")
+    with vault_lock(vault.config):
+        vault.load()
+        entry = next((entry for entry in discover(vault) if entry["folder"] and entry["id"] == ident), None)
+        if entry is None:
+            raise ValueError(f"unknown folder responsibility: {ident}")
+        changes = migrate_pauses(vault, locked=True)
+        _status(vault.config, vault.notes[entry["hub"]], status, reason)
+        return changes + [f"set responsibility {ident} status {status}"] + sync(vault, locked=True)
+
+
+def pause(vault: Vault, name: str, paused: bool) -> list[str] | None:
+    """Update a declared trigger; the schedule CLI holds the vault lock."""
+    from . import schedule
+    changes = migrate_pauses(vault, locked=True)
+    vault.load()
+    routines = schedule.load(vault.config)
+    entries = discover(vault)
+    owner = link(entries, routines).get(name)
+    entry = next((entry for entry in entries if entry["folder"] and entry["id"] == owner), None)
+    if entry is None:
+        return None
+    triggers = _schedule_triggers(entry)
+    if name not in triggers:
+        return None   # a hand-scheduled one-off has no trigger to edit
+    note = vault.notes[entry["hub"]]
+    if not paused:
+        triggers[name].pop("paused", None)
+    if len(triggers) == 1:
+        _status(vault.config, note, "paused" if paused else "active")
+    elif not paused and entry["status"] == "paused":
+        for other, trigger in triggers.items():
+            if other != name:
+                trigger["paused"] = True
+        _status(vault.config, note, "active")
+    else:
+        if paused:
+            triggers[name]["paused"] = True
+        note.save()
+    return changes + [f"{'paused' if paused else 'resumed'} routine {name} in {entry['hub']}"] + sync(vault, locked=True)
 
 
 def _synced(vault: Vault, routines: dict[str, Routine]) -> tuple[dict[str, Routine], list[str]]:
@@ -186,13 +307,12 @@ def _synced(vault: Vault, routines: dict[str, Routine]) -> tuple[dict[str, Routi
         removed = (ident not in known and not (vault.root / "Responsibilities" / ident).exists()
                    and re.fullmatch(re.escape(ident) + r"(?:-(?:[2-9]|[1-9][0-9]+))?", name))
         one_off = routine.at is not None and name not in derived   # scheduled by hand for one run; prune removes it
-        if ident in folders and not one_off and (name not in derived or derived[name].responsibility != ident) or removed:
+        retired = ident in folders and folders[ident]["status"] == "retired"
+        if retired or ident in folders and not one_off and (name not in derived or derived[name].responsibility != ident) or removed:
             del routines[name]
             changes.append(f"removed routine {name}")
     for name, routine in derived.items():
         old = routines.get(name)
-        if old is not None:
-            routine = replace(routine, enabled=old.enabled)
         if routine != old:
             routines[name] = routine
             changes.append(f"{'updated' if old is not None else 'added'} routine {name}")
@@ -354,6 +474,8 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
                 raise ValueError(f"{name}: workdir is outside the vault repo; needs a hand conversion")
             when = routine.cron if routine.cron is not None else f"every {routine.every}" if routine.every else f"once {routine.at}"
             trigger = {"kind": "schedule", "when": when}
+            if not routine.enabled:
+                trigger["paused"] = True
             if routine.prompt and routine.prompt != f"Run {name}.":
                 trigger["prompt"] = routine.prompt
             if routine.deliver != "demiurge":
@@ -431,14 +553,14 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
         # Another responsibility's broken document is validate's to report; only this one's blocks the adoption.
         if mine := [change for change in changes if change.startswith(f"kept {ident} ")]:
             raise ValueError("; ".join(mine))
-        enabled = {name: routines[name].enabled if existing_note is None and name in names else routines[source].enabled
-                   for index, source in enumerate(names, scheduled + 1)
-                   if (name := ident if index == 1 else f"{ident}-{index}") in derived}
-        schedule.render({name: replace(routine, enabled=enabled.get(name, routine.enabled)) for name, routine in planned.items()})
+        schedule.render(planned)
 
         schedule_path = schedule.path(config)
+        # The first sync can migrate pauses in other folders; a failed adoption must restore those documents too.
         originals = {path: (path.read_bytes(), path.stat().st_mode & 0o777) if path.exists() else None
-                     for path in [schedule_path, target, *(target.parent / relative for relative in copied),
+                     for path in [schedule_path, target, vault.root / config.runtime_dir / STATUS_MIGRATION,
+                                  *(vault.root / entry["hub"] for entry in entries if entry["folder"]),
+                                  *(target.parent / relative for relative in copied),
                                   *([old_hub.path] if old_hub else [])]}
         missing_dirs = sorted({path for parent in {path.parent for path in originals}
                                for path in (parent, *parent.parents) if not path.exists()},
@@ -466,9 +588,6 @@ def adopt(config: Config, names: list[str], *, hub: str | None = None, title: st
                 changes = sync(vault, locked=True)
                 if mine := [change for change in changes if change.startswith(f"kept {ident} ")]:
                     raise ValueError("; ".join(mine))
-                synced = schedule.load(config)
-                schedule.save(config, {name: replace(routine, enabled=enabled.get(name, routine.enabled))
-                                       for name, routine in synced.items()})
             except Exception:
                 if own_folder:
                     if own_folder.is_symlink():
