@@ -435,11 +435,12 @@ def cmd_loops(args):
                 raise ValueError("--add needs --kind K and --source NOTE")
             if args.due is True:
                 raise ValueError("--add --due needs a date")
-            added = loops.add(config, now, args.kind, args.add, args.source, args.with_ or "", args.due or "", args.task or "")
+            added = loops.add(config, now, args.kind, args.add, args.source, args.with_ or "", args.due or "", args.task or "",
+                              args.condition or "")
             print(f"{'added' if added else 'already open'} loop: {args.add}")
             return
-        if args.kind or args.source is not None or args.with_ is not None or isinstance(args.due, str) or args.task:
-            raise ValueError("--kind, --source, --with, --task and --due DATE go with --add")
+        if args.kind or args.source is not None or args.with_ is not None or isinstance(args.due, str) or args.task or args.condition:
+            raise ValueError("--kind, --source, --with, --task, --if and --due DATE go with --add")
         if args.close is not None:
             if not args.outcome or not args.because:
                 raise ValueError("--close needs --outcome done|dropped and --because TEXT")
@@ -462,6 +463,7 @@ def cmd_loops(args):
     else:
         for item in due if args.due or args.stale else loops.open_loops(config):
             details = ((f" · with: {item.with_}" if item.with_ else "") + (f" · due: {item.due}" if item.due else "")
+                       + (f" · if: {item.if_}" if item.if_ else "") + (f" · wake: {item.wake}" if item.wake else "")
                        + (f" · ready: {item.ready}" if item.ready else ""))
             print(f"{item.id} · {item.since} · {item.kind} · {item.text} · [[{item.source}]]{details}")
 
@@ -1996,7 +1998,8 @@ def main(argv=None):
     s.add_argument("--for", dest="for_", metavar="PERSON", help="list only what is for this person (<platform>:<id>): the asks of tasks they own")
     s.add_argument("--why", metavar="TEXT", help="with --ask or --resolve --yours: why it needs the owner, in plain words")
     s.set_defaults(fn=cmd_needs_you)
-    s = sub.add_parser("loops", help="promises, answers owed and waits on others", parents=[vault])
+    s = sub.add_parser("loops", help="promises, answers owed, waits on others, and what to do when something happens",
+                       parents=[vault])
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true"); mode.add_argument("--add", metavar="TEXT")
     mode.add_argument("--close", metavar="ID_OR_TEXT")
@@ -2006,6 +2009,8 @@ def main(argv=None):
     s.add_argument("--kind", choices=loops.KINDS); s.add_argument("--source", metavar="NOTE")
     s.add_argument("--with", dest="with_", metavar="WHO"); s.add_argument("--outcome", choices=loops.OUTCOMES)
     s.add_argument("--task", metavar="T-nnn", help="with --add --kind waiting: the task the answer is for; closing the loop done resumes it")
+    s.add_argument("--if", dest="condition", metavar="CONDITION",
+                   help="with --add --kind when: what has to happen before you act (with or instead of --due DATE)")
     s.add_argument("--because", metavar="TEXT"); s.set_defaults(fn=cmd_loops)
     s = sub.add_parser("owners", help="the area's ownership hints", parents=[vault])
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_owners)

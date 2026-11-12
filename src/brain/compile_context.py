@@ -5,13 +5,14 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
-from . import channel_files, fm, goals, index, works
+from . import channel_files, fm, goals, index, loops, works
 from .config import SECTIONS, Config
 from .tasks import is_open, load_tasks, parse_register
 from .vault import Vault
 
 PRIMED_WORDS = 300   # Primed loads in every session; the prime routine writes the most important first
 LIBRARY_WORKS = 40   # bound the listing, never the runtime's refusal, conflict or error notices
+HOLDING_LOOPS = 30   # open loops in every session; more than this is a backlog the evening should be closing
 BEFORE = ("## Before answering\n\n"
           "What you need is usually already in front of you: this file (CURRENT's dated items and Needs you, the open "
           "tasks' Verified, Next and Blocker lines, Primed, the upcoming dates, Goals, the Portrait) and, under the owner's message, the "
@@ -100,6 +101,8 @@ def build(vault: Vault, only: tuple[str, ...] | None = None, *, app_changes: boo
             elif rel == config.human_goals:
                 body = goals.context(config, app_changes=app_changes)
             sections.append(f"## {config.link(rel)}\n\n{body.strip()}")
+            if rel == config.agent("Triggers.md") and (block := holding(config)):
+                sections.append(block)
         elif name == "goals":
             sections.append(f"## {config.link(config.human_goals)}\n\n{goals.context(config, app_changes=app_changes)}")
     sections.append("Conversations and everything else are retrieved on demand with `brain retrieve`.")
@@ -128,6 +131,22 @@ def active_triggers(body: str, where: str) -> str:
     if match is None:
         return body
     return body[:match.start()].rstrip() + f"\n\n(Fired and retired triggers are in {where}.)"
+
+
+def holding(config) -> str:
+    """Open loops, so every session sees what it promised and what it will do when something happens."""
+    rows = loops.open_loops(config)
+    if not rows:
+        return ""
+    lines = [f"## Holding ({config.link(config.agent('Loops'))})", "",
+             "What you promised, owe, wait on, and will do when something happens. When a message meets a `when` loop's "
+             "condition, act on it now within existing permissions, then `brain loops --close <id>`.", ""]
+    for item in rows[:HOLDING_LOOPS]:
+        lines.append(f"- {item.id} · {item.kind} · {item.text}" + (f" · with {item.with_}" if item.with_ else "")
+                     + (f" · if {item.if_}" if item.if_ else "") + (f" · wake {item.wake}" if item.wake else ""))
+    if len(rows) > HOLDING_LOOPS:
+        lines += ["", f"(cut at {HOLDING_LOOPS} loops; the rest are in `brain loops`)"]
+    return "\n".join(lines)
 
 
 def capped(body: str, limit: int, where: str) -> str:

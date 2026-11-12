@@ -17,7 +17,7 @@ Agent-maintained notes are in `{vault}/`; {human_name}'s profile is `{human_prof
 A request that depends on a person, project, task, past decision or dated fact when the session context and the notes recalled under the message do not answer it. The recall block already ran retrieval for the message; use this when it came back empty or thin, or when a name in the directory at the end of the session context matches and nothing loaded covers it. Not for small talk, pure tool work, or anything already in front of you.
 
 ## Procedure
-1. Check Triggers (in context) against the request. A match fires its action now, within existing permissions.
+1. Check Triggers and Holding (in context) against the request. A matching trigger or `when` loop fires its action now, within existing permissions; close the loop once it is done.
 2. Run `cd "$VAULT_REPO" && brain retrieve "<query>"`. Load the top candidates that plausibly answer; read them in full, not just the index line.
 3. For a dated or historical question, also use `session_search` or grep `{vault}/Conversations/`. Your own routine runs are not there: they are under `$AGENT_HOME/records/sessions/`, outside the vault. Load only matching sections.
 4. Before relying on a claim, look for a "superseded by" line at the top of the note.

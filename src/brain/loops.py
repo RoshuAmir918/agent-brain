@@ -1,4 +1,4 @@
-"""What the agent is holding: promises, owed answers and waits on other people."""
+"""What the agent is holding: promises, owed answers, waits on other people, and what it will do when something happens."""
 from __future__ import annotations
 
 import re
@@ -12,7 +12,7 @@ from .identity import is_owner, profile_ids
 from .lock import vault_lock
 from .vault import TASK_ID_RE
 
-KINDS = ("promised", "owed", "waiting")
+KINDS = ("promised", "owed", "waiting", "when")
 OUTCOMES = ("done", "dropped")
 STALE_HOURS = 4
 WAITING_HOURS = 24
@@ -48,6 +48,8 @@ class Item:
     because: str = ""
     ready: str = ""
     task: str = ""
+    wake: str = ""      # when it next acts on its own, written when it opens; a `when` with only a condition has none
+    if_: str = ""       # a `when` loop's condition: what has to happen before it acts
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -134,7 +136,7 @@ def path_for(config: Config) -> Path:
 
 
 def _bullet(line: str) -> Item | None:
-    match = re.fullmatch(r"- (" + STAMP + r") · (promised|owed|waiting) · (.+?) · \[\[([^\[\]\n]+)\]\]",
+    match = re.fullmatch(r"- (" + STAMP + r") · (" + "|".join(KINDS) + r") · (.+?) · \[\[([^\[\]\n]+)\]\]",
                          line.strip())
     if not match or len(line.split(" · ")) != 4 or not match[3].strip():
         return None
@@ -157,7 +159,9 @@ def read(block: items.Block) -> Item | None:
             current.with_ = value
         elif name == "task":
             current.task = value
-        elif name in ("due", "ready"):
+        elif name == "if":
+            current.if_ = value
+        elif name in ("due", "ready", "wake"):
             try:
                 _time(value)
             except ValueError:
@@ -180,7 +184,8 @@ def parse_section(body: str, title: str = "Open") -> list[Item]:
 
 def render(item: Item) -> str:
     bullet = f"- {item.since} · {item.kind} · {item.text} · [[{item.source}]]"
-    for label, value in (("with", item.with_), ("due", item.due), ("ready", item.ready), ("task", item.task)):
+    for label, value in (("with", item.with_), ("due", item.due), ("if", item.if_), ("wake", item.wake),
+                         ("ready", item.ready), ("task", item.task)):
         if value:
             bullet += f"\n  - {label}: {value}"
     if item.closed:
@@ -190,7 +195,8 @@ def render(item: Item) -> str:
 
 def as_dict(item: Item) -> dict:
     out = {"id": item.id, "kind": item.kind, "text": item.text, "with": item.with_, "due": item.due,
-           "since": item.since, "source": item.source, "ready": item.ready, "task": item.task}
+           "since": item.since, "source": item.source, "ready": item.ready, "task": item.task,
+           "wake": item.wake, "if": item.if_}
     if item.closed:
         out.update(closed=item.closed, outcome=item.outcome, because=item.because)
     return out
@@ -215,7 +221,9 @@ def _insert(body: str, title: str, text: str) -> str:
 
 
 def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: str = "", due: str = "",
-        task: str = "") -> bool:
+        task: str = "", condition: str = "") -> bool:
+    """Open a loop. A `when` loop is what to do once a date comes (`due`) or something happens (`condition`): it needs
+    one of them, never goes stale on its own, and is loaded into every session so a message that meets it is seen."""
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}")
     text, source = _clean(text), source.strip()
@@ -226,7 +234,11 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
     due = " ".join(due.split())
     if due:
         _time(due)
-    with_ = _clean(with_)
+    with_, condition = _clean(with_), _clean(condition)
+    if kind == "when" and not (due or condition):
+        raise ValueError("a when loop needs --due DATE, --if CONDITION, or both")
+    if condition and kind != "when":
+        raise ValueError("--if goes with --kind when")
     _counterpart(config, kind, with_)
     task = task.strip()
     if task and kind != "waiting":
@@ -238,7 +250,9 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
         data, body = fm.read(path) if path.exists() else fm.split(TEMPLATE)
         if any(fm.plain(item.text) == fm.plain(text) for item in parse_section(body)):
             return False
-        item = Item(kind, text, config.local(at).strftime("%Y-%m-%d %H:%M"), source, with_, due, task=task)
+        item = Item(kind, text, config.local(at).strftime("%Y-%m-%d %H:%M"), source, with_, due, task=task, if_=condition)
+        if (deadline := _deadline(config, item)) is not None:
+            item.wake = config.local(deadline).strftime("%Y-%m-%d %H:%M")
         body = _insert(body, "Open", render(item))
         path.parent.mkdir(parents=True, exist_ok=True)
         fm.write(path, data, body)
@@ -356,9 +370,14 @@ def answer(config: Config, tid: str, agent: str, name: str, at: datetime, text: 
             "; the task stays where it is (it waits on something else too)"))
 
 
-def _deadline(config: Config, item: Item) -> datetime:
-    """When a loop becomes due: its named date, else a few hours (a day for a wait) after it opened. A wait is never due
-    before its day has passed, whatever date it names."""
+def _deadline(config: Config, item: Item) -> datetime | None:
+    """When a loop becomes due: its written wake; else (a loop opened before wakes were written) its named date, else a
+    few hours (a day for a wait) after it opened. A wait is never due before its day has passed, whatever date it names.
+    A `when` loop with only a condition is never due by the clock."""
+    if item.wake:
+        return config.local(_time(item.wake)).astimezone(timezone.utc)
+    if item.kind == "when":
+        return config.local(_time(item.due)).astimezone(timezone.utc) if item.due else None
     opened = config.local(_time(item.since)).astimezone(timezone.utc)
     hours = WAITING_HOURS if item.kind == "waiting" else STALE_HOURS
     if item.due:
@@ -369,12 +388,14 @@ def _deadline(config: Config, item: Item) -> datetime:
 
 def due(config: Config, now: datetime) -> list[Item]:
     now = config.local(now).astimezone(timezone.utc)
-    return [item for item in open_loops(config) if item.ready or now >= _deadline(config, item)]
+    return [item for item in open_loops(config)
+            if item.ready or ((deadline := _deadline(config, item)) is not None and now >= deadline)]
 
 
 def stale(config: Config, now: datetime, days: int = STALE_DAYS) -> list[Item]:
     """Open loops due `days` or more ago that nothing has moved, oldest first: watch has done what it can, so the evening
     closes, converts or drops each. A ready loop is watch's to relay and is never stale."""
     now = config.local(now).astimezone(timezone.utc)
-    old = [item for item in open_loops(config) if not item.ready and now - _deadline(config, item) >= timedelta(days=days)]
+    old = [item for item in open_loops(config) if not item.ready
+           and (deadline := _deadline(config, item)) is not None and now - deadline >= timedelta(days=days)]
     return sorted(old, key=lambda item: _deadline(config, item))

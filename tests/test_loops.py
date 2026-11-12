@@ -476,3 +476,39 @@ def test_a_waiting_loop_closed_done_resumes_the_task_it_was_for(config, capsys):
     loops.close(config, "Which vault?", AT, "done", "answered")
     assert tasks.find(config, parked.tid).task_state == "blocked"
     assert child.tid in fm.field(tasks.find(config, parked.tid).body, "Blocker")
+
+
+def test_a_written_wake_is_the_deadline_it_replaces(config):
+    loops.add(config, AT, "waiting", "Kevin's answer", "Trip", "Kevin")
+    loops.add(config, AT, "promised", "Send the link", "Trip", "Kevin", "2026-10-30")
+    waiting, promised = loops.open_loops(config)
+    assert (waiting.wake, promised.wake) == ("2026-10-29 12:00", "2026-10-30 00:00")
+    legacy = replace(waiting, wake="")
+    assert loops._deadline(config, legacy) == loops._deadline(config, waiting)
+
+
+@pytest.mark.parametrize("kwargs,message", [
+    ({}, "needs --due DATE, --if CONDITION"),
+    ({"kind": "promised", "condition": "Kevin replies"}, "--if goes with --kind when"),
+])
+def test_when_needs_a_date_or_a_condition(config, kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        loops.add(config, AT, kwargs.get("kind", "when"), "Book the table", "Trip", condition=kwargs.get("condition", ""))
+
+
+def test_a_when_loop_waits_for_its_date_and_a_condition_never_goes_stale(config):
+    loops.add(config, AT, "when", "Remind Rohan about the lease", "Trip", due="2026-11-01 09:00")
+    loops.add(config, AT, "when", "Share the guide with Juno", "Trip", condition="Juno is introduced")
+    dated, condition = loops.open_loops(config)
+    assert (dated.wake, condition.wake, condition.if_) == ("2026-11-01 09:00", "", "Juno is introduced")
+    assert loops.due(config, datetime(2026, 11, 1, 8, 59)) == []
+    assert [item.id for item in loops.due(config, datetime(2026, 11, 1, 9, 0))] == [dated.id]
+    assert [item.id for item in loops.stale(config, datetime(2026, 12, 30))] == [dated.id]
+
+
+def test_every_session_sees_what_is_held(config):
+    from brain import compile_context
+    loops.add(config, AT, "when", "Share the guide with Juno", "Trip", condition="Juno is introduced")
+    [item] = loops.open_loops(config)
+    text = compile_context.build(Vault(config.vault_path))
+    assert f"- {item.id} · when · Share the guide with Juno · if Juno is introduced" in text
