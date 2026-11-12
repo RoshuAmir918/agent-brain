@@ -69,27 +69,47 @@ def logged(config: Config, since: str) -> list[dict]:
     return found
 
 
-def account(config: Config, today: str, days: int = 7) -> str:
+def week(config: Config, today: str, days: int = 7) -> dict:
     """The week in learning: the owner's corrections, how many landed on a line already held (the lesson was learned
     but did not reach the work), and the lines repeated most."""
     from datetime import date, timedelta
     since = (date.fromisoformat(today) - timedelta(days=days - 1)).isoformat()
     rows = logged(config, since)
-    corrections = [row for row in rows if row["event"] in ("added:rule", "added:active", "repeat")]
     repeats = [row for row in rows if row["event"] == "repeat"]
-    near = [row for row in rows if row["event"].startswith("near:")]
     counts: dict[tuple[str, str], int] = {}
     for row in repeats:
         counts[(row["field"], row["id"])] = counts.get((row["field"], row["id"]), 0) + 1
-    out = [f"Learned, {since} to {today}: {len(corrections)} correction{'s' * (len(corrections) != 1)} from "
-           f"{config.human_name}, {len(repeats)} repeating a line already held, {len(near)} close to one (said again "
-           f"in other words, or a change of mind); "
-           + f"{sum(row['event'] == 'added:candidate' for row in rows)} lessons of your own, "
-           + f"{sum(row['event'] == 'promoted' for row in rows)} promoted, {sum(row['event'] == 'struck' for row in rows)} struck."]
-    for (field, ident), count in sorted(counts.items(), key=lambda item: -item[1])[:5]:
-        claim = next(row["claim"] for row in repeats if row["id"] == ident and row["field"] == field)
-        out.append(f"- repeated {count}x: {field} ^{ident}: {claim}")
+    count = lambda *events: sum(row["event"] in events for row in rows)
+    return {"since": since, "until": today,
+            "corrections": count("added:rule", "added:active", "repeat"), "repeats": len(repeats),
+            "near": sum(row["event"].startswith("near:") for row in rows), "own": count("added:candidate"),
+            "promoted": count("promoted", "confirmed"), "struck": count("struck"),
+            "repeated": [{"field": field, "id": ident, "count": n,
+                          "claim": next(row["claim"] for row in repeats if row["id"] == ident and row["field"] == field)}
+                         for (field, ident), n in sorted(counts.items(), key=lambda item: -item[1])[:5]]}
+
+
+def account(config: Config, today: str, days: int = 7) -> str:
+    w = week(config, today, days)
+    out = [f"Learned, {w['since']} to {today}: {w['corrections']} correction{'s' * (w['corrections'] != 1)} from "
+           f"{config.human_name}, {w['repeats']} repeating a line already held, {w['near']} close to one (said again "
+           f"in other words, or a change of mind); {w['own']} lessons of your own, {w['promoted']} promoted, "
+           f"{w['struck']} struck."]
+    out += [f"- repeated {r['count']}x: {r['field']} ^{r['id']}: {r['claim']}" for r in w["repeated"]]
     return "\n".join(out)
+
+
+def public(config: Config) -> list[dict]:
+    """What the owner's app shows: each field and its live lessons, rules first, with where each was learned."""
+    out = []
+    for note in notes(config):
+        order = {"rule": 0, "active": 1, "candidate": 2}
+        lines = sorted(note.lines, key=lambda line: order[line.status])
+        out.append({"field": note.field, "applies": note.applies, "struck": len(note.struck),
+                    "lines": [{"id": line.id, "claim": line.claim, "status": line.status,
+                               "source": (found[1] if (found := SOURCES.search(line.text)) else "")}
+                              for line in lines if line.id]})
+    return out
 
 
 def path_for(config: Config, name: str) -> Path:
@@ -254,6 +274,26 @@ def promote(config: Config, name: str, which: str, evidence: str) -> Line:
         log(config, config.today().isoformat(), "promoted", note.field, line.id, line.claim, evidence)
         return Line(line.id, text, "active")
 
+
+
+def confirm(config: Config, name: str, which: str, words: str, day: str) -> Line:
+    """The owner makes a line a rule from their app: your candidate, or a correction you drew from what they said.
+    Their words, when they give them, join its sources."""
+    words = " ".join(words.replace("(", "").replace(")", "").replace('"', "'").split())
+    with vault_lock(config):
+        note = find(config, name)
+        if note is None:
+            raise ValueError(f"no field {name}; see `brain learn fields`")
+        line = items.pick([line for line in note.lines if line.status != "rule"], which, "line",
+                          f"brain learn show \"{note.field}\"")
+        text = STATUS.sub("", line.text).rstrip()
+        said = f"confirmed by {config.human_name} {day}" + (f': "{words}"' if words else "")
+        text = (text[:-1] + f"; {said})" if text.endswith(")") else f"{text} ({said})") + " *(rule)*"
+        data, body = fm.read(note.path)
+        body = re.sub(rf"^- {re.escape(line.text)} \^{line.id}[ \t]*$", lambda _: f"- {text} ^{line.id}", body, count=1, flags=re.M)
+        fm.write(note.path, data, body)
+        log(config, day, "confirmed", note.field, line.id, line.claim, words or config.human_name)
+        return Line(line.id, text, "rule")
 
 def merge(config: Config, source: str, target: str, day: str) -> tuple[Note, int]:
     """Fold one field into another, broader one: every line moves with its id and status, struck lines too, unless the
