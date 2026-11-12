@@ -9,7 +9,7 @@ from . import index, triggers
 from .tasks import all_tasks, parse_register
 from .vault import Vault
 
-TOKEN_RE = re.compile(r"\b(?:tr-\d{3}|t-\d{3}|\d{4}-\d{2}-\d{2}|[^\W_]+)\b", re.I)
+TOKEN_RE = re.compile(r"\b(?:tr-\d{3}|t-\d{3,}|\d{4}-\d{2}-\d{2}|[^\W_]+)\b", re.I)
 STOPWORDS = set("a an and are as at be been but by can could did do does for from had has have how "
                 "i if in into is it its me my not of on or our that the their them there these they "
                 "this those to was we were what when where which who why will with would you your".split())

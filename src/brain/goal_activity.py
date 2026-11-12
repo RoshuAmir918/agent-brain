@@ -41,7 +41,7 @@ def readable(text: str, names: dict[str, str] | None = None) -> str:
     text = re.sub(r"[/\\]?(?:[\w.~:-]+[/\\])+[^\s,;!?()\[\]]+", lambda match: label(match[0]), text)
     text = re.sub(r"\.md\b", "", text, flags=re.I)
     text = re.sub(r"^\s*(?:(?:[a-z][a-z_-]*|G-\d+):\s*)+", "", text, flags=re.I)
-    ids = r"\b(?:G-\d+|T-\d{3})\b"
+    ids = r"\b(?:G-\d+|T-\d{3,})\b"
 
     def named(match):
         title = (names or {}).get(match[0])

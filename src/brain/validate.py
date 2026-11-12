@@ -513,14 +513,14 @@ CLOSED_WORDS = re.compile(r"\b(complet\w*|closed|done|cancel\w*|dropped|finished
 def task_states_by_id(vault: Vault) -> dict[str, str]:
     """Every task's state wherever it is recorded: the register, per-task archives and monthly archives."""
     states: dict[str, str] = {}
-    pattern = re.compile(r"^#{2,3} (T-\d{3})\b[^\n]*\n<!-- brain: state=(\w+)", re.M)
+    pattern = re.compile(r"^#{2,3} (T-\d{3,})\b[^\n]*\n<!-- brain: state=(\w+)", re.M)
     folder = vault.root / vault.config.agent("Tasks Archive")
     sources = sorted(folder.glob("*.md")) if folder.is_dir() else []
     register = vault.root / vault.config.agent("Tasks.md")
     for path in sources + ([register] if register.exists() else []):   # the register, read last, is canonical
         text = path.read_text(encoding="utf-8")
         found = dict(pattern.findall(text))
-        if not found and re.fullmatch(r"T-\d{3}", path.stem):
+        if not found and re.fullmatch(r"T-\d{3,}", path.stem):
             head = re.search(r"<!-- brain: state=(\w+)", text)
             found = {path.stem: head[1]} if head else {}
         states.update(found)
@@ -568,7 +568,7 @@ def closed_task_mentions(vault: Vault) -> list[str]:
                 continue
             if history or CLOSED_WORDS.search(line) or line.lstrip().startswith("<!--"):
                 continue
-            for tid in sorted(set(re.findall(r"\bT-\d{3}\b", line)) & closed):
+            for tid in sorted(set(re.findall(r"\bT-\d{3,}\b", line)) & closed):
                 out.append(f"{rel}: presents {tid} as current, but the task is {states[tid]}: {' '.join(line.split())[:90]}")
     return out
 

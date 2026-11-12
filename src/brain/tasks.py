@@ -15,7 +15,7 @@ from . import activation as act, fm, works
 from .config import DAILY_CHUNKS, Config
 from .vault import TASK_ID_RE, Vault
 
-TASK_HEAD_RE = re.compile(r"^### (T-\d{3}) — (.+?)\s*$", re.M)
+TASK_HEAD_RE = re.compile(r"^### (T-\d{3,}) — (.+?)\s*$", re.M)
 STATE_RE = re.compile(r"^<!-- brain: (.*?) -->\s*$", re.M)
 DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 MAX_WORDS = 150
@@ -82,7 +82,7 @@ class Task:
 
     @property
     def after(self) -> str | None:
-        match = re.search(r"^[ \t]*-[ \t]+\*\*After:\*\*[ \t]*(T-\d{3})[ \t]*$", self.body, re.M)
+        match = re.search(r"^[ \t]*-[ \t]+\*\*After:\*\*[ \t]*(T-\d{3,})[ \t]*$", self.body, re.M)
         return match[1] if match else None
 
     @property
@@ -183,7 +183,7 @@ def parse_register(text: str) -> tuple[list[tuple[str, int, int]], list[Task]]:
     for i, h in enumerate(heads):
         start = h.start()
         # An entry ends at the next task or section; a `### notes` subheading inside it is part of the entry.
-        nxt = re.compile(r"^(?:## |### T-\d{3} — )", re.M).search(text, h.end())
+        nxt = re.compile(r"^(?:## |### T-\d{3,} — )", re.M).search(text, h.end())
         end = nxt.start() if nxt else len(text)
         chunk = text[h.end():end]
         m = STATE_RE.search(chunk)
@@ -440,20 +440,17 @@ def _owner_ask(body: str) -> str | None:
 def next_id(config: Config) -> str:
     """Next id after every task that exists: the register's headings and the archive's, open or closed. Only real task
     headings count; a note that merely mentions an id (an example, a test fixture, "T-999") never uses one up."""
-    heading = re.compile(r"^#{1,3} T-(\d{3})\b", re.M)
+    heading = re.compile(r"^#{1,3} T-(\d{3,})\b", re.M)
     used = []
     register = config.vault_path / config.agent("Tasks.md")
     sources = [register] if register.exists() else []
     archive = config.vault_path / config.agent("Tasks Archive")
     if archive.is_dir():
         sources += sorted(archive.glob("*.md"))
-        used += [int(m[1]) for path in archive.glob("T-*.md") if (m := re.match(r"T-(\d{3})\.md$", path.name))]
+        used += [int(m[1]) for path in archive.glob("T-*.md") if (m := re.match(r"T-(\d{3,})\.md$", path.name))]
     for path in sources:
         used += [int(number) for number in heading.findall(path.read_text(encoding="utf-8", errors="replace"))]
-    number = max(used, default=0) + 1
-    if number > 999:
-        raise ValueError("no unused T-nnn task id remains")
-    return f"T-{number:03d}"
+    return f"T-{max(used, default=0) + 1:03d}"
 
 
 def append_task(config: Config, task: Task) -> None:
@@ -783,7 +780,7 @@ def due(tasks: list[Task], worked: dict[str, str] | None = None, *,
             return bool(now and now[11:] >= "12:00" and done == 0)
         return done < (budgets or {}).get(t.tid, daily_chunks)
 
-    return sorted(filter(eligible, tasks), key=lambda t: (worked.get(t.tid, ""), t.handoff[0], t.tid))
+    return sorted(filter(eligible, tasks), key=lambda t: (worked.get(t.tid, ""), t.handoff[0], len(t.tid), t.tid))
 
 
 def local_now(config: Config) -> str:
@@ -951,7 +948,7 @@ def write_archive(config: Config, t: Task, reason: str, today: date, whole: bool
 def read_archived_task(config: Config, path: Path) -> Task | None:
     """The full entry an archive file keeps: one the night wrote, or an older one archived by hand."""
     text = path.read_text(encoding="utf-8")
-    m = re.match(r"# (T-\d{3}) — (.+)", text)
+    m = re.match(r"# (T-\d{3,}) — (.+)", text)
     if not m or "State is still open" not in text:
         try:
             parsed = parse_archive(fm.read(path)[1])
@@ -966,7 +963,7 @@ def read_archived_task(config: Config, path: Path) -> Task | None:
 
 def parse_archive(body: str) -> list[Task]:
     """The full entries in an archive note's body; one archived by hand may head its entry with `#` or `##`."""
-    return parse_register(re.sub(r"^#{1,2} (?=T-\d{3} — )", "### ", body, flags=re.M))[1]
+    return parse_register(re.sub(r"^#{1,2} (?=T-\d{3,} — )", "### ", body, flags=re.M))[1]
 
 
 def archived_open_tasks(config: Config) -> list[Task]:
@@ -994,7 +991,7 @@ def read_archive_body(config: Config, tid: str) -> str | None:
     # Recover archives already affected by an earlier summary overwrite.
     body = next((body for body in bodies if not is_register_summary(body)), bodies[0])
     # An archive written by hand may repeat the task heading and brain comment; the register adds its own.
-    return re.sub(r"\A\s*#+ T-\d{3} — [^\n]*\n(?:<!-- brain:[^\n]*-->\n)?\s*", "", body)
+    return re.sub(r"\A\s*#+ T-\d{3,} — [^\n]*\n(?:<!-- brain:[^\n]*-->\n)?\s*", "", body)
 
 
 def is_register_summary(body: str) -> bool:
