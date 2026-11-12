@@ -16,8 +16,6 @@ NEW_DAYS = 21
 COOLDOWN_NEW = 1
 COOLDOWN_ESTABLISHED = 7
 SNOOZE_DAYS = 14
-# The owner can read every open idea in their app, so ideas may arrive daily; the open list is what is capped.
-ADD_SPACING = 1
 OPEN_MAX = 10
 # An idea nobody answered lapses: what it was for has usually moved on, and a stale offer crowds out a fresh one.
 LAPSE_DAYS = 14
@@ -51,22 +49,20 @@ def _bullet(line: str) -> Item | None:
     return Item("idea", match[2].strip(), "ideas", match[1], source) if source else None
 
 
-def read(block: grammar.Block, *, cut: bool = True) -> Item | None:
-    """An Open bullet with its optional why, needs and goal lines; hygiene reads the uncut why."""
+def read(block: grammar.Block) -> Item | None:
+    """An Open bullet with its optional why, needs and goal lines."""
     item = _bullet(block.line)
     if item is None:
         return None
     for name, field in (("why", "detail"), ("needs", "needs"), ("goal", "goal")):
         if value := " ".join(value for key, value in block.details if key == name and value):
             setattr(item, field, value)
-    if cut:
-        item.detail = fm.cut(item.detail, needs_mod.WHY_WORDS)
     item.wake, item.snoozed = needs_mod.day_of(block.get("wake")), needs_mod.day_of(block.get("snoozed"))
     return item
 
 
-def parse_section(body: str, *, cut: bool = True) -> list[Item]:
-    return grammar.parse(body, "Open", lambda block: read(block, cut=cut))
+def parse_section(body: str) -> list[Item]:
+    return grammar.parse(body, "Open", read)
 
 
 def _responses(config: Config) -> list[tuple[date, str, str, str]]:
@@ -171,14 +167,9 @@ def add_refusal(config: Config, today: date, text: str) -> str | None:
     if any(fm.plain(previous) == needle for _, answer, previous, _ in _responses(config)
            if answer in ("no", "stop-asking")):
         return "the owner already dismissed this idea with no or stop-asking"
-    path = config.vault_path / config.agent("Ideas.md")
-    listed = parse_section(fm.read(path)[1]) if path.exists() else []
     live = sum(item.origin == "ideas" for item in _open(config, today))
     if live >= OPEN_MAX:
         return f"{live} ideas are open, the most there can be; add another once the owner answers one or it lapses"
-    dates = [date.fromisoformat(item.since) for item in listed]
-    if dates and today < (until := max(dates) + timedelta(days=ADD_SPACING)):
-        return f"ideas can be added every {ADD_SPACING} day(s); next idea can be added {until.isoformat()}"
     return None
 
 

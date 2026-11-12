@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from brain import fm, nightly, triggers
+from brain import fm, nightly
 from brain.config import Config
 from brain.tasks import Task
 
@@ -25,7 +25,6 @@ def make_vault(root, uses="2026-09-20"):
         "START.md": "# Start",
         "CURRENT.md": "# Current\n" + nightly.MARK_START + "\n" + nightly.MARK_END,
         "agent/Activity Log.md": "# Activity",
-        "agent/Triggers.md": triggers.TEMPLATE,
         "agent/Tasks.md": "# Tasks\n## Active work\n" + Task(
             "T-001", "Sample",
             "- **Status:** open\n- **Next action:** ORIGINAL_FULL_BODY\n"

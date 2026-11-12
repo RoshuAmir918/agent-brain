@@ -44,7 +44,7 @@ def people_vault(tmp_path, monkeypatch):
 def test_owner_context_is_identification_and_the_owner_message_rules(people_vault, identity):
     block = session_context.build(people_vault, people_vault.config, **identity)
     assert block == "This session is with Mira, the owner.\n\n" + session_context.owner_messages(people_vault.config)
-    assert block.endswith("never \"approve the proposed action\".") and "{human_name}" not in block and "Messages to Mira" in block
+    assert block.endswith("answerable in a word, with a short Why.") and "{human_name}" not in block and "Messages to Mira" in block
 
 
 def test_unknown_context_is_fail_closed(people_vault):

@@ -88,12 +88,12 @@ def _bullet(line: str) -> Item | None:
 
 
 def read(block: grammar.Block) -> Item | None:
-    """A Needs you bullet with its `why` lines (joined, cut to WHY_WORDS) and the session it was asked in."""
+    """A Needs you bullet with its joined `why` lines and the session it was asked in."""
     item = _bullet(block.line)
     if item is None:
         return None
     why = " ".join(value for name, value in block.details if name == "why" and value)
-    item.detail = fm.cut(why, WHY_WORDS)
+    item.detail = why
     item.session = block.get("session") or ""
     if (task := block.get("task")) is not None:
         item.task = task
@@ -135,11 +135,11 @@ def improvement_status(entry: str) -> str | None:
 
 
 def _owner_lines(body: str) -> tuple[str | None, str]:
-    """The owner-facing Ask and Why lines of a proposal, cut to their caps. Working notes (Blocker, Status,
+    """The owner-facing Ask and Why lines of a proposal. Working notes (Blocker, Status,
     Gap, Change) are the agent's own records and are never shown to the owner."""
     ask = fm.field(body, "Ask")
     why = fm.field(body, "Why") or ""
-    return (fm.cut(ask, ASK_WORDS) if ask else None), fm.cut(why, WHY_WORDS)
+    return ask or None, why
 
 
 def _heading_date(text: str, today: date | None) -> str | None:
@@ -494,24 +494,6 @@ def expire_confirms(config: Config, today: date) -> list[str]:
     return [item.text for item in _prune(config, lambda item: item.kind == "confirm"
                                          and (item.wake <= today.isoformat() if item.wake
                                               else (today - date.fromisoformat(item.since)).days >= CONFIRM_DAYS))]
-
-
-GENERIC_ASK = re.compile(
-    r"^(?:do you |can you |could you |should i |shall i |want me to |is it ok(?:ay)? (?:if i |to )?)?"
-    r"(?:approve|okay|ok|confirm|accept|allow|proceed(?: with)?|go ahead(?: with)?|do|continue(?: with)?)"
-    r"(?:(?: with)? (?:the |this |that |my )?(?:proposed |suggested |pending |planned |above |next )?"
-    r"(?:action|plan|change|step|request|option|proposal|item|task|idea|it|one)s?)?\s*\??$", re.I)
-
-
-def vague_ask(text: str) -> str | None:
-    """Why an ask cannot stand alone, read cold on a phone, or None when it can. An ask names its subject and the
-    choice ("Want me to publish the 86 verified offers to In The Block now?"), never only "approve the proposed action"."""
-    words = re.findall(r"[\w'’-]+", text)
-    if GENERIC_ASK.match(" ".join(text.split())):
-        return "it does not say what is being approved; name the subject and the choice"
-    if len(words) < 2:
-        return "it is too short to stand alone; name the subject and the choice"
-    return None
 
 
 def replace_task_asks(config: Config, body: str, tid: str, today: date) -> str:

@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from brain.config import Config
-from brain import cli, fm, nightly, triggers
+from brain import cli, fm, nightly
 from brain.tasks import Task, archived_open_tasks, load_tasks, parse_register, read_archive_body, write_archive
 
 
@@ -66,29 +66,11 @@ def test_report_only_resolves_human_links_without_reading_human_contents(tmp_pat
         cli.main(nightly_argv(root, "2026-10-05"))
 
 
-@pytest.mark.parametrize("archived", [False, True])
-def test_due_commitment_persists_and_reheats_before_current(tmp_path, archived):
-    root = make_vault(tmp_path / "memory", uses="2026-08-01")
-    if archived:
-        nightly.process_tasks(Config.load(root), date(2026, 10, 4), *load_tasks(Config.load(root)), [])
-    body = triggers.TEMPLATE.replace("| --- | --- | --- | --- | --- | --- | --- |",
-        "| --- | --- | --- | --- | --- | --- | --- |\n| TR-001 | commitment | 2026-10-05 | revisit task | T-001 | active | 2026-10-04 |")
-    fm.write(root / "agent/Triggers.md", {"tier": "hot", "pinned": True}, body)
-    cli.main(nightly_argv(root, "2026-10-05", "--write"))
-    _, tasks = parse_register(fm.read(root / "agent/Tasks.md")[1])
-    assert "2026-10-05" in tasks[0].uses
-    assert tasks[0].state["tier"] == "hot" and tasks[0].state["status"] == "open"
-    assert "T-001" in (root / "CURRENT.md").read_text()
-    cli.main(nightly_argv(root, "2026-10-06", "--write"))
-    _, tasks = parse_register(fm.read(root / "agent/Tasks.md")[1])
-    assert "2026-10-06" not in tasks[0].uses
-    assert "fired 2026-10-05" in (root / "agent/Triggers.md").read_text()
 
 
 @pytest.mark.parametrize("day", ["2026-10-05", "2026-11-01"])
 def test_report_only_previews_all_transforms_without_writing(tmp_path, day, capsys):
     root = make_vault(tmp_path / "memory")
-    fm.write(root / "agent/Triggers.md", {"tier": "hot", "pinned": True}, triggers.TEMPLATE)
     old_log = root / "agent/Sleep Log/2026-10.md"
     old_log.parent.mkdir()
     old_log.write_text("# Sleep log — 2026-10\n\nOLD_REPORT_SENTINEL\n")

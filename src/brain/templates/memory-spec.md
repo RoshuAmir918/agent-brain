@@ -8,7 +8,7 @@ Memory behaves like working memory backed by long-term memory. The directory's m
 
 ## Decisions
 
-1. **The vault is git-primary and file-first.** Markdown in `{vault}/` is the only store. No database, embeddings or ranking service at this size; revisit at about 2,000 notes or when the retrieval audit shows misses the index cannot fix. Keep a dated list of what you deliberately left out and what would make it worth building.
+1. **The vault is git-primary and file-first.** Markdown in `{vault}/` is the only store. No database, embeddings or ranking service at this size; revisit at about 2,000 notes or when the retrieval audit shows misses the index cannot fix.
 2. **Tier is frontmatter, not folders.** No note moves because it decayed.
 3. **A use is reliance, and reliance is observable.** The runtime records every tool call, so attribution sees which notes were opened before each reply: on-demand opens count half and auto-loads count nothing. No citation line is required; one that appears is parsed.
 4. **Freshness is ACT-R base-level activation.** One scalar per note from its use history, recomputed nightly. Tiers are thresholds on it.
@@ -17,7 +17,7 @@ Memory behaves like working memory backed by long-term memory. The directory's m
 7. **Memory work has owners.** Sleep 1 owns consolidation and gated index-line and link repairs. The engine night owns activation, tiers and the generated views. People judges goals and people; image judges the portrait; prime owns Primed. Day routines edit only task state, dated items and loops; the explore pass may also file surprise-gated facts in the owning hub or profile, with source and date, and hold what it makes under `{agent_dir}/Prepared/`. Improve owns the Improvements section of each responsibility hub and proposes; the owner adopts.
 8. **Reflections and loops are memory types.** Reflections are cited inferences. Loops are what the agent holds open: promises, answers owed, waits, and `when` loops, "when X, do Y."
 9. **Open commitments never close by decay; pinned notes never fade.** A quiet task loads smaller; it never stops being owed.
-10. **Archive only what cannot be re-read.** The runtime keeps every session under `$AGENT_HOME/harness/sessions/`, so the nightly export is a backup and rebuild source, not the retrieval path. the owner's channels are perception: read in place, nothing copied.
+10. **Archive only what cannot be re-read.** The runtime keeps every session under `$AGENT_HOME/harness/sessions/`, so the nightly export is a backup and rebuild source, not the retrieval path. The owner's channels are perception: read in place, nothing copied.
 11. **No rewriting of memories on retrieval.** Recall cites; it never rewrites.
 12. **Archive means cold, never gone.** Deletion is a separate action the owner requests.
 13. **A routine owns three places.** A state file it overwrites, a monthly ledger the engine appends one structured row to after each run, and the notes it feeds knowledge into. Never a file per run: git, the session store and the nightly export already hold the evidence. Artefacts that are the product (a reflection, a draft) are notes, not receipts. Machine payloads stay outside the vault.
@@ -45,7 +45,7 @@ pinned: false          # true forces hot and exempts from decay
 activation: -1.2       # computed nightly
 uses: [2026-10-05]     # dates cited, newest first, last 30 kept
 uses_inferred: []      # half weight
-kind: hub              # hub | profile | episode | reflection | task | trigger | log | dream | orientation | primed | draft | conversation | procedure
+kind: hub              # hub | profile | episode | reflection | task | log | dream | orientation | primed | draft | conversation | procedure
 index_line: ""         # optional; Sleep 1 repairs it when the first line misleads retrieval
 ---
 ```
@@ -76,13 +76,7 @@ Exponent 1, not ACT-R's 0.5, after simulation showed 0.5 keeps a daily-used note
 
 ## Retrieval
 
-1. Load the session-start set: START, CURRENT, Holding, the open-task register and the directory. The runtime loads this through `.context.md`.
-2. Check Holding's `when` loops against the request.
-3. Run `brain retrieve "<query>"`. Load matched notes in full.
-4. Spread one hop: notes wikilinked from loaded notes get a temporary +1.0; any that reach the hot threshold load, newest first, within budget. Never written back.
-5. For historical or dated questions, search cold notes and `Conversations/Sessions/` by text and date, or search the archived transcripts. Load only matching sections.
-6. Check for a "superseded by" line before relying on a claim.
-7. Distinguish four not-found outcomes: no record exists, the record is cold and was not searched, the source was partial, or the record says it did not happen.
+The session-start set (START, CURRENT, Holding, open tasks, the directory) loads through `.context.md`. Beyond it, `brain retrieve "<query>"` loads matched notes in full and spreads one hop: notes wikilinked from loaded notes get a temporary +1.0, and any that reach the hot threshold load, newest first, within budget; nothing is written back. Historical or dated questions search cold notes and `Conversations/Sessions/` by text and date. A claim is checked for a "superseded by" line before it is relied on. Not finding something is one of four outcomes: no record exists, the record is cold and was not searched, the source was partial, or the record says it did not happen.
 
 ## Prospective memory
 
@@ -128,7 +122,7 @@ The script refuses to commit if validation fails. The model never recomputes act
 
 - Corrections with a live superseded note, open loops and pinned notes are exempt from decay. Open tasks decay in how much loads, never in whether they are open.
 - Spreading activation is per request and never persisted. A note becomes hot by being used, not by being linked.
-- The surprise gate compares meaning, not strings. When unsure, it is a morning question.
+- The surprise gate compares meaning, not strings.
 - Reflections are inferences and say so.
 - Human edits win. The script is the only writer during `--write`; a conflict means reread and replan, never force-push.
 - Notes record evidence, not authority. Permission comes from current instructions and the live cron configuration, never from a note saying "send this every morning."

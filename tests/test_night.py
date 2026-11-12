@@ -9,7 +9,7 @@ import sys
 import pytest
 
 from brain.config import Config
-from brain import attribute, cli as brain_cli, compile_context, fm, nightly, triggers
+from brain import attribute, cli as brain_cli, compile_context, fm, nightly
 from brain.vault import Vault
 from brain.tasks import Task, load_tasks, parse_register, read_archive_body
 from conftest import git, nightly_argv, snapshot
@@ -33,10 +33,6 @@ def night_vault(repo):
     fm.write(root / "agent/Tasks.md", data,
              "# Tasks\n\n## Active work\n\n" + hot.render() + "\n" + warm.render()
              + "\n## Operator notes\nKeep this prose.\n")
-    body = triggers.TEMPLATE.replace("## Fired", (
-        "| TR-001 | commitment | 2026-10-05 | revisit shipping | T-001 | active | 2026-10-04 |\n"
-        "\nTrigger evidence stays attached.\n\n## Fired"))
-    fm.write(root / "agent/Triggers.md", {"tier": "hot", "pinned": True}, body)
     attribute.append_log(root / "agent/Use Log/2026-10.md", [
         attribute.Use("2026-10-05T01:00Z", "Hot Hub.md", "fixture reliance", "explicit"),
         attribute.Use("2026-10-04T01:00Z", "T-001", "fixture task reliance", "explicit"),
@@ -85,10 +81,9 @@ def test_full_night_commits_only_agent_notes_and_pushes_one_commit(night_vault):
     assert "T-002" not in current
     _, tasks = parse_register(fm.read(root / "agent/Tasks.md")[1])
     assert [t.state["tier"] for t in tasks] == ["hot", "warm"]
-    assert tasks[0].uses == [DAY, "2026-10-04"]
+    assert tasks[0].uses == ["2026-10-04"]
     assert tasks[1].body.strip().startswith("- **Warm:**")
     assert "retain the whole quiet task" in read_archive_body(Config.load(root), "T-002")
-    assert "fired 2026-10-05" in (root / "agent/Triggers.md").read_text()
     assert sleep.read_bytes().startswith(prior_log)
     assert sleep.read_text().count(f"## {DAY} nightly script (write)") == 1
     assert "pushed" in result.stdout
@@ -277,23 +272,19 @@ def test_a_push_conflict_keeps_the_pushed_edit_and_still_pushes_the_night(night_
     assert git(root.parent, "status", "--porcelain") == ""
 
 
-def test_the_night_keeps_triggers_and_frontmatter_written_while_it_ran(night_vault, monkeypatch):
+def test_the_night_keeps_frontmatter_written_while_it_ran(night_vault, monkeypatch):
     from datetime import date
     root, _ = night_vault
     real = nightly.retier
 
     def meanwhile(vault, today, report):
         changed = real(vault, today, report)
-        data, body = fm.read(root / "agent/Triggers.md")
-        fm.write(root / "agent/Triggers.md", data, body.replace(
-            "## Fired", "| TR-002 | commitment | 2026-12-01 | added meanwhile | T-002 | active | 2026-10-05 |\n\n## Fired"))
         data, body = fm.read(root / "Warm Hub.md")
         fm.write(root / "Warm Hub.md", {**data, "aliases": ["Meanwhile"]}, body + "Added meanwhile.\n")
         return changed
 
     monkeypatch.setattr(nightly, "retier", meanwhile)
     nightly.run(root, date.fromisoformat(DAY))
-    assert "TR-002" in fm.read(root / "agent/Triggers.md")[1]
     data, body = fm.read(root / "Warm Hub.md")
     assert data["aliases"] == ["Meanwhile"] and "Added meanwhile." in body and data["uses"]
 

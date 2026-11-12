@@ -64,7 +64,7 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     if owner and record.get("about"):
         # Only the owner's conversations say where their life stands; the loops and asks opened here belong to it.
         with vault_lock(config):
-            asks = bool(_clean(record.get("needsYou"))) and not needs.vague_ask(_clean(record.get("needsYou")))
+            asks = bool(_clean(record.get("needsYou")))
             hub = matters.record(config, vault, local.date(), record["about"], headline,
                                  bool(record.get("loops")) or asks) or ""
             if hub:
@@ -103,13 +103,9 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
                 except ValueError:
                     pass   # already gone, or an item that resolves where it lives
     if needs_you := _clean(record.get("needsYou")):
-        from .needs import vague_ask
-        if (reason := vague_ask(needs_you)):
-            print(f"skipped ask {needs_you!r}: {reason}", file=sys.stderr)
-        else:
-            with vault_lock(config):
-                add_ask(config, local.date(), needs_you, touched[0] if touched else None,
-                        session=f"{platform}:{session}" if session and ":" not in session else session, hub=hub)
+        with vault_lock(config):
+            add_ask(config, local.date(), needs_you, touched[0] if touched else None,
+                    session=f"{platform}:{session}" if session and ":" not in session else session, hub=hub)
     if owner:
         working_together(config, local.date(), record.get("workingTogether"))
         if speaker_role == "owner":   # a member's lessons are theirs, not the owner's rules

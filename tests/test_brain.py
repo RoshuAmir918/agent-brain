@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from brain import activation as act, fm, triggers, attribute, validate
+from brain import activation as act, attribute
 from brain.tasks import parse_register
 from brain.vault import Vault
 
@@ -33,27 +33,8 @@ def test_register_parse_and_state():
     assert tasks[1].render().startswith("### T-002 — Beta\n<!-- brain: uses=2026-10-05 -->")
 
 
-def test_triggers_fire_and_retire(template_config):
-    text = triggers.TEMPLATE.replace("| --- | --- | --- | --- | --- | --- | --- |",
-        "| --- | --- | --- | --- | --- | --- | --- |\n| TR-001 | commitment | 2026-10-01 | check vendor | [[agent/Tasks#T-003]] | active | 2026-09-01 |\n| TR-002 | intention | Acme CI fails | mention timeout | [[Acme Context]] | active | 2026-09-01 |\n| TR-003 | commitment | 2030-01-01 | far future | [[agent/Tasks#T-004]] | active | 2026-09-01 |")
-    new, rep = triggers.process(text, TODAY, {"Acme Context.md": "cold"}, template_config)
-    assert [t.id for t in rep["fired"]] == ["TR-001"]
-    assert [t.id for t in rep["mentioned"]] == ["TR-002"]
-    assert "TR-003 | commitment | 2030-01-01" in new
-    # next night the mentioned intention retires; the commitment never does
-    new2, rep2 = triggers.process(new, date(2026, 10, 6), {"Acme Context.md": "cold"}, template_config)
-    assert [t.id for t in rep2["retired"]] == ["TR-002"]
-    assert "retired" not in [t.status for t in triggers.parse(new2) if t.id == "TR-003"]
 
 
-def test_an_impossible_trigger_date_never_fires_and_is_named_by_validate(vault, template_config):
-    text = triggers.TEMPLATE.replace("| --- | --- | --- | --- | --- | --- | --- |",
-        "| --- | --- | --- | --- | --- | --- | --- |\n| TR-001 | commitment | 2026-02-30 | check vendor | [[START]] | active | 2026-01-01 |")
-    assert triggers.date_of("2026-02-30") is None
-    new, rep = triggers.process(text, TODAY, {}, template_config)
-    assert rep["fired"] == [] and "| TR-001 | commitment | 2026-02-30 |" in new
-    fm.write(vault / "agent/Triggers.md", {"tier": "hot", "pinned": True}, text)
-    assert validate.trigger_dates(Vault(vault)) == ["agent/Triggers.md · TR-001: 2026-02-30 is not a real date; it never fires"]
 
 
 def make_vault(tmp_path: Path) -> Path:

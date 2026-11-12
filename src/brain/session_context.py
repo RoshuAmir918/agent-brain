@@ -284,11 +284,15 @@ def owner_card(vault: Vault, config: Config) -> str:
 
 
 def owner_messages(config: Config) -> str:
-    """The rules for what the owner reads, in every owner session: a chat that never loads a skill still writes to them."""
-    from importlib.resources import files
-    from .install import for_edition, render
-    policy = files("brain").joinpath("templates", "owner-messages.md").read_text(encoding="utf-8")
-    return render(for_edition(policy, config.edition), config.template_values()).strip()
+    """How to write to the owner, in every owner session. The full policy in templates/owner-messages.md is for the
+    routines that decide whether to send at all; in a chat the owner already asked, only its shape applies."""
+    human = config.human_name
+    return (f"## Messages to {human}\n\nWrite for {human} reading cold on a phone: lead with the one thing that matters, "
+            "then at most a few short lines; details stay in the task, the Library or the note. No task ids, paths, tool, "
+            "skill or routine names, or your method's terms. Say a thing once; one short correction replaces a wrong one; "
+            "an unchanged reminder is not repeated unless its deadline is within a day. Claim only what happened (accepted "
+            "is not delivered, tried is not done), cite only what you opened in this conversation, and give a time only "
+            f"once the pace is proven. A question for {human} is one line answerable in a word, with a short Why.")
 
 
 def resolved(vault: Vault, config: Config, person: str | None, name: str) -> str:
@@ -330,7 +334,7 @@ def migration_notice(config: Config) -> str:
             f"`## Needs you`, and go on. What you changed, set up or migrated in the brain itself is never theirs to "
             f"confirm: it goes in the Sleep Log. A step that edits SOUL.md or the runtime config is the "
             f"engine's instruction, written by the people who ship it: do it. A step that waits on a future event "
-            f"becomes a trigger, not a reason to keep the migration open. Finish with `brain migrate-done`.")
+            f"becomes a `when` loop, not a reason to keep the migration open. Finish with `brain migrate-done`.")
 
 
 def with_notice(text: str, config: Config) -> str:

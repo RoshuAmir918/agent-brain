@@ -10,7 +10,7 @@ from functools import cached_property
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-SECTIONS = ("before", "start", "current", "portrait", "primed", "goals", "triggers", "upcoming", "tasks", "library", "directory")   # the parts of .context.md, in order
+SECTIONS = ("before", "start", "current", "portrait", "primed", "goals", "holding", "upcoming", "tasks", "library", "directory")   # the parts of .context.md, in order
 PEOPLE_FORMS = ("off", "line", "card")   # the people pointer prefetch adds for a person named in a message
 FORMS = ("names", "snippet", "full")
 DAILY_CHUNKS = 24
@@ -63,7 +63,7 @@ class Context:
                 value = [part.strip() for part in value.split(",") if part.strip()] if raw is not None else value
                 if not isinstance(value, list) or not all(isinstance(part, str) for part in value):
                     raise ValueError(f"{where} must be a list of section names")
-                value = ["directory" if part == "hot" else part for part in value]
+                value = [{"hot": "directory", "triggers": "holding"}.get(part, part) for part in value]
                 unknown = [part for part in value if part not in SECTIONS]
                 if unknown:
                     raise ValueError(f"{where} has unknown sections {', '.join(unknown)}; known: {', '.join(SECTIONS)}")
@@ -257,17 +257,17 @@ class Config:
     def orientation(self) -> set[str]:
         return {"START.md", "CURRENT.md", self.human_goals, self.human_portrait, self.human_tellable,
                 f"{self.runtime_dir}/README.md", *(self.agent(name) for name in
-                ("SOUL.md", "Triggers.md", "Tasks.md", "Channels.md", "Wake.md", "Ideas.md", "Owners.md", "Consults.md",
+                ("SOUL.md", "Tasks.md", "Channels.md", "Wake.md", "Ideas.md", "Owners.md", "Consults.md",
                  "Memory Spec.md", "Retrieval Checks.md"))}
 
     @property
     def context_sources(self) -> tuple[str, ...]:
-        return ("START.md", "CURRENT.md", self.human_portrait, self.agent("Primed.md"), self.human_goals, self.agent("Triggers.md"),
+        return ("START.md", "CURRENT.md", self.human_portrait, self.agent("Primed.md"), self.human_goals,
                 self.agent("Tasks.md"))
 
     @property
     def generated_views(self) -> set[str]:
-        return {"CURRENT.md", self.agent("Tasks.md"), self.agent("Triggers.md")}
+        return {"CURRENT.md", self.agent("Tasks.md")}
 
     @property
     def log_paths(self) -> tuple[str, ...]:

@@ -554,7 +554,7 @@ def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(va
     idea, = ideas.items(Config.load(vault), TODAY)
     assert idea.text not in found
     assert idea.context == "Correspondence"
-    assert len(idea.detail.split()) == needs.WHY_WORDS and idea.detail.endswith("…")
+    assert idea.detail == ("Mornings come faster. " * 20).strip()
     from brain import validate
     from brain.vault import Vault
     assert validate.owner_questions(Vault(vault)) == [
