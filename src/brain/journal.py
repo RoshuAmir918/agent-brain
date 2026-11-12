@@ -218,6 +218,7 @@ def add_ask(config: Config, day: date, text: str, source: str | None, why: str =
         bullet += f"\n  - why: {why}"
     if session.strip():
         bullet += f"\n  - session: {session.strip()}"
+    bullet += f"\n  - wake: {needs.wake_for(kind, day)}"
     bullet += f"\n  - id: {needs.Item(kind, text, 'current', day.isoformat(), source or 'CURRENT.md').id}"
     span = fm.section(body, "Needs you")
     if span is None:

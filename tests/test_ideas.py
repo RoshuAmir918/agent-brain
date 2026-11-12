@@ -182,13 +182,13 @@ def test_yes_creates_ready_handoff_using_ids_from_closed_archives(vault):
 def test_not_now_snoozes_fourteen_days_and_remains_reachable(vault):
     config = Config.load(vault)
     path = write_ideas(vault, bullet("Later?"))
-    before = path.read_bytes()
     item, = ideas.items(config, TODAY)
     ideas.respond(config, item.id, TODAY, "not-now")
-    assert path.read_bytes() == before
+    back = TODAY + timedelta(days=ideas.SNOOZE_DAYS)
+    assert f"  - snoozed: {back}\n  - wake: {back + timedelta(days=ideas.LAPSE_DAYS)}\n" in path.read_text()
     assert ideas.items(config, TODAY + timedelta(days=13)) == []
     assert ideas.shown(config, TODAY + timedelta(days=13)) is None
-    assert ideas.items(config, TODAY + timedelta(days=14)) == [item]
+    assert [later.id for later in ideas.items(config, TODAY + timedelta(days=14))] == [item.id]
     with pytest.raises(ValueError):
         ideas.add(config, TODAY + timedelta(days=1), "later?", "Topic")
     ideas.respond(config, item.text, TODAY + timedelta(days=1), "yes")
@@ -346,9 +346,9 @@ def test_unanswered_ideas_lapse_and_not_now_restarts_the_clock(vault):
     ideas.respond(config, snoozed.id, TODAY + timedelta(days=10), "not-now")
     last = TODAY + timedelta(days=ideas.LAPSE_DAYS)
     assert old in ideas._open(config, last)
-    assert ideas._open(config, last + timedelta(days=1)) == [snoozed]
+    assert [item.id for item in ideas._open(config, last + timedelta(days=1))] == [snoozed.id]
     revived = TODAY + timedelta(days=10 + ideas.SNOOZE_DAYS + ideas.LAPSE_DAYS)
-    assert ideas.items(config, revived) == [snoozed]
+    assert [item.id for item in ideas.items(config, revived)] == [snoozed.id]
     assert ideas._open(config, revived + timedelta(days=1)) == []
     ideas.add(config, last + timedelta(days=1), "Old?", "Topic")
 

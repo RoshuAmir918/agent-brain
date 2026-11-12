@@ -61,6 +61,7 @@ def read(block: grammar.Block, *, cut: bool = True) -> Item | None:
             setattr(item, field, value)
     if cut:
         item.detail = fm.cut(item.detail, needs_mod.WHY_WORDS)
+    item.wake, item.snoozed = needs_mod.day_of(block.get("wake")), needs_mod.day_of(block.get("snoozed"))
     return item
 
 
@@ -110,6 +111,8 @@ def _open(vault_or_config: Vault | Config, today: date) -> list[Item]:
                if answer == "not-now" and ident}
 
     def live(item: Item) -> bool:
+        if item.wake:
+            return today.isoformat() <= item.wake
         if not item.since:
             return True
         start = max(date.fromisoformat(item.since), revived.get(item.id, date.min))
@@ -131,7 +134,8 @@ def _snoozed(config: Config, today: date) -> set[str]:
 def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
     config = vault_or_config if isinstance(vault_or_config, Config) else vault_or_config.config
     snoozed = _snoozed(config, today)
-    return [item for item in _open(vault_or_config, today) if item.id not in snoozed]
+    return [item for item in _open(vault_or_config, today)
+            if item.id not in snoozed and not (item.snoozed and today.isoformat() < item.snoozed)]
 
 
 def new_owner(config: Config, today: date) -> bool:
@@ -196,7 +200,7 @@ def add(config: Config, today: date, text: str, source: str, why: str = "", need
         for label, value in (("why", why), ("needs", needs), ("goal", goal or "")):
             if value.strip():
                 bullet += f"\n  - {label}: {' '.join(value.split())}"
-        bullet += f"\n  - id: {_bullet(head).id}"
+        bullet += f"\n  - wake: {(today + timedelta(days=LAPSE_DAYS)).isoformat()}\n  - id: {_bullet(head).id}"
         span = fm.section(body, "Open")
         if span is None:
             body = body.rstrip("\n") + "\n\n## Open\n\n" + bullet + "\n"
@@ -232,6 +236,13 @@ def respond(config: Config, which: str, today: date, answer: str, words: str = "
             tasks.append_task(config, task)
         if answer != "not-now":
             _close(config, item, "accepted" if answer == "yes" else "declined", today)
+        elif item.origin == "ideas":
+            # Back in front of the owner once the snooze ends, then the usual time to answer before it lapses.
+            back = today + timedelta(days=SNOOZE_DAYS)
+            path = config.vault_path / config.agent("Ideas.md")
+            data, body = fm.read(path)
+            fm.write(path, data, grammar.set_details(body, "Open", read, item.id, {
+                "snoozed": back.isoformat(), "wake": (back + timedelta(days=LAPSE_DAYS)).isoformat()}))
         text = item.text.replace("·", "-")
         if answer in ("no", "stop-asking"):
             line = f"- {today.isoformat()} · dismissed {answer} · idea · {text} · id:{item.id}"

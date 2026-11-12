@@ -93,6 +93,28 @@ def without(body: str, title: str, read: Callable[[Block], T | None], drop: Call
     return body[:span[0]] + "".join(kept) + body[span[1]:], removed
 
 
+def set_details(body: str, title: str, read: Callable[[Block], T | None], which: str, values: dict[str, str]) -> str:
+    """The body with the item `which` given these `key: value` lines: each replaces a line of that key under its
+    bullet, or is added at the end of the block."""
+    span = fm.section(body, title)
+    for block in blocks(body, span):
+        item = read(block)
+        if item is None or (block.id or item.id) != which:
+            continue
+        lines = block.text.splitlines(keepends=True)
+        for key, value in values.items():
+            line = f"  - {key}: {value}\n"
+            at = next((n for n, text in enumerate(lines) if (d := DETAIL.match(text.rstrip("\r\n"))) and d[1] == key), None)
+            if at is None:
+                lines[-1] = lines[-1] if lines[-1].endswith("\n") else lines[-1] + "\n"
+                lines.append(line)
+            else:
+                lines[at] = line
+        start = body.index(block.text, span[0])
+        return body[:start] + "".join(lines) + body[start + len(block.text):]
+    raise ValueError(f"no item {which} under {title}")
+
+
 def pick(candidates: Iterable[T], which: str, noun: str, listing: str, *,
          narrow: Callable[[list[T]], list[T]] | None = None) -> T:
     """One open item by id, else by its exact words, else by words that appear in exactly one."""
