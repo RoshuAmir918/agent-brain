@@ -153,3 +153,32 @@ def stamp(config: Config) -> int:
                 fm.write(path, data, body)
                 total += count
     return total
+
+
+ANSWERS = {"loop": ("drop",), "idea": ("yes", "not-now", "no", "stop-asking"),
+           "need": ("no", "done", "stop-asking"), "consult": ("confirmed", "no", "stop-asking")}
+
+
+def answer(config: Config, which: str, value: str, words: str = "", by: str = ""):
+    """The owner's answer to one open item, from their app or a colleague's from Slack; what it does depends only on
+    what the item is. A loop is dropped; an idea is answered (yes opens its task, `words` the owner's own); a consult is
+    confirmed in `words`, by `by`; any other Needs you item is dismissed with the answer as its reason."""
+    from . import consults, ideas, loops, needs
+    today = config.today()
+    if any(loop.id == which for loop in loops.open_loops(config)):
+        kind = "loop"
+    elif any(idea.id == which for idea in ideas._open(config, today)):
+        kind = "idea"
+    elif need := next((item for item in needs.items(config, today) if item.id == which), None):
+        kind = "consult" if need.origin == "consult" else "need"
+    else:
+        raise ValueError(f"no open item has id {which}")
+    if value not in ANSWERS[kind]:
+        raise ValueError(f"a {kind}'s answer is one of {', '.join(ANSWERS[kind])}")
+    if kind == "loop":
+        return loops.close(config, which, config.now(), "dropped", words or f"{config.human_name} dropped it in their app")
+    if kind == "idea":
+        return ideas.respond(config, which, today, value, words)
+    if value == "confirmed":
+        return consults.answer(config, which, "confirmed", words, by)
+    return needs.dismiss(config, which, today, value, by=by)

@@ -66,3 +66,21 @@ def test_pick_prefers_exact_words_over_a_substring():
     assert items.pick(rows, "send the link", "loop", "brain loops --json") is rows[0]
     with pytest.raises(ValueError, match="2 open loops match"):
         items.pick(rows, "the link", "loop", "brain loops --json")
+
+
+def test_one_answer_settles_whatever_the_item_is(config):
+    loops.add(config, AT, "waiting", "Kevin's answer on the venue", "Trip", "Kevin")
+    journal.add_ask(config, config.today(), "Book the hotel?", "Trip")
+    ideas.add(config, config.today(), "A packing list", "Trip")
+    [loop], [ask], [idea] = (loops.open_loops(config), needs.parse_section(fm.read(config.vault_path / "CURRENT.md")[1]),
+                             ideas._open(config, config.today()))
+    with pytest.raises(ValueError, match="a loop's answer is one of drop"):
+        items.answer(config, loop.id, "yes")
+    items.answer(config, loop.id, "drop")
+    items.answer(config, ask.id, "no")
+    items.answer(config, idea.id, "not-now")
+    assert loops.open_loops(config) == [] and loops.closed_recent(config)[0].outcome == "dropped"
+    assert needs.parse_section(fm.read(config.vault_path / "CURRENT.md")[1]) == []
+    assert [item.id for item in ideas.items(config, config.today())] == []   # snoozed, not gone
+    with pytest.raises(ValueError, match="no open item"):
+        items.answer(config, ask.id, "no")
