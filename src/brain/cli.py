@@ -381,7 +381,7 @@ def cmd_needs_you(args):
         with vault_lock(args.config):
             here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
             journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "",
-                            session=f"demiurge:{here}" if here else "")
+                            session=f"demiurge:{here}" if here else "", hub=args.hub or "")
         count = len(needs.open_asks((args.config.vault_path / "CURRENT.md").read_bytes().decode("utf-8")))
         if count > needs.OPEN_ASKS:
             print(f"Needs you now holds {count} asks; tonight's evening decides the lowest-ranked down to {needs.OPEN_ASKS}.",
@@ -436,7 +436,7 @@ def cmd_loops(args):
             if args.due is True:
                 raise ValueError("--add --due needs a date")
             added = loops.add(config, now, args.kind, args.add, args.source, args.with_ or "", args.due or "", args.task or "",
-                              args.condition or "")
+                              args.condition or "", hub=args.hub or "")
             print(f"{'added' if added else 'already open'} loop: {args.add}")
             return
         if args.kind or args.source is not None or args.with_ is not None or isinstance(args.due, str) or args.task or args.condition:
@@ -2005,6 +2005,7 @@ def main(argv=None):
     s.add_argument("--source", metavar="NOTE", help="with --ask: the note it comes from, e.g. Orphan/Tasks#T-001")
     s.add_argument("--for", dest="for_", metavar="PERSON", help="list only what is for this person (<platform>:<id>): the asks of tasks they own")
     s.add_argument("--why", metavar="TEXT", help="with --ask or --resolve --yours: why it needs the owner, in plain words")
+    s.add_argument("--hub", metavar="NOTE", help="with --ask: the matter in the owner's life it is about, e.g. Lisbon trip.md")
     s.set_defaults(fn=cmd_needs_you)
     s = sub.add_parser("loops", help="promises, answers owed, waits on others, and what to do when something happens",
                        parents=[vault])
@@ -2019,6 +2020,7 @@ def main(argv=None):
     s.add_argument("--task", metavar="T-nnn", help="with --add --kind waiting: the task the answer is for; closing the loop done resumes it")
     s.add_argument("--if", dest="condition", metavar="CONDITION",
                    help="with --add --kind when: what has to happen before you act (with or instead of --due DATE)")
+    s.add_argument("--hub", metavar="NOTE", help="with --add: the matter in the owner's life it is about, e.g. Lisbon trip.md")
     s.add_argument("--because", metavar="TEXT"); s.set_defaults(fn=cmd_loops)
     s = sub.add_parser("item", help="the owner's answer to one open item (loop, idea, ask, confirm, consult)", parents=[vault])
     s.add_argument("id"); s.add_argument("--answer", required=True, metavar="VALUE",
