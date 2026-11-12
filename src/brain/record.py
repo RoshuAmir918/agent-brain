@@ -1,5 +1,5 @@
 """The runtime-independent specification for recording conversations and routine runs."""
-from . import access_log, loops, needs, tasks
+from . import access_log, loops, matters, needs, tasks
 from .config import Config
 from .ledger import NIGHT_STAGES, OUTCOMES
 
@@ -27,6 +27,11 @@ RECORD_SCHEMA = {
         "ready": {"type": "array", "maxItems": 5, "items": {"type": "string"}},
         "workingTogether": {"type": ["array", "null"], "maxItems": 3, "items": {"type": "string", "maxLength": 200}},
         "noted": {"type": ["array", "null"], "maxItems": 5, "items": {"type": "string", "maxLength": 240}},
+        "about": {"type": ["array", "null"], "maxItems": 2, "items": {
+            "type": "object", "required": ["name", "now", "soon"], "additionalProperties": False,
+            "properties": {"name": {"type": "string", "maxLength": 60},
+                           "now": {"type": ["string", "null"], "maxLength": 140},
+                           "soon": {"type": ["string", "null"], "maxLength": 140}}}},
         "access": {"type": "array", "maxItems": 5, "items": {
             "type": "object", "required": ["subject", "asked", "outcome", "rule"], "additionalProperties": False,
             "properties": {"subject": {"type": "string"}, "asked": {"type": "string", "maxLength": 120},
@@ -73,6 +78,14 @@ CONVERSATION = (
     "- noted: new facts or plans the person stated that matter beyond today: a trip, a date, a decision, a birthday, "
     "something about a person in their life. Each one plain line with the date when they gave one (\"Flying to Madison "
     "at 5 am on October 29 to visit Faisal; Hope is there too\"). Not what is already in your context, not what you did.\n"
+    "- about: what in your owner's life this conversation was about, at most two: a trip, a move, a visit, an "
+    "application, an event, a purchase, something with a person in their life. Each `name` is the exact title of a "
+    "matter listed below, or a short new name for one (\"Lisbon trip\"); `now` is where it stands after this "
+    "conversation in one line (\"flights booked; still need a place in Alfama\"), or null when the conversation did "
+    "not change that; `soon` is the next date in it that anyone named, as `YYYY-MM-DD · what happens` (\"2026-12-03 · "
+    "Theo lands\"), always when one was named, even if it is also a noted line; null only when no date came up. Not a "
+    "responsibility, a task or your own machinery; empty for small talk, a test or a question "
+    "answered in passing.\n"
     "Record what you did, never what you did not do.")
 ROUTINE = (
     "The routine run above has ended. Record it for the routine's ledger.\n"
@@ -92,10 +105,13 @@ def held(config: Config) -> str:
     asks = [f"- {item.id} · {item.kind} · {item.text[:160]}" for item in needs.items(config, config.today())
             if item.kind in ("ask", "confirm")][:20]
     open_loops = [f"- {item.id} · {item.kind} · {item.text}" for item in loops.open_loops(config)[:20]]
+    from .vault import Vault
+    shown = [f"- {title}" for title, _ in matters.listed(Vault(config.vault_path), config.today())]
     open_tasks = [f"- {task.tid} · {task.title}{' (handed off)' if task.handoff else ''}"
                   for task in tasks.all_tasks(config) if tasks.is_open(task)][:30]
     sections = (("Already waiting on your owner; leave needsYou null if the conversation only raised one of these again, "
                  "in any wording; list answered ones in resolved:", asks),
                 ("Open loops; close these when finished, do not add them again:", open_loops),
-                ("Open tasks; each carries its own follow-up, so add no loop for their work or their reports:", open_tasks))
+                ("Open tasks; each carries its own follow-up, so add no loop for their work or their reports:", open_tasks),
+                ("Matters in your owner's life; name these exactly in about:", shown))
     return "".join(f"\n{heading}\n" + "\n".join(lines) for heading, lines in sections if lines)

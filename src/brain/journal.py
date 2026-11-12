@@ -6,7 +6,7 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-from . import access_log, fm, ledger, loops, needs, tasks
+from . import access_log, fm, ledger, loops, matters, needs, tasks
 from .lock import vault_lock
 from .config import Config
 from .record import RECORD_SCHEMA, UNCAPTURED
@@ -20,7 +20,7 @@ def _clean(text: str | None) -> str:
 
 # The record's list fields: whether an item may be a plain string, and the string keys an object item needs.
 LISTS = {"touched": (True, ()), "ready": (True, ()), "resolved": (True, ()), "workingTogether": (True, ()),
-         "noted": (True, ()), "loops": (False, ("kind", "text")), "closed": (True, ("loop", "outcome", "why"))}
+         "noted": (True, ()), "about": (False, ("name",)), "loops": (False, ("kind", "text")), "closed": (True, ("loop", "outcome", "why"))}
 
 
 def _coerce(record: dict) -> dict:
@@ -59,10 +59,17 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     speaker = f"{platform}:{ids[-1]}" if ids and platform not in ("", "cli") else None
     touched = [title for title in dict.fromkeys(_clean(title) for title in record.get("touched") or [])
                if title and (target := vault.resolve(title)) and _public(vault, target)]
+    hub = ""
+    if owner and record.get("about"):
+        # Only the owner's conversations say where their life stands; the loops and asks opened here belong to it.
+        with vault_lock(config):
+            asks = bool(_clean(record.get("needsYou"))) and not needs.vague_ask(_clean(record.get("needsYou")))
+            hub = matters.record(config, vault, local.date(), record["about"], headline,
+                                 bool(record.get("loops")) or asks) or ""
     for loop in record.get("loops") or []:
         try:
             loops.add(config, local, loop["kind"], loop["text"], touched[0] if touched else "Conversations",
-                      loop.get("with") or "", loop.get("due") or "")
+                      loop.get("with") or "", loop.get("due") or "", hub=hub)
         except ValueError as error:
             print(f"skipped loop: {error}", file=sys.stderr)
     for closure in record.get("closed") or []:
@@ -99,7 +106,7 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
         else:
             with vault_lock(config):
                 add_ask(config, local.date(), needs_you, touched[0] if touched else None,
-                        session=f"{platform}:{session}" if session and ":" not in session else session)
+                        session=f"{platform}:{session}" if session and ":" not in session else session, hub=hub)
     if owner:
         working_together(config, local.date(), record.get("workingTogether"))
         promote_touched(config, vault, record.get("touched") or [], local.date(), speaker)
@@ -200,7 +207,7 @@ def noted(config: Config, at: datetime, lines, speaker: str | None) -> Path | No
 
 
 def add_ask(config: Config, day: date, text: str, source: str | None, why: str = "", *,
-            distinct_source: bool = False, kind: str = "ask", session: str = "") -> bool:
+            distinct_source: bool = False, kind: str = "ask", session: str = "", hub: str = "") -> bool:
     """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing; the caller
     holds the vault lock. Always adds: a question is never lost to a full list. Past the ceiling, the evening decides
     the lowest-ranked ones down to it."""
@@ -219,6 +226,8 @@ def add_ask(config: Config, day: date, text: str, source: str | None, why: str =
     if session.strip():
         bullet += f"\n  - session: {session.strip()}"
     bullet += f"\n  - wake: {needs.wake_for(kind, day)}"
+    if hub.strip():
+        bullet += f"\n  - hub: {hub.strip()}"
     bullet += f"\n  - id: {needs.Item(kind, text, 'current', day.isoformat(), source or 'CURRENT.md').id}"
     span = fm.section(body, "Needs you")
     if span is None:
