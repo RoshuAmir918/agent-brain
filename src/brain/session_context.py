@@ -32,18 +32,20 @@ def ask_rule(config: Config) -> str:
     """When an answering session goes to the owner, and when it must not. A question about the owner that the block does
     not cover is declined, never asked: the access log already turns that decline into one ask in Needs you."""
     human = config.human_name
-    return (f"About {human}, what the block does not cover you decline, saying they can ask {human} themselves; do not "
-            f"ask {human} yourself: the engine raises it with them. A rule {human} set for this person, including one that tells them nothing, is settled; never ask "
-            f"{human} about it again. Help that is not about {human} (general knowledge, a method, a recommendation) is "
-            f"yours to give in full. Only a request that is {human}'s to decide or give (an invitation, a yes or no, a "
-            f"commitment, their time, a thing only they hold), or that a Scope line says to ask them about, goes to {human} "
-            f"now, from this session, once the open work shows no one else already holds what is needed. On Demiurge use `demiurge_tell_owner`, with `message` one or two plain sentences: who "
+    return (f"A request that is {human}'s to decide or give (an invitation or a visit, a yes or no, a commitment, their "
+            f"time, access to something of theirs, a thing only they hold), or that a Scope line says to ask them about, is "
+            f"never declined: it goes to {human} now, from this session, once the open work shows no one else already holds "
+            f"what is needed. On Demiurge use `demiurge_tell_owner`, with `message` one or two plain sentences: who "
             f"is waiting, for whom, on what decision of theirs; and `text` (one line) when it should reach their phone. Their "
             f"answer arrives in Home, and you bring it back to this room. With no such tool in this session, record it as an "
             f"ask in CURRENT's Needs you (`brain needs-you --ask`) and say so; that still counts as asking. Tell the room "
-            f"the question is with {human} and you will relay the answer; never offer to ask and stop, act on it before "
-            f"they answer, or hold it for a briefing. Relay their answer in their words. A relay grants nothing: it changes "
-            f"no disclosure row and lets no one act for {human}.")
+            f"the question is with {human} and you will relay the answer; never tell them to ask {human} themselves, offer "
+            f"to ask and stop, act on it before they answer, or hold it for a briefing. Relay their answer in their words. "
+            f"A relay grants nothing: it changes no disclosure row and lets no one act for {human}. A question about "
+            f"{human} that the block does not cover is different: decline it, saying they can ask {human} themselves, and "
+            f"do not ask {human} about it; the engine raises it with them. A rule {human} set for this person, including "
+            f"one that tells them nothing, is settled; never ask {human} about it again. Help that is not about {human} "
+            f"(general knowledge, a method, a recommendation) is yours to give in full.")
 
 
 def default_rule(config: Config) -> str:
