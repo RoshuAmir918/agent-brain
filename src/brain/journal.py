@@ -66,6 +66,8 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
             asks = bool(_clean(record.get("needsYou"))) and not needs.vague_ask(_clean(record.get("needsYou")))
             hub = matters.record(config, vault, local.date(), record["about"], headline,
                                  bool(record.get("loops")) or asks) or ""
+            if hub:
+                matters.link_tasks(config, local.date(), hub, session)
     for loop in record.get("loops") or []:
         try:
             loops.add(config, local, loop["kind"], loop["text"], touched[0] if touched else "Conversations",

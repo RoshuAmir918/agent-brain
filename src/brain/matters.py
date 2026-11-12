@@ -235,3 +235,20 @@ def lines(config, today: date) -> list[str]:
         parts = [title] + [f"{key} {kept[key]['date']}: {kept[key]['text']}" for key in ("now", "soon") if kept[key]]
         out.append("- " + " · ".join(parts))
     return out
+
+
+def link_tasks(config, today: date, source: str, conversation: str) -> list[str]:
+    """The open tasks this conversation made that name no hub take the matter it was about, so closing or handing them
+    off moves it; a task the conversation only touched keeps its own hub. Returns their ids. The caller holds the vault
+    lock."""
+    from . import tasks
+    # Ids are unique; the platform before them differs between where the record and the task were written.
+    conversation = conversation.split(":", 1)[-1]
+    if not conversation:
+        return []
+    linked = []
+    for task in tasks.all_tasks(config):
+        if tasks.is_open(task) and not task.hub and (task.report or "").split(":", 1)[-1] == conversation:
+            tasks.set_fields(config, task.tid, today, values={"hub": source.removesuffix(".md")})
+            linked.append(task.tid)
+    return linked
