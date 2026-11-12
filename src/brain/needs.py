@@ -38,6 +38,7 @@ class Item:
     context: str = ""
     needs: str = ""
     goal: str | None = None
+    hub: str = ""       # the matter it belongs to, as a note path, when the ask named one
     session: str = ""   # the conversation it was asked in (`demiurge:<id>`), so what settles it can be said there
     label: InitVar[str | None] = None   # what the id is keyed on, when the text is built from changing fields
     task: str = field(init=False)       # the task it stands for (T-nnn), when its source names one; else ""
@@ -94,6 +95,7 @@ def read(block: grammar.Block) -> Item | None:
     item.detail = fm.cut(why, WHY_WORDS)
     item.session = block.get("session") or ""
     item.wake = day_of(block.get("wake"))
+    item.hub = block.get("hub") or ""
     return item
 
 

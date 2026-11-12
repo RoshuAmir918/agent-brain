@@ -47,6 +47,7 @@ class Item:
     task: str = ""
     wake: str = ""      # when it next acts on its own, written when it opens; a `when` with only a condition has none
     if_: str = ""       # a `when` loop's condition: what has to happen before it acts
+    hub: str = ""       # the matter it belongs to, as a note path; its source is often another note
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -158,6 +159,8 @@ def read(block: items.Block) -> Item | None:
             current.task = value
         elif name == "if":
             current.if_ = value
+        elif name == "hub":
+            current.hub = value
         elif name in ("due", "ready", "wake"):
             try:
                 _time(value)
@@ -182,7 +185,7 @@ def parse_section(body: str, title: str = "Open") -> list[Item]:
 def render(item: Item) -> str:
     bullet = f"- {item.since} · {item.kind} · {item.text} · [[{item.source}]]"
     for label, value in (("with", item.with_), ("due", item.due), ("if", item.if_), ("wake", item.wake),
-                         ("ready", item.ready), ("task", item.task)):
+                         ("ready", item.ready), ("task", item.task), ("hub", item.hub)):
         if value:
             bullet += f"\n  - {label}: {value}"
     if item.closed:
@@ -193,7 +196,7 @@ def render(item: Item) -> str:
 def as_dict(item: Item) -> dict:
     out = {"id": item.id, "kind": item.kind, "text": item.text, "with": item.with_, "due": item.due,
            "since": item.since, "source": item.source, "ready": item.ready, "task": item.task,
-           "wake": item.wake, "if": item.if_}
+           "wake": item.wake, "if": item.if_, "hub": item.hub}
     if item.closed:
         out.update(closed=item.closed, outcome=item.outcome, because=item.because)
     return out
@@ -219,7 +222,7 @@ def _read_answered(block: items.Block) -> Item | None:
         return None
     current = Item(match[3], match[4].strip(), "", source, closed=match[1], outcome=match[2], because=match[5].strip())
     current.id = match[6]
-    for name, attr in (("since", "since"), ("with", "with_"), ("due", "due"), ("if", "if_"), ("task", "task")):
+    for name, attr in (("since", "since"), ("with", "with_"), ("due", "due"), ("if", "if_"), ("task", "task"), ("hub", "hub")):
         if value := block.get(name):
             if name in ("since", "due"):
                 try:
@@ -335,7 +338,7 @@ def _close(config: Config, item: Item, at: datetime, outcome: str, because: str)
     fm.write(path, data, body)
     entry = (f"- {item.closed} · loop {outcome} · {item.kind} · {item.text.replace('·', '-')}"
              f" · because {because.replace('·', '-')} · id:{item.id} · [[{item.source}]]")
-    for name, value in (("since", item.since), ("with", item.with_), ("due", item.due), ("if", item.if_), ("task", item.task)):
+    for name, value in (("since", item.since), ("with", item.with_), ("due", item.due), ("if", item.if_), ("task", item.task), ("hub", item.hub)):
         if value:
             entry += f"\n  - {name}: {value}"
     needs.answered(config, config.local(at).date(), entry)
