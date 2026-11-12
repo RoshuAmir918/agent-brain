@@ -447,3 +447,32 @@ def test_cli_stale_prints_only_stale_loops_and_json_carries_them(config, capsys)
     assert "Send the link" in out and "Fresh promise" not in out
     cli.main(["loops", "--json", "--vault", str(config.vault_path)])
     assert [item["text"] for item in json.loads(capsys.readouterr().out)["stale"]] == ["Send the link"]
+
+
+def test_a_waiting_loop_closed_done_resumes_the_task_it_was_for(config, capsys):
+    from brain import tasks
+    blocked = tasks.new_task(config, "Go live", "asked")
+    tasks.set_fields(config, blocked.tid, config.today(), state="blocked",
+                     values={"blocker": "Orphan to say how the key is supplied", "resume": "2099-01-01 09:00"})
+    parked = tasks.new_task(config, "Wait on owner", "asked")
+    child = tasks.new_task(config, "Make the key", "asked", state="yours", from_task=parked.tid)
+    with pytest.raises(ValueError, match="waiting loop"):
+        loops.add(config, AT, "owed", "Tell them", "Trip", "Orphan", task=blocked.tid)
+    with pytest.raises(ValueError, match="not an open task"):
+        loops.add(config, AT, "waiting", "Key route?", "Trip", "Orphan", task="T-900")
+    loops.add(config, AT, "waiting", "Key route?", "Trip", "Orphan", task=blocked.tid)
+    loops.add(config, AT, "waiting", "Which vault?", "Trip", "Orphan", task=parked.tid)
+    [first, second] = loops.open_loops(config)
+    assert loops.parse_section("## Open\n" + loops.render(first)) == [first] and first.task == blocked.tid
+    assert loops.as_dict(first)["task"] == blocked.tid
+
+    cli.main(["loops", "--close", "Key route?", "--outcome", "done", "--because", "Keychain", "--vault", str(config.vault_path)])
+    assert "the answer is on" in capsys.readouterr().out
+    task = tasks.find(config, blocked.tid)
+    assert task.task_state == "in_progress" and task.resume is None
+    assert fm.field(task.body, "Latest evidence").endswith("Orphan answered: Key route?")
+    assert fm.field(task.body, "Blocker") == "Orphan to say how the key is supplied"
+
+    loops.close(config, "Which vault?", AT, "done", "answered")
+    assert tasks.find(config, parked.tid).task_state == "blocked"
+    assert child.tid in fm.field(tasks.find(config, parked.tid).body, "Blocker")

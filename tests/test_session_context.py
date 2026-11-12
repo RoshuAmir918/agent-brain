@@ -1,9 +1,10 @@
 import json
+from datetime import datetime
 from dataclasses import replace
 
 import pytest
 
-from brain import cli, fm, identity, session_context
+from brain import cli, fm, identity, loops, session_context
 from brain.vault import Vault
 
 
@@ -356,3 +357,24 @@ def test_a_routine_run_gets_the_owner_card(people_vault):
              "# Mira\n\n## Working together\n\nJust tell me whether I need to do anything.\n")
     block = session_context.build(Vault(people_vault.root), people_vault.config, platform="cron")
     assert "Just tell me whether I need to do anything." in block
+
+
+def test_an_intellect_session_lists_own_tasks_blocked_on_it_whatever_its_owner_may_learn(people_vault):
+    root = people_vault.root
+    for folder in ("agents/Orphan", "agent"):
+        (root / folder).mkdir(parents=True)
+    fm.write(root / "agents/Orphan/Profile.md", {"kind": "profile", "tier": "warm"},
+             "# Orphan\n\n- **Owner:** [[memory/people/Alice/Profile|Alice]]\n- **Demiurge:** `k57orphan`\n")
+    fm.write(root / "agent/Tasks.md", {}, "# Tasks\n\n"
+             "### T-001 — Go live\n<!-- brain: state=blocked -->\n- **Blocker:** Orphan to say how the key is supplied.\n\n"
+             "### T-002 — Plan the garden\n<!-- brain: state=blocked -->\n- **Blocker:** The nursery is closed.\n\n"
+             "### T-003 — Ask about seeds\n<!-- brain: state=in_progress -->\n- **Next:** Wait on the answer.\n")
+    vault = Vault(root)
+    loops.add(vault.config, datetime(2026, 11, 11, 12, 0), "waiting", "Which seeds grow here?", "agent/Tasks",
+              "Orphan", task="T-003")
+    vault.notes["people/Disclosure.md"].body = MIGRATED.replace("| D2 | known | plans | gist |", "| D2 | known | plans | none |")
+    block = session_context.build(vault, vault.config, platform="demiurge", user_id="k57orphan")
+    assert "Your tasks waiting on Orphan:" in block
+    assert "T-001 — Go live (blocker: Orphan to say how the key is supplied.)" in block
+    assert "T-003 — Ask about seeds" in block and "Plan the garden" not in block
+    assert "brain task T-nnn set --state in_progress" in block
