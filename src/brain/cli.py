@@ -14,7 +14,7 @@ from dataclasses import asdict, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import access, attribute, compile_context, consults, digest, evidence, fm, health, identity, ideas, image, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
+from . import access, attribute, compile_context, consults, digest, evidence, fm, health, identity, ideas, image, items, journal, ledger, loops, needs, owners, portrait, reception, retrieve, seed, session_context, state, tellable, validate, views, works
 from . import tasks as tasks_mod
 from . import goals, responsibilities, roles
 from .tasks import load_tasks, quiet
@@ -466,6 +466,14 @@ def cmd_loops(args):
                        + (f" · if: {item.if_}" if item.if_ else "") + (f" · wake: {item.wake}" if item.wake else "")
                        + (f" · ready: {item.ready}" if item.ready else ""))
             print(f"{item.id} · {item.since} · {item.kind} · {item.text} · [[{item.source}]]{details}")
+
+
+def cmd_item(args):
+    try:
+        done = items.answer(args.config, args.id, args.answer, args.words or "", args.by or "")
+    except ValueError as error:
+        raise SystemExit(f"brain item: {error}")
+    print(f"{args.answer}: {getattr(done, 'text', None) or getattr(done, 'title', '')}")
 
 
 def cmd_owners(args):
@@ -2012,6 +2020,13 @@ def main(argv=None):
     s.add_argument("--if", dest="condition", metavar="CONDITION",
                    help="with --add --kind when: what has to happen before you act (with or instead of --due DATE)")
     s.add_argument("--because", metavar="TEXT"); s.set_defaults(fn=cmd_loops)
+    s = sub.add_parser("item", help="the owner's answer to one open item (loop, idea, ask, confirm, consult)", parents=[vault])
+    s.add_argument("id"); s.add_argument("--answer", required=True, metavar="VALUE",
+                                         help="loop: drop; idea: yes|not-now|no|stop-asking; ask or confirm: no|done|stop-asking; "
+                                              "consult: confirmed|no|stop-asking")
+    s.add_argument("--words", metavar="TEXT", help="the owner's words (an idea's yes, a dropped loop's reason) or a consult's answer")
+    s.add_argument("--by", metavar="PLATFORM:ID", help="who answered a consult")
+    s.set_defaults(fn=cmd_item)
     s = sub.add_parser("owners", help="the area's ownership hints", parents=[vault])
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_owners)
     s = sub.add_parser("evidence", help="read the evidence sources wrote, newest first", parents=[vault])
