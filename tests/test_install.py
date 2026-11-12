@@ -76,7 +76,7 @@ def test_responsibility_pause_conversion_precedes_sync_once(vault, monkeypatch, 
     assert partial["triggers"] == [*documents["l1-study"]["triggers"][:3],
                                    {**documents["l1-study"]["triggers"][3], "paused": True}]
     assert fm.read(paths["retired"])[0] == documents["retired"]
-    marker = vault / config.runtime_dir / "responsibility-status-0.184.0"
+    marker = vault / config.runtime_dir / "responsibility-status-0.185.0"
     assert marker.exists()
     before = {ident: path.read_bytes() for ident, path in paths.items()}
     assert responsibilities.migrate_pauses(Vault(vault)) == []

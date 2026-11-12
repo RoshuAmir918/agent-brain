@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from .schedule import Routine
 
 ID_PATTERN = r"[a-z0-9][a-z0-9-]{0,62}"
-STATUS_MIGRATION = "responsibility-status-0.184.0"
+STATUS_MIGRATION = "responsibility-status-0.185.0"
 
 
 def identity(config: Config, note: Note) -> str:
