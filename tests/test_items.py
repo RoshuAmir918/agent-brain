@@ -23,15 +23,19 @@ def reword(path, old, new):
 def test_a_reworded_loop_keeps_its_id_and_closes_whole(config):
     loops.add(config, AT, "waiting", "Kevin's answer on the venue", "Trip", "Kevin")
     [before] = loops.open_loops(config)
-    reword(loops.path_for(config), "the venue", "the venue for Saturday")
+    reword(loops.path_for(config), "the venue", "the venue· for Saturday")
     path = loops.path_for(config)
     path.write_text(path.read_text().replace("  - with: Kevin\n", "  - with: Kevin\n    wrapped note the agent left\n"))
     [after] = loops.open_loops(config)
-    assert (after.id, after.text) == (before.id, "Kevin's answer on the venue for Saturday")
+    assert (after.id, after.text) == (before.id, "Kevin's answer on the venue· for Saturday")
     loops.close(config, before.id, AT, "done", "he answered")
     body = fm.read(path)[1]
     assert loops.open_loops(config) == [] and "wrapped note" not in body
-    assert f"  - id: {before.id}" in body[body.index("## Closed"):]
+    entry = (f"- 2026-10-28 12:00 · loop done · waiting · Kevin's answer on the venue- for Saturday"
+             f" · because he answered · id:{before.id} · [[Trip]]")
+    assert entry in (config.vault_path / config.agent("Answered/2026-10.md")).read_text()
+    assert loops.closed_recent(config)[0].id == before.id
+    assert "## Closed" not in body and before.id not in body
 
 
 def test_stamp_stores_the_id_each_item_already_has(config):

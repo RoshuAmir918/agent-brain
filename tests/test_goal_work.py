@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from brain import cli, continuation, fm, goal_activity, goals, ideas, ledger, reception, state, tasks
+from brain import cli, continuation, fm, goal_activity, goals, ideas, ledger, needs, reception, state, tasks
 from brain.config import Config
 from conftest import snapshot
 
@@ -349,6 +349,17 @@ def test_untagged_answered_fallback_does_not_inherit_hub_or_draft_goal(cfg):
     ids = {item["id"] for item in goals.activity(cfg)["G-1"]}
     assert "idea:0123456789ab" not in ids and "idea:0123456789ac" not in ids
     assert "idea:0123456789ad" in ids
+
+
+def test_answered_loop_is_not_an_idea_even_with_a_matching_response_id(cfg):
+    source = "Medicine · goal:G-1 · Notes"
+    fm.write(cfg.vault_path / f"{source}.md", {"kind": "hub", "tier": "warm"}, "# Notes\n")
+    needs.answered(cfg, TODAY,
+                   f"- {TODAY} · idea · Earlier idea · yes · id:0123456789ab · [[Medicine]]")
+    needs.answered(cfg, TODAY,
+                   f"- {TODAY} 12:00 · loop done · promised · Send notes · because Sent"
+                   f" · id:0123456789ab · [[{source}]]")
+    assert goals.activity(cfg)["G-1"] == []
 
 
 def test_owned_work_and_receipts_fold_once_and_keep_recent_task_visible(cfg, tmp_path, monkeypatch):

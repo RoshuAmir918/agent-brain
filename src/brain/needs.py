@@ -291,10 +291,10 @@ def _prune(config: Config, drop) -> list[Item]:
     return removed
 
 
-ANSWERED_HEADER = "---\nkind: log\ntier: cold\n---\n# Answered\n\nAsks and confirms resolved by evidence, one line each: date, kind, what it was, the evidence.\n\n"
+ANSWERED_HEADER = "---\nkind: log\ntier: cold\n---\n# Answered\n\nAnswers, decisions and closed loops, with dates and evidence.\n\n"
 
 
-DISMISSED = re.compile(r"· dismissed(?: [a-z-]+)? · .* · id:([0-9a-f]{12})\b")
+DISMISSED = re.compile(r"^- \d{4}-\d{2}-\d{2} · dismissed(?: [a-z-]+)? · .* · id:([0-9a-f]{12})\b", re.M)
 REASONS = ("no", "done", "stop-asking")   # what the owner said by dismissing: never inferred, only chosen
 
 
