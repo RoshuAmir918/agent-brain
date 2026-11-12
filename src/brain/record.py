@@ -15,10 +15,11 @@ RECORD_SCHEMA = {
         "needsYou": {"type": ["string", "null"], "maxLength": 160},
         "next": {"type": ["string", "null"], "maxLength": 120},
         "loops": {"type": "array", "maxItems": 5, "items": {
-            "type": "object", "required": ["kind", "text", "with", "due"], "additionalProperties": False,
-            "properties": {"kind": {"enum": ["promised", "owed", "waiting"]},
+            "type": "object", "required": ["kind", "text", "with", "due", "if"], "additionalProperties": False,
+            "properties": {"kind": {"enum": ["promised", "owed", "waiting", "when"]},
                            "text": {"type": "string", "maxLength": 160},
-                           "with": {"type": ["string", "null"]}, "due": {"type": ["string", "null"]}}}},
+                           "with": {"type": ["string", "null"]}, "due": {"type": ["string", "null"]},
+                           "if": {"type": ["string", "null"], "maxLength": 160}}}},
         "closed": {"type": "array", "maxItems": 5, "items": {
             "type": "object", "required": ["loop", "outcome", "why"], "additionalProperties": False,
             "properties": {"loop": {"type": "string"}, "outcome": {"enum": ["done", "dropped"]},
@@ -54,7 +55,10 @@ CONVERSATION = (
     "on from someone. One plain line each, under 160 characters. `with` is the person or intellect by name, someone "
     "who asked you or whom you asked; your owner only for a promise to them (what you wait on from your owner is needsYou, not a loop) and never "
     "a role, a team or a system. `due` is any date or deadline that was named, always, including an expiry or a "
-    "\"proceeds unless declined by\" date (YYYY-MM-DD or YYYY-MM-DD HH:MM); it is what wakes you in time. One loop "
+    "\"proceeds unless declined by\" date (YYYY-MM-DD or YYYY-MM-DD HH:MM); it is what wakes you in time. A `when` "
+    "loop is something to do once a date comes or something happens (\"when Sazed replies, tell me\", \"remind me "
+    "Friday\"): `text` is what to do, `if` the condition when there is one, `due` the date when there is one, at "
+    "least one of them; `if` is null for every other kind. One loop "
     "per thing: two waits on the same person about the same matter are one loop. Not work a task carries: the open "
     "tasks listed below already hold their follow-up, including a handoff's report. Not work at all: something you "
     "will build, configure, research or prepare is a task, and a promise is only a reply, a relay or a check you owe. "

@@ -69,7 +69,7 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     for loop in record.get("loops") or []:
         try:
             loops.add(config, local, loop["kind"], loop["text"], touched[0] if touched else "Conversations",
-                      loop.get("with") or "", loop.get("due") or "", hub=hub)
+                      loop.get("with") or "", loop.get("due") or "", condition=loop.get("if") or "", hub=hub)
         except ValueError as error:
             print(f"skipped loop: {error}", file=sys.stderr)
     for closure in record.get("closed") or []:
