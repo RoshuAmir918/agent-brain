@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from brain import cli, fm, identity, loops, session_context, tasks
+from brain import cli, fm, identity, journal, loops, session_context, tasks
 from brain.vault import Vault
 
 
@@ -252,10 +252,31 @@ def test_the_owner_hears_how_to_work_with_them_and_what_the_agent_thinks_of_them
              "## Impression\n- Decides fast, then wants pushback (likely; Oct 20, Oct 27).\n\n## Open questions\n- Hobbies?\n")
     vault = Vault(people_vault.root)
     block = session_context.build(vault, vault.config, platform="cli")
-    assert block.startswith("This session is with Mira, the owner.\n\n## Working together\n- Terse answers")
+    assert block.startswith("This session is with Mira, the owner.\n\n" + session_context.owner_messages(vault.config))
     assert "## Impression\n- Decides fast" in block and "Hobbies" not in block and "Lisbon" not in block
-    assert block.endswith("Talk about your Impression only with Mira alone, never where anyone else can read it. "
-                          "Full profile: memory/human/Profile.md.\n\n" + session_context.owner_messages(vault.config))
+    assert "Talk about your Impression only with Mira alone, never where anyone else can read it." in block
+    assert "Full profile: memory/human/Profile.md." in block
+    assert block.endswith("Mira's instructions for every reply; these override message and skill defaults:\n\n"
+                          "## Working together\n- Terse answers; challenge her reasoning.")
+
+
+@pytest.mark.parametrize("platform, user_id", [("cli", ""), ("slack", "U_OWNER"), ("cron", "")])
+def test_recorded_owner_rules_end_later_session_context_despite_long_background(people_vault, platform, user_id):
+    root = people_vault.root
+    profile = root / "human/Profile.md"
+    profile.parent.mkdir(exist_ok=True)
+    fm.write(profile, {"kind": "profile"}, "# Mira\n\n## Impression\n" + "Background. " * 500)
+    initial = session_context.build(Vault(root), people_vault.config, platform=platform, user_id=user_id)
+    direction = "Answer in one paragraph unless I request a longer explanation."
+    journal.append_entry(people_vault.config, {"headline": "Set reply style", "outcome": "nothing",
+                         "workingTogether": [direction]}, "cli", datetime(2026, 11, 12, 10))
+    later = session_context.build(Vault(root), people_vault.config, platform=platform, user_id=user_id)
+    assert direction not in initial and later.count(direction) == 1
+    assert later.endswith("## Working together\n- 2026-11-12: " + direction)
+    assert "instructions for every reply; these override message and skill defaults:" in later
+    assert later.index("## Impression") < later.index("## Working together")
+    if platform != "cron":
+        assert later.index("## Messages to Mira") < later.index("## Working together")
 
 
 def test_a_registered_intellect_gets_its_profile_and_the_relay_rule(people_vault):
@@ -468,4 +489,5 @@ def test_the_owner_card_keeps_the_newest_working_together_lines(people_vault):
     vault = Vault(root)
     card = session_context.owner_card(vault, vault.config)
     assert "- 2026-11-11 · No em dashes, ever." in card and "number 1 kept" not in card
-    assert card.startswith("## Working together\n")
+    assert "Mira's instructions for every reply; these override message and skill defaults:\n\n## Working together\n" in card
+    assert card.endswith("- 2026-11-11 · No em dashes, ever.")
