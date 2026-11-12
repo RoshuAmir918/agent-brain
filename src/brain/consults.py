@@ -11,6 +11,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from . import evidence, fm, identity, needs, owners, routing, tasks
+from . import items as grammar
 from .config import Config
 from .lock import vault_lock
 from .vault import Vault
@@ -37,7 +38,7 @@ Questions for colleagues, with the default taken when nobody answers.
 ## Went ahead
 
 """
-DETAIL = re.compile(r"^[ \t]+-[ \t]+(id|to|asked|until|tried|restricted|default|why|not-covered):[ \t]*(.*?)[ \t]*$")   # a consult's indented fields
+FIELDS = ("id", "to", "asked", "until", "tried", "restricted", "default", "why", "not-covered")   # a consult's indented fields
 WENT_AHEAD = "Went ahead without an answer: "   # the confirm's text, followed by its default
 ACTED = "Acted without asking: "   # an autonomous act's confirm, distinct from an unanswered consult
 
@@ -99,27 +100,28 @@ def _bullet(line: str) -> Consult | None:
     return Consult(parts[0], fm.plain(parts[1]), parts[2], source)
 
 
+def read(block: grammar.Block, kind: str = "ask") -> Consult | None:
+    current = _bullet(block.line)
+    if current is None:
+        return None
+    for name, value in block.details:
+        if name not in FIELDS:
+            continue
+        if name == "tried":
+            current.tried = tuple(person.strip() for person in value.split(",") if person.strip())
+        elif name == "restricted":
+            current.restricted = value == "true"
+        else:
+            setattr(current, name.replace("-", "_"), value)
+    current.kind = kind
+    if kind == "confirm":
+        current.default = current.text.removeprefix(WENT_AHEAD).removeprefix(ACTED)
+    return current
+
+
 def parse_section(body: str, title: str = "Open") -> list[Consult]:
-    span = fm.section(body, title)
-    out, current = [], None
-    for line in body[span[0]:span[1]].splitlines() if span else []:
-        detail = DETAIL.match(line)
-        if detail and current is not None:
-            field, value = detail.groups()
-            if field == "tried":
-                current.tried = tuple(person.strip() for person in value.split(",") if person.strip())
-            elif field == "restricted":
-                current.restricted = value == "true"
-            else:
-                setattr(current, field.replace("-", "_"), value)
-        elif not line[:1].isspace():
-            current = _bullet(line)
-            if current:
-                current.kind = "confirm" if title == "Went ahead" else "ask"
-                if current.kind == "confirm":
-                    current.default = current.text.removeprefix(WENT_AHEAD).removeprefix(ACTED)
-                out.append(current)
-    return out
+    kind = "confirm" if title == "Went ahead" else "ask"
+    return grammar.parse(body, title, lambda block: read(block, kind))
 
 
 def load(config: Config) -> list[Consult]:
@@ -170,10 +172,7 @@ def _remove(config: Config, consult: Consult) -> None:
     path = path_for(config)
     data, body = fm.read(path)
     title = "Open" if consult.kind == "ask" else "Went ahead"
-    span = fm.section(body, title)
-    blocks = re.split(r"(?m)(?=^- )", body[span[0]:span[1]])
-    kept = "".join(block for block in blocks if not re.search(r"^  - id: " + re.escape(consult.id) + r"$", block, re.M))
-    body = body[:span[0]] + kept + body[span[1]:]
+    body, _ = grammar.without(body, title, lambda block: read(block, consult.kind), lambda entry: entry.id == consult.id)
     fm.write(path, data, body)
 
 
@@ -658,14 +657,7 @@ def _wait(config: Config, consult: Consult, now: datetime) -> None:
 
 
 def _open(config: Config, which: str) -> Consult:
-    entries = [entry for entry in load(config) if entry.kind == "ask"]
-    chosen = [entry for entry in entries if entry.id == which]
-    if not chosen:
-        chosen = [entry for entry in entries if fm.plain(which) and fm.plain(which) in fm.plain(entry.text)]
-    if len(chosen) != 1:
-        raise ValueError(("no open consult matches " if not chosen else f"{len(chosen)} open consults match ")
-                         + repr(which) + "; use an id from `brain consult list --json`")
-    return chosen[0]
+    return grammar.pick((entry for entry in load(config) if entry.kind == "ask"), which, "consult", "brain consult list --json")
 
 
 def answer(config: Config, which: str, outcome: str, answer: str, by: str, to: str = "") -> Consult:

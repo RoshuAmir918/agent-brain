@@ -5,6 +5,7 @@ import re
 from datetime import date, timedelta
 
 from . import fm, health, tasks
+from . import items as grammar
 from . import needs as needs_mod
 from .config import Config
 from .lock import vault_lock
@@ -33,7 +34,6 @@ Proposals for new ways to help, for the owner to consider one at a time.
 ## Open
 
 """
-DETAIL = re.compile(r"^[ \t]+-[ \t]+(why|needs|goal):[ \t]*(.+?)[ \t]*$")
 ANSWERS = ("yes", "not-now", "no", "stop-asking")
 
 
@@ -51,23 +51,21 @@ def _bullet(line: str) -> Item | None:
     return Item("idea", match[2].strip(), "ideas", match[1], source) if source else None
 
 
-def parse_section(body: str, *, cut: bool = True) -> list[Item]:
-    """Read Open bullets and their optional, indented why and needs lines; hygiene reads the uncut why."""
-    span = fm.section(body, "Open")
-    out = []
-    if span is None:
-        return out
-    for line in body[span[0]:span[1]].splitlines():
-        detail = DETAIL.match(line)
-        if detail and out:
-            field = "detail" if detail[1] == "why" else detail[1]
-            setattr(out[-1], field, ((getattr(out[-1], field) or "") + " " + detail[2]).strip())
-        elif (item := _bullet(line)) is not None:
-            out.append(item)
+def read(block: grammar.Block, *, cut: bool = True) -> Item | None:
+    """An Open bullet with its optional why, needs and goal lines; hygiene reads the uncut why."""
+    item = _bullet(block.line)
+    if item is None:
+        return None
+    for name, field in (("why", "detail"), ("needs", "needs"), ("goal", "goal")):
+        if value := " ".join(value for key, value in block.details if key == name and value):
+            setattr(item, field, value)
     if cut:
-        for item in out:
-            item.detail = fm.cut(item.detail, needs_mod.WHY_WORDS)
-    return out
+        item.detail = fm.cut(item.detail, needs_mod.WHY_WORDS)
+    return item
+
+
+def parse_section(body: str, *, cut: bool = True) -> list[Item]:
+    return grammar.parse(body, "Open", lambda block: read(block, cut=cut))
 
 
 def _responses(config: Config) -> list[tuple[date, str, str, str]]:
@@ -193,10 +191,12 @@ def add(config: Config, today: date, text: str, source: str, why: str = "", need
         data, body = fm.read(path) if path.exists() else fm.split(TEMPLATE)
         text = " ".join(text.replace("·", "-").split())
         reference = source if re.fullmatch(r'"[^"\n]+"', source) else f"[[{source}]]"
-        bullet = f"- {today.isoformat()} · {text} · {reference}"
+        head = f"- {today.isoformat()} · {text} · {reference}"
+        bullet = head
         for label, value in (("why", why), ("needs", needs), ("goal", goal or "")):
             if value.strip():
                 bullet += f"\n  - {label}: {' '.join(value.split())}"
+        bullet += f"\n  - id: {_bullet(head).id}"
         span = fm.section(body, "Open")
         if span is None:
             body = body.rstrip("\n") + "\n\n## Open\n\n" + bullet + "\n"
@@ -248,8 +248,7 @@ def _close(config: Config, item: Item, status: str, today: date) -> None:
     if item.origin == "ideas":
         path = config.vault_path / config.agent("Ideas.md")
         data, body = fm.read(path)
-        span = fm.section(body, "Open")
-        body, _ = fm.without(body, span, lambda bullet: bullet.id == item.id, bullet=_bullet, detail=DETAIL)
+        body, _ = grammar.without(body, "Open", read, lambda bullet: bullet.id == item.id)
         fm.write(path, data, body)
         return
     rel, _, anchor = item.source.partition("#")
@@ -267,15 +266,7 @@ def _close(config: Config, item: Item, status: str, today: date) -> None:
 
 
 def _pick(config: Config, which: str, today: date) -> Item:
-    candidates = _open(config, today)
-    chosen = [item for item in candidates if item.id == which]
-    if not chosen:
-        needle = fm.plain(which)
-        chosen = [item for item in candidates if needle and needle in fm.plain(item.text)]
-    if len(chosen) != 1:
-        raise ValueError(("no open idea matches " if not chosen else f"{len(chosen)} open ideas match ")
-                         + repr(which) + "; use an id from `brain ideas --all`")
-    return chosen[0]
+    return grammar.pick(_open(config, today), which, "idea", "brain ideas --all")
 
 
 def withdraw(config: Config, which: str, today: date, because: str) -> Item:

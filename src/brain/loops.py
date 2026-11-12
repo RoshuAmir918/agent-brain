@@ -1,14 +1,12 @@
 """What the agent is holding: promises, owed answers and waits on other people."""
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from . import directory, fm, tasks
+from . import directory, fm, items, tasks
 from .config import Config
 from .identity import is_owner, profile_ids
 from .lock import vault_lock
@@ -34,7 +32,6 @@ What I am holding for you: promises, answers owed and waits on others.
 ## Closed
 
 """
-DETAIL = re.compile(r"^[ \t]+-[ \t]+(with|due|ready|task|closed):[ \t]*(.+?)[ \t]*$")
 STAMP = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}"
 
 
@@ -54,8 +51,7 @@ class Item:
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
-        key = json.dumps([self.kind, fm.plain(self.text)], ensure_ascii=False)
-        self.id = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+        self.id = items.derived(self.kind, fm.plain(self.text))
 
 
 def _clean(text: str) -> str:
@@ -150,36 +146,36 @@ def _bullet(line: str) -> Item | None:
     return Item(match[2], match[3].strip(), match[1], source) if source else None
 
 
-def parse_section(body: str, title: str = "Open") -> list[Item]:
-    span = fm.section(body, title)
-    out = []
-    current = None
-    for line in body[span[0]:span[1]].splitlines() if span else []:
-        detail = DETAIL.match(line)
-        if detail and current is not None:
-            if detail[1] == "with":
-                current.with_ = detail[2]
-            elif detail[1] == "task":
-                current.task = detail[2]
-            elif detail[1] in ("due", "ready"):
+def read(block: items.Block) -> Item | None:
+    current = _bullet(block.line)
+    if current is None:
+        return None
+    for name, value in block.details:
+        if not value:
+            continue
+        if name == "with":
+            current.with_ = value
+        elif name == "task":
+            current.task = value
+        elif name in ("due", "ready"):
+            try:
+                _time(value)
+            except ValueError:
+                continue
+            setattr(current, name, value)
+        elif name == "closed":
+            closed = re.fullmatch(r"(" + STAMP + r") · (done|dropped) · (.+)", value)
+            if closed:
                 try:
-                    _time(detail[2])
+                    _time(closed[1])
                 except ValueError:
                     continue
-                setattr(current, detail[1], detail[2])
-            else:
-                closed = re.fullmatch(r"(" + STAMP + r") · (done|dropped) · (.+)", detail[2])
-                if closed:
-                    try:
-                        _time(closed[1])
-                    except ValueError:
-                        continue
-                    current.closed, current.outcome, current.because = closed.groups()
-        elif not line[:1].isspace():
-            current = _bullet(line)
-            if current:
-                out.append(current)
-    return out
+                current.closed, current.outcome, current.because = closed.groups()
+    return current
+
+
+def parse_section(body: str, title: str = "Open") -> list[Item]:
+    return items.parse(body, title, read)
 
 
 def render(item: Item) -> str:
@@ -189,7 +185,7 @@ def render(item: Item) -> str:
             bullet += f"\n  - {label}: {value}"
     if item.closed:
         bullet += f"\n  - closed: {item.closed} · {item.outcome} · {item.because}"
-    return bullet
+    return bullet + f"\n  - id: {item.id}"
 
 
 def as_dict(item: Item) -> dict:
@@ -250,17 +246,7 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
 
 
 def _pick(config: Config, which: str) -> Item:
-    candidates = open_loops(config)
-    chosen = [item for item in candidates if item.id == which]
-    needle = fm.plain(which)
-    if not chosen:
-        chosen = [item for item in candidates if needle and needle == fm.plain(item.text)]
-    if not chosen:
-        chosen = [item for item in candidates if needle and needle in fm.plain(item.text)]
-    if len(chosen) != 1:
-        raise ValueError(("no open loop matches " if not chosen else f"{len(chosen)} open loops match ")
-                         + repr(which) + "; use an id from `brain loops --json`")
-    return chosen[0]
+    return items.pick(open_loops(config), which, "loop", "brain loops --json")
 
 
 def ready(config: Config, which: str, at: datetime) -> Item:
@@ -271,8 +257,7 @@ def ready(config: Config, which: str, at: datetime) -> Item:
             return item
         path = path_for(config)
         data, body = fm.read(path)
-        body, _ = fm.without(body, fm.section(body, "Open"), lambda loop: loop.id == item.id,
-                                 bullet=_bullet, detail=DETAIL)
+        body, _ = items.without(body, "Open", read, lambda loop: loop.id == item.id)
         item.ready = config.local(at).strftime("%Y-%m-%d %H:%M")
         body = _insert(body, "Open", render(item))
         fm.write(path, data, body)
@@ -289,8 +274,7 @@ def close(config: Config, which: str, at: datetime, outcome: str, because: str) 
         item = _pick(config, which)
         path = path_for(config)
         data, body = fm.read(path)
-        body, _ = fm.without(body, fm.section(body, "Open"), lambda bullet: bullet.id == item.id,
-                                 bullet=_bullet, detail=DETAIL)
+        body, _ = items.without(body, "Open", read, lambda loop: loop.id == item.id)
         item.closed = config.local(at).strftime("%Y-%m-%d %H:%M")
         item.outcome, item.because = outcome, because
         body = _insert(body, "Closed", render(item))

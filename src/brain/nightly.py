@@ -16,7 +16,7 @@ from datetime import date
 from pathlib import Path
 
 from . import activation as act
-from . import attribute, compile_context, consults, fm, image, journal, ledger, needs, reception, triggers, validate
+from . import attribute, compile_context, consults, fm, image, items, journal, ledger, needs, reception, triggers, validate
 from .tasks import Task, bounded_hot_body, is_open, load_tasks, parse_register, task_activation, write_archive
 from .vault import DAILY, Vault
 from .config import Config
@@ -496,6 +496,9 @@ def _after(vault: Vault, today: date, report: list[str]) -> set[str]:
     if stamped := image.stamp(config):
         changed.add(config.human_portrait)
         report.append(f"portrait: {stamped} new line id(s)")
+    if stamped := items.stamp(config):
+        changed |= {"CURRENT.md", config.agent("Loops.md"), config.agent("Ideas.md")}
+        report.append(f"items: {stamped} id(s) stored")
     with vault_lock(config):
         try:
             if (compiled := image.compile(config)) is not None:
