@@ -10,7 +10,7 @@ from . import fm
 from .config import Config
 
 WIKILINK_RE = re.compile(r"\[\[([^\]|#\\]+)(?:#[^\]|\\]*)?(?:\\?\|([^\]]*))?\]\]")   # target, label
-TASK_ID_RE = re.compile(r"\bT-(\d{3})\b")
+TASK_ID_RE = re.compile(r"\bT-(\d{3,})\b")
 TRIGGER_ID_RE = re.compile(r"\bTR-(\d{3})\b")
 DAILY = re.compile(r"Conversations/\d{4}-\d{2}-\d{2}\.md\Z")  # immutable daily conversation archives
 

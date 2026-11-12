@@ -56,7 +56,7 @@ class Item:
 
 def task_of(source: str) -> str | None:
     """The task a source names: the register's `Tasks#T-nnn` anchor or a task's archive note."""
-    match = re.search(r"(?:#|Tasks Archive/)(T-\d{3})(?:\.md)?$", source)
+    match = re.search(r"(?:#|Tasks Archive/)(T-\d{3,})(?:\.md)?$", source)
     return match[1] if match else None
 
 
@@ -248,7 +248,7 @@ def duplicates(item: Item, waiting: list[tuple[str, Item]]) -> str | None:
     the owner sees, since it carries the state."""
     if item.origin != "current" or item.kind != "ask":
         return None
-    named = set(re.findall(r"\bT-\d{3}\b", item.source))
+    named = set(re.findall(r"\bT-\d{3,}\b", item.source))
     return next((tid for tid, task in waiting if tid in named or fm.plain(task.text) == fm.plain(item.text)), None)
 
 
@@ -445,7 +445,7 @@ def settle_tasks(config: Config, today: date, settled: list[tuple[str, str]], be
     def stood_for(item: Item) -> bool:
         if item.kind != "ask":
             return False
-        named = set(re.findall(r"\bT-\d{3}\b", item.source))
+        named = set(re.findall(r"\bT-\d{3,}\b", item.source))
         return any(tid in named or asks.get(tid) == fm.plain(item.text) for tid, _ in settled)
     removed = _prune(config, stood_for)
     for item in removed:

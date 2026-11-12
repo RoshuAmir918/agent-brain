@@ -174,7 +174,7 @@ def fire_triggers(vault: Vault, tasks: list[Task], today: date, report: list[str
     new, rep = triggers.process(body, today, {rel: n.data.get("tier") for rel, n in vault.notes.items()}, vault.config)
     for fired in rep["fired"]:
         if fired.cls == "commitment":
-            ids = set(re.findall(r"\bT-\d{3}\b", fired.source))
+            ids = set(re.findall(r"\bT-\d{3,}\b", fired.source))
             for task in tasks:
                 if task.tid in ids:
                     task.add_use(today.isoformat())
@@ -273,7 +273,7 @@ def process_tasks(config: Config, today: date, tasks: list[Task], archived: list
     if closed:
         month = config.vault_path / config.agent("Tasks Archive") / f"{today.strftime('%Y-%m')}.md"
         with month.open("a", encoding="utf-8") as stream:
-            for t in sorted(closed, key=lambda t: t.tid):
+            for t in sorted(closed, key=lambda t: (len(t.tid), t.tid)):
                 end = re.search(r"^[ \t]*-[ \t]+\*\*(?:Completed|Dropped):\*\*[ \t]*(.+?)[ \t]*$", t.body, re.M)
                 stream.write(f"- **{t.tid} — {t.title}** · {t.task_state}" + (f" {end[1]}" if end else "")
                              + f" · [[{config.link(config.agent('Tasks Archive/' + t.tid))}|entry]]\n")

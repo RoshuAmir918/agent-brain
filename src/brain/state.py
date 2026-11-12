@@ -45,7 +45,7 @@ def _tasks(vault: Vault) -> list[dict]:
         if task is not None and task.tid not in seen:
             seen.add(task.tid)
             archived.append((task, True, path.relative_to(config.vault_path).as_posix() + "#" + task.tid))
-    entries.extend(sorted(archived, key=lambda entry: entry[0].tid))
+    entries.extend(sorted(archived, key=lambda entry: (len(entry[0].tid), entry[0].tid)))
     from . import continuation
     worked, chunks = continuation.last_worked(config), continuation.chunks_today(config)
     limits = continuation.budgets(config, [task for task, *_ in entries if task.handoff and tasks.is_open(task)])

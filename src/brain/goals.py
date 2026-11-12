@@ -364,7 +364,7 @@ def steer(config: Config, gid: str, operation: str, text: str, *, why: str | Non
         text = line("account", text, 2000)
         if any(marker in text for marker in ("<!--", "-->")):
             raise ValueError("account cannot contain HTML comment delimiters")
-        if re.search(r"\b(?:G-\d+|T-\d{3})\b|\[\[|\.md|[/\\]", text, re.I):
+        if re.search(r"\b(?:G-\d+|T-\d{3,})\b|\[\[|\.md|[/\\]", text, re.I):
             raise ValueError("account must be plain text without goal/task ids, wikilinks, .md or paths")
         now = config.local()
         current = account_week if account_week is not None else week(now.date() - timedelta(days=now.hour < 12))

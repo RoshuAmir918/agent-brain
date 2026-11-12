@@ -204,14 +204,12 @@ def test_new_invalid_does_not_write(vault, capsys, args, message):
     assert snapshot(vault) == before
 
 
-def test_new_refuses_exhausted_ids(vault, capsys):
-    # Only a real task uses an id up: a T-999 task heading in the register exhausts them, a mention never does.
+def test_new_continues_past_999(vault, capsys):
     register = vault / Config.load(vault).agent("Tasks.md")
     data, body = fm.read(register)
     fm.write(register, data, body.rstrip("\n") + "\n\n### T-999 — The last one\n<!-- brain: state=ready -->\n- **Status:** x\n")
-    with pytest.raises(SystemExit) as error:
-        cli(vault, capsys, "new", "Title", "--source", "words")
-    assert error.value.code == 1 and "no unused T-nnn" in capsys.readouterr().err
+    cli(vault, capsys, "new", "Title", "--source", "words")
+    assert "### T-1000 — Title" in register.read_text()
 
 
 @pytest.mark.parametrize("command", [("handoff", "T-001"), ("task", "T-001", "done", "--by-owner"),

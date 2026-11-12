@@ -381,7 +381,7 @@ def clear_close_out(config: Config, tid: str) -> None:
 def answered(config: Config, source: str, question: str, because: str, owner_engaged: bool = False,
              by: str | None = None, kind: str = "ask") -> None:
     """Remember a task-sourced answer without treating a worker's discovery as owner engagement. Caller holds the lock."""
-    match = re.search(r"\bT-\d{3}\b", source)
+    match = re.search(r"\bT-\d{3,}\b", source)
     task = tasks.find(config, match[0], archived_closed=True) if match else None
     if task is None:
         return
@@ -493,7 +493,7 @@ def wake(config: Config, reason: str) -> list[tasks.Task]:
 
 def checkpoint(config: Config, tid: str, text: str) -> None:
     """Atomically replace one task's checkpoint, holding the vault lock internally."""
-    if not re.fullmatch(r"T-\d{3}", tid):
+    if not re.fullmatch(r"T-\d{3,}", tid):
         raise ValueError("checkpoint needs a T-nnn task id")
     if runtime.configured() is None:
         raise ValueError("checkpoint needs AGENT_HOME")
@@ -507,7 +507,7 @@ def checkpoint(config: Config, tid: str, text: str) -> None:
 
 
 def _checkpoint(tid: str) -> dict | None:
-    if runtime.configured() is None or not re.fullmatch(r"T-\d{3}", tid):
+    if runtime.configured() is None or not re.fullmatch(r"T-\d{3,}", tid):
         return None
     try:
         row = json.loads((runtime.home() / "records" / "continue" / "tasks" / f"{tid}.json").read_text(encoding="utf-8"))

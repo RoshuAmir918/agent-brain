@@ -5,7 +5,7 @@ import pytest
 from brain import cli, fm, nightly, validate
 from brain.config import Config
 from brain.tasks import (
-    TASK_STATES, Task, archived_open_tasks, is_open, load_tasks, parse_register,
+    TASK_STATES, Task, append_task, archived_open_tasks, is_open, load_tasks, next_id, parse_register,
     parse_state, quiet, read_archived_task, write_archive,
 )
 from brain.vault import Vault
@@ -81,6 +81,16 @@ def test_archived_task_state_and_hub(template_config, state):
     assert list(archived.state.items()) == [("custom", "first"), ("state", state), ("extra", "last")]
     assert [task.tid for task in archived_open_tasks(template_config)] == (
         ["T-023"] if is_open(archived) else [])
+
+
+def test_ids_continue_past_999(template_config):
+    """T-999 was a hard stop; a long-lived intellect passes it, so ids keep counting and the register still reads."""
+    write_archive(template_config, Task("T-999", "Old", "", {"state": "completed"}), "cold", date(2026, 10, 5))
+    assert next_id(template_config) == "T-1000"
+    append_task(template_config, Task("T-1000", "New", "- **After:** T-999\n", {"state": "ready"}))
+    assert next_id(template_config) == "T-1001"
+    task = next(task for task in load_tasks(template_config)[0] if task.tid == "T-1000")
+    assert task.after == "T-999"
 
 
 def test_legacy_archive_metadata_is_unchanged(template_config):
