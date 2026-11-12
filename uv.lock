@@ -4,7 +4,11 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "agent-brain"
+<<<<<<< HEAD
 version = "0.159.0"
+=======
+version = "0.157.0"
+>>>>>>> origin/main
 source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },

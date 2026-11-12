@@ -127,6 +127,18 @@ def test_validate_names_hand_edits_said_only_breaches_shared_ids_and_bad_ranks(c
     assert image.new_facet(config, "Money")["sensitivity"] == "said-only"
 
 
+
+def test_a_history_note_in_the_facet_folder_is_no_facet_and_validate_says_where_it_goes(config, vault):
+    sort_into_facets(config)
+    fm.write(vault / "human/Portrait/History.md", {"kind": "log", "tier": "cold"},
+             "## 2026-11-11 retired\n- Likes city trips · guess · medium · 2026-09-18 · [[S]] ^4a9f\n")
+    assert "History" not in [facet.name for facet in image.facets(config)]
+    assert vault / "human/Portrait/History.md" not in image.notes(config)
+    found = validate.portrait_hygiene(Vault(vault))
+    assert found == ["human/Portrait/History.md: history is not a facet; move its entries to human/History.md"]
+    with pytest.raises(ValueError, match="plain name"), vault_lock(config):
+        image.move(config, "e55a", "History")
+
 def test_the_night_compiles_marks_facets_for_the_owner_and_says_why_when_it_cannot(config, vault):
     move(config, "3f2a", "Places")
     fm.write(vault / "human/Portrait/Places.md", {"kind": "hub", "tier": "warm", "facet": "Places", "rank": 1},
