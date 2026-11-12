@@ -97,6 +97,25 @@ def test_only_live_work_keeps_a_matter_current(vault):
     assert phases == {"Paper": "current", "Inbox": "fading", "Visa": "fading"}
 
 
+def test_a_matter_with_no_now_shows_its_live_task_status(vault):
+    config = Config.load(vault)
+    fm.write(vault / "Paper.md", {"kind": "hub"}, "# Paper\n")
+    fm.write(vault / "Visa.md", {"kind": "hub"}, "# Visa\n" + NOW.replace("2026-11-10", "2026-11-11"))
+    fm.write(vault / "agent/Tasks.md", {}, "# Tasks\n\n" + "".join(Task(tid, title, body, fields).render()
+             for tid, title, body, fields in (
+                 ("T-001", "Draft", "- **Hub:** [[Paper]]\n- **Status:** methods drafted\n"
+                  "- **Latest evidence:** 2026-11-10 [[Draft]]\n", {"state": "in_progress"}),
+                 ("T-002", "Figures", "- **Hub:** [[Paper]]\n- **Status:** figures ready for review\n"
+                  "- **Latest evidence:** 2026-11-11 [[Figures]]\n", {"state": "in_progress"}),
+                 ("T-003", "Old", "- **Hub:** [[Paper]]\n- **Status:** abandoned outline\n"
+                  "- **Latest evidence:** 2026-11-11 [[Old]]\n", {"state": "set_aside"}),
+                 ("T-004", "Forms", "- **Hub:** [[Visa]]\n- **Status:** forms filed\n"
+                  "- **Latest evidence:** 2026-11-11 [[Forms]]\n", {"state": "in_progress"}))))
+    hubs = {hub["title"]: hub for hub in state.build(config, TODAY)["hubs"]}
+    assert hubs["Paper"]["now"] == {"text": "figures ready for review", "date": "2026-11-11"}
+    assert hubs["Visa"]["now"]["text"] == "flights booked; still need a place"
+
+
 def test_a_private_hub_line_is_not_exported(lisbon, vault):
     fm.write(vault / "Secret.md", {"kind": "hub", "tier": "private"}, "# Secret\n")
     fm.write(loops.path_for(lisbon), {}, "## Open\n\n" + loops.render(

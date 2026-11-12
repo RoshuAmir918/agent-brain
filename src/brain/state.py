@@ -141,10 +141,23 @@ def _hubs(vault: Vault, task_entries: list[dict], responsibility_entries: list[d
             kept = matters.state(note.body, today)
             entry["waiting"] = [item["id"] for item in waiting if _belongs(item, source, hub_tasks, hubbed)]
             # A set-aside task, or the owner's work put off for later, is decided for now: it keeps nothing current.
-            live = any(task["open"] and task["state"] != "set_aside" and not task["later"] for task in linked)
-            entry.update(kept, phase=matters.phase(kept, today, bool(entry["waiting"]) or live))
+            live = [task for task in linked if task["open"] and task["state"] != "set_aside" and not task["later"]]
+            if kept["now"] is None:
+                kept["now"] = _task_now(live, today)
+            entry.update(kept, phase=matters.phase(kept, today, bool(entry["waiting"]) or bool(live)))
         out.append(entry)
     return out
+
+
+def _task_now(live: list[dict], today: date) -> dict | None:
+    """The record writes a Now only from conversations, so a matter whose work moves in the background has none: its
+    live task's Status stands in, dated by the task's latest evidence and only while that is fresh."""
+    dated = []
+    for task in live:
+        when = re.match(r"\d{4}-\d{2}-\d{2}", task["evidence"] or "")
+        if task["detail"] and when and today - matters.FRESH <= date.fromisoformat(when[0]) <= today:
+            dated.append((when[0], task["detail"]))
+    return {"text": max(dated)[1], "date": max(dated)[0]} if dated else None
 
 
 def _belongs(item: dict, source: str, hub_tasks: set[str], hubbed: set[str]) -> bool:
