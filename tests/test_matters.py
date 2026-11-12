@@ -1,9 +1,9 @@
 """A matter's kept state, and what the app is given for it."""
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
-from brain import fm, loops, matters, state
+from brain import fm, journal, loops, matters, record, state
 from brain.config import Config
 from brain.tasks import Task
 
@@ -91,3 +91,98 @@ def test_a_private_hub_line_is_not_exported(lisbon, vault):
     built = state.build(lisbon, TODAY)
     assert built["loops"][0]["hub"] == ""
     assert built["loops"][0]["id"] in next(hub for hub in built["hubs"] if hub["title"] == "Lisbon")["waiting"]
+
+
+AT = datetime(2026, 11, 11, 14, 5)
+
+
+@pytest.fixture
+def owner(vault, monkeypatch, tmp_path):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir()
+    fm.write(vault / "Lisbon trip.md", {"kind": "hub", "tier": "warm"}, "# Lisbon trip\n\n## Findings\n- Alfama is hilly.\n")
+    return Config.load(vault)
+
+
+def talk(config, headline, about, at=AT, **fields):
+    journal.append_entry(config, {"headline": headline, "outcome": "progress", "about": about, **fields}, "cli", at)
+
+
+def test_a_named_matter_gets_its_now_and_last_and_owns_what_the_record_opens(owner):
+    talk(owner, "Talked dates with Rohan", [{"name": "lisbon TRIP", "now": "flights booked; still need a place"}],
+         loops=[{"kind": "waiting", "text": "Rohan confirms the dates", "with": "Rohan", "due": None}],
+         needsYou="Want the Alfama flat or the one in Graça?")
+    body = fm.read(owner.vault_path / "Lisbon trip.md")[1]
+    assert body.index("## Now") < body.index("## Findings")
+    assert "- **Now:** flights booked; still need a place · 2026-11-11\n- **Last:** 2026-11-11 · Talked dates with Rohan\n" in body
+    assert loops.open_loops(owner)[0].hub == "Lisbon trip.md"
+    assert "  - hub: Lisbon trip.md" in (owner.vault_path / "CURRENT.md").read_text()
+    talk(owner, "Picked a flat", [{"name": "Lisbon trip", "now": None}], at=datetime(2026, 11, 12, 9, 0))
+    kept = matters.state(fm.read(owner.vault_path / "Lisbon trip.md")[1], date(2026, 11, 12))
+    assert kept["now"]["text"] == "flights booked; still need a place"
+    assert kept["last"] == {"text": "Picked a flat", "date": "2026-11-12"}
+
+
+def test_a_new_name_becomes_a_matter_on_its_second_sighting(owner):
+    talk(owner, "Mentioned the Ohio move", [{"name": "Ohio move", "now": "thinking about it"}])
+    assert not (owner.vault_path / "Ohio move.md").exists()
+    talk(owner, "Ohio move again", [{"name": "Ohio move", "now": "picked Columbus"}], at=datetime(2026, 11, 20, 9, 0))
+    data, body = fm.read(owner.vault_path / "Ohio move.md")
+    assert data == {"kind": "hub", "tier": "warm"}
+    assert "- **Now:** picked Columbus · 2026-11-20" in body
+
+
+def test_a_sighting_a_month_old_does_not_count(owner):
+    talk(owner, "Mentioned a kayak", [{"name": "Kayak", "now": None}], at=datetime(2026, 9, 1, 9, 0))
+    talk(owner, "Mentioned a kayak", [{"name": "Kayak", "now": None}])
+    assert not (owner.vault_path / "Kayak.md").exists()
+
+
+def test_a_first_sighting_that_opens_a_loop_is_a_matter_at_once(owner):
+    talk(owner, "Planned Rohan's visit", [{"name": "Rohan's visit", "now": "he lands Dec 3"}],
+         loops=[{"kind": "promised", "text": "Send Rohan the address", "with": "Rohan", "due": None}])
+    assert (owner.vault_path / "Rohan's visit.md").exists()
+    assert loops.open_loops(owner)[0].hub == "Rohan's visit.md"
+
+
+def test_only_the_owner_writes_matters(owner):
+    journal.append_entry(owner, {"headline": "Kevin talked about Lisbon", "outcome": "progress",
+                                 "about": [{"name": "Lisbon trip", "now": "cancelled"}]}, "demiurge", AT, user_id="k1")
+    assert "## Now" not in fm.read(owner.vault_path / "Lisbon trip.md")[1]
+
+
+def test_a_responsibility_or_unsafe_name_is_never_a_matter(owner):
+    fm.write(owner.vault_path / "Watch.md", {"kind": "hub", "skill": "brain-watch", "records": "receipts"}, "# Watch\n")
+    talk(owner, "Checked the watch", [{"name": "Watch", "now": "fine"}, {"name": "../../etc", "now": None}],
+         needsYou="Want the watch to run hourly?")
+    assert "## Now" not in fm.read(owner.vault_path / "Watch.md")[1]
+    assert not (owner.vault_path / ".." / "etc.md").exists()
+    assert (owner.vault_path / "etc.md").exists()
+
+
+def test_the_record_is_shown_the_matters_by_name(owner):
+    talk(owner, "Talked dates", [{"name": "Lisbon trip", "now": "flights booked"}])
+    assert "Matters in your owner's life; name these exactly in about:\n- Lisbon trip" in record.held(owner)
+
+
+def test_a_first_sighting_with_a_date_is_a_matter_and_keeps_the_sooner_soon(owner):
+    talk(owner, "Heard Theo is visiting", [{"name": "Theo's visit", "now": None, "soon": "2026-12-03 · Theo lands"}])
+    body = fm.read(owner.vault_path / "Theo's visit.md")[1]
+    assert "- **Soon:** 2026-12-03 · Theo lands" in body
+    talk(owner, "Theo's return flight", [{"name": "Theo's visit", "now": None, "soon": "2026-12-07 · Theo flies home"}])
+    talk(owner, "Theo's dinner", [{"name": "Theo's visit", "now": None, "soon": "2026-12-01 · book dinner"}])
+    assert matters.state(fm.read(owner.vault_path / "Theo's visit.md")[1], date(2026, 11, 12))["soon"] == {
+        "text": "book dinner", "date": "2026-12-01"}
+
+
+def test_a_vague_ask_does_not_open_a_matter(owner):
+    talk(owner, "Mentioned the Ohio move", [{"name": "Ohio move", "now": None}], needsYou="Proceed?")
+    assert not (owner.vault_path / "Ohio move.md").exists()
+
+
+def test_a_matter_named_by_its_path_is_found(owner, vault):
+    (vault / "Trips").mkdir()
+    fm.write(vault / "Trips/Lisbon.md", {"kind": "hub"}, "# Lisbon\n")
+    talk(owner, "Talked Lisbon", [{"name": "Trips/Lisbon", "now": "booked"}])
+    assert "**Now:** booked" in fm.read(vault / "Trips/Lisbon.md")[1]
+    assert not (vault / "Trips Lisbon.md").exists()

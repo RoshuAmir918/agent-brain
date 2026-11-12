@@ -258,7 +258,7 @@ def _insert(body: str, title: str, text: str) -> str:
 
 
 def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: str = "", due: str = "",
-        task: str = "", condition: str = "") -> bool:
+        task: str = "", condition: str = "", hub: str = "") -> bool:
     """Open a loop. A `when` loop is what to do once a date comes (`due`) or something happens (`condition`): it needs
     one of them, never goes stale on its own, and is loaded into every session so a message that meets it is seen."""
     if kind not in KINDS:
@@ -287,7 +287,8 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
         data, body = fm.read(path) if path.exists() else fm.split(TEMPLATE)
         if any(fm.plain(item.text) == fm.plain(text) for item in parse_section(body)):
             return False
-        item = Item(kind, text, config.local(at).strftime("%Y-%m-%d %H:%M"), source, with_, due, task=task, if_=condition)
+        item = Item(kind, text, config.local(at).strftime("%Y-%m-%d %H:%M"), source, with_, due, task=task, if_=condition,
+                    hub=hub.strip())
         if (deadline := _deadline(config, item)) is not None:
             item.wake = config.local(deadline).strftime("%Y-%m-%d %H:%M")
         body = _insert(body, "Open", render(item))
