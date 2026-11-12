@@ -379,6 +379,22 @@ def test_due_puts_the_task_worked_least_recently_first(work, capsys):
     assert [t.tid for t in tasks.due([one, two], worked=worked)] == ["T-001", "T-099"]
 
 
+def test_task_new_hands_off_in_the_same_call(vault, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
+    monkeypatch.setenv("DEMIURGE_CONVERSATION", "jn7trip")
+    cli.main(["task", "new", "Plan the Lisbon trip", "--source", "plan my Lisbon trip", "--delivers", "a day-by-day plan",
+              "--work", "trip-plan", "--handoff", "--vault", str(vault)])
+    out = capsys.readouterr().out
+    tid = out.split()[0]
+    assert f"{tid} created: Plan the Lisbon trip" in out and "reported in demiurge:jn7trip" in out
+    task = tasks.find(Config.load(vault), tid, open_only=True)
+    assert task.handoff[1] == "demiurge:jn7trip" and task.task_state == "in_progress" and "- **Work:** trip-plan" in task.body
+    with pytest.raises(SystemExit):
+        cli.main(["task", "new", "Renew passport", "--source", "I need to renew my passport", "--state", "yours",
+                  "--handoff", "--vault", str(vault)])
+    assert "never handed off" in capsys.readouterr().err
+
+
 def test_handoff_with_workers_tells_the_turn_not_to_start(vault, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("AGENT_HOME", str(tmp_path / "agent-home"))
     monkeypatch.setenv("DEMIURGE_WORKERS", "1")
