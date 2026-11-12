@@ -254,6 +254,57 @@ def promote(config: Config, name: str, which: str, evidence: str) -> Line:
         log(config, config.today().isoformat(), "promoted", note.field, line.id, line.claim, evidence)
         return Line(line.id, text, "active")
 
+
+def merge(config: Config, source: str, target: str, day: str) -> tuple[Note, int]:
+    """Fold one field into another, broader one: every line moves with its id and status, struck lines too, unless the
+    target already holds it in the same words; the key words join, the source note goes, and a responsibility that
+    named the source names the target. Returns the target and how many lines moved."""
+    from . import responsibilities
+    from .vault import Vault
+    with vault_lock(config):
+        old, new = find(config, source), find(config, target)
+        if old is None or new is None:
+            raise ValueError(f"no field {source if old is None else target}; see `brain learn fields`")
+        if old.path == new.path:
+            raise ValueError("a field cannot be merged into itself")
+        taken = {line.id for line in new.lines + new.struck}
+        held = {plain(line.claim) for line in new.lines + new.struck}
+        moved: dict[str, list[str]] = {"live": [], "struck": []}
+        for kind, lines in (("live", old.lines), ("struck", old.struck)):
+            for line in lines:
+                if plain(line.claim) in held:
+                    continue
+                ident = line.id if line.id and line.id not in taken else line_id(line.claim, taken)
+                taken.add(ident)
+                held.add(plain(line.claim))
+                moved[kind].append(f"- {line.text} ^{ident}")
+                log(config, day, "moved", new.field, ident, line.claim, f"from {old.field}")
+        data, body = fm.read(new.path)
+        data["applies"] = list(dict.fromkeys([*_strings(data.get("applies")), old.field.casefold(), *old.applies]))
+        data["hubs"] = list(dict.fromkeys([*_strings(data.get("hubs")), *old.hubs]))
+        if fm.section(body, STRUCK) is None:
+            body = body.rstrip("\n") + f"\n\n## {STRUCK}\n"
+        heading = body.rfind(f"## {STRUCK}")
+        before = body[:heading].rstrip("\n")
+        before += "\n\n" if before.rsplit("\n", 1)[-1].startswith("#") else "\n"
+        struck = body[heading:].rstrip("\n")
+        body = (before + "".join(line + "\n" for line in moved["live"]) + "\n" + struck + "\n"
+                + "".join(line + "\n" for line in moved["struck"]))
+        fm.write(new.path, data, body)
+        old.path.unlink()
+        renamed = False
+        for path in (config.vault_path / "Responsibilities").glob("*/RESPONSIBILITY.md"):
+            meta, text = fm.read(path)
+            names = meta.get("learned")
+            if isinstance(names, list) and any(isinstance(n, str) and n.casefold() == old.field.casefold() for n in names):
+                meta["learned"] = list(dict.fromkeys(new.field if isinstance(n, str) and n.casefold() == old.field.casefold()
+                                                     else n for n in names))
+                fm.write(path, meta, text)
+                renamed = True
+        if renamed:
+            responsibilities.sync(Vault(config.vault_path), locked=True)
+        return read(new.path), len(moved["live"]) + len(moved["struck"])
+
 def index(config: Config) -> list[str]:
     """One line per field: its name, how many lines it holds, and its first rule."""
     out = []
