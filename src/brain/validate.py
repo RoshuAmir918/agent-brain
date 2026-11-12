@@ -5,6 +5,7 @@ import json
 import re
 from datetime import date, datetime, timedelta
 from importlib.resources import files
+from pathlib import PurePosixPath
 
 from . import access, fm, owners, roles, responsibilities as responsibility_ids, works
 from .identity import profile_ids, profiles
@@ -186,7 +187,9 @@ def portrait_hygiene(vault: Vault) -> list[str]:
     prefix = image.folder(config).relative_to(config.vault_path).as_posix() + "/"
     owners: dict[str, str] = {}
     for facet_rel, facet in sorted(vault.notes.items()):
-        if facet_rel.startswith(prefix) and "/" not in facet_rel[len(prefix):] and facet.data.get("overview"):
+        if facet_rel == prefix + image.HISTORY:
+            found.append(f"{facet_rel}: history is not a facet; move its entries to {PurePosixPath(rel).with_name(image.HISTORY)}")
+        elif facet_rel.startswith(prefix) and "/" not in facet_rel[len(prefix):] and facet.data.get("overview"):
             words = len(portrait.sketch(facet.body).split())
             if words > image.OVERVIEW_WORDS:
                 found.append(f"{facet_rel} · Sketch: {words} words; keep the whole picture under {image.OVERVIEW_WORDS}")

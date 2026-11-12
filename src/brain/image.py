@@ -39,6 +39,9 @@ class Facet:
     sketch: str = ""   # its prose picture of this area, which its lines bear out
 
 
+HISTORY = "History.md"   # beside the portrait, never in its folder; one there is not a facet, and validate names it
+
+
 def folder(config: Config) -> Path:
     """The facets live beside the portrait, in a folder of its name."""
     return portrait_path(config).with_suffix("")
@@ -48,6 +51,8 @@ def facets(config: Config) -> list[Facet]:
     """The facet notes, most central first, each with its lines."""
     out = []
     for path in sorted(folder(config).glob("*.md")) if folder(config).is_dir() else []:
+        if path.name == HISTORY:
+            continue
         try:
             data, body = fm.read(path)
         except fm.Malformed:
@@ -195,7 +200,7 @@ def facet_hygiene(data: dict, body: str, today: date, where: str, company: bool 
 
 def notes(config: Config) -> list[Path]:
     """Every note that holds lines of its own: the facets, and the portrait until it is compiled from them."""
-    paths = sorted(folder(config).glob("*.md")) if folder(config).is_dir() else []
+    paths = [p for p in sorted(folder(config).glob("*.md")) if p.name != HISTORY] if folder(config).is_dir() else []
     path = portrait_path(config)
     try:
         if path.is_file() and not fm.read(path)[0].get("compiled"):
@@ -224,7 +229,7 @@ def stamp_notes(config: Config) -> int:
             found.append((path, *fm.read(path)))
         except fm.Malformed:
             continue   # validate names it
-    history = portrait_path(config).with_name("History.md")
+    history = portrait_path(config).with_name(HISTORY)
     taken = set(ID.findall(history.read_text(encoding="utf-8"))) if history.is_file() else set()
     for _, _, body in found:
         taken |= set(ID.findall(body))
@@ -275,7 +280,7 @@ def move(config: Config, ident: str, name: str) -> Line:
     """Move a line, with its details and id, into the named facet, created when missing. This is how the portrait is
     first sorted into facets, and how a line finds a better one. The caller holds the vault lock."""
     ident, name = ident.lstrip("^"), " ".join(name.split())
-    if not name or "/" in name or name.startswith("."):
+    if not name or "/" in name or name.startswith(".") or f"{name}.md".lower() == HISTORY.lower():
         raise ValueError(f"facet name {name!r}; a plain name such as Music")
     source = holder(config, ident)
     if source is None:
@@ -329,7 +334,7 @@ def mark(config: Config, ident: str, verdict: str, words: str, today: date) -> L
         return line
     removed = "".join(raw[start:end]).rstrip("\n")
     del raw[start:end]
-    history = portrait_path(config).with_name("History.md")
+    history = portrait_path(config).with_name(HISTORY)
     hdata, hbody = fm.read(history) if history.is_file() else ({"kind": "log", "tier": "cold"}, "# History\n")
     said = f" · their words: {words}" if words else ""
     hbody = hbody.rstrip("\n") + f"\n- {today.isoformat()} · portrait line marked {verdict} by the owner{said}\n" + \
@@ -447,7 +452,7 @@ def due(config: Config, home: Path | None = None) -> list[dict]:
 def facet_path(config: Config, name: str) -> Path:
     """Where a facet's note is, in any letter case, or where a new one goes."""
     name = " ".join(name.split())
-    if not name or "/" in name or name.startswith("."):
+    if not name or "/" in name or name.startswith(".") or f"{name}.md".lower() == HISTORY.lower():
         raise ValueError(f"facet name {name!r}; a plain name such as Music")
     root, name = folder(config), named(name)
     return next((p for p in root.glob("*.md") if p.stem.lower() == name.lower()), root / f"{name}.md") \

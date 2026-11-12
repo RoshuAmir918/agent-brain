@@ -36,6 +36,8 @@ DETAIL = re.compile(r"^[ \t]+- (?P<key>[a-z]+):[ \t]*(?P<value>.*?)[ \t]*$")
 
 ID = re.compile(r"\^([0-9a-f]{4})\b")
 
+SEEDED = re.compile(r"\bSeeds/(\d{4}-\d{2}-\d{2}) ")   # a Seeds note is named for the day it was read
+
 AFTER_ONLY = ("for", "horizon", "goal")   # goal: the person's G-n this line reflects, from `brain goals`
 
 
@@ -169,7 +171,8 @@ def hygiene(body: str, today: date, where: str, company: bool = False, cap: int 
             out.append(f"{at}: no horizon line; one of {', '.join(HORIZONS)}")
         if company and line.section == "After" and not line.for_:
             out.append(f"{at}: no for line; say where you can help the company get there")
-        if line.basis == "guess" and line.evidence < floor:
+        # A seed reads a year of mail at once, so a guess it wrote waits thirty days from the seed, not from its evidence.
+        if line.basis == "guess" and max([line.evidence, *SEEDED.findall(line.source)]) < floor:
             out.append(f"{at}: a guess with no evidence since {line.evidence}; retire it to History.md")
     return out
 
