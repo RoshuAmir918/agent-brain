@@ -123,15 +123,15 @@ def test_close_refused_until_owner_settles_dependency(config, capsys, action, wa
     assert not [item for item in needs.items(config, config.today()) if item.kind == "ask" and item.task == "T-001"]
 
 
-def test_parent_stays_blocked_until_all_yours_children_close(config):
+def test_owner_work_for_one_task_is_one_list(config):
     first = tasks.new_task(config, "First owner step", "asked", state="yours", from_task="T-001")
-    second = tasks.new_task(config, "Second owner step", "asked", state="yours", from_task="T-001")
-    tasks.close(config, second.tid, config.today(), True, "did the second", by_owner=True)
-    assert tasks.find(config, "T-001").task_state == "blocked"
-    assert first.tid in fm.field(tasks.find(config, "T-001").body, "Blocker")
-    tasks.close(config, first.tid, config.today(), True, "did the first", by_owner=True)
+    before = snapshot(config.vault_path)
+    with pytest.raises(ValueError, match=f"T-001 already waits on .* for {first.tid}.*brain task {first.tid} set --next"):
+        tasks.new_task(config, "Second owner step", "asked", state="yours", from_task="T-001")
+    assert snapshot(config.vault_path) == before
+    tasks.close(config, first.tid, config.today(), True, "did both steps", by_owner=True)
     assert tasks.find(config, "T-001").task_state == "in_progress"
-    tasks.close(config, "T-001", config.today(), True, "relayed both")
+    tasks.new_task(config, "Next owner step", "asked", state="yours", from_task="T-001")
 
 
 @pytest.mark.parametrize("computed", [False, True])

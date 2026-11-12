@@ -435,16 +435,16 @@ def cmd_loops(args):
                 raise ValueError("--add needs --kind K and --source NOTE")
             if args.due is True:
                 raise ValueError("--add --due needs a date")
-            added = loops.add(config, now, args.kind, args.add, args.source, args.with_ or "", args.due or "")
+            added = loops.add(config, now, args.kind, args.add, args.source, args.with_ or "", args.due or "", args.task or "")
             print(f"{'added' if added else 'already open'} loop: {args.add}")
             return
-        if args.kind or args.source is not None or args.with_ is not None or isinstance(args.due, str):
-            raise ValueError("--kind, --source, --with and --due DATE go with --add")
+        if args.kind or args.source is not None or args.with_ is not None or isinstance(args.due, str) or args.task:
+            raise ValueError("--kind, --source, --with, --task and --due DATE go with --add")
         if args.close is not None:
             if not args.outcome or not args.because:
                 raise ValueError("--close needs --outcome done|dropped and --because TEXT")
             item = loops.close(config, args.close, now, args.outcome, args.because)
-            print(f"closed ({item.outcome}): {item.text}")
+            print(f"closed ({item.outcome}): {item.text}" + (f"; the answer is on {item.task}, which resumes if it was blocked on it" if item.outcome == "done" and item.task else ""))
             return
         if args.outcome or args.because is not None:
             raise ValueError("--outcome and --because go with --close")
@@ -1992,6 +1992,7 @@ def main(argv=None):
     s.add_argument("--stale", action="store_true", help=f"only loops due {loops.STALE_DAYS} days or more ago, for the evening")
     s.add_argument("--kind", choices=loops.KINDS); s.add_argument("--source", metavar="NOTE")
     s.add_argument("--with", dest="with_", metavar="WHO"); s.add_argument("--outcome", choices=loops.OUTCOMES)
+    s.add_argument("--task", metavar="T-nnn", help="with --add --kind waiting: the task the answer is for; closing the loop done resumes it")
     s.add_argument("--because", metavar="TEXT"); s.set_defaults(fn=cmd_loops)
     s = sub.add_parser("owners", help="the area's ownership hints", parents=[vault])
     s.add_argument("--json", action="store_true"); s.set_defaults(fn=cmd_owners)

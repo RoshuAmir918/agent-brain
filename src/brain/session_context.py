@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
-from . import access, channels as registry, directory, retrieve
+from . import access, channels as registry, directory, fm, retrieve
 from .compile_context import DATE
 from .config import Config
 from .identity import matching_agents, matching_profiles, role
@@ -92,11 +92,35 @@ def intellect_context(vault: Vault, config: Config, agent: Note, identity: str) 
         blocks.append(f"Its owner's access could not be resolved ({why}): tell it nothing about {config.human_name} "
                       f"beyond what anyone may learn, and ask {config.human_name} to confirm who owns it.")
     blocks.append(relay_rule(config))
+    if waiting := waiting_on(config, agent.rel, name):
+        blocks.append(waiting)
     if len(owner_profiles) == 1:
         blocks.append(shared_work(vault, config, agent.rel, name, owner_profiles[0].rel))
     blocks.append(tellable_block(vault, config, owner_profiles[0].rel if len(owner_profiles) == 1 else None,
                                  owner if len(owner_profiles) == 1 else "anyone"))
     return "\n\n".join(blocks)
+
+
+def waiting_on(config: Config, agent: str, name: str) -> str:
+    """This agent's own blocked tasks that wait on this intellect, so an answer it brings resumes the task here rather
+    than being forwarded to the owner (Nameless, 2026-11-11: Orphan's answers were relayed to Arslan at 14:09 and T-059
+    stayed blocked until he asked what was going on). Never told to the intellect; disclosure does not gate it."""
+    from . import loops, tasks
+    named = re.compile(r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", re.I)
+    profile = agent.removesuffix(".md")
+    linked = {loop.task for loop in loops.open_loops(config) if loop.task and named.search(loop.with_)}
+    rows = [f"- {task.tid} — {task.title} (blocker: {fm.field(task.body, 'Blocker') or 'none recorded'})"
+            for task in tasks.all_tasks(config)
+            if tasks.is_open(task) and (task.tid in linked or task.task_state == "blocked"
+                                        and (named.search(task.body) or profile in task.body))]
+    if not rows:
+        return ""
+    return (f"Your tasks waiting on {name}:\n" + "\n".join(rows) + "\n"
+            f"When what {name} says answers one of them, put the answer on the task in this turn and resume it: "
+            f"`brain task T-nnn set --state in_progress --next \"<what the answer lets you do now>\" --evidence \"<date> — "
+            f"{name}: <the answer>\"`, and close its waiting loop if one is open. Its worker picks it up within a minute. "
+            f"Tell {config.human_name} only what changes for them: an answer the task was waiting for is the worker's to "
+            f"act on, not news to forward.")
 
 
 def shared_work(vault: Vault, config: Config, agent: str, name: str, owner: str) -> str:

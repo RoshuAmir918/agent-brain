@@ -499,6 +499,15 @@ def new_task(config: Config, title: str, source: str, *, state: str = "ready",
         raise ValueError("--later with new needs --state yours")
     if later and parent is not None and block_parent and is_open(parent):
         raise ValueError(f"{parent.tid} would wait on this, so it is needed now; create it without --later")
+    if state == "yours" and parent is not None and block_parent and is_open(parent):
+        # Owner work for one task is one list: Arslan was asked for Cloudflare steps one round trip at a time (T-043,
+        # 2026-11-09). A second open child would also leave the parent blocked on only one of them.
+        waiting = next((t for t in all_tasks(config) if is_open(t) and t.task_state == "yours" and t.from_task == parent.tid
+                        and not t.later), None)
+        if waiting is not None:
+            raise ValueError(f"{parent.tid} already waits on {config.human_name} for {waiting.tid} ({waiting.title}); add this "
+                             f"step to it instead, so they get one list: brain task {waiting.tid} set --next \"<every step "
+                             f"they need to do, numbered, with where to do each>\"")
     here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
     report = single_line("report", report if report is not None else f"demiurge:{here}" if here else "")
     from .goals import active, guard, is_routine

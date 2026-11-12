@@ -5,13 +5,14 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from . import directory, fm
+from . import directory, fm, tasks
 from .config import Config
 from .identity import is_owner, profile_ids
 from .lock import vault_lock
+from .vault import TASK_ID_RE
 
 KINDS = ("promised", "owed", "waiting")
 OUTCOMES = ("done", "dropped")
@@ -33,7 +34,7 @@ What I am holding for you: promises, answers owed and waits on others.
 ## Closed
 
 """
-DETAIL = re.compile(r"^[ \t]+-[ \t]+(with|due|ready|closed):[ \t]*(.+?)[ \t]*$")
+DETAIL = re.compile(r"^[ \t]+-[ \t]+(with|due|ready|task|closed):[ \t]*(.+?)[ \t]*$")
 STAMP = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}"
 
 
@@ -49,6 +50,7 @@ class Item:
     outcome: str = ""
     because: str = ""
     ready: str = ""
+    task: str = ""
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -157,6 +159,8 @@ def parse_section(body: str, title: str = "Open") -> list[Item]:
         if detail and current is not None:
             if detail[1] == "with":
                 current.with_ = detail[2]
+            elif detail[1] == "task":
+                current.task = detail[2]
             elif detail[1] in ("due", "ready"):
                 try:
                     _time(detail[2])
@@ -180,7 +184,7 @@ def parse_section(body: str, title: str = "Open") -> list[Item]:
 
 def render(item: Item) -> str:
     bullet = f"- {item.since} · {item.kind} · {item.text} · [[{item.source}]]"
-    for label, value in (("with", item.with_), ("due", item.due), ("ready", item.ready)):
+    for label, value in (("with", item.with_), ("due", item.due), ("ready", item.ready), ("task", item.task)):
         if value:
             bullet += f"\n  - {label}: {value}"
     if item.closed:
@@ -190,7 +194,7 @@ def render(item: Item) -> str:
 
 def as_dict(item: Item) -> dict:
     out = {"id": item.id, "kind": item.kind, "text": item.text, "with": item.with_, "due": item.due,
-           "since": item.since, "source": item.source, "ready": item.ready}
+           "since": item.since, "source": item.source, "ready": item.ready, "task": item.task}
     if item.closed:
         out.update(closed=item.closed, outcome=item.outcome, because=item.because)
     return out
@@ -214,7 +218,8 @@ def _insert(body: str, title: str, text: str) -> str:
     return body[:span[1]].rstrip("\n") + "\n\n" + text + "\n\n" + body[span[1]:]
 
 
-def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: str = "", due: str = "") -> bool:
+def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: str = "", due: str = "",
+        task: str = "") -> bool:
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}")
     text, source = _clean(text), source.strip()
@@ -227,12 +232,17 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
         _time(due)
     with_ = _clean(with_)
     _counterpart(config, kind, with_)
+    task = task.strip()
+    if task and kind != "waiting":
+        raise ValueError("--task goes with a waiting loop: the answer it waits for resumes that task")
     with vault_lock(config):
+        if task and tasks.find(config, task, open_only=True) is None:
+            raise ValueError(f"{task} is not an open task")
         path = path_for(config)
         data, body = fm.read(path) if path.exists() else fm.split(TEMPLATE)
         if any(fm.plain(item.text) == fm.plain(text) for item in parse_section(body)):
             return False
-        item = Item(kind, text, config.local(at).strftime("%Y-%m-%d %H:%M"), source, with_, due)
+        item = Item(kind, text, config.local(at).strftime("%Y-%m-%d %H:%M"), source, with_, due, task=task)
         body = _insert(body, "Open", render(item))
         path.parent.mkdir(parents=True, exist_ok=True)
         fm.write(path, data, body)
@@ -297,7 +307,26 @@ def close(config: Config, which: str, at: datetime, outcome: str, because: str) 
             kept = "\n\n".join(render(old) for old in closed[-CLOSED_KEEP:])
             body = body[:span[0]] + "\n\n" + kept + "\n\n" + body[span[1]:]
         fm.write(path, data, body)
+        if outcome == "done" and item.task:
+            _wake(config, item, config.local(at).date())
         return item
+
+
+def _wake(config: Config, item: Item, today: date) -> None:
+    """The answer a task was blocked on is in: the task goes back to its worker instead of waiting for someone to notice
+    (Nameless, 2026-11-11: Orphan's answers reached it at 14:09 and the task sat blocked until Arslan asked at 15:52).
+    Its Blocker stays as the last evidence, as when a child closes; a task blocked on its owner's own work (a yours
+    child) or waiting on them stays where it is."""
+    task = tasks.find(config, item.task, open_only=True)
+    if task is None:
+        return
+    note = {"evidence": f"{today} — {item.with_ or 'the answer'} answered: {item.text}"}
+    blocker = fm.field(task.body, "Blocker") or ""
+    child = TASK_ID_RE.match(blocker)
+    if task.task_state == "blocked" and not (child and tasks.find(config, child[0], open_only=True)):
+        tasks.set_fields(config, task.tid, today, state="in_progress", values=note, clear=["resume"] if task.resume else [])
+    else:
+        tasks.set_fields(config, task.tid, today, values=note)
 
 
 def _deadline(config: Config, item: Item) -> datetime:
