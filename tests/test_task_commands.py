@@ -481,3 +481,17 @@ def test_worker_new_task_is_not_handed_off_by_default(vault, capsys, monkeypatch
     monkeypatch.setenv("BRAIN_SPEAKER", "cli:owner")
     cli(vault, capsys, "new", "A follow-up", "--source", "T-001")
     assert next(task for task in entry(Config.load(vault)) if task.title == "A follow-up").handoff is None
+
+
+@pytest.mark.parametrize("args", [(), ("show",)])
+def test_a_bare_task_id_prints_the_task_and_writes_nothing(vault, capsys, args):
+    task = entry(Config.load(vault))[0]
+    before = snapshot(vault)
+    assert cli(vault, capsys, task.tid, *args) == task.render().strip()
+    assert snapshot(vault) == before
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "T-9999")
+    assert "T-9999 is not a task" in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "new")
+    assert "task new needs a title" in capsys.readouterr().err

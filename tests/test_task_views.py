@@ -125,3 +125,12 @@ def test_the_owners_own_words_are_exported_when_the_source_quotes_them(vault, ca
     tid = capsys.readouterr().out.split()[0]
     exported = next(t for t in state._tasks(Vault(config.vault_path)) if t["id"] == tid)
     assert exported["said"] == "Rohan in Home, Nov 5: Yes add ledger to my library"
+
+
+@pytest.mark.parametrize("argv", [["task", "T-001", "view", "--help"], ["works", "view", "--help"]])
+def test_view_help_prints_the_kit(argv, capsys):
+    try:
+        cli.main(argv)
+    except SystemExit as stop:
+        assert not stop.code
+    assert views.KIT in capsys.readouterr().out
