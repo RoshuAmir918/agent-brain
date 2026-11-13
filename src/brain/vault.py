@@ -154,6 +154,8 @@ class Vault:
         """Resolve a wikilink target to a vault-relative path, or None."""
         t = target.strip()
         t = t.removeprefix(self.config.vault + "/")
+        if any(len(part.encode()) > 250 for part in t.split("/")):   # a quoted source is no path; stat raises ENAMETOOLONG
+            return None
         for cand in (t, t + ".md"):
             if cand in self._paths or (self.root / cand).is_file():   # skill files are skipped as notes but are valid link targets
                 return cand

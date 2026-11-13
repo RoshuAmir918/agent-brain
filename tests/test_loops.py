@@ -585,3 +585,9 @@ def test_a_when_heard_in_conversation_becomes_a_when_loop(config):
     journal.append_entry(config, record, "cli", AT)
     [loop] = loops.open_loops(config)   # a when with neither a date nor a condition is skipped, not guessed
     assert (loop.kind, loop.text, loop.if_) == ("when", "Tell Mira the venue", "Kevin confirms the venue")
+
+
+def test_state_reads_a_loop_whose_source_quotes_the_owner_at_length(config):
+    quote = "Sam, 2026-10-28: " + "when a rental site needs my login, tell me which one and what to do " * 5
+    loops.add(config, AT, "when", "Tell Sam which rental site needs a login", quote, condition="a site needs Sam's login")
+    assert [row["text"] for row in state.build(config, AT.date())["loops"]] == ["Tell Sam which rental site needs a login"]
