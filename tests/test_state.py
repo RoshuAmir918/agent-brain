@@ -383,15 +383,33 @@ def test_prepared_lists_held_unasked_drafts_with_their_offer(vault):
          "- 2026-10-28 09:00 · 999999 · draft · Packing · pending · [[agent/Prepared/Packing list]]\n")
     assert state.build(config, TODAY)["prepared"] == [
         {"id": "cccccc", "title": "Lease summary", "source": "agent/Prepared/Lease summary.md", "created": "2026-10-28",
-         "goal": None, "for": "the move", "outcome": "delivered", "hub": "Trips/Lisbon.md"},
+         "what": None, "why": {"kind": "reason", "text": "the move"}, "goal": None, "for": "the move", "outcome": "delivered", "hub": "Trips/Lisbon.md"},
         {"id": "bbbbbb", "title": "Renal deck", "source": "agent/Prepared/2026-10-27 Renal deck.md",
-         "created": "2026-10-27", "goal": "G-1", "for": None, "outcome": "opened", "hub": None},  # a responsibility is no matter
+         "created": "2026-10-27", "what": None, "why": None, "goal": "G-1", "for": None, "outcome": "opened", "hub": None},  # a responsibility is no matter
         {"id": "999999", "title": "Packing list", "source": "agent/Prepared/Packing list.md", "created": "2026-10-26",
-         "goal": None, "for": None, "outcome": "pending", "hub": "Trips/Lisbon.md"},  # named by its own hub: line
+         "what": None, "why": None, "goal": None, "for": None, "outcome": "pending", "hub": "Trips/Lisbon.md"},  # named by its own hub: line
     ]
     reception.set_outcome(config, "agent/Prepared/2026-10-27 Renal deck", "used")
     assert [draft["id"] for draft in state.build(config, TODAY)["prepared"]] == ["cccccc", "999999"]
 
+
+def test_a_prepared_draft_says_what_it_is(vault):
+    config = Config.load(vault)
+    note(vault, "agent/Prepared/2026-10-27 Meeting brief.md", kind="draft", index_line="Held background for the Nov 19 meeting", **{"for": "2026-11-19"})
+    note(vault, "agent/Reception/2026-10.md", reception.HEADER + "- 2026-10-28 09:00 · aaaaaa · draft · Brief · pending · [[agent/Prepared/2026-10-27 Meeting brief]]\n")
+    [draft] = state.build(config, TODAY)["prepared"]
+    assert (draft["title"], draft["what"], draft["why"]) == ("Meeting brief", "Background for the Nov 19 meeting", {"kind": "date", "text": "2026-11-19"})
+
+
+def test_why_a_draft_was_made_is_told_in_the_owners_terms():
+    named, open_loops = {"G-1": "Pass Step 1"}, [{"id": "L-001", "text": "Book the Lisbon return fare"}]
+    why = lambda goal=None, reason=None: state._why(goal, reason, named, open_loops)
+    assert why("G-1", "2026-11-19") == {"kind": "goal", "text": "Pass Step 1"}
+    assert why("G-9") is None
+    assert why(reason='Payton, November 12 at 11:32: "we mean the housing connect" — demiurge-113127-x') == {"kind": "words", "text": "we mean the housing connect"}
+    assert why(reason="loop:L-001") == {"kind": "loop", "text": "Book the Lisbon return fare"}
+    assert why(reason="loop:L-404") is None
+    assert why(reason="the move") == {"kind": "reason", "text": "the move"}
 
 
 def test_task_ask_and_why_are_exported_from_the_open_linked_ask(vault):
