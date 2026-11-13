@@ -461,7 +461,7 @@ def review(config: Config, tid: str, verdict: str, reason: str, *, ask: str | No
             if verdict == "circling":
                 tasks.set_fields(config, tid, config.today(),
                                  state="waiting_for_owner" if row.get("circling") else None,
-                                 values={"ask": ask})
+                                 values={"ask": ask, "why": reason})
                 count = _count(row, now.date().isoformat())
                 row["budget_cap"] = {"date": now.date().isoformat(), "limit": count + max(0, limit - count) // 2}
             elif verdict == "stuck":

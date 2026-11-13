@@ -215,7 +215,7 @@ def test_a_handoff_or_set_aside_settles_the_asks_a_waiting_task_stood_for(vault,
     current = add_ask(vault, "- 2026-11-05 · ask · Which venue? · [[agent/Tasks#T-001]]")
     tasks.hand_off(config, "T-001", TODAY, "Home")
     assert "Which venue?" not in fm.read(current)[1]
-    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner", values={"ask": "Want me to book the 7pm table?"})
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner", values={"ask": "Want me to book the 7pm table?", "why": "Your choice decides how this work continues."})
     add_ask(vault, "- 2026-11-05 · ask · Which date? · [[agent/Tasks#T-001]]")
     tasks.set_aside(config, "T-001", TODAY, "dismissed by the owner in their app")
     assert "Which date?" not in fm.read(current)[1]
@@ -223,7 +223,7 @@ def test_a_handoff_or_set_aside_settles_the_asks_a_waiting_task_stood_for(vault,
 
 
 def test_a_waiting_task_keeps_its_ask(vault, capsys):
-    cli(vault, capsys, "T-001", "set", "--state", "waiting_for_owner", "--ask", "Want me to book the 7pm table?")
+    cli(vault, capsys, "T-001", "set", "--state", "waiting_for_owner", "--ask", "Want me to book the 7pm table?", "--why", "Your choice decides how this work continues.")
     with pytest.raises(SystemExit):
         cli(vault, capsys, "T-001", "set", "--clear", "ask")
     assert "needs the question" in capsys.readouterr().err

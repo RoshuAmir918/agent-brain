@@ -337,8 +337,13 @@ def ask_library(config: Config, today: date, report: list[str], records_path: Pa
         # CURRENT is a real vault note; the Library anchor identifies the work without creating a broken link.
         source = f"CURRENT#Library/{work.slug}"
         if source not in existing:
-            text = f"Still want {work.title} in your Library? I can keep it, keep it updated, or put it away."
-            journal.add_ask(config, today, text, source, distinct_source=True)
+            text = f"Still want {work.title} in your Library?"
+            why = "You haven't opened this draft in a week. I can keep it, keep it updated, or put it away."
+            try:
+                journal.add_ask(config, today, text, source, why, distinct_source=True)
+            except ValueError as error:
+                report.append(f"library: skipped ask for {work.slug}: {error}")
+                continue
             report.append(f"needs-you: Library ask: {work.slug}")
             changed = True
         # Recover an interruption after CURRENT was saved but before its record was written.

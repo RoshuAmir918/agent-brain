@@ -97,7 +97,7 @@ def test_archived_waiting_task_and_register_precedence(vault):
     write_archive(config, shadowed, "cold", TODAY)
     closed = Task("T-003", "Closed archive", "Completed.\n", {"state": "completed"})
     write_archive(config, closed, "cold", TODAY)
-    tasks.set_fields(config, "T-002", TODAY, values={"ask": "Resume the archived work?"})
+    tasks.set_fields(config, "T-002", TODAY, values={"ask": "Resume the archived work?", "why": "Your choice decides how this work continues."})
     result = needs.items(config, TODAY)
     assert [(item.text, item.since, item.source) for item in result] == [
         ("Resume the archived work?", TODAY.isoformat(), "agent/Tasks#T-002")]
@@ -111,7 +111,7 @@ def test_warm_waiting_task_uses_recovered_body(vault):
     path = vault / "agent/Tasks.md"
     data, body = fm.read(path)
     fm.write(path, data, body + "\n" + task.render_line(config))
-    tasks.set_fields(config, "T-002", TODAY, values={"ask": "Resume the warm work?"})
+    tasks.set_fields(config, "T-002", TODAY, values={"ask": "Resume the warm work?", "why": "Your choice decides how this work continues."})
     item, = needs.items(config, TODAY)
     assert item.since == TODAY.isoformat()
     assert item.source == "agent/Tasks#T-002"
@@ -183,11 +183,11 @@ def test_order_is_ranked_asks_then_confirms_with_ties_in_written_order(vault):
                  + improvement("October 26 — " + name + " older", "proposed"))
     config = Config.load(vault)
     for task in tasks.all_tasks(config):
-        tasks.set_fields(config, task.tid, TODAY, values={"ask": task.title})
+        tasks.set_fields(config, task.tid, TODAY, values={"ask": task.title.replace("T-", "edition "), "why": "Your choice decides how this work continues."})
     # Ranked: what blocks work (tasks waiting on the owner) first, then asks newest first, ties in written order;
     # confirms last.
     assert [item.text for item in needs.items(Config.load(vault), TODAY)] == [
-        "Register first", "Register second", "Archive T-003", "Archive T-005",
+        "Register first", "Register second", "Archive edition 003", "Archive edition 005",
         "Current first.", "Current second.",
         "Confirm first.", "Confirm second."]
 
@@ -219,7 +219,7 @@ def test_configured_task_and_archive_paths(vault):
     fm.write(path, data, body + "\n" + task.render())
     write_archive(config, Task("T-003", "Archived wait", "", {"state": "waiting_for_owner"}), "cold", TODAY)
     for tid in ("T-002", "T-003"):
-        tasks.set_fields(config, tid, TODAY, values={"ask": "Resume this work?"})
+        tasks.set_fields(config, tid, TODAY, values={"ask": "Resume this work?", "why": "Your choice decides how this work continues."})
     assert [item.source for item in needs.items(config, TODAY)] == [
         "Orphan/Tasks#T-002", "Orphan/Tasks#T-003"]
 
@@ -325,7 +325,7 @@ def test_cli_text_and_json(vault, capsys):
     write_current(vault, "- 2026-10-28 · confirm · Went ahead.\n"
                   "- 2026-10-28 · ask · Owner decision. · [[Trip]]\n")
     write_tasks(vault, Task("T-002", "Waiting task", "", {"state": "waiting_for_owner"}))
-    tasks.set_fields(Config.load(vault), "T-002", TODAY, values={"ask": "Resume the waiting task?"})
+    tasks.set_fields(Config.load(vault), "T-002", TODAY, values={"ask": "Resume the waiting task?", "why": "Your choice decides how this work continues."})
     fm.write(vault / "Topic.md", {}, "## Improvements\n" + improvement("October 26 — Better practice", "proposed"))
     before = snapshot(vault.parent)
     cli.main(["needs-you", "--vault", str(vault)])
@@ -353,9 +353,52 @@ def test_improvement_status_accepts_the_field_and_the_inline_form(entry, status)
 
 def test_cli_ask_adds_once_with_its_source(vault, capsys):
     for _ in range(2):
-        cli.main(["needs-you", "--vault", str(vault), "--ask", "Still renew the lease?", "--source", "agent/Tasks#T-004"])
+        cli.main(["needs-you", "--vault", str(vault), "--ask", "Still renew the lease?", "--source", "agent/Tasks#T-004", "--why", "Your choice decides how this work continues."])
     asks = [item for item in needs.parse_section(fm.read(vault / "CURRENT.md")[1]) if item.kind == "ask"]
     assert [(item.text, item.source) for item in asks] == [("Still renew the lease?", "agent/Tasks#T-004")]
+
+
+@pytest.mark.parametrize("command", [["needs-you"], ["task", "T-001", "set", "--state", "waiting_for_owner"]])
+@pytest.mark.parametrize("why", [[], ["--why", "   "]])
+def test_new_asks_require_why_without_writing(vault, capsys, command, why):
+    before = snapshot(vault)
+    with pytest.raises(SystemExit):
+        cli.main([*command, "--vault", str(vault), "--ask", "Book the hotel for Mira's visit?", *why])
+    assert "--why" in capsys.readouterr().err
+    assert snapshot(vault) == before
+
+
+@pytest.mark.parametrize("values", [
+    {"ask": "Book the other hotel?"},
+    {"ask": "Review T-1?", "why": "Yes books it; no leaves it open."},
+    {"why": "Read agent/Tasks.md."},
+    {"ask": "word " * 26, "why": "Yes books it; no leaves it open."},
+])
+def test_invalid_task_question_keeps_the_task_and_current_unchanged(vault, values):
+    config = Config.load(vault)
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner",
+                     values={"ask": "Book the hotel?", "why": "Yes books it; no leaves it open."})
+    before = snapshot(vault)
+    with pytest.raises(ValueError):
+        tasks.set_fields(config, "T-001", TODAY, values=values)
+    assert snapshot(vault) == before
+
+
+@pytest.mark.parametrize("source", [[], ["--source", "agent/Tasks#T-001"]])
+def test_repeating_a_legacy_ask_without_why_is_ignored(vault, source):
+    write_current(vault, "- 2026-10-28 · ask · Review T-1? · [[agent/Tasks#T-001]]\n")
+    before = snapshot(vault)
+    cli.main(["needs-you", "--vault", str(vault), "--ask", "Review T-1?", *source])
+    assert snapshot(vault) == before
+
+
+def test_repeating_a_task_ask_without_why_keeps_the_original(vault):
+    config = Config.load(vault)
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner",
+                     values={"ask": "Book the hotel?", "why": "Yes books it; no leaves it open."})
+    current = (vault / "CURRENT.md").read_bytes()
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner", values={"ask": "Book the hotel?"})
+    assert (vault / "CURRENT.md").read_bytes() == current
 
 
 def test_cli_stale_tasks(vault, capsys):
@@ -368,7 +411,7 @@ def test_cli_stale_tasks(vault, capsys):
 
 def test_cli_ask_is_not_suppressed_by_a_confirm_with_the_same_words(vault):
     write_current(vault, "- 2026-10-28 · confirm · Renew the lease.\n")
-    cli.main(["needs-you", "--vault", str(vault), "--ask", "Renew the lease."])
+    cli.main(["needs-you", "--vault", str(vault), "--ask", "Renew the lease.", "--why", "Your choice decides how this work continues."])
     assert [item.kind for item in needs.parse_section(fm.read(vault / "CURRENT.md")[1])] == ["confirm", "ask"]
 
 
@@ -398,7 +441,7 @@ def test_a_sixth_ask_is_added_and_the_lowest_ranked_overflow_goes_to_the_evening
     write_current(vault, "".join(f"- 2026-10-2{n} · ask · Question {n}.\n" for n in range(5))
                   + "- 2026-10-27 · confirm · Did a thing.\n")
     cli.main(["needs-you", "--vault", str(vault), "--ask", "Question 1."])   # a repeat is not a new ask
-    cli.main(["needs-you", "--vault", str(vault), "--ask", "Renew the registration by November 1?"])
+    cli.main(["needs-you", "--vault", str(vault), "--ask", "Renew the registration by November 1?", "--why", "Your choice decides how this work continues."])
     assert "now holds 6 asks; tonight's evening decides the lowest-ranked down to 5" in capsys.readouterr().err
     body = fm.read(vault / "CURRENT.md")[1]
     assert "Renew the registration" in body and body.count("· ask ·") == 6
@@ -426,7 +469,7 @@ def test_a_newer_ask_for_a_task_replaces_its_older_one_and_items_name_the_task(v
                   "- 2026-10-26 · ask · Reconnect Supabase? · [[agent/Tasks#T-003]]\n"
                   "- 2026-10-26 · ask · Book the dinner?\n")
     config = Config.load(vault)
-    journal.add_ask(config, TODAY, "What would done look like for the apartment site?", "agent/Tasks#T-004")
+    journal.add_ask(config, TODAY, "What would done look like for the apartment site?", "agent/Tasks#T-004", why="The booking needs your choice; yes reserves it, no leaves it open.")
     body = fm.read(vault / "CURRENT.md")[1]
     assert "More listings" not in body and "What would done look like" in body
     assert "Reconnect Supabase?" in body and "Book the dinner?" in body
@@ -507,7 +550,7 @@ def test_dismiss_no_sets_the_task_aside_and_the_item_never_returns(vault, capsys
 def test_dismiss_done_completes_a_waiting_task(vault, capsys, monkeypatch):
     monkeypatch.setenv("BRAIN_TODAY", "2026-11-03")
     write_tasks(vault, Task("T-012", "Renew registration", "- **Status:** waiting on Roshan\n", {"state": "waiting_for_owner"}))
-    tasks.set_fields(Config.load(vault), "T-012", TODAY, values={"ask": "Renew the registration?"})
+    tasks.set_fields(Config.load(vault), "T-012", TODAY, values={"ask": "Renew the registration?", "why": "Your choice decides how this work continues."})
     item, = needs.items(Config.load(vault), date(2026, 11, 3))
     cli.main(["needs-you", "--vault", str(vault), "--dismiss", item.id, "--reason", "done"])
     task, = [t for t in load_tasks(Config.load(vault))[0] if t.tid == "T-012"]
@@ -528,7 +571,8 @@ def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(va
     monkeypatch.setenv("BRAIN_TODAY", "2026-10-28")
     cli.main(["needs-you", "--vault", str(vault), "--ask", "Book the Saturday dinner for Mira's visit?",
                   "--why", "Two places have tables at 7; I'll book the one you pick, or neither."])
-    cli.main(["needs-you", "--vault", str(vault), "--ask", "Keep the refundable fare?"])
+    data, body = fm.read(vault / "CURRENT.md")
+    fm.write(vault / "CURRENT.md", data, body + "- 2026-10-28 · ask · Keep the refundable fare?\n")
     write_tasks(vault, Task("T-030", "Connect Roshan's Google accounts",
                             "- **Status:** the Gmail link is ready\n- **Blocker:** T-030 step 3 needs an account pick\n",
                             {"state": "waiting_for_owner"}),
@@ -541,7 +585,7 @@ def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(va
              "- **Gap:** Each morning I reread every thread, even ones that have not changed.\n"
              "- **Change:** Only reread threads with a new message since yesterday.\n"
              "- **Ask:** Want me to only reread the mail threads that changed?\n"
-             "- **Why:** " + "Mornings come faster. " * 20 + "\n"
+             "- **Why:** " + "Mornings come faster. " * 21 + "\n"
              "- **Status:** proposed\n\n")
     found = {item.text: item for item in needs.items(Config.load(vault), TODAY)}
     dinner = found["Book the Saturday dinner for Mira's visit?"]
@@ -554,12 +598,12 @@ def test_items_carry_the_question_why_it_needs_the_owner_and_what_it_is_about(va
     idea, = ideas.items(Config.load(vault), TODAY)
     assert idea.text not in found
     assert idea.context == "Correspondence"
-    assert idea.detail == ("Mornings come faster. " * 20).strip()
+    assert idea.detail == ("Mornings come faster. " * 21).strip()
     from brain import validate
     from brain.vault import Vault
     assert validate.owner_questions(Vault(vault)) == [
         "T-031: waiting_for_owner has no linked open ask in CURRENT's Needs you",
-        "Correspondence.md · October 27 — Recheck changed correspondence, not every old letter: Why line is 60 words; at most 40"]
+        "Correspondence.md · October 27 — Recheck changed correspondence, not every old letter: Why line is 63 words; at most 60"]
 
 
 def test_replacing_a_task_ask_takes_its_why_and_keeps_only_the_new_question(vault):
@@ -645,7 +689,7 @@ def test_explicit_task_detail_wins_and_resolving_resumes_its_waiting_task(vault,
     tasks.hand_off(config, "T-001", TODAY, "demiurge:original")
     tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner",
                      values={"ask": "Use the smaller venue?", "blocker": "Waiting for the venue decision",
-                             "resume": "computer"})
+                             "resume": "computer", "why": "Your choice decides how this work continues."})
     current = vault / "CURRENT.md"
     data, body = fm.read(current)
     fm.write(current, data, body.replace("[[agent/Tasks#T-001]]", f"[[{source}]]"))
@@ -666,7 +710,7 @@ def test_explicit_task_detail_wins_and_resolving_resumes_its_waiting_task(vault,
 @pytest.mark.parametrize("reason,expected", [("no", "set_aside"), ("stop-asking", "set_aside"), ("done", "completed")])
 def test_dismiss_a_question_linked_by_task_detail(vault, reason, expected):
     config = Config.load(vault)
-    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner", values={"ask": "Use the smaller venue?"})
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner", values={"ask": "Use the smaller venue?", "why": "Your choice decides how this work continues."})
     current = vault / "CURRENT.md"
     data, body = fm.read(current)
     fm.write(current, data, body.replace("[[agent/Tasks#T-001]]", "[[Trip]]"))
@@ -679,7 +723,7 @@ def test_dismiss_a_question_linked_by_task_detail(vault, reason, expected):
 @pytest.mark.parametrize("route", ["set", "handoff", "aside", "owner-close"])
 def test_leaving_waiting_settles_questions_linked_only_by_task_detail(vault, route):
     config = Config.load(vault)
-    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner", values={"ask": "Use the smaller venue?"})
+    tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner", values={"ask": "Use the smaller venue?", "why": "Your choice decides how this work continues."})
     current = vault / "CURRENT.md"
     data, body = fm.read(current)
     fm.write(current, data, body.replace("[[agent/Tasks#T-001]]", "[[Trip]]"))
@@ -697,11 +741,11 @@ def test_leaving_waiting_settles_questions_linked_only_by_task_detail(vault, rou
 
 def test_the_same_question_can_belong_to_two_tasks_and_an_unlinked_ask(vault):
     config = Config.load(vault)
-    journal.add_ask(config, TODAY, "Use the smaller venue?", "Trip")
+    journal.add_ask(config, TODAY, "Use the smaller venue?", "Trip", why="The booking needs your choice; yes reserves it, no leaves it open.")
     second = tasks.new_task(config, "Other booking", "the owner asked")
     for tid in ("T-001", second.tid):
-        tasks.set_fields(config, tid, TODAY, values={"ask": "Use the smaller venue?"})
-        tasks.set_fields(config, tid, TODAY, values={"ask": "Use the smaller venue?"})
+        tasks.set_fields(config, tid, TODAY, values={"ask": "Use the smaller venue?", "why": "Your choice decides how this work continues."})
+        tasks.set_fields(config, tid, TODAY, values={"ask": "Use the smaller venue?", "why": "Your choice decides how this work continues."})
     assert {item.task for item in needs.items(config, TODAY)} == {"", "T-001", second.tid}
     assert len(needs.items(config, TODAY)) == 3
 
@@ -711,11 +755,11 @@ def test_waiting_task_validation_reads_linked_question_caps_and_engine_text(vaul
     write_tasks(vault, Task("T-030", "Waiting", "- **Ask:** A stale task question?\n", {"state": "waiting_for_owner"}))
     assert validate.owner_questions(Vault(vault)) == [
         "T-030: waiting_for_owner has no linked open ask in CURRENT's Needs you"]
-    write_current(vault, "- 2026-10-28 · ask · Run brain task to choose " + "word " * 12 + "\n"
-                  "  - task: T-030\n  - why: Read details.md " + "word " * 40 + "\n")
+    write_current(vault, "- 2026-10-28 · ask · Run brain task to choose " + "word " * 21 + "\n"
+                  "  - task: T-030\n  - why: Read details.md " + "word " * 59 + "\n")
     problems = validate.owner_questions(Vault(vault))
-    assert any("Ask line is 17 words" in problem for problem in problems)
-    assert any("Why line is 42 words" in problem for problem in problems)
+    assert any("Ask line is 26 words" in problem for problem in problems)
+    assert any("Why line is 61 words" in problem for problem in problems)
     problems = validate.owner_facing_tasks(Vault(vault))
     assert any("its Ask" in problem for problem in problems)
     assert any("its Why" in problem for problem in problems)

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
 
-from . import activation as act, fm, works
+from . import activation as act, fm, items, works
 from .config import DAILY_CHUNKS, Config
 from .vault import TASK_ID_RE, Vault
 
@@ -320,7 +320,11 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
     from . import needs
     question = needs.task_ask(config, tid)
     ask = values.get("ask", question.text if question else None) if "ask" not in clear else None
-    why = values.get("why", question.detail if question else "") if "why" not in clear else ""
+    why = values.get("why", question.detail if question and "ask" not in values else "") if "why" not in clear else ""
+    repeated = (question is not None and ask == question.text and "why" not in clear
+                and ("why" not in values or why == question.detail))
+    if repeated:
+        why = question.detail
     question_fields = question is not None or "ask" in values or "ask" in clear
     said_missed = False
     if said is not None:
@@ -363,6 +367,8 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
     if (task.task_state == "waiting_for_owner" and not ask
             and (previous.task_state != "waiting_for_owner" or question)):
         raise ValueError("waiting_for_owner needs the question: --ask \"…\" --why \"…\"")
+    if ask and not repeated and ("ask" in values or question and "why" in set(values) | set(clear)):
+        items.validate_owner_item(ask, why, kind="ask")
     save_task(config, task, today, previous)
     if previous.task_state == "waiting_for_owner" and task.task_state != "waiting_for_owner":
         return task
@@ -372,7 +378,6 @@ def set_fields(config: Config, tid: str, today: date, *, state: str | None = Non
     elif question and "ask" in clear:
         needs.settle_tasks(config, today, [(tid, previous.body)], "the task's question was cleared")
     elif question and ("why" in values or "why" in clear):
-        from . import items
         path = config.vault_path / "CURRENT.md"
         data, body = fm.read(path)
         fm.write(path, data, items.set_details(body, "Needs you", needs.read, question.id, {"why": why}))

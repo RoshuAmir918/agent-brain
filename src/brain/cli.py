@@ -386,13 +386,21 @@ def cmd_needs_you(args):
         raise SystemExit("brain needs-you: --because goes with --resolve")
     if args.confirm:
         with vault_lock(args.config):
-            journal.add_ask(args.config, args.config.today(), args.confirm, args.source, why=args.why or "", kind="confirm")
+            try:
+                journal.add_ask(args.config, args.config.today(), args.confirm, args.source, why=args.why or "", kind="confirm")
+            except ValueError as error:
+                print(error, file=sys.stderr)
+                sys.exit(1)
         return
     if args.ask:
         with vault_lock(args.config):
             here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
-            journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "",
-                            session=f"demiurge:{here}" if here else "", hub=args.hub or "")
+            try:
+                journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "",
+                                session=f"demiurge:{here}" if here else "", hub=args.hub or "")
+            except ValueError as error:
+                print(error, file=sys.stderr)
+                sys.exit(1)
         count = len(needs.open_asks((args.config.vault_path / "CURRENT.md").read_bytes().decode("utf-8")))
         if count > needs.OPEN_ASKS:
             print(f"Needs you now holds {count} asks; tonight's evening decides the lowest-ranked down to {needs.OPEN_ASKS}.",
@@ -2094,7 +2102,7 @@ def main(argv=None):
     s = sub.add_parser("needs-you", parents=[vault])
     mode = s.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true")
-    mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you (a repeat of an open ask is ignored; never refused)")
+    mode.add_argument("--ask", metavar="TEXT", help="add an ask to CURRENT's Needs you; requires --why (repeats ignored; refuses internal ids, wikilinks, paths, brain commands or text over 25 words / why over 60)")
     mode.add_argument("--confirm", metavar="TEXT", help="record what you went ahead with, for the person to correct")
     mode.add_argument("--stale", action="store_true", help=f"asks unanswered for {needs.STALE_DAYS} days or more, for the evening to decide or retire")
     mode.add_argument("--overflow", action="store_true", help="asks past the five shown, lowest-ranked first, for the evening to decide tonight")

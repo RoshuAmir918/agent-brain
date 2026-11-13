@@ -48,13 +48,14 @@ def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
              else "2026-12-01" if name == "due"
              else "new value")
     if name == "why":
-        tasks.set_fields(config, "T-001", TODAY, values={"ask": "Use the new value?"})
+        tasks.set_fields(config, "T-001", TODAY, values={"ask": "Use the new value?", "why": "Your choice decides how this work continues."})
     if name == "goal":
         goals.new(config, "Reading", "Read widely", from_app=True)
     if name == "after":
         tasks.write_archive(config, tasks.Task("T-000", "Earlier", "", {"state": "completed"}), "cold", TODAY)
-    out = cli(vault, capsys, "T-001", "set", "--" + name, value)
-    assert out == f"T-001 updated: {name}"
+    extra = ["--why", "Your choice decides how this work continues."] if name == "ask" else []
+    out = cli(vault, capsys, "T-001", "set", "--" + name, value, *extra)
+    assert out == f"T-001 updated: {name}" + (", why" if name == "ask" else "")
     task, = entry(config)
     expected = "[[Topics/Project]]" if name == "hub" else value
     label = "morning" if name == "morning" else tasks.LABELS.get(name, name.title())   # morning notes keep their lowercase convention
@@ -77,6 +78,12 @@ def test_set_each_field_and_clear_full_block(location, vault, capsys, name):
         assert expected in tasks.archive_path(config, "T-001").read_text()
     if where == "warm" and name == "status":
         assert "Status: new value" in fm.read(vault / config.agent("Tasks.md"))[1]
+    if name == "why":
+        with pytest.raises(SystemExit):
+            cli(vault, capsys, "T-001", "set", "--clear", name)
+        assert "--why" in capsys.readouterr().err
+        assert needs.task_ask(config, "T-001").detail == value
+        return
     assert cli(vault, capsys, "T-001", "set", "--clear", name) == f"T-001 updated: cleared {name}"
     assert f"**{name.title()}:**" not in entry(config)[0].body
     if name == "resume":
@@ -104,7 +111,7 @@ def test_multiline_duplicates_and_multiple_clear_preserve_other_fields(vault, ca
 ], indirect=["location"])
 def test_set_open_state(location, vault, capsys, state, normal):
     config, where = location
-    extra = ["--ask", "Use the new value?"] if normal == "waiting_for_owner" else []
+    extra = ["--ask", "Use the new value?", "--why", "Your choice decides how this work continues."] if normal == "waiting_for_owner" else []
     cli(vault, capsys, "T-001", "set", "--state", state, *extra)
     assert entry(config)[0].task_state == normal
     assert "status" not in entry(config)[0].state
@@ -134,10 +141,10 @@ def test_invalid_set_does_not_write(vault, capsys, args, message):
 def test_text_whose_dollar_amount_the_shell_expanded_is_refused(vault, capsys):
     before = snapshot(vault)
     with pytest.raises(SystemExit):
-        cli(vault, capsys, "T-001", "set", "--ask", "12 months at ,450 or month-to-month at ,900?")
+        cli(vault, capsys, "T-001", "set", "--ask", "12 months at ,450 or month-to-month at ,900?", "--why", "Your choice decides how this work continues.")
     assert "single quotes" in capsys.readouterr().err
     assert snapshot(vault) == before
-    assert "updated: ask" in cli(vault, capsys, "T-001", "set", "--ask", "12 months at $3,450, or 1,200 a month?")
+    assert "updated: ask" in cli(vault, capsys, "T-001", "set", "--ask", "12 months at $3,450, or 1,200 a month?", "--why", "Your choice decides how this work continues.")
 
 
 @pytest.mark.parametrize("flag", ["--title", "--reviewed"])
@@ -430,8 +437,10 @@ def test_set_ask_stores_the_question_in_current_with_task_and_report(location, v
     changed, = needs.items(config, TODAY)
     assert changed.id == question.id and changed.text == question.text
     assert changed.detail == "The owner gets the latest result."
-    cli(vault, capsys, "T-001", "set", "--clear", "why")
-    assert needs.task_ask(config, "T-001").detail == ""
+    with pytest.raises(SystemExit):
+        cli(vault, capsys, "T-001", "set", "--clear", "why")
+    assert "--why" in capsys.readouterr().err
+    assert needs.task_ask(config, "T-001").detail == "The owner gets the latest result."
     cli(vault, capsys, "T-001", "set", "--ask", "Use the second value?", "--why", "It is newer.")
     latest, = needs.items(config, TODAY)
     assert latest.task == "T-001" and latest.text == "Use the second value?"
@@ -440,7 +449,7 @@ def test_set_ask_stores_the_question_in_current_with_task_and_report(location, v
 
 def test_a_linked_open_ask_satisfies_entering_waiting_for_owner(vault):
     config = Config.load(vault)
-    tasks.set_fields(config, "T-001", TODAY, values={"ask": "Use the new value?"})
+    tasks.set_fields(config, "T-001", TODAY, values={"ask": "Use the new value?", "why": "Your choice decides how this work continues."})
     tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner")
     assert tasks.find(config, "T-001").task_state == "waiting_for_owner"
     assert needs.task_ask(config, "T-001").text == "Use the new value?"

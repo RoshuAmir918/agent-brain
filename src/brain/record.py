@@ -13,12 +13,15 @@ RECORD_SCHEMA = {
         "outcome": {"enum": list(OUTCOMES)},
         "touched": {"type": ["array", "null"], "items": {"type": "string"}},
         "needsYou": {"type": ["string", "null"], "maxLength": 160},
+        "needsYouWhy": {"type": ["string", "null"], "description": "What led to the question and what each answer does; recommend a choice. At most 60 words."},
         "next": {"type": ["string", "null"], "maxLength": 120},
         "loops": {"type": "array", "maxItems": 5, "items": {
             "type": "object", "required": ["kind", "text", "with", "due", "if"], "additionalProperties": False,
             "properties": {"kind": {"enum": ["promised", "owed", "waiting", "when"]},
-                           "text": {"type": "string", "maxLength": 160},
+                           "text": {"type": "string", "maxLength": 160,
+                                    "description": "Owner-visible Holding: what you will do for whom, in their words; at most 25 words, no standing rules."},
                            "with": {"type": ["string", "null"]}, "due": {"type": ["string", "null"]},
+                           "task": {"type": ["string", "null"], "description": "The task a waiting loop resumes, or null."},
                            "if": {"type": ["string", "null"], "maxLength": 160}}}},
         "closed": {"type": "array", "maxItems": 5, "items": {
             "type": "object", "required": ["loop", "outcome", "why"], "additionalProperties": False,
@@ -53,10 +56,15 @@ CONVERSATION = (
     "- outcome: done (finished), progress (moved forward), waiting (on someone), blocked, failed, or nothing "
     "(nothing worth a line: small talk, a test, a question answered in passing).\n"
     "- touched: exact titles of vault notes you worked on, if any.\n"
-    "- needsYou: a decision only your owner can make, phrased as a question, or null. Not a status update.\n"
+    "- needsYou: a decision only your owner can make, or null; one short question naming its subject in their words, "
+    "understood without the conversation. needsYouWhy is required with it: what led to it, what each answer does, "
+    "and your recommendation when there is a choice; at most 60 words. No internal ids, wikilinks, vault paths or "
+    "brain commands in either field.\n"
     "- next: your next step, or null.\n"
     "- loops: each new thing you promised someone, an answer or relay you now owe someone, or something you now wait "
-    "on from someone. One plain line each, under 160 characters. `with` is the person or intellect by name, someone "
+    "on from someone. `text` is owner-visible Holding: what you will do for whom in their words, at most 25 words "
+    "and under 160 characters; no internal ids, wikilinks, vault paths, brain commands or standing rules. "
+    "The condition goes in `if`, the task in `task`, the person in `with`: someone "
     "who asked you or whom you asked; your owner only for a promise to them (what you wait on from your owner is needsYou, not a loop) and never "
     "a role, a team or a system. `due` is any date or deadline that was named, always, including an expiry or a "
     "\"proceeds unless declined by\" date (YYYY-MM-DD or YYYY-MM-DD HH:MM); it is what wakes you in time. A `when` "

@@ -125,10 +125,11 @@ def test_an_ask_raised_in_a_conversation_names_it(worker, capsys, monkeypatch):
     config, _ = worker
     at = datetime(2026, 11, 6, 12, 30)
     journal.append_entry(config, {"outcome": "done", "headline": "Planned dinner.",
-                                  "needsYou": "Want me to book the 7pm table for Friday?"},
+                                  "needsYou": "Want me to book the 7pm table for Friday?",
+                                  "needsYouWhy": "It is the last table available; yes books it, no leaves Friday open."},
                          "demiurge", at, session="conv123")
     monkeypatch.setenv("DEMIURGE_CONVERSATION", "conv456")
-    cli(config, capsys, "needs-you", "--ask", "Should I renew the gym membership this month?")
+    cli(config, capsys, "needs-you", "--ask", "Should I renew the gym membership this month?", "--why", "Your choice decides how this work continues.")
     assert "  - session: demiurge:conv123" in (config.vault_path / "CURRENT.md").read_text()
     items = {item["text"]: item for item in json.loads(cli(config, capsys, "needs-you", "--json").out)}
     assert items["Want me to book the 7pm table for Friday?"]["session"] == "demiurge:conv123"

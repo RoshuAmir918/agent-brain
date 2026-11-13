@@ -15,8 +15,28 @@ from .lock import vault_lock
 
 DETAIL = re.compile(r"^[ \t]+-[ \t]+([a-z][a-z-]*):[ \t]*(.*?)[ \t]*$")
 ID = re.compile(r"[0-9a-f]{12}")
+TEXT_WORDS = 25
+DETAIL_WORDS = 60
 
 T = TypeVar("T")
+
+
+def validate_owner_item(text: str, detail: str = "", *, kind: str) -> None:
+    if kind == "ask" and not detail.strip():
+        raise ValueError("give --why TEXT: what led to the question and what each answer does; recommend a choice")
+    for label, value, cap in ((f"{kind} text", text, TEXT_WORDS),
+                              (f"{kind} --why/detail", detail, DETAIL_WORDS)):
+        if re.search(r"\b(?:TR|T|G)-\d+\b", value):
+            raise ValueError(f"{label} contains an internal id; name the subject in the owner's words")
+        if "[[" in value:
+            raise ValueError(f"{label} contains a wikilink; use plain words and put the reference in --source")
+        # Vault folders are capitalised (People/Mira); lowercase "either/or" or "pick-up/drop-off" is prose.
+        if re.search(r"\.md\b|(?<!\S)(?:\.{1,2}|~)?/[\w.-]|[\w.-]+/[\w.-]+/[\w.-]|[\w.-]/[^\W\d_a-z]", value):
+            raise ValueError(f"{label} contains a vault path; use plain words and put the reference in --source")
+        if re.search(r"\bbrain\s+", value, re.I):
+            raise ValueError(f"{label} contains a brain command; say what happens for the owner")
+        if len(value.split()) > cap:
+            raise ValueError(f"{label} is {len(value.split())} words; shorten it to at most {cap}")
 
 
 def derived(*parts: str) -> str:

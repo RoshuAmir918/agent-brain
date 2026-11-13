@@ -70,7 +70,7 @@ def test_nightly_library_ask_eligibility_and_exact_text(vault, library_home, row
     if eligible:
         assert len(items) == 1
         item = items[0]
-        assert item.text == "Still want Trip plan in your Library? I can keep it, keep it updated, or put it away."
+        assert item.text == "Still want Trip plan in your Library?"
         assert (item.kind, item.since, item.source, item.task) == ("ask", DAY.isoformat(), "CURRENT#Library/trip-plan", "")
         assert json.loads(record.read_text()) == {"trip-plan": DAY.isoformat()}
         assert "needs-you: Library ask: trip-plan" in report
@@ -135,7 +135,7 @@ def test_library_asks_use_full_listing_and_distinguish_same_titles(vault, librar
 def test_library_ask_recovers_existing_source_after_interruption(vault, library_home):
     write_library(library_home, draft_row())
     config = Config.load(vault)
-    journal.add_ask(config, DAY - timedelta(days=1), "An older title's Library question?", "CURRENT#Library/trip-plan")
+    journal.add_ask(config, DAY - timedelta(days=1), "An older title's Library question?", "CURRENT#Library/trip-plan", why="The booking needs your choice; yes reserves it, no leaves it open.")
     nightly.run(vault, DAY)
     items = needs.items(config, DAY)
     assert len(items) == 1 and items[0].text == "An older title's Library question?"

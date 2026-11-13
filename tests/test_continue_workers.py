@@ -202,7 +202,7 @@ def test_combined_daily_keeps_existing_gates(worker, capsys, monkeypatch, gate):
     if gate in ("completed", "cancelled"):
         tasks.close(config, "T-001", config.today(), gate == "completed", "The task is settled")
     elif gate in ("waiting_for_owner", "yours", "set_aside", "blocked"):
-        tasks.set_fields(config, "T-001", config.today(), state=gate, values={"ask": "Which notes should I finish?"})
+        tasks.set_fields(config, "T-001", config.today(), state=gate, values={"ask": "Which notes should I finish?", "why": "Your choice decides how this work continues."})
     elif gate in ("computer", "resume"):
         resume = "computer" if gate == "computer" else config.today().isoformat() + " 14:00"
         tasks.set_fields(config, "T-001", config.today(), values={"resume": resume})
@@ -292,7 +292,7 @@ def test_one_task_says_whether_it_is_worked_and_why_not(worker, capsys, monkeypa
     tasks.set_fields(config, "T-001", config.today(), values={"resume": "2026-11-05 14:00"})
     assert status() == "Resting until 2026-11-05 14:00"
     tasks.set_fields(config, "T-001", config.today(), state="waiting_for_owner",
-                     values={"ask": "Which notes first?"}, clear=["resume"])
+                     values={"ask": "Which notes first?", "why": "Your choice decides how this work continues."}, clear=["resume"])
     assert status() == "Waiting on the owner: Which notes first?"
     tasks.set_fields(config, "T-001", config.today(), state="in_progress")
     tasks.set_pace(config, "T-001", "daily", config.today())

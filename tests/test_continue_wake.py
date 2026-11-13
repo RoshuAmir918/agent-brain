@@ -108,7 +108,7 @@ def test_wake_output_empty_exit_and_ignores_dates_and_closed_tasks(resting, caps
 def test_wake_keeps_other_resting_states(resting, capsys, task_state):
     config, _ = resting
     tasks.set_fields(config, "T-001", config.today(), state=task_state,
-                     values={"ask": "Should the deck go on your laptop?"})
+                     values={"ask": "Should the deck go on your laptop?", "why": "Your choice decides how this work continues."})
     cli(config, capsys, "--wake", "computer")
     assert current(config).resume is None and current(config).task_state == task_state
     assert json.loads(cli(config, capsys, "--due", "--json")) == []

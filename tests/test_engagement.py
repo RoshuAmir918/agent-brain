@@ -64,6 +64,6 @@ def test_continue_engaged_and_due_json_carry_the_budget(setup, capsys):
 
 @pytest.mark.parametrize("text", ["Do you approve the proposed action?", "Approve the plan?", "Should I proceed?", "OK?"])
 def test_asks_are_kept_without_judging_the_wording(vault, capsys, text):
-    cli.main(["needs-you", "--ask", text, "--vault", str(vault)])
+    cli.main(["needs-you", "--ask", text, "--vault", str(vault), "--why", "Your choice decides how this work continues."])
     assert needs.items(Config.load(vault), AT.date())[0].text == text
     assert capsys.readouterr().err == ""

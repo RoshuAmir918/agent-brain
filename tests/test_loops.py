@@ -353,6 +353,7 @@ def test_record_skips_one_refused_loop_and_applies_the_rest(known_config, capsys
     config = known_config
     loops.add(config, AT, "promised", "Book rooms", "Trip")
     record = {"headline": "Follow-up recorded", "outcome": "progress", "needsYou": "Which date?",
+              "needsYouWhy": "The hotel needs a date before I can reserve it; without one it stays unbooked.",
               "loops": [{"kind": "promised", "text": "Check fares"}, bad,
                         {"kind": "owed", "text": "Send options", "with": "Kev", "due": "2026-10-29 09:30"}],
               "closed": [{"loop": "Book rooms", "outcome": "dropped", "why": "Trip cancelled"}]}
@@ -380,10 +381,10 @@ def test_state_keys_ten_recent_closures_and_source_privacy(config):
     for index in range(12):
         loops.add(config, AT, "owed", f"Answer {index}", "Trip", "Kevin")
         loops.close(config, f"Answer {index}", AT + timedelta(minutes=index), "done", "Delivered")
-    for source in ("people/Pat/Profile", "human/Profile", "Secret", "../elsewhere"):
-        loops.add(config, AT, "owed", f"Held for {source}", source, "Kevin")
-        loops.add(config, AT, "owed", f"Closed for {source}", source, "Kevin")
-        loops.close(config, f"Closed for {source}", AT + timedelta(days=1), "dropped", "No need")
+    for index, source in enumerate(("people/Pat/Profile", "human/Profile", "Secret", "../elsewhere")):
+        loops.add(config, AT, "owed", f"Held answer {index}", source, "Kevin")
+        loops.add(config, AT, "owed", f"Closed answer {index}", source, "Kevin")
+        loops.close(config, f"Closed answer {index}", AT + timedelta(days=1), "dropped", "No need")
     fm.write(config.vault_path / "Secret.md", {"kind": "hub", "tier": "private"}, "# Secret\n")
     result = state.build(config, AT.date())
     assert result["loops"] == [{**loops.as_dict(public), "source": "Trip.md"}]
@@ -438,7 +439,7 @@ def test_ready_preserves_noncanonical_details_and_other_sections(config):
 
 @pytest.mark.parametrize("by_id", [True, False])
 def test_record_resolves_asks_and_marks_ready_tolerating_retries(config, by_id):
-    journal.add_ask(config, AT.date(), "Which date?", "Trip")
+    journal.add_ask(config, AT.date(), "Which date?", "Trip", why="The booking needs your choice; yes reserves it, no leaves it open.")
     [ask] = needs.items(config, AT.date())
     loops.add(config, AT, "owed", "Relay the date", "Trip", "Kevin", "2026-12-01")
     [loop] = loops.open_loops(config)
@@ -460,7 +461,7 @@ def test_record_resolves_asks_and_marks_ready_tolerating_retries(config, by_id):
 
 
 def test_record_resolves_a_confirm_the_owner_confirmed(config):
-    journal.add_ask(config, AT.date(), "Which date?", "Trip")
+    journal.add_ask(config, AT.date(), "Which date?", "Trip", why="The booking needs your choice; yes reserves it, no leaves it open.")
     path = config.vault_path / "CURRENT.md"
     path.write_text(path.read_text().replace("## Needs you\n", "## Needs you\n- 2026-10-28 · confirm · Booked the fare. · [[Trip]]\n", 1))
     confirm = next(item for item in needs.items(config, AT.date()) if item.kind == "confirm")
@@ -469,7 +470,7 @@ def test_record_resolves_a_confirm_the_owner_confirmed(config):
 
 
 def test_record_does_not_resolve_or_ready_a_partial_text_match(config):
-    journal.add_ask(config, AT.date(), "Which date for Lisbon?", "Trip")
+    journal.add_ask(config, AT.date(), "Which date for Lisbon?", "Trip", why="The booking needs your choice; yes reserves it, no leaves it open.")
     loops.add(config, AT, "owed", "Relay the date for Lisbon", "Trip", "Kevin")
     before = snapshot(config.vault_path)
     journal.append_entry(config, {"headline": "Quiet", "outcome": "nothing", "resolved": ["Which date"],

@@ -16,8 +16,8 @@ KINDS = ("ask", "confirm")
 OPEN_ASKS = 5        # asks shown at once; past it, the evening decides the lowest-ranked down to it
 STALE_DAYS = 3       # an ask unanswered this long is the evening's to decide or retire
 CONFIRM_DAYS = 5     # a confirm unanswered this long is taken as accepted
-ASK_WORDS = 16       # an owner-facing Ask line: a proposition, read cold on a phone
-WHY_WORDS = 40       # its Why line: what the owner gets, one or two plain sentences
+ASK_WORDS = grammar.TEXT_WORDS
+WHY_WORDS = grammar.DETAIL_WORDS
 DATED_HEADING_RE = re.compile(
     r"^(\d{4}-\d{2}-\d{2}|(?:January|February|March|April|May|June|July|August|"
     r"September|October|November|December) \d{1,2}(?:, \d{4})?) — (.+)$")
@@ -308,7 +308,7 @@ def migrate_task_asks(config: Config, report: list[str]) -> None:
                           task_mod.archive_path(config, task.tid).relative_to(config.vault_path).as_posix())
                 old_id = grammar.derived("task", source, task.title)
                 journal.add_ask(config, config.today(), ask, config.agent(f"Tasks#{task.tid}"),
-                                fm.field(task.body, "Why") or "", session=task.report or "", task=task.tid)
+                                fm.field(task.body, "Why") or "", session=task.report or "", task=task.tid, _existing=True)
                 data, body = fm.read(current)
                 question = task_ask(config, task.tid)
                 fm.write(current, data, grammar.set_details(body, "Needs you", read, question.id, {"id": old_id}))

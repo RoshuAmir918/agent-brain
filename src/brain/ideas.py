@@ -179,6 +179,7 @@ def add(config: Config, today: date, text: str, source: str, why: str = "", need
         guard(config, goal, source)
         if refusal := add_refusal(config, today, text):
             raise ValueError(refusal)
+        grammar.validate_owner_item(text, why, kind="idea")
         source = source.strip()
         if not source or any(char in source for char in "[]\r\n"):
             raise ValueError("source must name a note, without wikilink brackets or newlines")
