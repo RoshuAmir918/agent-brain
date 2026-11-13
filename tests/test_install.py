@@ -99,6 +99,7 @@ def test_every_routine_that_messages_the_owner_carries_one_owner_message_policy(
         text = install.render_skill(config, routine)
         assert text.count("## Messages to " + config.human_name + "\n") == 1, routine
         assert "{owner_messages}" not in text and "{human_name}" not in text, routine
+        assert f"Working together in `{config.human_profile}` overrides these message defaults" in text, routine
     assert "## Messages to" not in install.render_skill(config, "recall")   # owner sessions carry the short version
 
 

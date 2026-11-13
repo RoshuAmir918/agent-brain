@@ -10,7 +10,7 @@ from .config import Config
 from .identity import matching_agents, matching_profiles, role
 from .vault import WIKILINK_RE, Note, Vault
 
-OWNER_CARD_WORDS = 450   # Working together (up to 250 words), the Impression until a portrait replaces it, and what the agent can reach
+OWNER_CARD_WORDS = 450   # background plus Working together (up to 250 words), reserved before the background is cut
 MENTION_WORDS = {"line": 35, "card": 150}
 HISTORY_WORDS = 80
 PROFILE_WORD_LIMIT = 250
@@ -262,11 +262,11 @@ def owner_card(vault: Vault, config: Config) -> str:
     note = vault.notes.get(config.human_profile)
     if note is None:
         return ""
+    working = newest(profile_section(note.body, "Working together"), WORKING_WORDS)
     parts = []
     portrait = (vault.root / config.human_portrait).is_file()   # the portrait, in the session context, holds the impression now
-    for title in ("Working together",) + (() if portrait else ("Impression",)):
-        if section := profile_section(note.body, title):
-            parts.append(newest(section, WORKING_WORDS) if title == "Working together" else section)
+    if not portrait and (section := profile_section(note.body, "Impression")):
+        parts.append(section)
     reach = [f"{row.channel} ({row.whose}" + (f", {row.identity}" if row.identity else "") + ")"
              + (f": read {row.read}" if row.read else "") + (f"; write {row.write}" if row.write else "")
              for row in registry.live(registry.load(vault))]
@@ -276,11 +276,15 @@ def owner_card(vault: Vault, config: Config) -> str:
         parts.append(f"Between scheduled passes, watch wakes only for new items a screen judges actionable before the next "
                      f"review. When {config.human_name} says what should or should not interrupt them, add it in their words "
                      f"to {config.link(config.agent('Wake.md'))}, one line each.")
-    if not parts:
+    if not parts and not working:
         return ""
     yours = "your Portrait of them" if portrait else "your Impression"
-    return (truncate_words("\n\n".join(parts), OWNER_CARD_WORDS) + f"\n\nTalk about {yours} only with "
-            f"{config.human_name} alone, never where anyone else can read it. Full profile: {config.link(config.human_profile)}.")
+    background = truncate_words("\n\n".join(parts), OWNER_CARD_WORDS - len(working.split()))
+    privacy = (f"Talk about {yours} only with {config.human_name} alone, never where anyone else can read it. "
+               f"Full profile: {config.link(config.human_profile)}.")
+    instructions = (f"{config.human_name}'s instructions for every reply; these override message and skill defaults:\n\n"
+                    + working) if working else ""
+    return "\n\n".join(part for part in (background, privacy, instructions) if part)
 
 
 def owner_messages(config: Config) -> str:
@@ -350,7 +354,7 @@ def build(vault: Vault, config: Config, *, platform: str = "", user_id: str = ""
         return with_notice(member_context(config, platform, user_ids, user_name, who == "owner"), config)
     if who == "owner":
         return with_notice("\n\n".join(part for part in (f"This session is with {config.human_name}, the owner.",
-                                                          owner_card(vault, config), owner_messages(config)) if part), config)
+                                                          owner_messages(config), owner_card(vault, config)) if part), config)
     if who == "intellect":
         return intellect_context(vault, config, matching_agents(vault, config, user_ids, platform)[0], identity)
     if who == "person":

@@ -358,7 +358,8 @@ def test_brain_commit_stages_scoped_paths_under_the_repo_lock(vault, capsys, mon
     assert capsys.readouterr().out.strip() == "nothing to commit"
 
 
-def test_completed_lists_the_weeks_finished_tasks_newest_first(vault, capsys):
+def test_completed_lists_the_weeks_finished_tasks_newest_first(vault, capsys, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", TODAY.isoformat())
     import json
     from datetime import timedelta
     config = Config.load(vault)
