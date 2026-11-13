@@ -401,6 +401,23 @@ def test_a_prepared_draft_says_what_it_is(vault):
     assert (draft["title"], draft["what"], draft["why"]) == ("Meeting brief", "Background for the Nov 19 meeting", {"kind": "date", "text": "2026-11-19"})
 
 
+def test_validate_names_a_for_you_draft_that_does_not_read_on_its_own(vault):
+    note(vault, "agent/Prepared/Brief.md", kind="draft", index_line="Background for the Nov 19 meeting")
+    note(vault, "agent/Prepared/Long.md", kind="draft", index_line="A brief " + "with more " * 12, **{"for": "the move"})
+    note(vault, "agent/Prepared/Coded.md", kind="draft", index_line="Notes for T-043")
+    note(vault, "agent/Prepared/Blank.md", kind="draft")
+    note(vault, "agent/Prepared/Used.md", kind="draft", index_line="Notes for T-044")
+    note(vault, "agent/Reception/2026-10.md", reception.HEADER + "".join(
+        f"- 2026-10-28 09:00 · {i * 6} · draft · {name} · {outcome} · [[agent/Prepared/{name}]]\n"
+        for i, name, outcome in (("a", "Brief", "pending"), ("b", "Long", "pending"), ("c", "Coded", "delivered"),
+                                 ("d", "Blank", "opened"), ("e", "Used", "used"))))
+    problems = validate.prepared_hygiene(Vault(vault))
+    assert [problem.split(":")[0] for problem in problems] == [
+        "agent/Prepared/Blank.md · index_line", "agent/Prepared/Coded.md · index_line", "agent/Prepared/Long.md · index_line"]
+    assert "internal id" in problems[1] and "at most 25" in problems[2]
+    assert set(problems) <= set(validate.hygiene(Vault(vault)))
+
+
 def test_why_a_draft_was_made_is_told_in_the_owners_terms():
     named, open_loops = {"G-1": "Pass Step 1"}, [{"id": "L-001", "text": "Book the Lisbon return fare"}]
     why = lambda goal=None, reason=None: state._why(goal, reason, named, open_loops)

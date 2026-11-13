@@ -353,7 +353,7 @@ def hygiene(vault: Vault) -> list[str]:
     return (malformed(vault) + responsibilities(vault) + task_states(vault) + goal_problems(vault) + kinds(vault)
             + access_problems(vault) + owner_profile(vault) + channels(vault) + identity_duplicates(vault)
             + needs_ceiling(vault) + needs_hygiene(vault) + stale_current(vault) + closed_task_mentions(vault)
-            + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault)
+            + primed_size(vault) + owner_questions(vault) + ideas_hygiene(vault) + loops_hygiene(vault) + prepared_hygiene(vault)
             + watch_signal_hygiene(vault) + schedule_hygiene(vault) + portrait_hygiene(vault)
             + owners.problems(vault.config) + tellable_hygiene(vault) + owner_facing_tasks(vault)
             + roles.problems(vault.config) + learned.problems(vault.config) + kept_edits(vault))
@@ -446,6 +446,22 @@ def ideas_hygiene(vault: Vault) -> list[str]:
             out.append(f"{where}: idea is {len(item.text.split())} words; at most {needs.ASK_WORDS}")
         if len(item.detail.split()) > needs.WHY_WORDS:
             out.append(f"{where}: why line is {len(item.detail.split())} words; at most {needs.WHY_WORDS}")
+    return out
+
+
+def prepared_hygiene(vault: Vault) -> list[str]:
+    """Drafts on the owner's For you list read like any other owner item: a short line saying what it is, and a why."""
+    from . import items, state
+    out = []
+    for draft in state._prepared(vault, [], []):
+        where = f"{draft['source']} · index_line"
+        if not draft["what"]:
+            out.append(f"{where}: missing; say what it is and what it is for, as the owner will read it")
+            continue
+        try:
+            items.validate_owner_item(draft["what"], (draft["why"] or {}).get("text", ""), kind="draft")
+        except ValueError as error:
+            out.append(f"{where}: {error}")
     return out
 
 

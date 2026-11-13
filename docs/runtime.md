@@ -132,6 +132,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.201.3: `brain validate` names a For you draft whose `index_line` is missing, over 25 words, or carries ids, paths or commands, and a why over 60 words; explore writes the line as one short sentence to the owner. No migration.
 - 0.201.1: new owner asks require Why; asks, ideas and loops refuse internal ids, wikilinks, vault paths, brain commands and text over 25 words (60 for Why/detail). The conversation record accepts `needsYouWhy` and a loop's `task`, logging and skipping invalid items without losing the rest. Owner message policy, Holding text and portrait confirms read on their own. Existing vault items remain readable and exportable; no migration.
 - 0.190.0: owner Working together rules follow message defaults and profile background as instructions for every reply, with their word allowance protected. Routine message policies defer to those owner rules too. No migration.
 - 0.134.0: ideas stay fresh and stay offers. Unanswered ideas lapse after 14 days (a not-now restarts the clock when its snooze ends); `brain ideas --withdraw ID --because TEXT` takes back the agent's own offer without counting as the owner's answer. Improve 1.10.0 changes its own method in approved responsibilities (`trialing`) instead of asking, caps proposals at 150 words, and withdraws offers that no longer stand; explore 4.2.0 and recall 2.31.0 send decisions on work under way to Needs you, not ideas.
