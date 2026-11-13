@@ -444,3 +444,23 @@ def test_a_linked_open_ask_satisfies_entering_waiting_for_owner(vault):
     tasks.set_fields(config, "T-001", TODAY, state="waiting_for_owner")
     assert tasks.find(config, "T-001").task_state == "waiting_for_owner"
     assert needs.task_ask(config, "T-001").text == "Use the new value?"
+
+
+@pytest.mark.parametrize("speaker,state,handed", [("cli:owner", None, True), ("cli:owner", "in_progress", True),
+                                                   ("cli:owner", "yours", False), ("demiurge:friend", None, False)])
+def test_owner_conversation_hands_new_work_off_without_the_flag(vault, capsys, monkeypatch, speaker, state, handed):
+    monkeypatch.setenv("DEMIURGE_CONVERSATION", "jn7thread")
+    monkeypatch.setenv("BRAIN_SPEAKER", speaker)
+    out = cli(vault, capsys, "new", "Make the example post", "--source", "now make me an example post",
+              *(["--state", state] if state else []))
+    task = next(task for task in entry(Config.load(vault)) if task.title == "Make the example post")
+    assert (task.handoff is not None and task.handoff[1] == "demiurge:jn7thread") is handed
+    assert ("handed off" in out) is handed
+
+
+def test_worker_new_task_is_not_handed_off_by_default(vault, capsys, monkeypatch):
+    monkeypatch.setenv("DEMIURGE_CONVERSATION", "jn7thread")
+    monkeypatch.setenv("DEMIURGE_TASK", "T-001")
+    monkeypatch.setenv("BRAIN_SPEAKER", "cli:owner")
+    cli(vault, capsys, "new", "A follow-up", "--source", "T-001")
+    assert next(task for task in entry(Config.load(vault)) if task.title == "A follow-up").handoff is None

@@ -367,6 +367,12 @@ def in_conversation() -> bool:
     return bool(os.environ.get("DEMIURGE_CONVERSATION", "").strip()) and not os.environ.get("DEMIURGE_TASK", "").strip()
 
 
+def owner_turn(config: Config) -> bool:
+    """A conversation turn with the owner, as the runtime names the speaker."""
+    platform, _, ident = (speaker() or "").partition(":")
+    return in_conversation() and bool(ident) and identity.is_owner(config, platform, (ident,))
+
+
 def cmd_needs_you(args):
     if args.source and not (args.ask or args.confirm):
         raise SystemExit("brain needs-you: --source goes with --ask or --confirm")
@@ -1293,12 +1299,15 @@ def cmd_task(args):
         if args.action in ("done", "drop", "reopen") and not args.why and not args.by_owner:
             # Without --why only the owner's own Done or Drop in the app closes a task, and it says so.
             raise ValueError(f"task {args.action} needs --why \"<the evidence or the reason>\"")
+        # The owner's conversation hands its own new work off even without --handoff: a task written and then worked in
+        # the reply ran into the reply's time limit with nothing to show (Amicus, 2026-11-13).
+        handoff = args.tid == "new" and (args.handoff or args.state in (None, "ready", "in_progress") and owner_turn(args.config))
         with vault_lock(args.config):
             if args.tid == "new":
                 task = tasks_mod.new_task(args.config, args.action, args.source, state="ready" if args.state is None else args.state,
                                           values=values, work=args.work, agent_delivers=not in_conversation(), said=args.said,
-                                          from_task=args.from_, report=None if args.handoff else args.report, later=args.later)
-                handed = hand_off(args, task.tid) if args.handoff else None
+                                          from_task=args.from_, report=None if handoff else args.report, later=args.later)
+                handed = hand_off(args, task.tid) if handoff else None
             elif args.action == "reopen":
                 task = tasks_mod.reopen(args.config, args.tid, args.config.today(), args.why)
             elif args.action in ("set", "yours"):
@@ -2359,7 +2368,8 @@ def main(argv=None):
     s.add_argument("--work", metavar="SLUG", help="with new or set: Library work slug")
     s.add_argument("--json", action="store_true", help="with new: print {id, title}")
     s.add_argument("--handoff", action="store_true",
-                   help="with new: hand it off in the same call, as `brain handoff` does; --report and --work go to the handoff")
+                   help="with new: hand it off in the same call, as `brain handoff` does; --report and --work go to the handoff. "
+                        "The default for your own work in a conversation with the owner")
     s.add_argument("--later", action="store_true",
                    help="with new --state yours or set: owner work for some day, kept out of what needs them today")
     s.add_argument("--now", action="store_true", help="with set: bring later owner work back to what needs them")
