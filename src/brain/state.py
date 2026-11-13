@@ -247,11 +247,30 @@ def _outputs(vault: Vault) -> list[dict]:
     return out
 
 
-def _prepared(vault: Vault, matters: list[str]) -> list[dict]:
+def _why(goal: str | None, reason: str | None, named: dict[str, str], open_loops: list[dict]) -> dict | None:
+    """Why a draft was made unasked, in the owner's terms: the goal it serves by title, else its `for:` — their own words
+    (the quotation alone, without who said it when or the session it came from), a loop by its text, a date, or, unquoted,
+    the reason as written."""
+    if goal and goal in named:
+        return {"kind": "goal", "text": named[goal]}
+    if not reason:
+        return None
+    reason = reason.strip()
+    if reason.startswith("loop:"):
+        item = next((loop for loop in open_loops if loop["id"] == reason.removeprefix("loop:").strip()), None)
+        return {"kind": "loop", "text": item["text"]} if item else None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", reason):
+        return {"kind": "date", "text": reason}
+    quoted = re.search(r"[\"“](.+)[\"”]", reason)
+    return {"kind": "words", "text": quoted[1].strip()} if quoted else {"kind": "reason", "text": reason}
+
+
+def _prepared(vault: Vault, matters: list[str], open_loops: list[dict]) -> list[dict]:
     """What explore made unasked and holds in Prepared, not yet used or set aside, with how its offer stands. A draft
     made for a task is that task's output, so it shows there instead. Its hub is the matter its `hub:` names, else the
     matter that links to it, as a draft is filed with a wikilink from the note it serves."""
     folder = vault.config.agent("Prepared/")
+    named = {goal.gid: goal.title for goal in goals.load(vault.config)} if vault.config.edition == "personal" else {}
     served = {}
     for hub in matters:
         for target in vault.links_in(vault.notes[hub].body):
@@ -270,9 +289,15 @@ def _prepared(vault: Vault, matters: list[str]) -> list[dict]:
             continue
         leading = re.match(r"\d{4}-\d{2}-\d{2}", note.stem)
         created = note.data.get("created") or (leading[0] if leading else row.at[:10])
-        out.append({"id": row.id, "title": str(note.data.get("index_line") or re.sub(r"^\d{4}-\d{2}-\d{2} ", "", note.stem)),
+        goal = note.data.get("goal") or fm.field(note.body, "Goal")
+        reason = str(note.data["for"]) if note.data.get("for") else None
+        # "Held …" is how explore files it, not what it is.
+        what = re.sub(r"^held\b[\s,:]*", "", str(note.data.get("index_line") or "").strip(), flags=re.I)
+        out.append({"id": row.id, "title": re.sub(r"^\d{4}-\d{2}-\d{2} ", "", note.stem),
+                    "what": what[:1].upper() + what[1:] or None,
+                    "why": _why(goal, reason, named, open_loops),
                     "source": source, "created": created.isoformat() if isinstance(created, date) else str(created),
-                    "goal": note.data.get("goal") or fm.field(note.body, "Goal"), "for": str(note.data["for"]) if note.data.get("for") else None,
+                    "goal": goal, "for": reason,
                     "outcome": row.outcome, "hub": _matter(_hub(vault, str(note.data.get("hub") or "")), matters) or served.get(source)})
     out.sort(key=lambda draft: draft["created"], reverse=True)
     return out
@@ -385,7 +410,7 @@ def build(config: Config, today: date) -> dict:
             "goals": _goals(vault, task_entries),
             "routines": routine_entries, "ledger": recent,
             "needsYou": owner_items, "outputs": _outputs(vault),
-            "prepared": _prepared(vault, matters),
+            "prepared": _prepared(vault, matters, open_loops),
             "loops": open_loops,
             "loopsClosed": _loops(vault, loops.closed_recent(config))[:10],
             "idea": owner_idea,
