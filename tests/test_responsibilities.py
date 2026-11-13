@@ -186,7 +186,8 @@ def test_derive_timing(vault, when, timing, monkeypatch):
                "Its state between runs lives in memory/Responsibilities/chicken-alerts/records.")}
 
 
-def test_derive_names_fields_and_owner_timezone(vault):
+def test_derive_names_fields_and_owner_timezone(vault, monkeypatch):
+    monkeypatch.setenv("BRAIN_TODAY", "2026-11-11")
     (vault.parent / "brain.toml").write_text('[brain]\ntimezone="Asia/Kolkata"\n')
     path = folder(vault, skill="brain-watch", needs=["computer"], triggers=[
         {"kind": "mail", "filter": "chickens"},
