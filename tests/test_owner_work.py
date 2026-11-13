@@ -98,7 +98,7 @@ def test_owner_completion_resumes_parent_and_keeps_their_words(config, capsys, m
 @pytest.mark.parametrize("waiting", ["ask", "waiting_for_owner", "yours"])
 def test_close_refused_until_owner_settles_dependency(config, capsys, action, waiting):
     if waiting == "ask":
-        journal.add_ask(config, config.today(), "Which person should receive it?", "agent/Tasks#T-001")
+        journal.add_ask(config, config.today(), "Which person should receive it?", "agent/Tasks#T-001", why="The booking needs your choice; yes reserves it, no leaves it open.")
     elif waiting == "waiting_for_owner":
         tasks.set_fields(config, "T-001", config.today(), state=waiting,
                          values={"ask": "Which person should receive it?", "why": "The introduction needs a recipient"})
@@ -179,7 +179,7 @@ def test_resolve_yours_preserves_ask_origin_and_runs_answer_hooks(config, capsys
 
 
 def test_unlinked_ask_does_not_inherit_resolving_workers_task(config, capsys, monkeypatch):
-    journal.add_ask(config, config.today(), "Can you renew your passport?", "CURRENT.md", session="demiurge:origin")
+    journal.add_ask(config, config.today(), "Can you renew your passport?", "CURRENT.md", session="demiurge:origin", why="The booking needs your choice; yes reserves it, no leaves it open.")
     ask, = needs.items(config, config.today())
     monkeypatch.setenv("DEMIURGE_TASK", "T-001")
     run(config, capsys, "needs-you", "--resolve", ask.id, "--yours", "Renew passport")
@@ -190,7 +190,7 @@ def test_unlinked_ask_does_not_inherit_resolving_workers_task(config, capsys, mo
 
 @pytest.mark.parametrize("kind,title,extra", [("confirm", "Send it", []), ("ask", "", [])])
 def test_invalid_conversion_keeps_ask_open_and_creates_nothing(config, capsys, kind, title, extra):
-    journal.add_ask(config, config.today(), "Send the introduction?", "agent/Tasks#T-001", kind=kind)
+    journal.add_ask(config, config.today(), "Send the introduction?", "agent/Tasks#T-001", kind=kind, why="The booking needs your choice; yes reserves it, no leaves it open.")
     ask, = needs.items(config, config.today())
     before = snapshot(config.vault_path)
     with pytest.raises(SystemExit):
@@ -261,7 +261,7 @@ def test_owner_work_a_task_waits_on_is_never_later(config, capsys):
 
 
 def test_conversion_with_long_why_keeps_owner_text(config, capsys):
-    journal.add_ask(config, config.today(), "Send the introduction?", "agent/Tasks#T-001")
+    journal.add_ask(config, config.today(), "Send the introduction?", "agent/Tasks#T-001", why="The booking needs your choice; yes reserves it, no leaves it open.")
     ask, = needs.items(config, config.today())
     why = " ".join(f"reason{i}" for i in range(41))
     run(config, capsys, "needs-you", "--resolve", ask.id, "--yours", "Send it", "--why", why)

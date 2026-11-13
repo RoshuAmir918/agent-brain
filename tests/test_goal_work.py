@@ -409,8 +409,10 @@ def test_readable_removes_storage_syntax_from_text_and_referenced_titles(raw, ti
     assert goal_activity.readable(raw, titles) == expected
 
 
-def test_idea_reception_still_matches_after_humanizing_ids(cfg):
-    ideas.add(cfg, TODAY, "Want practice for G-1?", "Medicine", goal="G-1")
+def test_legacy_idea_reception_still_matches_after_humanizing_ids(cfg):
+    fm.write(cfg.vault_path / cfg.agent("Ideas.md"), {},
+             f"## Open\n- {TODAY} · Want practice for G-1? · [[Medicine]]\n  - goal: G-1\n")
+    reception.record(cfg, "idea", "Want practice for G-1?", "Medicine")
     rid = reception.rows(cfg)[0][1].id
     reception.set_outcome(cfg, rid, "used")
     items = goals.activity(cfg)["G-1"]

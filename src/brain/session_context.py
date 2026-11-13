@@ -292,11 +292,13 @@ def owner_messages(config: Config) -> str:
     routines that decide whether to send at all; in a chat the owner already asked, only its shape applies."""
     human = config.human_name
     return (f"## Messages to {human}\n\nWrite for {human} reading cold on a phone: lead with the one thing that matters, "
-            "then at most a few short lines; details stay in the task, the Library or the note. No task ids, paths, tool, "
+            "then at most a few short lines; details stay in the task, the Library or the note. No internal ids, paths, tool, "
             "skill or routine names, or your method's terms. Say a thing once; one short correction replaces a wrong one; "
             "an unchanged reminder is not repeated unless its deadline is within a day. Claim only what happened (accepted "
             "is not delivered, tried is not done), cite only what you opened in this conversation, and give a time only "
-            f"once the pace is proven. A question for {human} is one line answerable in a word, with a short Why.")
+            "once the pace is proven. Each question, offer or held promise stands alone: one short sentence naming its "
+            "subject in their words, never a task title or codename. Why says what led to it and what each answer does; "
+            "recommend a choice when there is one.")
 
 
 def resolved(vault: Vault, config: Config, person: str | None, name: str) -> str:

@@ -268,6 +268,7 @@ def add(config: Config, at: datetime, kind: str, text: str, source: str, with_: 
     text, source = _clean(text), source.strip()
     if not text:
         raise ValueError("loop text must not be empty")
+    items.validate_owner_item(text, kind="loop")
     if not source or any(char in source for char in "[]\r\n"):
         raise ValueError("source must name a note, without wikilink brackets or newlines")
     due = " ".join(due.split())

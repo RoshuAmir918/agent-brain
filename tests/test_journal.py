@@ -21,6 +21,7 @@ def config(vault):
 
 def record(**overrides):
     return {"headline": "Compared March fares to Lisbon.", "outcome": "progress", "next": "Check garden rooms.",
+            **({"needsYouWhy": "The fare hold ends Friday; yes books it, no lets it lapse."} if overrides.get("needsYou") else {}),
             **overrides}
 
 
@@ -47,10 +48,10 @@ def test_ask_lands_inside_an_existing_section_before_the_next_heading(config):
     path = config.vault_path / "CURRENT.md"
     data, body = fm.read(path)
     fm.write(path, data, body + "\n## Needs you\n\n- 2026-10-27 · ask · Earlier. · [[Lisbon trip]]\n\n## Later\nTail.\n")
-    journal.add_ask(config, TODAY, "Newer.", None)
+    journal.add_ask(config, TODAY, "Newer.", None, why="The booking needs your choice; yes reserves it, no leaves it open.")
     body = fm.read(path)[1]
     newer = needs.parse_section(body)[1]
-    assert (f"- 2026-10-27 · ask · Earlier. · [[Lisbon trip]]\n- 2026-10-28 · ask · Newer.\n  - wake: 2026-10-31\n  - id: {newer.id}\n\n## Later\nTail."
+    assert (f"- 2026-10-27 · ask · Earlier. · [[Lisbon trip]]\n- 2026-10-28 · ask · Newer.\n  - why: The booking needs your choice; yes reserves it, no leaves it open.\n  - wake: 2026-10-31\n  - id: {newer.id}\n\n## Later\nTail."
             in body)
 
 

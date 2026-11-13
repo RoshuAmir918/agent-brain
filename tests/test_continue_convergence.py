@@ -151,7 +151,7 @@ def test_owner_task_edits_and_answered_asks_are_available_to_reviewer(worker, ca
     capsys.readouterr()
     assert context(config, capsys)["ownerInstruction"] == "Publish just the finalists"
     assert due(config, capsys)[0]["chunksSinceReview"] == 0
-    journal.add_ask(config, config.today(), "Publish the three finalists?", "agent/Tasks#T-001")
+    journal.add_ask(config, config.today(), "Publish the three finalists?", "agent/Tasks#T-001", why="The booking needs your choice; yes reserves it, no leaves it open.")
     brain_cli.main(["needs-you", "--resolve", "Publish the three finalists?", "--because", "Yes, just those three",
                   "--vault", str(config.vault_path)])
     capsys.readouterr()

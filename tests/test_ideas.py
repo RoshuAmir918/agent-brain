@@ -283,7 +283,7 @@ def test_ideas_hygiene_checks_uncut_why_and_is_part_of_hygiene(vault):
     problems = validate.ideas_hygiene(Vault(vault))
     assert len(problems) == 3
     assert all("agent/Ideas.md" in problem for problem in problems)
-    assert "no why line" in problems[0] and "17 words" in problems[1] and "41 words" in problems[2]
+    assert "no why line" in problems[0] and "26 words" in problems[1] and "61 words" in problems[2]
     assert all(problem in validate.hygiene(Vault(vault)) for problem in problems)
     assert len(ideas.items(Config.load(vault), TODAY)[1].detail.split()) == needs.WHY_WORDS + 1
 
@@ -371,12 +371,18 @@ def test_withdraw_closes_without_answering(vault):
     ideas.add(config, TODAY, "Mine to take back?", "Topic")
 
 
-def test_long_idea_and_why_remain_complete(vault, capsys):
+@pytest.mark.parametrize("text,why,cap", [("word " * 26, "A packing list.", 25),
+                                        ("Want a packing list?", "word " * 61, 60)])
+def test_new_idea_and_why_must_fit_the_caps(vault, text, why, cap):
     config = Config.load(vault)
+    with pytest.raises(ValueError, match=f"at most {cap}"):
+        ideas.add(config, TODAY, text, "START", why)
+    assert ideas.items(config, TODAY) == []
+
+
+def test_legacy_long_idea_and_why_remain_complete(vault):
     text = " ".join(f"idea{i}" for i in range(needs.ASK_WORDS + 1))
     why = " ".join(f"reason{i}" for i in range(needs.WHY_WORDS + 1))
-    ideas.add(config, TODAY, text, "START", why)
-    out = capsys.readouterr()
-    assert out.err == ""
-    item, = ideas.items(config, TODAY)
+    write_ideas(vault, bullet(text, why=why))
+    item, = ideas.items(Config.load(vault), TODAY)
     assert item.text == text and item.detail == why

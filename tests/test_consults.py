@@ -903,7 +903,7 @@ def test_seeded_volume_counts_with_diminishing_returns(enterprise):
     assert ranked[NOAH] == routing.WEIGHTS["owner"]
 
 
-@pytest.mark.parametrize("field,count", [("text", 17), ("default", 41), ("why", 61)])
+@pytest.mark.parametrize("field,count", [("text", 26), ("default", 61), ("why", 61)])
 def test_long_consult_text_is_kept_and_warned(enterprise, capsys, field, count):
     text = " ".join(f"word{i}" for i in range(count))
     entry = ask(enterprise, **{field: text})

@@ -50,8 +50,8 @@ def test_ideas_are_recorded_when_offered_and_settled_by_the_answer(config):
 
 
 def test_asks_are_recorded_and_settled_when_answered_or_dismissed(config):
-    journal.add_ask(config, TODAY, "Which inbox should I watch for sponsor mail?", "START")
-    journal.add_ask(config, TODAY, "Should I book the venue?", None)
+    journal.add_ask(config, TODAY, "Which inbox should I watch for sponsor mail?", "START", why="The booking needs your choice; yes reserves it, no leaves it open.")
+    journal.add_ask(config, TODAY, "Should I book the venue?", None, why="The booking needs your choice; yes reserves it, no leaves it open.")
     asked = {item.text: item.id for item in needs.items(config, TODAY)}
     with vault_lock(config):
         needs.resolve(config, asked["Which inbox should I watch for sponsor mail?"], "they said the shared one", TODAY)

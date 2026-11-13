@@ -137,6 +137,8 @@ def owner(vault, monkeypatch, tmp_path):
 
 
 def talk(config, headline, about, at=AT, **fields):
+    if fields.get("needsYou"):
+        fields.setdefault("needsYouWhy", "Your choice decides how this continues; no leaves it as it is.")
     journal.append_entry(config, {"headline": headline, "outcome": "progress", "about": about, **fields}, "cli", at)
 
 

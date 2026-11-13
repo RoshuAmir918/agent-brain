@@ -6,7 +6,7 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 
-from . import access_log, fm, ledger, loops, matters, needs, tasks
+from . import access_log, fm, items, ledger, loops, matters, needs, tasks
 from .lock import vault_lock
 from .config import Config
 from .record import RECORD_SCHEMA, UNCAPTURED
@@ -72,7 +72,8 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
     for loop in record.get("loops") or []:
         try:
             loops.add(config, local, loop["kind"], loop["text"], touched[0] if touched else "Conversations",
-                      loop.get("with") or "", loop.get("due") or "", condition=loop.get("if") or "", hub=hub)
+                      loop.get("with") or "", loop.get("due") or "", task=loop.get("task") or "",
+                      condition=loop.get("if") or "", hub=hub)
         except ValueError as error:
             print(f"skipped loop: {error}", file=sys.stderr)
     for closure in record.get("closed") or []:
@@ -104,8 +105,12 @@ def append_entry(config: Config, record: dict, platform: str, at: datetime, *,
                     pass   # already gone, or an item that resolves where it lives
     if needs_you := _clean(record.get("needsYou")):
         with vault_lock(config):
-            add_ask(config, local.date(), needs_you, touched[0] if touched else None,
-                    session=f"{platform}:{session}" if session and ":" not in session else session, hub=hub)
+            try:
+                add_ask(config, local.date(), needs_you, touched[0] if touched else None,
+                        why=_clean(record.get("needsYouWhy")),
+                        session=f"{platform}:{session}" if session and ":" not in session else session, hub=hub)
+            except ValueError as error:
+                print(f"skipped ask: {error}", file=sys.stderr)
     if owner:
         working_together(config, local.date(), record.get("workingTogether"))
         if speaker_role == "owner":   # a member's lessons are theirs, not the owner's rules
@@ -228,17 +233,22 @@ def noted(config: Config, at: datetime, lines, speaker: str | None) -> Path | No
 
 
 def add_ask(config: Config, day: date, text: str, source: str | None, why: str = "", *,
-            distinct_source: bool = False, kind: str = "ask", session: str = "", hub: str = "", task: str = "") -> bool:
+            distinct_source: bool = False, kind: str = "ask", session: str = "", hub: str = "", task: str = "",
+            _existing: bool = False) -> bool:
     """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing; the caller
-    holds the vault lock. Always adds: a question is never lost to a full list. Past the ceiling, the evening decides
+    holds the vault lock. A valid question is never lost to a full list. Past the ceiling, the evening decides
     the lowest-ranked ones down to it."""
     path = config.vault_path / "CURRENT.md"
     data, body = fm.read(path) if path.exists() else ({}, "")
     text = " ".join(text.replace("·", "-").split())   # the separator, inside the text, would break the bullet
     asks = needs.parse_section(body)
     tid = (task or needs.task_of(source or "")) if kind == "ask" else None
-    if not tid and any(item.kind == kind and item.text.casefold() == text.casefold() and (not distinct_source or item.source == source) for item in asks):
+    if any(item.kind == kind and item.text.casefold() == text.casefold()
+           and (not tid or item.task == tid and (not why.strip() or why.strip() == item.detail))
+           and (not distinct_source or item.source == source) for item in asks):
         return True   # already asked; the first one stands until it is resolved
+    if not _existing:   # Relocating a pre-existing task question preserves its words, even under newer write rules.
+        items.validate_owner_item(text, why, kind=kind)
     if tid:
         body = needs.replace_task_asks(config, body, tid, day)
     bullet = f"- {day.isoformat()} · {kind} · {text}" + (f" · [[{source}]]" if source else "")
