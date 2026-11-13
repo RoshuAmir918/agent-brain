@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-brain"
-version = "0.192.0"
+version = "0.200.0"
 description = "Configurable Markdown memory mechanics for a personal agent"
 readme = "README.md"
 license = {text = "MIT"}
@@ -12,7 +12,7 @@ requires-python = ">=3.11"
 dependencies = ["pyyaml"]
 
 [project.urls]
-Homepage = "https://github.com/RoshuAmir918/agent-brain"
+Homepage = "https://github.com/demiurge-lab/agent-brain"
 
 [project.optional-dependencies]
 test = ["pytest"]

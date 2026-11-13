@@ -106,7 +106,7 @@ class Config:
     log_dirs: list[str] = field(default_factory=list)   # folders under agent_dir holding receipts and ledgers, never notes
     skill_prefix: str = "brain-"
     timezone: str = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest day boundaries and health dates
-    update_source: str = "git+https://github.com/RoshuAmir918/agent-brain"   # empty string disables brain update
+    update_source: str = "git+https://github.com/demiurge-lab/agent-brain"   # empty string disables brain update
     edition: str = "personal"
     agent_email: str = ""   # the author of the agent's own commits; any other author is a person, whose edit outranks it
     _vault_path: Path | None = None
