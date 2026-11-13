@@ -372,7 +372,10 @@ def build(config: Config, today: date) -> dict:
     responsibility_entries = responsibilities.discover(vault)
     routine_owners = responsibilities.link(responsibility_entries, schedule.load(config))
     owner_items = []
+    titles = {entry["id"]: entry["title"] for entry in task_entries}
     for item in needs.items(vault, today):
+        if not item.context and item.task in titles:   # the app labels an ask with its context; a task's is its title
+            item.context = titles[item.task]
         source = item.source if item.origin == "access" else _source(vault, item.source)
         if source is None and item.origin == "current":
             source = "CURRENT.md"

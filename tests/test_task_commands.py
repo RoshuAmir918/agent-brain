@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from brain import cli as brain_cli, fm, goals, ideas, needs, tasks
+from brain import cli as brain_cli, fm, goals, ideas, needs, state, tasks
 from brain.config import Config
 from conftest import snapshot
 
@@ -445,6 +445,14 @@ def test_set_ask_stores_the_question_in_current_with_task_and_report(location, v
     latest, = needs.items(config, TODAY)
     assert latest.task == "T-001" and latest.text == "Use the second value?"
     assert "**Ask:**" not in entry(config)[0].body and "**Why:**" not in entry(config)[0].body
+
+
+def test_state_labels_a_task_ask_with_its_task_title(vault, capsys):
+    config = Config.load(vault)
+    cli(vault, capsys, "T-001", "set", "--state", "waiting_for_owner",
+        "--ask", "Use the new value?", "--why", "It keeps the project moving.")
+    row, = state.build(config, TODAY)["needsYou"]
+    assert row["context"] == entry(config)[0].title
 
 
 def test_a_linked_open_ask_satisfies_entering_waiting_for_owner(vault):

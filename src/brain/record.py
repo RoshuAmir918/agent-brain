@@ -62,7 +62,7 @@ CONVERSATION = (
     "brain commands in either field.\n"
     "- next: your next step, or null.\n"
     "- loops: each new thing you promised someone, an answer or relay you now owe someone, or something you now wait "
-    "on from someone. `text` is owner-visible Holding: what you will do for whom in their words, at most 25 words "
+    "on from someone. `text` is owner-visible Holding: what you will do for whom in their words, addressed to your owner when it is for them, at most 25 words "
     "and under 160 characters; no internal ids, wikilinks, vault paths, brain commands or standing rules. "
     "The condition goes in `if`, the task in `task`, the person in `with`: someone "
     "who asked you or whom you asked; your owner only for a promise to them (what you wait on from your owner is needsYou, not a loop) and never "
