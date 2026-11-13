@@ -61,4 +61,12 @@ python3 -m pytest -q
 
 Never run `brain nightly --write` against a vault you have not committed. Bump the version in `pyproject.toml` on every change that reaches vaults; the nightly updater compares versions to decide whether a migration prompt applies.
 
+### Versions
+
+- **Patch (0.200.x)** by default: fixes, and changes to skills, prompts or routines that need no migration.
+- **Minor (0.201.0)** only when the PR ships a migration file, or changes a vault, config or state format (give that PR the `minor` label). A new minor number always means vaults changed.
+- **Major** when a vault needs hand work to upgrade.
+
+The `version` check enforces the first two. Versions only go up: every vault records the one it last migrated to.
+
 MIT.

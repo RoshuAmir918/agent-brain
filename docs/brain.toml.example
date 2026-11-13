@@ -12,7 +12,7 @@ owner_user_ids = []   # the owner's permanent platform ids, e.g. "demiurge:<id>"
 log_dirs = []   # folders under agent_dir that hold receipts, ledgers or results; never notes, never hot
 skill_prefix = "brain-"
 timezone = "America/Los_Angeles"   # the owner's zone: the export's "yesterday", digest days and health dates
-update_source = "git+https://github.com/RoshuAmir918/agent-brain"   # "" disables the nightly auto-update
+update_source = "git+https://github.com/demiurge-lab/agent-brain"   # "" disables the nightly auto-update
 edition = "personal"                 # "enterprise": an organisation's intellect; no owner profile, goals, people or morning briefing
 agent_email = ""                     # the author of the agent's commits; "" uses the repository's user.email. Any other author is a person
 

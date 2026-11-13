@@ -260,7 +260,7 @@ def test_update_uses_own_interpreter_and_reinstalls_scripts_only_with_a_runtime(
         path.write_text("outdated", encoding="utf-8")
     installed = install.update(Config.load(vault))
     assert calls == [([sys.executable, "-m", "pip", "install", "--quiet", "--upgrade",
-                       "git+https://github.com/RoshuAmir918/agent-brain"], True)]
+                       "git+https://github.com/demiurge-lab/agent-brain"], True)]
     assert installed
     for path in installed:
         assert path.read_bytes() == files("brain").joinpath("scripts", path.name).read_bytes()
