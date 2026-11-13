@@ -1265,7 +1265,15 @@ def cmd_task(args):
     try:
         values = {name: getattr(args, name) for name in tasks_mod.FIELDS if getattr(args, name) is not None
                   and not (name == "work" and args.tid == "new")}
+        if args.tid != "new" and args.action in (None, "show"):
+            task = tasks_mod.find(args.config, args.tid, archived_closed=True)
+            if task is None:
+                raise ValueError(f"{args.tid} is not a task")
+            print(task.render())
+            return
         if args.tid == "new":
+            if not args.action:
+                raise ValueError("task new needs a title")
             if not args.source:
                 goals.guard(args.config, args.goal, "")
                 raise ValueError("task new needs --source")
@@ -2009,14 +2017,23 @@ def cmd_schedule(args):
 
 
 def cmd_paths(args):
-    if args.path in ("scripts", "records") and runtime.configured() is None:
+    home = runtime.configured() is not None
+    if args.path in ("scripts", "records") and not home:
         sys.exit("AGENT_HOME is not set")
     paths = {"soul": lambda: args.config.soul_path, "skills": lambda: args.config.skills_path,
              "scripts": install.scripts_path, "records": install.records_path,
              "vault": lambda: args.config.vault_path, "repo": lambda: args.config.repo,
              "agent": lambda: args.config.vault_path / args.config.agent_dir,
              "python": lambda: Path(sys.executable), "schedule": lambda: schedule.path(args.config)}
+    if args.path is None:
+        for name, path in paths.items():
+            if home or name not in ("scripts", "records"):
+                print(f"{name}: {path().resolve()}")
+        return
     print(paths[args.path]().resolve())
+
+
+VIEW_HELP = ' < view.json\n\nThe view is JSON on stdin, {"pieces": [...]}; {"pieces": []} removes it.\n\n' + views.KIT
 
 
 def main(argv=None):
@@ -2353,7 +2370,8 @@ def main(argv=None):
     s = sub.add_parser("task", help="create a task or change one: done, drop, yours, reopen, set",
                        description="brain task TID {done,drop,yours,reopen,set} [fields]; brain task new TITLE --source SOURCE", parents=[vault])
     s.add_argument("tid", metavar="TID|new", help="task id, or new to create a task")
-    s.add_argument("action", metavar="ACTION|TITLE", help="done, drop, yours, reopen, set, view (JSON on stdin); with new, the task title")
+    s.add_argument("action", nargs="?", metavar="ACTION|TITLE",
+                   help="done, drop, yours, reopen, set, view (JSON on stdin); none or show prints the task; with new, the task title")
     s.add_argument("--state", metavar="S", help="open task state; new accepts ready (default), in_progress or yours")
     for name in tasks_mod.FIELDS:
         if name == "work":
@@ -2394,7 +2412,8 @@ def main(argv=None):
     s.set_defaults(fn=cmd_handoff)
     s = sub.add_parser("works", help="summaries in local Library works")
     actions = s.add_subparsers(dest="action", required=True)
-    p = actions.add_parser("view", help="save a work's summary from JSON on stdin; an empty view removes it", parents=[vault])
+    p = actions.add_parser("view", help="save a work's summary from JSON on stdin; an empty view removes it", parents=[vault],
+                           description="brain works view SLUG" + VIEW_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("slug"); p.set_defaults(fn=cmd_works)
     p = actions.add_parser("goal", help="link a local work to an active goal", parents=[vault])
     p.add_argument("slug"); p.add_argument("--goal", required=True); p.set_defaults(fn=cmd_works)
@@ -2519,7 +2538,12 @@ def main(argv=None):
     s = sub.add_parser("migrate-done", parents=[vault]); s.set_defaults(fn=cmd_migrate_done)
     s = sub.add_parser("install-scripts", parents=[vault]); s.set_defaults(fn=cmd_install_scripts)
     s = sub.add_parser("paths", parents=[vault])
-    s.add_argument("path", choices=("soul", "skills", "scripts", "records", "vault", "repo", "agent", "python", "schedule")); s.set_defaults(fn=cmd_paths)
+    s.add_argument("path", nargs="?", choices=("soul", "skills", "scripts", "records", "vault", "repo", "agent", "python", "schedule")); s.set_defaults(fn=cmd_paths)
+    argv = sys.argv[1:] if argv is None else argv
+    # `brain task T-nnn view --help` is asked for the kit, which the task parser's help does not hold.
+    if argv[:1] == ["task"] and argv[2:3] == ["view"] and {"-h", "--help"} & set(argv):
+        print(f"brain task {argv[1]} view" + VIEW_HELP)
+        return
     a = ap.parse_args(argv)
     # Inside double quotes the shell expands "$3,450" to ",450" before brain sees it; refuse rather than save a lost amount.
     for value in vars(a).values():

@@ -84,6 +84,8 @@ def test_paths_from_cwd_and_explicit_vault_need_agent_home_only_for_runtime(vaul
     monkeypatch.chdir(tmp_path)
     cli.main(["paths", name, "--vault", str(vault)])
     assert capsys.readouterr().out == str(expected) + "\n"
+    cli.main(["paths", "--vault", str(vault)])
+    assert f"{name}: {expected}\n" in capsys.readouterr().out
     assert snapshot(vault.parent) == before
 
 
