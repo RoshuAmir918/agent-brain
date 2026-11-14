@@ -234,7 +234,7 @@ def noted(config: Config, at: datetime, lines, speaker: str | None) -> Path | No
 
 def add_ask(config: Config, day: date, text: str, source: str | None, why: str = "", *,
             distinct_source: bool = False, kind: str = "ask", session: str = "", hub: str = "", task: str = "",
-            _existing: bool = False) -> bool:
+            asker: str = "", _existing: bool = False) -> bool:
     """Appends an ask to CURRENT's `## Needs you` section, creating the section at the end if it is missing; the caller
     holds the vault lock. A valid question is never lost to a full list. Past the ceiling, the evening decides
     the lowest-ranked ones down to it."""
@@ -259,6 +259,8 @@ def add_ask(config: Config, day: date, text: str, source: str | None, why: str =
         bullet += f"\n  - session: {session.strip()}"
     if tid:
         bullet += f"\n  - task: {tid}"
+    elif asker:
+        bullet += f"\n  - for: {asker}"
     bullet += f"\n  - wake: {needs.wake_for(kind, day)}"
     if hub.strip():
         bullet += f"\n  - hub: {hub.strip()}"

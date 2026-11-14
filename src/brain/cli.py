@@ -395,9 +395,12 @@ def cmd_needs_you(args):
     if args.ask:
         with vault_lock(args.config):
             here = os.environ.get("DEMIURGE_CONVERSATION", "").strip()
+            # In an organisation's intellect a member's question goes back to them, as their tasks' do; the operator's
+            # stays unowned, on Home.
+            asker = speaker() if args.config.edition == "enterprise" and in_conversation() and not owner_turn(args.config) else None
             try:
                 journal.add_ask(args.config, args.config.today(), args.ask, args.source, why=args.why or "",
-                                session=f"demiurge:{here}" if here else "", hub=args.hub or "")
+                                session=f"demiurge:{here}" if here else "", hub=args.hub or "", asker=asker or "")
             except ValueError as error:
                 print(error, file=sys.stderr)
                 sys.exit(1)

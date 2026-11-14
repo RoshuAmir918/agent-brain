@@ -99,6 +99,7 @@ def read(block: grammar.Block) -> Item | None:
         item.task = task
     item.wake = day_of(block.get("wake"))
     item.hub = block.get("hub") or ""
+    item.owner = block.get("for") or ""   # a member's own question; a task's owner replaces it in items()
     return item
 
 
@@ -238,7 +239,7 @@ def items(vault_or_config: Vault | Config, today: date) -> list[Item]:
         if task := task_mod.find(config, tid, archived_closed=True):
             owners[tid] = task.owner or ""
     for item in out:
-        item.owner = owners.get(item.task, "")
+        item.owner = owners.get(item.task, item.owner)
     from . import consults
     out.extend(consults.items(config))
     gone = dismissed_ids(config)
