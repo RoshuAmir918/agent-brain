@@ -16,8 +16,8 @@ HOLDING_LOOPS = 30   # open loops in every session; more than this is a backlog 
 BEFORE = ("## Before answering\n\n"
           "Answer from what is loaded here and the notes recalled under the message; open a note or run `brain retrieve` "
           "only when they don't hold the answer. When something loaded bears on the request (a trip, a deadline, a pending "
-          "decision), say so in a sentence: an answer any assistant could give without this vault is a miss. A reminder the "
-          "owner asks for is a `when` loop (`brain loops --add '<text>' --kind when --due DATE`, `--hub <matter>` when it is about one of `brain matters`). A password, token or key pasted "
+          "decision), say so in a sentence: an answer any assistant could give without this vault is a miss. A reminder "
+          "someone asks for is a `when` loop (`brain loops --add '<text>' --kind when --due DATE`, `--hub <matter>` when it is about one of `brain matters`). A password, token or key pasted "
           "into a message is never saved or used, anywhere: say once that it goes through your platform's safe route, "
           "suggest revoking it, and carry on once it is there.")
 PORTRAIT = ("Who you think {human} is, ranked within each section: `said` they told you, `seen` you watched them do it "

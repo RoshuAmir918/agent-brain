@@ -132,6 +132,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.201.7: enterprise: skills keep personal-only text (Canvas, friends' intellects, the morning briefing, Primed, a person's portrait facets) in personal blocks with work wording for an organisation, and a few examples are neutral; no calendar line when no account is connected; members are told what they say is visible to the team as a fact, not a policy; `brain item --answer confirmed` without words names `--words`. Personal skills keep their wording apart from the swapped examples. No migration.
 - 0.201.6: enterprise: a member's own `needs-you --ask`, outside a task, is recorded `for:` them and listed as theirs, as their tasks' asks are; the operator's stays unowned, on Home. No migration.
 - 0.201.5: enterprise: `schedule init` removes routines that run another edition's or a retired skill (morning, people, prime, sleep2) and re-chains what followed them, and `schedule check` names them; enterprise skills say members speak for the organisation and work goes to the member it is for; the patient-data wording is gone. No migration.
 - 0.201.4: explore gives a held draft its `goal:`, else a `for:` in the owner's terms rather than a bare date, and its line names the thing and its purpose instead of listing contents. No migration.

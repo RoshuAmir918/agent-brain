@@ -177,8 +177,8 @@ def member_context(config: Config, platform: str, user_ids: tuple[str, ...], use
     who = user_name or (f"{platform}:{user_ids[0]}" if user_ids else "the operator")
     person = f"{platform}:{user_ids[-1]}" if user_ids and platform not in ("", "cli") else None
     lines = [f"This session is with {who}, a member of {org}" + (" and its operator." if operator else ".")]
-    lines.append(f"What is said to you here is visible to the whole team, by {org}'s policy: keep nothing between "
-                 "colleagues, and no credentials in notes.")
+    lines.append("What is said to you here is visible to the whole team: keep nothing between colleagues, and no "
+                 "credentials in notes.")
     if person:
         lines.append(f"Work they hand you is theirs ({person}): its questions and milestones go to them.")
     if operator:
