@@ -325,7 +325,7 @@ def cmd_compile_context(a):
             text = compile_context.build(vault, only)
             print(text, end="")
             result = compile_context.summary(text, a.config.context.hot_words)
-        if not a.write and events and a.config.edition == "personal" and "goals" in a.config.context.sections and (only is None or "goals" in only):
+        if not a.write and events and "goals" in a.config.context.sections and (only is None or "goals" in only):
             goals.acknowledge(a.config, events)
     print(result, file=sys.stderr)
 
@@ -1832,7 +1832,7 @@ def cmd_session_context(args):
                                  chat_id=args.chat_id)
     owner = identity.is_owner(args.config, args.platform, tuple(value for value in (args.user_id, args.user_id_alt) if value))
     routine = args.platform == "cron" and not (args.user_id or args.user_id_alt)
-    if args.config.edition == "personal" and "goals" in args.config.context.sections and (owner or routine):
+    if "goals" in args.config.context.sections and (owner or routine):
         with vault_lock(args.config) if args.ack_notices else nullcontext():
             events = goals.capture(args.config)["app"]
             if events:

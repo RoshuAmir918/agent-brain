@@ -17,7 +17,7 @@ DAILY_CHUNKS = 24
 # An intellect is one person's (personal) or an organisation's, getting its work done (enterprise): the same engine,
 # installing the routines and skill sections its edition is for. See docs/engine.md, Editions.
 EDITIONS = ("personal", "enterprise")
-PERSONAL_SECTIONS = ("primed", "goals")   # context about one person's day and aims, left out of an enterprise context
+PERSONAL_SECTIONS = ("primed",)   # context about one person's day, left out of an enterprise context
 
 
 def pinned_today() -> date | None:
@@ -211,7 +211,7 @@ class Config:
         context = Context.load(values)
         chosen = isinstance(values, dict) and "sections" in values or Context.ENV["sections"] in os.environ
         if self.edition == "enterprise" and not chosen:
-            # Unless the vault chose its sections, an enterprise context has no one person's day or goals in it.
+            # Unless the vault chose its sections, an enterprise context has no one person's day in it.
             context = replace(context, sections=tuple(s for s in SECTIONS if s not in PERSONAL_SECTIONS))
         return context
 

@@ -102,8 +102,6 @@ def build(config: Config, gid: str | None = None, *, weeks: int | None = 2, vaul
     from .state import _public, _rows, _source
     if weeks is not None and weeks < 1:
         raise ValueError("--weeks must be positive")
-    if config.edition != "personal":
-        return {}
     entries = goals.load(config) + goals.archived(config)
     known = {goal.gid: goal for goal in entries}
     if gid is not None and gid not in known:

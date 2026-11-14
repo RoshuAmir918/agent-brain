@@ -31,14 +31,15 @@ def test_enterprise_installs_the_work_without_the_owners_day_and_removes_what_it
     for kept in ("continue", "watch", "evening", "explore", "improve", "sleep1", "recall", "setup"):
         assert skill(config, kept)
     recall = skill(config, "recall")
-    assert "## Talking to your colleagues" in recall and "## Goals" not in recall and "Disclosure.md" not in recall
+    assert "## Talking to your colleagues" in recall and "Disclosure.md" not in recall
+    assert "where its leadership says it is heading" in recall and "people pass's alone" not in recall
     assert "## Grants" not in skill(config, "setup") and "*People:*" not in skill(config, "explore")
     assert "<!--" not in recall
 
 
-def test_an_enterprise_context_leaves_out_goals_and_primed_unless_the_vault_chose_them(vault):
+def test_an_enterprise_context_leaves_out_primed_unless_the_vault_chose_it(vault):
     config = enterprise(vault)
-    assert "goals" not in config.context.sections and "primed" not in config.context.sections
+    assert "goals" in config.context.sections and "primed" not in config.context.sections
     chosen = enterprise(vault, '\n[context]\nsections = ["start", "goals", "tasks"]\n')
     assert chosen.context.sections == ("start", "goals", "tasks")
     listed = ", ".join(f'"{section}"' for section in SECTIONS)
@@ -99,3 +100,16 @@ def test_enterprise_skills_say_who_speaks_for_the_organisation_and_personal_ones
         assert "{organisation}" not in skill(config, name)
     install.skills(personal)
     assert all("**Who " not in skill(personal, name) for name in ("sleep1", "recall", "continue"))
+
+
+def test_an_organisation_keeps_company_goals_its_seed_files_several_at_once(vault):
+    from brain import compile_context, goals
+    config = enterprise(vault)
+    assert "No company goals yet" in goals.context(config)
+    (vault / "Company").mkdir()
+    (vault / "Company" / "Company.md").write_text("---\nkind: hub\n---\n# Company\n")
+    for title in ("Ship the audit trail", "Win three pharma sponsors", "Pass the SOC 2 audit"):
+        goals.new(config, title, title, inferred=True, evidence=["2026-11-06 · Q4 OKRs list it · [[Company/Company]]"])
+    assert [goal.gid for goal in goals.active(config)] == ["G-1", "G-2", "G-3"]
+    context = compile_context.build(Vault(config.vault_path))
+    assert "where its leadership says it is heading" in context and "G-3 — Pass the SOC 2 audit (inferred)" in context

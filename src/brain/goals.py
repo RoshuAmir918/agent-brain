@@ -194,7 +194,7 @@ def problems(config: Config) -> list[str]:
 
 
 def active(config: Config) -> list[Goal]:
-    return [goal for goal in load(config) if goal.state.get("state") == "active"] if config.edition == "personal" else []
+    return [goal for goal in load(config) if goal.state.get("state") == "active"]
 
 
 def due(config: Config) -> list[Goal]:
@@ -317,7 +317,12 @@ def context(config: Config, *, app_changes: bool = True) -> str:
             lines.append(f"  Latest evidence: {latest['at']} · {latest['text']}" + (f" · [[{latest['link']}]]" if latest['link'] else ""))
         for correction in corrections.get(goal.gid, {}).values():
             lines.append(f"  Not this ({correction['kind']}): {correction['text']} — {correction['why'] or 'Do not repeat this kind of work'}")
-    if not lines:
+    if config.edition == "enterprise":
+        lines.insert(0, f"{config.human_name}'s goals: where its leadership says it is heading. Unasked work that serves one names it "
+                        "with --goal G-n; a goal grants no outward permission." if lines else
+                     f"No company goals yet. The seed files the goals {config.human_name}'s leadership states, for the operator to "
+                     "keep; until then unasked work follows initiatives and assigned work.")
+    elif not lines:
         lines.append("No active goals. The next people pass may infer from repeated, dated evidence; make nothing unasked until then, and never ask whether something is a goal.")
     for entry in capture(config)["refused"]:
         lines.append(f"Refused goal; never re-propose: {entry['title']} — {entry['words']}")
@@ -489,8 +494,6 @@ def _said(config: Config, said: str | None) -> str:
 def new(config: Config, title: str, words: str, *, reach: bool = False, by: str | None = None,
         said: str | None = None, inferred: bool = False, evidence: list[str] | None = None,
         from_app: bool = False) -> Goal:
-    if config.edition != "personal":
-        raise ValueError("goals belong to a person; organisation aims belong in initiatives")
     if not inferred:
         _require_owner(config, from_app)
     if errors := problems(config):
@@ -508,7 +511,8 @@ def new(config: Config, title: str, words: str, *, reach: bool = False, by: str 
             raise ValueError("this goal already exists; add evidence to it instead")
         if sum(goal.origin == "inferred" for goal in active(config)) >= 5:
             raise ValueError("at most 5 active inferred goals; add evidence to an existing goal instead")
-        if sum(now - timedelta(hours=24) < config.local(datetime.fromisoformat(goal.state["inferred"])) <= now
+        # A company's goals are read from what its leadership states, often several at once; pacing is for guesses about a person.
+        if config.edition == "personal" and sum(now - timedelta(hours=24) < config.local(datetime.fromisoformat(goal.state["inferred"])) <= now
                for goal in entries if goal.state.get("inferred")) >= 2:
             raise ValueError("at most 2 new inferred goals per 24 hours, counting readings made earlier today")
     if by is not None and not reach:

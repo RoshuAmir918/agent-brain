@@ -57,7 +57,7 @@ def _tasks(vault: Vault) -> list[dict]:
     return [{"id": task.tid, "title": task.title, "state": task.task_state, "open": tasks.is_open(task),
              "detail": fm.field(task.body, "Status"), "next": fm.field(task.body, "Next", "Next action"),
              "blockers": fm.field(task.body, "Blocker", "Blockers"), "hub": _public_link(vault, task.hub), "work": task.work,
-             "goal": task.goal if config.edition == "personal" else None,
+             "goal": task.goal,
              "after": task.after,
              "from": task.from_task,
              "delivers": task.delivers, "deliversProposed": tasks.proposed_delivers(task),
@@ -270,7 +270,7 @@ def _prepared(vault: Vault, matters: list[str], open_loops: list[dict]) -> list[
     made for a task is that task's output, so it shows there instead. Its hub is the matter its `hub:` names, else the
     matter that links to it, as a draft is filed with a wikilink from the note it serves."""
     folder = vault.config.agent("Prepared/")
-    named = {goal.gid: goal.title for goal in goals.load(vault.config)} if vault.config.edition == "personal" else {}
+    named = {goal.gid: goal.title for goal in goals.load(vault.config)}
     served = {}
     for hub in matters:
         for target in vault.links_in(vault.notes[hub].body):
@@ -304,8 +304,6 @@ def _prepared(vault: Vault, matters: list[str], open_loops: list[dict]) -> list[
 
 
 def _goals(vault: Vault, task_entries: list[dict]) -> list[dict]:
-    if vault.config.edition != "personal":
-        return []
     loaded = goals.load(vault.config)
     entries = [goal.public() for goal in loaded]
     activity = goals.activity(vault.config, vault=vault)
@@ -401,10 +399,8 @@ def build(config: Config, today: date) -> dict:
     idea = ideas.shown(config, today)
     source = _source(vault, idea.source) if idea else None
     owner_idea = {**asdict(idea), "source": source, "hub": _matter(source, matters)} if source is not None else None
-    if owner_idea and config.edition == "enterprise":
-        owner_idea["goal"] = None
     # Every open idea, for the owner to read when they choose; Today still offers only the shown one, at its pace.
-    open_ideas = [{**asdict(item), "source": source, "hub": _matter(source, matters), **({"goal": None} if config.edition == "enterprise" else {})}
+    open_ideas = [{**asdict(item), "source": source, "hub": _matter(source, matters)}
                   for item in ideas.items(config, today) if (source := _source(vault, item.source)) is not None]
     version = health.git(config.vault_path, "rev-parse", "--short", "HEAD")
     if version and health.git(config.vault_path, "--no-optional-locks", "status", "--porcelain"):
