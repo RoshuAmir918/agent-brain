@@ -29,6 +29,7 @@ def sessions_records_path() -> Path:
 
 
 LOCAL_HEADING = re.compile(r"^## Local[ \t]*$", re.M)
+RETIRED_SKILLS = ("rem", "attribute", "sleep2")
 EDITIONS_LINE = re.compile(r"^\s+editions:\s*\[([^\]]*)\]\s*$", re.M)
 # A part of a skill for one edition only: `<!-- personal -->` … `<!-- /personal -->` on lines of their own.
 EDITION_BLOCK = re.compile(r"^<!-- (personal|enterprise) -->\n(.*?)^<!-- /\1 -->\n", re.M | re.S)
@@ -39,6 +40,15 @@ def editions(text: str) -> set[str]:
     head = text.split("\n---", 1)[0] if text.startswith("---") else ""
     match = EDITIONS_LINE.search(head)
     return {part.strip() for part in match[1].split(",") if part.strip()} if match else {"personal", "enterprise"}
+
+
+def withheld(config: Config) -> set[str]:
+    """The engine skills this vault never has: retired ones and those of another edition. A routine naming one would start
+    a model with nothing to follow."""
+    names = set(RETIRED_SKILLS) | {path.name for path in files("brain").joinpath("skills").iterdir()
+                                   if path.joinpath("SKILL.md").is_file()
+                                   and config.edition not in editions(path.joinpath("SKILL.md").read_text(encoding="utf-8"))}
+    return {config.skill_prefix + name for name in names}
 
 
 def for_edition(text: str, edition: str) -> str:
@@ -68,14 +78,16 @@ def render_skill(config: Config, name: str) -> str:
             sorted(p.name for p in files("brain").joinpath("skills").iterdir() if p.joinpath("SKILL.md").is_file())))
     # The policy goes first so the values after it fill its own placeholders.
     policy = files("brain").joinpath("templates", "owner-messages.md").read_text(encoding="utf-8")
-    values = {"owner_messages": for_edition(policy, config.edition)} | config.template_values()
+    values = {"owner_messages": for_edition(policy, config.edition),
+              "organisation": files("brain").joinpath("templates", "organisation.md").read_text(encoding="utf-8").rstrip("\n")
+              } | config.template_values()
     return render(for_edition(template.read_text(encoding="utf-8"), config.edition), values)
 
 
 def skills(config: Config) -> Path:
     """Skills and the Memory Spec keep the vault's own `## Local` sections, read and rewritten under the vault lock."""
     with vault_lock(config):
-        for retired in ("rem", "attribute", "sleep2"):
+        for retired in RETIRED_SKILLS:
             target = config.skills_path / (config.skill_prefix + retired)
             if target.is_dir():
                 shutil.rmtree(target)

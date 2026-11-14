@@ -12,6 +12,10 @@ metadata:
 
 {agent_name}'s follow-through pass: the conversation's record notices; watch acts. It runs only when something was added: a loop came due, a conversation went unanswered, or a new channel item passed the wake screen, which asks of every new mail and calendar change whether it is actionable before the next review. Read the injected Run Context first: under `channels:` are the items that passed since your last pass (`<account>/<mail or calendar>/<file> · sender · subject`), and they are why you are awake; then `$AGENT_HOME/records/watch/state.json` for `checked_at` (when the last pass began) and nudged ids. For any message you will answer, run `brain session-context --platform <platform> --user-id <sender handle or address> --user-id-alt <permanent id, if any>` first and follow the block.
 
+<!-- enterprise -->
+{organisation}
+<!-- /enterprise -->
+
 These are the commands this pass uses; they are complete as written, so never spend a call on `--help`:
 - `brain channels mail --since <checked_at>`: every synced account's new mail since then, one line each (date, account, sender, subject, labels, file path), automated notices grouped by sender. Read a file only when its line says it matters.
 - `brain needs-you --json` and `brain needs-you --resolve <id> --because "<what settled it>"`.

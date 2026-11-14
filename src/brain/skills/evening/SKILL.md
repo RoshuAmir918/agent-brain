@@ -12,6 +12,10 @@ metadata:
 
 One job: decide what has gone quiet, so {human_name} never has to sweep a list of things they once mentioned and nothing waits on them that does not have to. Watch owns what is new today; this owns what is old.
 
+<!-- enterprise -->
+{organisation}
+<!-- /enterprise -->
+
 ## Procedure
 Everything to decide is in the Script Output above, one JSON from `brain evening-signal` (run it yourself if there is none; when it prints nothing, nothing needs deciding tonight); each list below names its key.
 

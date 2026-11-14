@@ -12,6 +12,10 @@ metadata:
 
 The night's main job. Yesterday becomes long-term memory: new facts are written where they belong, memory that grew messy is tidied, and retrieval defects are repaired. Decide nothing about {human_name}'s intentions; record what they said and did.
 
+<!-- enterprise -->
+{organisation}
+<!-- /enterprise -->
+
 ## Inputs
 - `Conversations/Digests/<yesterday>.md`: every turn between {human_name} and {agent_name} yesterday, built by the export job. Read it whole; if its `coverage:` line reports omitted turns, regenerate with `brain digest --date <yesterday> --max-words 150000 --write` and read that instead. If it is missing, run `brain digest --date <yesterday> --write` from the repository root; if the export itself is missing, record the gap and continue with what exists.
 - yesterday's rows of the explore ledger (`{agent_dir}/Explore/<month>.md`, or an older vault's `Explorations/`), and the notes they filed into.

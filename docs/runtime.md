@@ -132,6 +132,7 @@ A routine's skill may declare, in its frontmatter's `metadata.runtime`, the comp
 
 ## 6. Changes
 
+- 0.201.5: enterprise: `schedule init` removes routines that run another edition's or a retired skill (morning, people, prime, sleep2) and re-chains what followed them, and `schedule check` names them; enterprise skills say members speak for the organisation and work goes to the member it is for; the patient-data wording is gone. No migration.
 - 0.201.4: explore gives a held draft its `goal:`, else a `for:` in the owner's terms rather than a bare date, and its line names the thing and its purpose instead of listing contents. No migration.
 - 0.201.3: `brain validate` names a For you draft whose `index_line` is missing, over 25 words, or carries ids, paths or commands, and a why over 60 words; explore writes the line as one short sentence to the owner. No migration.
 - 0.201.1: new owner asks require Why; asks, ideas and loops refuse internal ids, wikilinks, vault paths, brain commands and text over 25 words (60 for Why/detail). The conversation record accepts `needsYouWhy` and a loop's `task`, logging and skipping invalid items without losing the rest. Owner message policy, Holding text and portrait confirms read on their own. Existing vault items remain readable and exportable; no migration.
