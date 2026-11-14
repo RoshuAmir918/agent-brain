@@ -92,3 +92,17 @@ def test_a_members_edit_answer_or_touch_engages_only_their_own_task(vault, capsy
     journal.append_entry(config, {"headline": "Kim steered.", "outcome": "progress", "touched": ["agent/Tasks#T-001"]},
                          "slack", datetime(2026, 11, 5, 9, 0), user_id="U0KIM")
     assert "circling" not in continuation._progress(config)["T-001"]
+
+
+def test_a_members_own_question_is_for_them_and_the_operators_stays_on_home(vault, capsys, monkeypatch):
+    config = enterprise(vault)
+    (vault.parent / "brain.toml").write_text(f'[brain]\nvault = "{vault.name}"\nedition = "enterprise"\n'
+                                             'owner_user_ids = ["demiurge:op"]\n')
+    monkeypatch.setenv("DEMIURGE_CONVERSATION", "c1")
+    monkeypatch.setenv("BRAIN_SPEAKER", "demiurge:kim")
+    run(vault, capsys, "needs-you", "--ask", "Should the report cover March?", "--why", "Kim asked for a quarter.")
+    monkeypatch.setenv("BRAIN_SPEAKER", "demiurge:op")
+    run(vault, capsys, "needs-you", "--ask", "Can I read the billing logs?", "--why", "Nobody has granted it.")
+    items = {item["text"]: item["owner"] for item in json.loads(run(vault, capsys, "needs-you", "--json"))}
+    assert items == {"Should the report cover March?": "demiurge:kim", "Can I read the billing logs?": ""}
+    assert "  - for: demiurge:kim" in (config.vault_path / "CURRENT.md").read_text()
