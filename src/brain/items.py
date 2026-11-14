@@ -222,5 +222,7 @@ def answer(config: Config, which: str, value: str, words: str = "", by: str = ""
     if kind == "idea":
         return ideas.respond(config, which, today, value, words)
     if value == "confirmed":
+        if not words.strip():
+            raise ValueError("give the person's own words with --words TEXT; never record an inference")
         return consults.answer(config, which, "confirmed", words, by)
     return needs.dismiss(config, which, today, value, by=by)

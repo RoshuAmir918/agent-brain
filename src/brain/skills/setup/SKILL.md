@@ -9,10 +9,26 @@ metadata:
 ---
 # Setup
 
-Load this to add, change, pause or remove a routine or responsibility, or when {human_name} grants or narrows what someone may learn or ask you to do. A new responsibility is only proposed until {human_name} says yes; build nothing for it before then. Disclosure grants come only from {human_name}.
+<!-- personal -->
+Load this to add, change, pause or remove a routine or responsibility, or when {human_name} grants or narrows what someone may learn or ask you to do.
+<!-- /personal -->
+<!-- enterprise -->
+Load this to add, change, pause or remove a routine or responsibility.
+<!-- /enterprise -->
+A new responsibility is only proposed until {human_name} says yes; build nothing for it before then.
+<!-- personal -->
+Disclosure grants come only from {human_name}.
+<!-- /personal -->
 
 ## Routines
-The declared schedule is `{runtime_dir}/schedule.toml`: responsibility triggers are synced from their wake-up documents; engine routines use `brain schedule`. When {human_name} asks to change a routine, do it in this session: record the request in a dated note under `Conversations/`, edit its responsibility as below, or use `brain schedule set <name> --cron "<five fields>" --skills <skill> --prompt "<instruction>"` (or `--every` or `--at`) for engine routines. Use `brain schedule pause <name>` or `resume` for either, and read back `brain schedule list`. The runtime applies changes within a minute. Cron hours are {human_name}'s local hours (`brain timezone`); an hour is never translated into the host's zone. People runs before the morning briefing, and prime half an hour before it, so the briefing reads a fresh Primed; when the briefing hour moves, prime moves with it. Two things stay with {human_name} alone: the hour their briefing arrives, and any routine they asked for by name. The engine's own skills are re-rendered at the 09:00 upgrade; anything of this vault's own that belongs in one goes under a `## Local` heading at its end, which the render keeps.
+The declared schedule is `{runtime_dir}/schedule.toml`: responsibility triggers are synced from their wake-up documents; engine routines use `brain schedule`. When {human_name} asks to change a routine, do it in this session: record the request in a dated note under `Conversations/`, edit its responsibility as below, or use `brain schedule set <name> --cron "<five fields>" --skills <skill> --prompt "<instruction>"` (or `--every` or `--at`) for engine routines. Use `brain schedule pause <name>` or `resume` for either, and read back `brain schedule list`. The runtime applies changes within a minute. Cron hours are {human_name}'s local hours (`brain timezone`); an hour is never translated into the host's zone.
+<!-- personal -->
+People runs before the morning briefing, and prime half an hour before it, so the briefing reads a fresh Primed; when the briefing hour moves, prime moves with it. Two things stay with {human_name} alone: the hour their briefing arrives, and any routine they asked for by name.
+<!-- /personal -->
+<!-- enterprise -->
+Any routine {human_name} asked for by name stays with them alone.
+<!-- /enterprise -->
+The engine's own skills are re-rendered at the 09:00 upgrade; anything of this vault's own that belongs in one goes under a `## Local` heading at its end, which the render keeps.
 
 The engine's monitor scripts are installed with `brain install-scripts`; keep these gates when creating or editing the jobs (the workdir is the vault repo):
 

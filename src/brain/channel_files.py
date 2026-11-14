@@ -192,7 +192,8 @@ def calendar(vault: Vault, days: int = 7) -> str:
         return "" if not events else f"## Calendar: today and the next {days} days\n\n" + "\n".join(event.line(today) for event in events)
     head = f"## Calendar: today and the next {days} days\n\n"
     if not owner_accounts(vault):
-        return head + "- I can't see the calendar: no Google account of the owner's is connected."
+        # An organisation may never connect a calendar; saying so in every session is noise.
+        return "" if vault.config.edition == "enterprise" else head + "- I can't see the calendar: no Google account of the owner's is connected."
     if seen["problem"].endswith(("not set up", "not run yet")) and not events:   # synced files on disk still count
         return head + f"- I can't see the calendar: {seen['problem']}."
     if missing and len(missing) == len(owner_accounts(vault)):

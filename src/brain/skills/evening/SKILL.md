@@ -27,7 +27,14 @@ Everything to decide is in the Script Output above, one JSON from `brain evening
    - left alone when it waits on someone else or on a date still ahead.
    Record each decision with `brain task T-nnn set --reviewed "<set aside | dropped | asked>: <why, in one clause>"` (with `--state set_aside` to set one aside, or `brain task T-nnn drop --why …` to drop it).
 2. **Quiet asks, and too many.** `staleAsks` lists asks unanswered for three days (a task's ask waits with its task and is never listed), and `overflowAsks` the lowest-ranked asks past the five {human_name} sees. Decide each: when it is reversible, take the answer {human_name} would most likely give, act on it, and replace the ask with a `confirm` saying what you did; when it is not, or it was never theirs, remove it and write one dated line on its source note saying why. Never re-ask one.
-3. **Handled in the world.** For each open ask in `openAsks`, check whether a channel or a task changing state shows it answered outside any conversation. For an outcome that can be checked (a share or invitation accepted, a payment made, an email sent, a booking confirmed, a form filed), check it once, through the registry row that would show it (`{agent_dir}/Channels.md`, opened the way the row says: a synced mail folder, a command, a connected account) or the task's own evidence. Done: `brain needs-you --resolve <id> --because "<the evidence>"`, and when {human_name} did it themselves, one `morning:` line on the source task saying "looks like you handled <it>". Not checkable, or still not done: leave it.
+3. **Handled in the world.** For each open ask in `openAsks`, check whether a channel or a task changing state shows it answered outside any conversation. For an outcome that can be checked (a share or invitation accepted, a payment made, an email sent, a booking confirmed, a form filed), check it once, through the registry row that would show it (`{agent_dir}/Channels.md`, opened the way the row says: a synced mail folder, a command, a connected account) or the task's own evidence.
+<!-- personal -->
+   Done: `brain needs-you --resolve <id> --because "<the evidence>"`, and when {human_name} did it themselves, one `morning:` line on the source task saying "looks like you handled <it>".
+<!-- /personal -->
+<!-- enterprise -->
+   Done: `brain needs-you --resolve <id> --because "<the evidence>"`.
+<!-- /enterprise -->
+   Not checkable, or still not done: leave it.
 4. **What validate names.** `needsYouProblems`. Fix each:
    - a bullet about the brain itself (a migration, a setup or engine change, a skill): resolve it, with a dated Sleep Log line saying what it recorded;
    - a task waiting on {human_name} with no linked Needs you ask, or a question over its cap: write its question and why as recall says. A proposed improvement keeps its Ask and Why lines.
@@ -35,9 +42,21 @@ Everything to decide is in the Script Output above, one JSON from `brain evening
    - done, when the evidence shows it happened: `brain loops --close <id> --outcome done --because "<what shows it>"`;
    - a task, when it is work rather than a reply or a relay: find or write the task with the loop's words, hand it off if it is yours to do, then close the loop `--outcome dropped --because "carried by T-nnn"`;
    - Working together, when it is a standing instruction about how to work: add it to the Working together section of the owner profile with its date, then close the loop `--outcome dropped --because "a standing direction, kept in Working together"`; when it is about how to do a kind of work rather than how to deal with them, learn it in its field instead (`brain learn add --field <Field> --claim "<how to act>" --source "<their words, or where you learned it>" [--rule]`) and close the loop the same way, `--because "a lesson, kept in Learned"`;
-   - dropped, when it no longer applies or a nudge went unanswered and nothing is at stake: `--outcome dropped --because "<why>"`. When something is at stake for {human_name} (money, a promise they made, a date), say so in one line in tomorrow's briefing instead of dropping it silently.
+   - dropped, when it no longer applies or a nudge went unanswered and nothing is at stake: `--outcome dropped --because "<why>"`.
+<!-- personal -->
+     When something is at stake for {human_name} (money, a promise they made, a date), say so in one line in tomorrow's briefing instead of dropping it silently.
+<!-- /personal -->
+<!-- enterprise -->
+     When something is at stake for {human_name} (money, a promise they made, a date), keep it visible on its source task instead of dropping it silently.
+<!-- /enterprise -->
 6. **What went wrong today.** `answeredToday` holds today's rows in `{agent_dir}/Answered/`: an idea or offer {human_name} declined, a draft they called not this, a loop dropped because you mishandled it. For each, ask what you would do differently next time, as a rule for that kind of work. When there is one, learn it once, in its field: `brain learn add --field <Field> --claim "<how to act next time>" --source "reflection on <T-nnn, or what happened>" --candidate`. At most one line per outcome; most need none.
 7. `brain commit -m "evening(<date>)" --push` if anything changed. The run's account gives the counts by kind.
 
 ## Boundaries
-Only task state fields and Needs you. No hubs, profiles, CURRENT threads or memory structure. No messages: what is decided here shows in the briefing and the app.
+Only task state fields and Needs you. No hubs, profiles, CURRENT threads or memory structure.
+<!-- personal -->
+No messages: what is decided here shows in the briefing and the app.
+<!-- /personal -->
+<!-- enterprise -->
+No messages: what is decided here shows in the app.
+<!-- /enterprise -->

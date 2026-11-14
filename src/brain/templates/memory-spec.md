@@ -100,7 +100,7 @@ The night is a chain in `schedule.toml`, starting at 00:30 in the owner's zone. 
 | Image | people, or sleep1 for an organisation | Judge the portrait and its weekly re-rank | `image(<date>)` |
 | Night after | image | Stamp and compile the portrait, CURRENT threads and context | `night-after(<date>)` |
 
-Improve starts at 07:00, prime follows it for a person, and morning stays at 08:00. Engine upgrades and skill installs run at 09:00. Evening decides unanswered asks at three days; the engine still accepts unanswered confirms after five. Sleep 2 and weekly reflections have retired.
+Improve starts at 07:00; in a personal vault prime follows it and morning stays at 08:00. Engine upgrades and skill installs run at 09:00. Evening decides unanswered asks at three days; the engine still accepts unanswered confirms after five. Sleep 2 and weekly reflections have retired.
 
 The judgment steps are the skills in [[{vault}/{runtime_dir}/README|Runtime]]. A skipped occurrence is reported in the morning, never caught up by a duplicate run.
 
