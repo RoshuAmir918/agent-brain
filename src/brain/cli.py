@@ -1965,6 +1965,15 @@ def cmd_schedule(args):
                     routines |= {name: defaults[name] for name in added}
                     changed = (f"added {len(added)} {config.edition} routine(s): {', '.join(added)}" if added
                                else f"every {config.edition} routine is already scheduled")
+                dropped = sorted(schedule.withheld(config, routines))
+                for name in dropped:
+                    gone = routines.pop(name)
+                    # A routine chained after a removed one takes its place in the chain, or its time.
+                    for other, routine in routines.items():
+                        if routine.after == name:
+                            routines[other] = replace(routine, after=gone.after, cron=gone.cron, every=gone.every, at=gone.at)
+                if dropped:
+                    changed += f"; removed {', '.join(dropped)}: not part of the {config.edition} edition"
             else:
                 routines = schedule.load(config)
                 name = args.name

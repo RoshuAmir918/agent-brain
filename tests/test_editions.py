@@ -69,3 +69,33 @@ def test_schedule_init_adds_the_editions_routines_and_never_touches_one_already_
     assert "already scheduled" in capsys.readouterr().out
     assert {"morning", "people", "prime"} <= set(schedule.defaults(Config(repo=config.repo)))
     assert not {"continue", "continue-daily"} & set(schedule.defaults(Config(repo=config.repo)))
+
+
+def test_schedule_init_removes_another_editions_routines_and_rechains_what_followed_them(vault, capsys):
+    config = enterprise(vault)
+    for args in (("sleep1", "--cron", "30 2 * * *", "--skills", "brain-sleep1"),
+                 ("people", "--after", "sleep1", "--skills", "brain-people"),
+                 ("image", "--after", "people", "--skills", "brain-image"),
+                 ("morning", "--cron", "0 8 * * *", "--skills", "brain-morning"),
+                 ("sleep2", "--cron", "0 4 * * *", "--skills", "brain-sleep2")):
+        cli.main(["schedule", "set", *args, "--vault", str(vault)])
+    capsys.readouterr()
+    assert len(schedule.problems(config)) == 3
+    cli.main(["schedule", "init", "--vault", str(vault)])
+    assert "removed morning, people, sleep2" in capsys.readouterr().out
+    routines = schedule.load(config)
+    assert not {"morning", "people", "sleep2"} & set(routines)
+    assert routines["image"].after == "sleep1"
+    assert schedule.problems(config) == []
+
+
+def test_enterprise_skills_say_who_speaks_for_the_organisation_and_personal_ones_do_not(vault):
+    personal = Config.load(vault)
+    install.skills(personal)
+    config = enterprise(vault, 'human_name = "Harbor"\n')
+    install.skills(config)
+    for name in ("sleep1", "recall", "continue", "evening", "explore", "watch", "improve"):
+        assert "**Who Harbor is.**" in skill(config, name)
+        assert "{organisation}" not in skill(config, name)
+    install.skills(personal)
+    assert all("**Who " not in skill(personal, name) for name in ("sleep1", "recall", "continue"))

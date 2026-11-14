@@ -12,6 +12,10 @@ metadata:
 
 The standing-attention pass, one question: **what could I do for {human_name} today?** Work, a person in their life, or something they would enjoy. It runs each morning and again only when something was added (at most three times a day); the Run Context says which pass this is and what was added. Few passes, so spend each one: look things up and make the thing properly.
 
+<!-- enterprise -->
+{organisation}
+<!-- /enterprise -->
+
 ## Procedure
 <!-- personal -->
 Read `brain goals list --json` first: honour each goal's weight (`more` about twice as often, `less` half, `pause` no unasked work) and never repeat work its corrections rule out. Weights don't touch asked work or existing duties.

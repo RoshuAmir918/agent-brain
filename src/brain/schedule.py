@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
-from . import fm
+from . import fm, install
 from .config import Config
 from .responsibilities import ID_PATTERN
 
@@ -162,9 +162,19 @@ def problems(config: Config, *, known_needs: bool = True) -> list[str]:
         source = path(config)
         if not source.exists():
             return []
-        return [f"{source}: {error}" for error in _problems(tomllib.loads(source.read_text(encoding="utf-8")), known_needs=known_needs)]
+        errors = _problems(tomllib.loads(source.read_text(encoding="utf-8")), known_needs=known_needs)
+        if not errors:
+            errors = [f"routines.{name}: runs {', '.join(skills)}, which the {config.edition} edition does not have; "
+                      f"`brain schedule init` removes it" for name, skills in withheld(config, load(config)).items()]
+        return [f"{source}: {error}" for error in errors]
     except (OSError, ValueError) as error:
         return [f"{path(config)}: {error}"]
+
+
+def withheld(config: Config, routines: dict[str, Routine]) -> dict[str, list[str]]:
+    """Each routine that runs a retired engine skill or another edition's, with those skills."""
+    missing = install.withheld(config)
+    return {name: found for name, routine in routines.items() if (found := [s for s in routine.skills if s in missing])}
 
 
 def warnings(config: Config, responsibility_ids: set[str]) -> list[str]:
