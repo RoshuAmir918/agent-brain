@@ -228,9 +228,8 @@ def test_export_contract_links_privacy_and_accepted_idea(vault, capsys, tmp_path
     goals.change(cfg, "G-1", "reached", why="Ran it")
     assert state.build(cfg, TODAY)["goals"][0]["state"] == "reached"
     assert not validate.goal_problems(Vault(vault))  # Historical links survive reaching a goal.
-    enterprise = replace(cfg, edition="enterprise")
-    assert state.build(enterprise, TODAY)["goals"] == []
-    assert all(task["goal"] is None for task in state.build(enterprise, TODAY)["tasks"])
+    enterprise = state.build(replace(cfg, edition="enterprise"), TODAY)
+    assert enterprise["goals"] == state.build(cfg, TODAY)["goals"]
 
 
 def test_app_changes_reach_context_once_not_consumed_by_nightly_or_export(vault, capsys):

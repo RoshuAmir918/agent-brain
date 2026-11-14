@@ -66,8 +66,6 @@ def build(vault: Vault, only: tuple[str, ...] | None = None, *, app_changes: boo
     for name in SECTIONS:
         if name not in allowed:
             continue
-        if name == "goals" and config.edition == "enterprise":
-            continue
         if name == "before":
             sections.append(BEFORE)
         elif name == "upcoming":

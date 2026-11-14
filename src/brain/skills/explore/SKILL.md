@@ -35,6 +35,9 @@ Read `brain goals list --json` first: honour each goal's weight (`more` about tw
 
 No reason, no candidate; never invent a need. Goals come first among comparable candidates. People owns goal inference.
 <!-- /personal -->
+<!-- enterprise -->
+Read `brain goals list --json` first: {human_name}'s goals, as its leadership states them. Honour each goal's weight (`more` about twice as often, `less` half, `pause` no unasked work) and never repeat work its corrections rule out. Among comparable candidates, the one that moves a goal forward comes first.
+<!-- /enterprise -->
 1. **Start from the Run Context:** on a later pass, what was added is where to look first.
 <!-- personal -->
    Then read Primed and Upcoming; they are the brief.
@@ -70,14 +73,14 @@ No reason, no candidate; never invent a need. Goals come first among comparable 
    Choose the one where two hours most plausibly produces something {human_name} would be glad of, work or not; an organisation's candidates serve its initiatives and assigned work.
 <!-- /personal -->
 <!-- enterprise -->
-   Choose the one where two hours most plausibly produces something useful to {human_name}'s initiatives and assigned work.
+   Choose the one where two hours most plausibly produces something useful to {human_name}'s goals, initiatives and assigned work.
 <!-- /enterprise -->
    Before choosing its form, read `brain reception summary`: a kind of offer that keeps coming back ignored or declined (letters nobody opens, drafts nobody uses) is not made again until something changes. When all three lose to that bar, the answer is nothing, and the three are the record of why. While `brain ideas` says {human_name} is a new owner, the goal still comes first: in their first weeks one useful thing made or found for them, held, shows what you can do better than any offer, so prefer it to nothing. Still one thing made. A candidate that lost only because it needs {human_name}'s yes (a decision, access, money, or work too large to make unasked), with real evidence behind it, is not dropped. A decision on work already under way (ship a ready fix, a choice an open task is waiting on) goes on that task as its `waiting_for_owner` Ask, or `brain needs-you --ask` (`--hub <matter>` when it is about one of `brain matters`), never as an idea; new help they would have to agree to is filed as one idea, `brain ideas --add "<the offer, at most 25 words>" --source <the note it came from> --why "<what led to it, what they get if yes, what happens if no; at most 60 words>" [--needs "<what it takes>"] [--goal G-n]`, at most one a run. When `brain ideas` refuses, let it go.
 <!-- personal -->
 4. **Do the work.** A new unasked task for a person uses `brain task new "<title>" --source <note> --goal G-n`, or `--source` quoting their words when it is funded by what they said; work funded by a loop or a date is held as a draft, not made a task. Every held draft for a person carries its reason in its frontmatter: `goal: G-n`, or `for: "<their words>"`, `for: loop:<id>` or `for: <date>`.
 <!-- /personal -->
 <!-- enterprise -->
-4. **Do the work.** Record the source of new tasks and the purpose of held drafts.
+4. **Do the work.** Record the source of new tasks and the purpose of held drafts; work that serves a goal names it (`brain task new "<title>" --source <note> --goal G-n`, `goal: G-n` on a draft).
 <!-- /enterprise -->
    An organisation follows its initiatives and assigned duties.
 5. **File it: prepared and held by default.** A fact goes through the surprise gate into the owning hub, profile or task with its source and date. A thing made or drafted goes beside the task it serves, or, when no task owns it, under `{agent_dir}/Prepared/YYYY-MM-DD <title>.md` with `kind: draft`, `tier: warm`, its `goal:` when it serves one, else a `for:` saying what it is for in the owner's terms (a date alone tells them nothing), `hub: [[<matter>]]` when it serves one of the matters `brain matters` lists (a trip, an event, an application), an `index_line` saying what it is and what it is for, as the owner will read it on their For you list: one sentence of at most 25 words, to them, naming the thing and what it is for rather than listing its contents, and without hedges about what it is not ("A two-day workshop plan for the middle of the project", not "Held …"), and a wikilink to it from the hub, profile or task it serves, so retrieval and prefetch find it when the subject comes up.

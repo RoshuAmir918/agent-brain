@@ -114,7 +114,7 @@ def test_export_windows_bounds_privacy_and_no_fabricated_dates(cfg):
     assert all(needle not in encoded for needle in ("Old deck", "PRIVATE", "UNDATED", "FUTURE"))
     assert len(goals.activity(cfg, weeks=3)["G-1"]) == 24
     assert snapshot(cfg.vault_path) == before
-    assert state.build(replace(cfg, edition="enterprise"), TODAY)["goals"] == []
+    assert state.build(replace(cfg, edition="enterprise"), TODAY)["goals"] == state.build(cfg, TODAY)["goals"]
 
 
 @pytest.mark.parametrize("weight", ["less"])

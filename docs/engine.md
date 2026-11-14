@@ -118,7 +118,7 @@ Discovery walks upward from an explicit `--vault`, or from cwd when omitted, cho
 `edition` in `[brain]` is `personal` (the default: one person's intellect) or `enterprise` (an organisation's, getting its work done). It is the same engine; an edition decides what is installed:
 
 - **Skills.** A skill's frontmatter may say which editions it is for (`metadata.runtime.editions: [personal]`); unsaid means every edition. `morning`, `people` and `prime` are personal only, and `brain install-skills` removes an earlier render of one when the vault is enterprise. Inside a shared skill, a part for one edition sits between `<!-- personal -->` and `<!-- /personal -->` (or `enterprise`) lines of their own; the render keeps this edition's parts without the markers and drops the rest. A personal vault's skills render exactly as before editions.
-- **Context.** An enterprise context leaves out `primed` by default and always omits personal goals. It keeps `portrait`, the organisation's.
+- **Context.** An enterprise context leaves out `primed` by default. It keeps `portrait` and `goals`, the organisation's: the goals its leadership states, which the seed files as inferred (unpaced, at most five active) and the operator keeps or refuses. Unasked work that serves one names it; enterprise work needs no goal.
 - **Routines.** `brain schedule init` adds the routines this edition starts with (the night's memory passes, the session export and context refresh, watch, explore, improve and evening; personal adds people, prime and the morning briefing) and never changes a routine already scheduled.
 - **Checks.** `brain health` does not expect the people and prime stages, and validation keeps no owner profile, in an enterprise vault.
 
